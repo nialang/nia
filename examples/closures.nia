@@ -36,8 +36,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let b = applyTwice(addStep, 1);
     let c = applyTwice(counted, 5);
 
-    // Named functions and capture-free closures convert to function pointers.
-    let pointer: &fun(i32) i32 = &double;
+    // A named function converts to a function pointer where one is expected.
+    let pointer: &fun(i32) i32 = double;
     let d = pointer(21);
 
     let answer = callSupplier(\-> 42u64);

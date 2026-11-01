@@ -169,8 +169,9 @@ check that the range is valid.
 ## Callbacks
 
 A C function pointer type is `&extern fun(...)`. Only an `extern fun` produces
-one, so write the callback as an `extern fun` definition. Closures and ordinary
-`&fun(...)` pointers use the Nia convention and cannot be passed to C.
+one, so write the callback as an `extern fun` definition and pass its name.
+Closures and ordinary `&fun(...)` pointers use the Nia convention and cannot be
+passed to C.
 
 Pass state through C's `void *` as `&mut opaque` (or `&opaque` for
 `const void *`). Erasure and recovery are explicit casts:
@@ -186,7 +187,7 @@ extern fun add_to_total(value: i32, context: &mut opaque) {
 fun example() {
     let values: [i32; 3] = [10, 20, 30];
     let mut total: i64 = 0;
-    for_each(&values[0], 3, &add_to_total, &mut total as &mut opaque);
+    for_each(&values[0], 3, add_to_total, &mut total as &mut opaque);
 }
 ```
 
@@ -452,7 +453,7 @@ pub fun main(init: Init) ExitCode!() {
 
     let values: [i32; 3] = [10, 20, 30];
     let mut total: i64 = 0;
-    for_each(&values[0], 3, &add_to_total, &mut total as &mut opaque);
+    for_each(&values[0], 3, add_to_total, &mut total as &mut opaque);
     if total != 60 { return ExitCode(7)!; }
 
     if lookup(2) != 0usize as &u8 { return ExitCode(8)!; }

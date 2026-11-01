@@ -127,8 +127,8 @@ the type:
 
 | Type | Produced by | Convention |
 | --- | --- | --- |
-| `&fun(A) R` | `&name` of an ordinary function or method, `&Enum::Variant`, or `&closure` for a closure without captures | Nia |
-| `&extern fun(A) R` | `&name` of an `extern fun` | target C |
+| `&fun(A) R` | an ordinary function or payload enum variant where this type is expected, `&name` of one or of a method, or `&closure` for a closure without captures | Nia |
+| `&extern fun(A) R` | an `extern fun` where this type is expected, or `&name` of one | target C |
 
 A function pointer type consists of its parameter types, return type, variadic
 marker, and convention. Functions marked `@[trackCaller]` cannot be converted to
@@ -268,8 +268,9 @@ none is written). A payload-bearing enum is a tagged aggregate: the backing
 integer tag followed by payload storage aligned for the largest variant, with
 each variant's fields in declaration order.
 
-Taking the address of a payload variant, such as `&Event::Data`, yields an
-ordinary `&fun(...)` pointer whose parameters are the payload fields.
+A payload variant used as a function pointer, such as `Event::Data` where a
+`&fun(i32) Event` is expected, is an ordinary `&fun(...)` pointer whose
+parameters are the payload fields.
 
 Crosses the C boundary: no. Pass the backing integer and convert explicitly.
 

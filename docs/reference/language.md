@@ -557,26 +557,28 @@ fun call_items() i32 {
 ```
 
 `&fun(A, B) R` is a thin function pointer. A function item is converted to one
-when this pointer type is expected, and `&name` requests the same conversion
-explicitly; a generic function must be instantiated first (`id[i32]`, not
-`id`).
+where that pointer type is expected, as an argument, initializer, field,
+element, or return value; without an expected pointer type, `&name` requests
+the conversion and a bare `name` stays a function item. A generic function must
+be instantiated first (`id[i32]`, not `id`). A function item does not convert
+implicitly to a [callable view](#callable-views); write `&name` there.
 An omitted return type means `()`. Only the read-only form exists; `&mut fun`
 is an error. `&extern fun(A, B) R` is a pointer to a function with the C calling
-convention, created by `&` on an `extern fun`; `extern` appears only in the
-type. Function pointer types describe runtime calls and are never callable
+convention, formed the same way from an `extern fun`; `extern` appears only in
+the type. Function pointer types describe runtime calls and are never callable
 during constant evaluation.
 
 ```nia continued
 fun pointers() i32 {
-    let p = &add;                       // &fun(i32, i32) i32
-    let q: &fun(i32) i32 = &id[i32];
+    let p = &add;                       // no expected type: &fun(i32, i32) i32
+    let q: &fun(i32) i32 = id[i32];     // converted by the expected type
     p(1, 2) + q(3)
 }
 ```
 
-Enum variants with a tuple payload and methods also convert to function
-pointers with `&`, as in `&Event::Data` and `&Vec2::len2`; see [Enums](#enums)
-and [Methods](#methods).
+Enum variants with a tuple payload convert to function pointers the same way.
+A method is not a value by itself, so its pointer is written with `&`, as in
+`&Vec2::len2`; see [Enums](#enums) and [Methods](#methods).
 
 ### Callable Views
 
@@ -784,16 +786,16 @@ fun flag_value() u32 {
 
 `_` must be last, has no value, and cannot be named as `Flag::_`.
 
-Every non-unit variant is also a constructor function. `&Event::Data` (or
-`&.Data` with an expected type) is a thin function pointer taking the payload
-fields in order and returning the enum. `&mut` cannot form a constructor
-pointer, unit variants are not constructors, and constructor pointers cannot be
-used in constant evaluation.
+Every non-unit variant is also a constructor function. Where a thin function
+pointer is expected, `Event::Data` (or `.Data`) converts to one taking the
+payload fields in order and returning the enum; `&Event::Data` forms it
+explicitly. `&mut` cannot form a constructor pointer, unit variants are not
+constructors, and constructor pointers cannot be used in constant evaluation.
 
 ```nia continued
 fun constructors() Event {
-    let data: &fun(i32) Event = &Event::Data;
-    let resize: &fun(i32, i32) Event = &.Resize;
+    let data: &fun(i32) Event = Event::Data;
+    let resize: &fun(i32, i32) Event = .Resize;
     _ = data(1);
     resize(640, 480)
 }
