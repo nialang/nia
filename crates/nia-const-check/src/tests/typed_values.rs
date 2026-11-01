@@ -453,6 +453,22 @@ const shiftOverflow: usize = 1usize << 32usize;
 }
 
 #[test]
+fn const_shifts_allow_an_integer_count_type_different_from_the_value() {
+    let fixture = check_source(
+        r#"
+const unsignedCount: u32 = 1u32 << 2u8;
+const signedCount: i64 = 1i64 << 2u32;
+const reverseUnsignedCount: u32 = 8u32 >> 1u16;
+"#,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
+#[test]
 fn pointer_union_relocations_follow_artifact_pointer_width() {
     for pointer_width in [32, 64] {
         let target = target_with_pointer_width(pointer_width);

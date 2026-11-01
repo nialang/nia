@@ -261,7 +261,8 @@ impl Analyzer<'_> {
                     | ConstBinaryOp::BitOr => self.is_integer_runtime_type(lhs_ty),
                     _ => self.is_integer_runtime_type(lhs_ty) || self.is_float_runtime_type(lhs_ty),
                 };
-                if lhs_ty != rhs_ty || !allowed {
+                let same_type_required = !matches!(op, ConstBinaryOp::Shl | ConstBinaryOp::Shr);
+                if (same_type_required && lhs_ty != rhs_ty) || !allowed {
                     self.push_known_const_binary_type_error(lhs_ty, rhs, rhs_ty);
                     return None;
                 }

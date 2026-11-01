@@ -314,6 +314,43 @@ fun associated[T](value: T) i32 where T: Factory { _ = value; [T]::make(1) }
 }
 
 #[test]
+fn overlapping_concrete_trait_impls_are_rejected_before_lowering() {
+    let checked = pipeline(
+        r#"
+trait Left {}
+trait Right {}
+trait Marker { fun marker(&self) i32; }
+struct Value {}
+extend Value : Left {}
+extend Value : Right {}
+extend[T] T : Marker where T: Left {
+    fun marker(&self) i32 { 1 }
+}
+extend[T] T : Marker where T: Right {
+    fun marker(&self) i32 { 2 }
+}
+fun main() i32 { Value{}.marker() }
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.summary == "ambiguous method `marker`"
+                || diagnostic.summary == "ambiguous trait method `marker`"
+        }),
+        "{:#?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !diagnostic.summary.contains("internal compiler error")),
+        "{:#?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn trait_candidate_identities_distinguish_const_arguments() {
     let checked = pipeline(
         r#"

@@ -19,6 +19,27 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         };
+        if !candidate.is_assumed
+            && matches!(
+                self.current_context_resolve_trait_obligation_with_const_args(
+                    candidate.self_ty,
+                    TraitId::Source(candidate.trait_id),
+                    candidate.trait_args.clone(),
+                    candidate.trait_const_args.clone(),
+                ),
+                nia_trait_solve::TraitResolution::Ambiguous
+            )
+        {
+            self.report_trait_method_candidates(
+                call.span,
+                format!("ambiguous trait method `{}`", self.symbol_name(*call.name)),
+                self.trait_candidate_identities(call.name, &candidates),
+            );
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
         let Some(receiver_kind) = candidate
             .signature
             .params
