@@ -569,7 +569,7 @@ pub(super) fn visible_extension_methods(
                     trait_id: None,
                     trait_args: Vec::new(),
                     trait_const_args: Vec::new(),
-                    where_predicates: Vec::new(),
+                    where_predicates: impl_signature.where_predicates.clone(),
                     is_callable: true,
                     is_trait_witness: false,
                 },

@@ -1890,6 +1890,129 @@ fun main(cb: &fun(i32, bool) i64, variadic: &fun(i32, ...) (), flag: bool) i64 {
 }
 
 #[test]
+fn associated_methods_are_function_items_in_value_contexts() {
+    let checked = pipeline(
+        r#"
+struct Point { x: i32 }
+extend Point {
+    fun new(x: i32) Point { Self { x } }
+    fun get(&self) i32 { self.x }
+    fun set(&mut self, value: i32) () { self.x = value; }
+    fun intoValue(self) i32 { self.x }
+}
+fun apply[F](callback: F, value: &Point) i32 where F: Fun(&Point) i32 {
+    callback(value)
+}
+fun invoke(callback: &fun(&Point) i32, value: &Point) i32 { callback(value) }
+fun main() i32 {
+    let make = Point::new;
+    let get = Point::get;
+    let pointer: &fun(&Point) i32 = Point::get;
+    let view: &Fun(&Point) i32 = Point::get;
+    let set: &fun(&mut Point, i32) () = Point::set;
+    let intoValue: &fun(Point) i32 = Point::intoValue;
+    let mut point = make(3);
+    set(point, 4);
+    get(point) + pointer(point) + view(point)
+        + apply(Point::get, point) + invoke(Point::get, point) + intoValue(point)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let items = checked
+        .facts
+        .iter_node_expr_adjustments()
+        .filter(|(_, plan)| {
+            plan.steps
+                .iter()
+                .any(|step| matches!(step, nia_sema_ir::ExprAdjustment::FunctionItemToPointer(_)))
+        })
+        .count();
+    assert_eq!(items, 5);
+}
+
+#[test]
+fn generic_and_structural_methods_are_function_items() {
+    let checked = pipeline(
+        r#"
+struct Box[T] { value: T }
+type IntBox = Box[i32];
+extend[T] Box[T] {
+    fun make(value: T) Self { Self { value } }
+    fun replace[U](&self, value: U) U { value }
+    fun count[N: usize](&self) usize { N }
+}
+extend[T] &T { fun isNull(self) bool { self as usize == 0 } }
+fun main() bool {
+    let make = IntBox::make;
+    let makeView: &Fun(i32) Box[i32] = Box[i32]::make;
+    let replace = Box[i32]::replace[bool];
+    let pointer: &fun(&Box[i32], bool) bool = Box[i32]::replace[bool];
+    let view: &Fun(&Box[i32], bool) bool = IntBox::replace[bool];
+    let isNull = [&u8]::isNull;
+    let count = Box[i32]::count[7];
+    let countPointer: &fun(&Box[i32]) usize = Box[i32]::count[9];
+    let value = make(7);
+    replace(value, true) and pointer(value, true) and view(value, true)
+        and isNull(0usize as &u8) and count(value) == 7 and countPointer(value) == 9
+        and makeView(2).value == 2
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn associated_method_items_preserve_reference_diagnostics() {
+    for value in ["Point::tracked", "&Point::tracked"] {
+        for target in ["&fun(&Point) i32", "&Fun(&Point) i32"] {
+            let checked = pipeline(&format!(
+                "struct Point {{}}\nextend Point {{\n@[trackCaller]\nfun tracked(&self) i32 {{ 1 }}\n}}\nfun main() () {{ let callback: {target} = {value}; }}"
+            ));
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.summary.contains(
+                "tracked-caller functions cannot be used as ordinary function pointers or callable values"
+            )), "{value}: {:?}", checked.diagnostics);
+        }
+    }
+}
+
+#[test]
+fn function_item_references_preserve_generic_bounds() {
+    for reference in [
+        "Box[Bad]::get",
+        "&Box[Bad]::get",
+        "Box[Good]::select[Bad]",
+        "&Box[Good]::select[Bad]",
+        "select[Bad]",
+        "&select[Bad]",
+    ] {
+        let checked = pipeline(&format!(
+            r#"
+trait Mark {{}}
+struct Good {{}}
+struct Bad {{}}
+extend Good : Mark {{}}
+struct Box[T] {{ value: T }}
+extend[T] Box[T] where T: Mark {{
+    fun get(&self) T {{ self.value }}
+    fun select[U](&self, value: U) U where U: Mark {{ value }}
+}}
+fun select[T](value: T) T where T: Mark {{ value }}
+fun main() () {{ let callback = {reference}; }}
+"#
+        ));
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("trait bound not satisfied")),
+            "{reference}: {:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
 fn checks_associated_method_function_pointers() {
     let checked = pipeline(
         r#"
@@ -1955,8 +2078,9 @@ fun main(flag: bool) i32 {
 
 #[test]
 fn ambiguous_associated_function_pointer_keeps_only_candidate_diagnostic() {
-    let checked = pipeline(
-        r#"
+    for reference in ["&Pair[i32, i32]::rank", "Pair[i32, i32]::rank"] {
+        let checked = pipeline(
+            &r#"
 struct Pair[A, B] {
     a: A,
     b: B,
@@ -1971,24 +2095,26 @@ extend[U] Pair[i32, U] {
 }
 
 fun main() () {
-    let rank: &fun() i32 = &Pair[i32, i32]::rank;
+    let rank: &fun() i32 = $REFERENCE;
     _ = rank;
 }
-"#,
-    );
-    assert_eq!(
-        checked.diagnostics.len(),
-        1,
-        "an ambiguous function reference must not fall back to ordinary value checking: {:?}",
-        checked.diagnostics
-    );
-    assert!(
-        checked.diagnostics[0]
-            .summary
-            .contains("ambiguous method `rank`"),
-        "{:?}",
-        checked.diagnostics
-    );
+"#
+            .replace("$REFERENCE", reference),
+        );
+        assert_eq!(
+            checked.diagnostics.len(),
+            1,
+            "an ambiguous function reference must not fall back to ordinary value checking: {:?}",
+            checked.diagnostics
+        );
+        assert!(
+            checked.diagnostics[0]
+                .summary
+                .contains("ambiguous method `rank`"),
+            "{:?}",
+            checked.diagnostics
+        );
+    }
 }
 
 #[test]

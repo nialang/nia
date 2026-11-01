@@ -57,6 +57,98 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_qualified_method_items_preserve_identity_and_instantiation() {
+    let root = temp_dir("qualified_method_items_preserve_identity_and_instantiation");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        root.join("values.nia"),
+        r#"
+pub struct Box[T, N: usize] { value: T }
+extend[T, N: usize] Box[T, N] {
+    pub fun make(value: T) Self { Self { value } }
+    pub fun get(&self) T { self.value }
+    pub fun set(&mut self, value: T) () { self.value = value; }
+    pub fun replace[U](&self, value: U) U { value }
+    pub fun count(&self) usize { N }
+    pub fun methodCount[M: usize](&self) usize { M }
+}
+pub fun identity[T](value: T) T { value }
+pub fun increment(value: i32) i32 { value + 1 }
+"#,
+    )
+    .expect("write imported method items");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+module values;
+type IntBox = values::Box[i32, 3];
+extend[T] &T { fun isNull(self) bool { self as usize == 0 } }
+fun apply[F](callback: F, value: &IntBox) i32 where F: Fun(&IntBox) i32 {
+    callback(value)
+}
+fun invoke(callback: &fun(&IntBox) i32, value: &IntBox) i32 { callback(value) }
+fun makeGetter() &fun(&IntBox) i32 { IntBox::get }
+fun generic[T](value: T) T {
+    let make = values::Box[T, 5]::make;
+    let get = values::Box[T, 5]::get;
+    get(make(value))
+}
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let make = IntBox::make;
+    let get = values::Box[i32, 3]::get;
+    let pointer: &fun(&IntBox) i32 = IntBox::get;
+    let explicit = &IntBox::get;
+    let view: &Fun(&IntBox) i32 = IntBox::get;
+    let set: &fun(&mut IntBox, i32) () = IntBox::set;
+    let replace = IntBox::replace[bool];
+    let replaceView: &Fun(&IntBox, bool) bool = IntBox::replace[bool];
+    let count = IntBox::count;
+    let methodCount = IntBox::methodCount[7];
+    let methodCountPointer: &fun(&IntBox) usize = IntBox::methodCount[11];
+    let methodCountExplicit = &IntBox::methodCount[13];
+    let callbacks: [&fun(&IntBox) i32; 2] = [IntBox::get, IntBox::get];
+    let increment = values::increment;
+    let identity = values::identity[i32];
+    let identityPointer: &fun(i32) i32 = values::identity[i32];
+    let isNull = [&u8]::isNull;
+    let mut value = make(7);
+    set(value, 9);
+    if get(value) != 9 or pointer(value) != 9 or explicit(value) != 9
+        or view(value) != 9 or apply(IntBox::get, value) != 9
+        or invoke(IntBox::get, value) != 9 or makeGetter()(value) != 9
+        or callbacks[0](value) != 9 or callbacks[1](value) != 9
+        or not replace(value, true) or not replaceView(value, true)
+        or count(value) != 3 or increment(2) != 3 or identity(4) != 4
+        or methodCount(value) != 7 or methodCountPointer(value) != 11
+        or methodCountExplicit(value) != 13
+        or identityPointer(5) != 5 or not isNull(0usize as &u8)
+        or generic(11i32) != 11 or not generic(true)
+    { return process::ExitCode(1)!; }
+    !()
+}
+"#,
+    )
+    .expect("write qualified method-item source");
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit qualified method-item executable");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let run = Command::new(&exe).status_timeout("run qualified method-item executable");
+    assert_eq!(run.code(), Some(0));
+}
+
+#[test]
 fn generic_methods_infer_and_execute_capturing_callable_arguments() {
     let root = temp_dir("generic_methods_infer_and_execute_capturing_callable_arguments");
     let main = root.join("main.nia");

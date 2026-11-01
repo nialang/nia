@@ -3,7 +3,7 @@ use crate::{BodyChecker, ReceiverBase};
 use nia_ast::GenericParamKind;
 use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind};
-use nia_item_signatures::{FunctionSignature, GenericParamSignature, GenericParamSignatureKind};
+use nia_item_signatures::{FunctionSignature, GenericParamSignature};
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, TyKind};
 
@@ -375,27 +375,27 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         def_id: GlobalDefId,
     ) -> Option<Vec<GenericParamSignature>> {
-        let defs = self.defs_for_module(def_id.module_id)?;
-        let generics = defs
-            .as_ref()
-            .defs
-            .get(def_id.def_id)?
-            .generic_params
-            .clone();
-        Some(
-            generics
-                .iter()
-                .map(|generic| GenericParamSignature {
-                    name: generic.name,
-                    kind: match &generic.kind {
-                        GenericParamKind::Type => GenericParamSignatureKind::Type,
-                        GenericParamKind::Const { ty } => GenericParamSignatureKind::Const {
-                            ty: self.ty_for_type(ty),
-                        },
-                    },
-                })
-                .collect(),
-        )
+        // Parameter types belong to the declaration's module. Re-lowering
+        // an imported AST TypeRef in this body's context loses its identity;
+        // consume the already-resolved signature for local and imported types.
+        if let Some(resolved) = self.resolved_struct_signature(def_id) {
+            return Some(resolved.signature.generic_params);
+        }
+        if let Some(resolved) = self.resolved_union_signature(def_id) {
+            return Some(resolved.signature.generic_params);
+        }
+        if def_id.module_id == self.defs.module_id
+            && let Some(signature) = self.signatures.type_aliases.get(&def_id.def_id)
+        {
+            return Some(signature.generic_params.clone());
+        }
+        if let Some(alias) = self.program_signature_scope.type_alias(def_id) {
+            return Some(alias.signature.generic_params);
+        }
+        if let Some(resolved) = self.resolved_trait_signature(def_id) {
+            return Some(resolved.generic_params);
+        }
+        self.resolved_enum_signature(def_id).map(|_| Vec::new())
     }
 
     pub(crate) fn expand_type_alias_instance(

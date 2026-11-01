@@ -456,6 +456,8 @@ impl<'a> BodyChecker<'a> {
                     ty
                 } else if let Some(ty) = self.check_associated_const_value_access(expr, lhs, name) {
                     ty
+                } else if let Some(ty) = self.check_function_ref(expr, false, expected) {
+                    ty
                 } else if self
                     .values
                     .node_qualified_values
@@ -2107,15 +2109,16 @@ impl<'a> BodyChecker<'a> {
         // complete function value until the suffix supplies its arguments;
         // doing that first produces the misleading function-pointer error and
         // can make the suffix fall through to `Index`.
-        let is_direct_function_instantiation = matches!(callee.kind, ExprKind::Ident(_))
-            && args.iter().all(|arg| {
-                !matches!(
-                    arg.ty.as_ref().map(|ty| &ty.kind),
-                    Some(nia_ast::TypeKind::Infer)
-                )
-            });
-        if is_direct_function_instantiation
-            && let Some(function_ty) = self.check_function_item_ref_for_type(expr, expected)
+        let is_function_instantiation =
+            matches!(callee.kind, ExprKind::Ident(_) | ExprKind::Qualified { .. })
+                && args.iter().all(|arg| {
+                    !matches!(
+                        arg.ty.as_ref().map(|ty| &ty.kind),
+                        Some(nia_ast::TypeKind::Infer)
+                    )
+                });
+        if is_function_instantiation
+            && let Some(function_ty) = self.check_function_ref(expr, false, expected)
         {
             self.record_expr_node_type(expr, function_ty);
             return function_ty;

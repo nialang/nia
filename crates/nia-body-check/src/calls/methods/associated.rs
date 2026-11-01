@@ -679,9 +679,9 @@ impl<'a> BodyChecker<'a> {
                     _ => expected,
                 }
             }
-            Some(TyKind::FunctionPointer { return_type, .. }) => {
-                self.normalization.normalize(return_type)
-            }
+            Some(
+                TyKind::FunctionPointer { return_type, .. } | TyKind::Callable { return_type, .. },
+            ) => self.normalization.normalize(return_type),
             _ => expected,
         }
     }

@@ -25,6 +25,7 @@ struct FunctionItemRef {
     type_args: Vec<InternedTyId>,
     const_args: Vec<ConstGenericArg>,
     receiver_ty: Option<InternedTyId>,
+    extension_where_predicates: Vec<WherePredicateSignature>,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -97,6 +98,7 @@ impl<'a> BodyChecker<'a> {
             type_args,
             const_args,
             receiver_ty,
+            extension_where_predicates: candidate.method.where_predicates,
         })
     }
 
@@ -110,50 +112,40 @@ impl<'a> BodyChecker<'a> {
         let Some(item) = self.function_item_ref(expr, expected) else {
             return (self.diagnostics.len() != diagnostics_before).then_some(self.error());
         };
+        let abi = if item.resolved.signature.is_extern {
+            FunctionPointerAbi::C
+        } else {
+            FunctionPointerAbi::Nia
+        };
+        // All spellings resolve and validate the same function item first.
+        // An explicit address only changes its representation afterwards.
+        let item_ty = self.function_item_type(expr, item)?;
         if !is_readonly {
-            let normalized_expected =
-                expected.map(|expected| self.normalize_aliases_in_type(expected));
-            let expects_function_value = normalized_expected.is_some_and(|expected| {
-                matches!(
-                    self.interner.get(expected),
-                    Some(TyKind::FunctionPointer { .. }) | Some(TyKind::Callable { .. })
-                )
-            });
-            let signature = &item.resolved.signature;
-            if expects_function_value && let Some(builtin) = builtin_function(signature) {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    expr.span,
-                    format!(
-                        "builtin function `{}` cannot be used as a function pointer",
-                        builtin.name()
-                    ),
-                ));
-                return Some(self.error());
-            }
-            if expects_function_value
-                && signature
-                    .attributes
-                    .iter()
-                    .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
-            {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    expr.span,
-                    "tracked-caller functions cannot be used as ordinary function pointers or callable values",
-                ));
-                return Some(self.error());
-            }
-            // A bare function name is the statically-known function item. It
-            // is a zero-sized value and does not require a runtime pointer.
-            // Pointer formation is handled by the explicit unary-reference
-            // path below.
-            return self.function_item_type(expr, item);
+            return Some(item_ty);
         }
+        let Some(TyKind::FunctionItem {
+            params,
+            return_type,
+            is_variadic,
+            ..
+        }) = self.interner.get(item_ty).cloned()
+        else {
+            return Some(self.error());
+        };
         self.reject_const_operation(
             expr.span,
             "function pointer values are not available during const evaluation",
         );
+        self.record_expr_node_type(expr, item_ty);
+        Some(self.interner.intern(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+            abi,
+        }))
+    }
+
+    fn function_item_type(&mut self, expr: &Expr, item: FunctionItemRef) -> Option<InternedTyId> {
         let signature = item.resolved.signature;
         if let Some(builtin) = builtin_function(&signature) {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -185,65 +177,22 @@ impl<'a> BodyChecker<'a> {
             &item.type_args,
             &item.const_args,
         )?;
-        let params: Vec<InternedTyId> = signature
-            .params
-            .iter()
-            .enumerate()
-            .map(|(index, param)| {
-                if index == 0
-                    && param.receiver.is_some()
-                    && let Some(receiver_ty) = item.receiver_ty
-                {
-                    receiver_ty
-                } else {
-                    self.substitute_generics_and_consts(
-                        param.ty,
-                        &substitutions,
-                        &const_substitutions,
-                    )
-                }
-            })
-            .collect();
-        let return_type = self.substitute_generics_and_consts(
-            signature.return_type,
+        let diagnostics_before = self.diagnostics.len();
+        self.check_where_predicates_hold(
+            &signature.where_predicates,
             &substitutions,
             &const_substitutions,
+            expr.span,
         );
-        let return_type = self.normalize_projection(return_type);
-        let return_type = self.normalize_aliases_in_type(return_type);
-        // An explicit address operation always produces a runtime function
-        // pointer. The zero-sized FunctionItem is reserved for a bare
-        // function expression; retaining it here would make `&fn` become a
-        // pointer-to-function-item and would lose indirect-call semantics.
-        Some(self.interner.intern(TyKind::FunctionPointer {
-            params,
-            return_type,
-            is_variadic: signature.is_variadic,
-            abi: if signature.is_extern {
-                FunctionPointerAbi::C
-            } else {
-                FunctionPointerAbi::Nia
-            },
-        }))
-    }
-
-    fn function_item_type(&mut self, expr: &Expr, item: FunctionItemRef) -> Option<InternedTyId> {
-        let signature = item.resolved.signature;
-        if builtin_function(&signature).is_some()
-            || signature
-                .attributes
-                .iter()
-                .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
-        {
+        self.check_where_predicates_hold(
+            &item.extension_where_predicates,
+            &substitutions,
+            &const_substitutions,
+            expr.span,
+        );
+        if self.diagnostics.len() != diagnostics_before {
             return Some(self.error());
         }
-        let (substitutions, const_substitutions) = self.generic_substitutions_for_function_ref(
-            expr,
-            item.resolved.def_id,
-            &signature,
-            &item.type_args,
-            &item.const_args,
-        )?;
         let params: Vec<InternedTyId> = signature
             .params
             .iter()
@@ -282,15 +231,6 @@ impl<'a> BodyChecker<'a> {
         }))
     }
 
-    pub(crate) fn check_function_item_ref_for_type(
-        &mut self,
-        expr: &Expr,
-        expected: Option<InternedTyId>,
-    ) -> Option<InternedTyId> {
-        let item = self.function_item_ref(expr, expected)?;
-        self.function_item_type(expr, item)
-    }
-
     fn function_item_ref(
         &mut self,
         expr: &Expr,
@@ -303,18 +243,13 @@ impl<'a> BodyChecker<'a> {
                     expr,
                     BracketSuffixResolution::GenericCall,
                 );
-                if item.type_args.is_empty() && item.const_args.is_empty() {
-                    let lowered = self.lower_bracket_args_for_generic_params(
-                        expr.span,
-                        &item.resolved.signature.generic_params,
-                        args,
-                    )?;
-                    item.type_args.extend(lowered.type_args);
-                    item.const_args.extend(lowered.const_args);
-                } else {
-                    let type_args = self.lower_bracket_type_args(args);
-                    item.type_args.extend(type_args);
-                }
+                let lowered = self.lower_bracket_args_for_generic_params(
+                    expr.span,
+                    &item.resolved.signature.generic_params,
+                    args,
+                )?;
+                item.type_args.extend(lowered.type_args);
+                item.const_args.extend(lowered.const_args);
                 Some(item)
             }
             ExprKind::Qualified { lhs, name, .. } => {
@@ -355,6 +290,7 @@ impl<'a> BodyChecker<'a> {
                         type_args: Vec::new(),
                         const_args: Vec::new(),
                         receiver_ty: None,
+                        extension_where_predicates: Vec::new(),
                     })
             }
             _ => self
@@ -365,6 +301,7 @@ impl<'a> BodyChecker<'a> {
                     type_args: Vec::new(),
                     const_args: Vec::new(),
                     receiver_ty: None,
+                    extension_where_predicates: Vec::new(),
                 })
                 .or_else(|| self.current_extension_method_callee_signature(expr)),
         }
@@ -405,6 +342,7 @@ impl<'a> BodyChecker<'a> {
             type_args,
             const_args,
             receiver_ty,
+            extension_where_predicates: candidate.method.where_predicates,
         })
     }
 

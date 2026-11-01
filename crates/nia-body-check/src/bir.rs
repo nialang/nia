@@ -794,6 +794,15 @@ impl<'a> BodyChecker<'a> {
         let ty = forced_ty
             .or_else(|| self.expr_ty(expr))
             .unwrap_or_else(|| self.error());
+        if matches!(self.interner.get(ty), Some(TyKind::FunctionItem { .. }))
+            && let Some(kind) = self.lower_function_item_ref(expr)
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty,
+                kind,
+            };
+        }
         if let Some(projection) = self
             .semantic_uses
             .node_associated_const_projection(&expr.node_key)
