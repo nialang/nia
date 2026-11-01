@@ -581,8 +581,11 @@ fun pointers() i32 {
 ```
 
 Enum variants with a tuple payload convert to function pointers the same way.
-A method is not a value by itself, so its pointer is written with `&`, as in
-`&Vec2::len2`; see [Enums](#enums) and [Methods](#methods).
+An inherent associated function or unbound method such as `Vec2::len2` is
+also a function item. It follows the same contextual pointer and callable-view
+conversions; `&Vec2::len2` explicitly requests a pointer. The receiver remains
+the first parameter; no instance is captured. See [Enums](#enums) and
+[Methods](#methods).
 
 ### Callable Views
 
@@ -1821,8 +1824,10 @@ fun methods() i32 {
     let mut v = Vec2::new(3, 4);
     v.shift(1);
     let by_path = Vec2::len2(v);         // receiver passed explicitly
-    let f: &fun(&Vec2) i32 = &Vec2::len2;  // unbound method as a function pointer
-    by_path + f(v) + Vec2::ZERO.into_x()
+    let item = Vec2::len2;                // statically known, unbound method
+    let f: &fun(&Vec2) i32 = Vec2::len2;   // converted by the expected type
+    let view: &Fun(&Vec2) i32 = Vec2::len2;
+    by_path + item(v) + f(v) + view(v) + Vec2::ZERO.into_x()
 }
 ```
 
@@ -1856,7 +1861,7 @@ extend[T] &T {
 fun boxes() bool {
     let b = Box[i32] { value: 1 };
     let flag = b.swap_in[bool](true);
-    let p: &fun(&Box[i32], bool) bool = &Box[i32]::swap_in[bool];
+    let p: &fun(&Box[i32], bool) bool = Box[i32]::swap_in[bool];
     _ = p(b, flag);
     [&u8]::is_null(0usize as &u8)
 }
