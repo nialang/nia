@@ -473,7 +473,7 @@ struct TraitMethodCandidateSource<'a> {
 }
 
 impl<'a> BodyChecker<'a> {
-    fn record_provider_demand(&self, demand: crate::ProviderDemand) {
+    pub(crate) fn record_provider_demand(&self, demand: crate::ProviderDemand) {
         self.provider_demands.borrow_mut().insert(demand.clone());
         if let Some(function) = self.current_def_id {
             self.provider_demands_by_function

@@ -274,8 +274,6 @@ struct BodyChecker<'a> {
     closure_ordinals: FastHashMap<VersionedNodeKey, u32>,
     current_param_locals: Vec<LocalId>,
     const_context_depth: usize,
-    const_call_locals: Vec<ConstCallFrame>,
-    const_eval_budget: nia_const_eval::ConstEvalBudget,
     body_filter: ActiveBodyCheckFilter<'a>,
     /// Syntax-level control-flow facts for the function currently lowered.
     flow_summary: Option<HashMap<*const Block, bool>>,
@@ -311,17 +309,6 @@ struct TraitObligationResolutionKey {
     trait_id: nia_ty::TraitId,
     trait_args: Vec<InternedTyId>,
     trait_const_args: Vec<ConstGenericArg>,
-}
-
-#[derive(Debug, Clone, Default)]
-struct ConstCallFrame {
-    module_id: Option<ModuleId>,
-    function_id: Option<GlobalDefId>,
-    locals: HashMap<LocalId, nia_const_check::ConstValue>,
-    local_types: HashMap<LocalId, nia_const_check::ConstValueType>,
-    mutable_locals: HashSet<LocalId>,
-    type_substitutions: SymbolMap<InternedTyId>,
-    const_substitutions: SymbolMap<ConstGenericArg>,
 }
 
 struct FunctionItemRef<'a> {

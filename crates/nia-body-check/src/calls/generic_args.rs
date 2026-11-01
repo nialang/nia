@@ -463,7 +463,7 @@ impl<'a> BodyChecker<'a> {
                     return None;
                 }
             };
-            let value = match nia_const_eval::eval_resolved_const_expr(&const_expr, this) {
+            let value = match this.evaluate_const_expr(&const_expr) {
                 Ok(value) => value,
                 Err(err) => {
                     this.diagnostics.push(Diagnostic::user_error_at(

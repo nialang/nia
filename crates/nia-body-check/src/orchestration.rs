@@ -208,8 +208,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         closure_ordinals: FastHashMap::default(),
         current_param_locals: Vec::new(),
         const_context_depth: 0,
-        const_call_locals: Vec::new(),
-        const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
         body_filter: ActiveBodyCheckFilter::from_filter(input.filter),
         flow_summary: None,
         product: input.product,

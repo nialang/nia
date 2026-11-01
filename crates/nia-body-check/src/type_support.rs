@@ -998,47 +998,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn resolve_associated_const_projection(
-        &mut self,
-        self_ty: InternedTyId,
-        trait_id: TraitId,
-        trait_args: &[InternedTyId],
-        trait_const_args: &[ConstGenericArg],
-        name: &SymbolId,
-    ) -> Option<nia_trait_solve::AssociatedConstResolution> {
-        let assumptions = self.current_trait_goals();
-        let const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
-        let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
-        let program_signature_scope = self.program_signature_scope;
-        let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
-        let extensions = self.extensions.methods();
-        let context = TraitSolverContext {
-            type_store: self.type_store,
-            normalization: self.normalization,
-            trait_impls: self.program_trait_impls,
-            trait_impl_index: self.program_trait_impl_index,
-            layouts: Some(self.layouts),
-            program_layouts: self.program.layouts,
-            local_module_id: self.defs.module_id,
-            local_enums: self.signatures.enums,
-            program_is_enum: Some(&program_is_enum),
-            const_expr_value: Some(&const_expr_value),
-            impl_is_visible: Some(&|module_id, impl_id| {
-                module_id == self.defs.module_id
-                    || extensions.has_trait_witness_impl(module_id, impl_id)
-            }),
-        };
-        let mut solver = context.solver(&assumptions);
-        match solver.resolve_associated_const(self_ty, trait_id, trait_args, trait_const_args, name)
-        {
-            Ok(resolved) => resolved,
-            Err(error) => {
-                self.record_internal(error);
-                None
-            }
-        }
-    }
-
     pub(crate) fn expect_type(
         &mut self,
         span: Span,
@@ -2283,8 +2242,6 @@ impl<'a> BodyChecker<'a> {
             closure_ordinals: self.closure_ordinals.clone(),
             current_param_locals: self.current_param_locals.clone(),
             const_context_depth: self.const_context_depth,
-            const_call_locals: Vec::new(),
-            const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
             body_filter: self.body_filter.clone(),
             flow_summary: None,
             product: self.product,

@@ -4,14 +4,11 @@ use std::collections::{HashMap, HashSet};
 use crate::{BodyChecker, generic_inst_base};
 use nia_ast::{Expr, ExprKind};
 use nia_const_check::{ConstKey, ConstValueType};
-use nia_const_eval::{ConstCommonEnv, ConstError, ConstValue, ResolvedConstEnv};
-use nia_const_ir::{
-    ConstNameResolution, ResolvedConstAssignTarget, ResolvedConstAssignTargetKind,
-    ResolvedConstBinding, ResolvedConstExpr, ResolvedConstParam, ResolvedConstTypeArg,
-};
+use nia_const_eval::{ConstError, ConstValue};
+use nia_const_ir::{ConstNameResolution, ResolvedConstExpr};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_item_signatures::{
     EnumSignature, EnumVariantPayloadSignature, EnumVariantSignature, StructSignature,
     UnionSignature,
@@ -21,9 +18,7 @@ use nia_node_id::NodeMap;
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
 };
-use nia_sema_ir::{
-    AssociatedConstProjection, BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse,
-};
+use nia_sema_ir::{AssociatedConstProjection, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_symbol::SymbolMap;
@@ -1328,292 +1323,6 @@ impl<'a> BodyChecker<'a> {
     }
 }
 
-impl ConstCommonEnv for BodyChecker<'_> {
-    fn begin_const_eval(&mut self) {
-        self.const_eval_budget.begin_session();
-    }
-
-    fn end_const_eval(&mut self) {
-        self.const_eval_budget.end_session();
-    }
-
-    fn consume_const_eval_step(&mut self, span: Span) -> Result<(), ConstError> {
-        self.const_eval_budget.consume_step(span)
-    }
-
-    fn is_enum_variant(&self, def_id: GlobalDefId) -> bool {
-        self.global_def_kind(def_id) == Some(DefKind::EnumVariant)
-    }
-
-    fn push_const_scope(&mut self, _span: Span) -> Result<(), ConstError> {
-        self.const_call_locals
-            .push(crate::ConstCallFrame::default());
-        Ok(())
-    }
-
-    fn pop_const_scope(&mut self) {
-        self.const_call_locals.pop();
-    }
-
-    fn push_function_frame(&mut self, span: Span) -> Result<(), ConstError> {
-        self.const_eval_budget.enter_call(span)?;
-        self.const_call_locals
-            .push(crate::ConstCallFrame::default());
-        Ok(())
-    }
-
-    fn pop_function_frame(&mut self) {
-        self.const_call_locals.pop();
-        self.const_eval_budget.leave_call();
-    }
-
-    fn bind_function_context(
-        &mut self,
-        span: Span,
-        module_id: nia_ids::ModuleId,
-        function_id: Option<GlobalDefId>,
-        substitutions: Vec<(SymbolId, InternedTyId)>,
-        const_substitutions: Vec<(SymbolId, nia_ty::ConstGenericArg)>,
-    ) -> Result<(), ConstError> {
-        let substitutions = substitutions.into_iter().collect::<Vec<_>>();
-        let resolved_const_substitutions = const_substitutions
-            .into_iter()
-            .map(|(name, arg)| {
-                let arg = self.resolve_const_const_generic_arg(arg);
-                (name, arg)
-            })
-            .collect::<Vec<_>>();
-        let Some(frame) = self.const_call_locals.last_mut() else {
-            return Err(ConstError {
-                span,
-                message: "failed to bind const function type substitutions".to_string(),
-            });
-        };
-        frame.module_id = Some(module_id);
-        frame.function_id = function_id;
-        frame.type_substitutions.extend(substitutions);
-        frame
-            .const_substitutions
-            .extend(resolved_const_substitutions);
-        Ok(())
-    }
-}
-
-impl ResolvedConstEnv for BodyChecker<'_> {
-    fn resolve_resolved_name(
-        &mut self,
-        span: Span,
-        resolution: ConstNameResolution,
-    ) -> Result<ConstValue, ConstError> {
-        match resolution {
-            ConstNameResolution::Local(local_id) => {
-                if let Some(value) = self.const_call_local_value(local_id) {
-                    return Ok(value);
-                }
-                self.const_eval
-                    .values
-                    .get(&nia_const_check::ConstKey::Local(local_id))
-                    .cloned()
-                    .ok_or_else(|| ConstError {
-                        span,
-                        message: "failed to evaluate resolved const local".to_string(),
-                    })
-            }
-            ConstNameResolution::Global(global_id) => {
-                if self.global_def_kind(global_id) == Some(DefKind::Const) {
-                    return self
-                        .global_const_value(global_id)
-                        .ok_or_else(|| ConstError {
-                            span,
-                            message: "failed to evaluate resolved const global".to_string(),
-                        });
-                }
-                Err(ConstError {
-                    span,
-                    message: "resolved const expression can only use const bindings".to_string(),
-                })
-            }
-            ConstNameResolution::GenericParam(name) => self
-                .active_const_execution_frames()
-                .find_map(|frame| frame.const_substitutions.get(&name))
-                .and_then(const_value_from_const_generic_arg)
-                .ok_or_else(|| ConstError {
-                    span,
-                    message: format!(
-                        "failed to evaluate const generic parameter `{}`",
-                        self.symbol_name(name)
-                    ),
-                }),
-            ConstNameResolution::BuiltinAssociatedValue(value) => {
-                let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
-                let Some(value) = kind.value(primitive, self.target.pointer_width()) else {
-                    return Err(ConstError {
-                        span,
-                        message: "builtin associated value is not representable at const"
-                            .to_string(),
-                    });
-                };
-                Ok(ConstValue::Int(value))
-            }
-            ConstNameResolution::AssociatedConstProjection(projection) => {
-                self.resolve_associated_const_projection_for_env(span, projection)
-            }
-        }
-    }
-
-    fn resolve_resolved_layout_builtin(
-        &mut self,
-        span: Span,
-        builtin: LayoutBuiltin,
-        type_arg: &ResolvedConstTypeArg,
-    ) -> Result<ConstValue, ConstError> {
-        let ty_id = self.substitute_current_const_generics(type_arg.ty());
-        let Some(layout) = self.layout_of(ty_id) else {
-            return Err(ConstError {
-                span,
-                message: format!(
-                    "cannot compute layout for const builtin `@{}`",
-                    builtin.name()
-                ),
-            });
-        };
-        Ok(ConstValue::Int(nia_ty::IntConst::unsigned(
-            layout.builtin_value(builtin) as u128,
-        )))
-    }
-
-    fn call_resolved_function(
-        &mut self,
-        span: Span,
-        callee: &ResolvedConstExpr,
-        generic_args: &[nia_const_ir::ResolvedConstGenericArg],
-        arg_exprs: &[ResolvedConstExpr],
-        receiver_place: Option<&nia_const_eval::ResolvedConstPlace>,
-        args: Vec<ConstValue>,
-    ) -> Result<ConstValue, ConstError> {
-        let Some(function_id) = self.resolved_const_function(callee) else {
-            return Err(ConstError {
-                span,
-                message: "const expression can only call `const fun`".to_string(),
-            });
-        };
-        let Some(signature) = self
-            .resolved_function_signature(function_id)
-            .map(|resolved| resolved.signature)
-        else {
-            return Err(ConstError {
-                span,
-                message: "const expression can only call `const fun`".to_string(),
-            });
-        };
-        let instantiation = self.instantiate_resolved_const_function_generics(
-            span,
-            function_id,
-            &signature,
-            generic_args,
-            arg_exprs,
-        )?;
-        let Some(function) = self.const_function_body(function_id) else {
-            return Err(ConstError {
-                span,
-                message: "const expression can only call `const fun`".to_string(),
-            });
-        };
-        let output = nia_const_eval::eval_resolved_const_function_call(
-            nia_const_eval::ResolvedConstCallInput {
-                span,
-                function_id,
-                function_module_id: function_id.module_id,
-                function: &function,
-                type_substitutions: instantiation.type_substitutions.into_iter().collect(),
-                const_substitutions: instantiation.const_substitutions.into_iter().collect(),
-                args,
-            },
-            self,
-        )?;
-        if let Some(receiver) = output.mutable_receiver {
-            let Some(receiver_place) = receiver_place else {
-                return Err(ConstError {
-                    span,
-                    message: "mutable const receiver requires a place".to_string(),
-                });
-            };
-            nia_const_eval::write_resolved_const_place(span, receiver_place, receiver, self)?;
-        }
-        Ok(output.value)
-    }
-
-    fn bind_resolved_function_param(
-        &mut self,
-        span: Span,
-        param: &ResolvedConstParam,
-        value: ConstValue,
-    ) -> Result<(), ConstError> {
-        let ty = param.ty().map(|ty| {
-            nia_const_check::ConstValueType::Runtime(self.substitute_current_const_generics(ty))
-        });
-        self.bind_const_call_local_value(
-            span,
-            param.local_id(),
-            param.receiver() == Some(nia_ids::ReceiverKind::Ref),
-            value,
-            ty,
-        )
-    }
-
-    fn bind_resolved_function_local(
-        &mut self,
-        span: Span,
-        binding: &ResolvedConstBinding,
-        value: ConstValue,
-    ) -> Result<(), ConstError> {
-        let ty = binding
-            .explicit_type()
-            .map(|ty| {
-                nia_const_check::ConstValueType::Runtime(self.substitute_current_const_generics(ty))
-            })
-            .or_else(|| self.const_expr_type_for_ir_with_expected(binding.value(), None));
-        self.bind_const_call_local_value(span, binding.local_id(), binding.is_mutable(), value, ty)
-    }
-
-    fn bind_resolved_pattern_local(
-        &mut self,
-        span: Span,
-        _name: &SymbolId,
-        local_id: LocalId,
-        value: ConstValue,
-    ) -> Result<(), ConstError> {
-        let ty = self
-            .local_types
-            .get(&local_id)
-            .copied()
-            .map(nia_const_check::ConstValueType::Runtime);
-        self.bind_const_call_local_value(span, local_id, false, value, ty)
-    }
-
-    fn assign_resolved_local(
-        &mut self,
-        span: Span,
-        target: &ResolvedConstAssignTarget,
-        value: ConstValue,
-    ) -> Result<(), ConstError> {
-        match target.kind() {
-            ResolvedConstAssignTargetKind::Local { name, local_id, .. } => {
-                self.assign_const_call_local_value(span, *local_id, Some(name), value)
-            }
-        }
-    }
-
-    fn assign_resolved_place_local(
-        &mut self,
-        span: Span,
-        local_id: LocalId,
-        value: ConstValue,
-    ) -> Result<(), ConstError> {
-        self.assign_const_call_local_value(span, local_id, None, value)
-    }
-}
-
 impl<'a> BodyChecker<'a> {
     pub(crate) fn lower_const_expr(
         &self,
@@ -1632,13 +1341,10 @@ impl<'a> BodyChecker<'a> {
             .filter_map_values(|value_use| match value_use {
                 SemanticValueUse::Local(local_id)
                     if self
-                        .active_const_execution_frames()
-                        .any(|frame| frame.locals.contains_key(local_id))
-                        || self
-                            .locals
-                            .locals
-                            .get(*local_id)
-                            .is_some_and(|local| local.kind == LocalKind::ConstBinding) =>
+                        .locals
+                        .locals
+                        .get(*local_id)
+                        .is_some_and(|local| local.kind == LocalKind::ConstBinding) =>
                 {
                     Some(*value_use)
                 }
@@ -1666,91 +1372,18 @@ impl<'a> BodyChecker<'a> {
                     span: err.span,
                     message: err.message,
                 })?;
-            nia_const_eval::eval_resolved_const_array_len_expr(&count, this)
+            this.evaluate_const_array_len_expr(&count)
         })
     }
 
-    fn instantiate_resolved_const_function_generics(
-        &mut self,
-        span: Span,
-        function_id: GlobalDefId,
-        signature: &nia_item_signatures::FunctionSignature,
-        generic_args: &[nia_const_ir::ResolvedConstGenericArg],
-        arg_exprs: &[ResolvedConstExpr],
-    ) -> Result<nia_const_check::ConstGenericInstantiation, ConstError> {
-        let frames = self.typed_const_frames();
+    fn with_typed_const_query<T>(
+        &self,
+        query: impl FnOnce(nia_const_check::TypedConstQueryInput<'_>) -> T,
+    ) -> T {
         let trait_impls_for_module = |_| Some(self.program_trait_impls.to_vec());
         let program_signature_scope = self.program_signature_scope;
         let program_is_enum = |def_id| program_signature_scope.has_enum(def_id);
-        nia_const_check::instantiate_resolved_const_function_generics(
-            nia_const_check::TypedConstQueryInput {
-                type_store: self.type_store,
-                module: self.const_module,
-                defs: self.defs,
-                values: self.values,
-                locals: self.locals,
-                semantic_uses: self.semantic_uses,
-                symbols: self.symbols,
-                lowered: self.type_lowering,
-                signatures: self.const_signatures,
-                normalization: self.normalization,
-                target: self.target,
-                source_path: self.source_path,
-                source_text: self.source_text,
-                program: nia_const_check::ConstProgramContext {
-                    module_path: None,
-                    module: Some(self.program_const_module),
-                    source_path: self.program.module_source_path,
-                    source_text: self.program.module_source_text,
-                    defs: self.program.defs,
-                    type_normalizations: self.program.type_normalizations,
-                    signatures: self.program.signatures,
-                    function_signatures: self.program.signatures,
-                    value_signatures: self.program.signatures,
-                    const_values: Some(self.program_const_values),
-                    global_initializer: None,
-                    program_is_enum: Some(&program_is_enum),
-                    trait_impls_for_module: Some(&trait_impls_for_module),
-                    visible_extensions: self.program.visible_extensions,
-                },
-                typed_values: self.const_eval.typed_values,
-                array_lengths: self.const_eval.array_lengths,
-                frames: &frames,
-            },
-            span,
-            function_id.module_id,
-            signature,
-            generic_args,
-            arg_exprs,
-            None,
-        )
-    }
-
-    fn typed_const_frames(&self) -> Vec<nia_const_check::TypedConstFrame> {
-        let frames = self.active_const_execution_frames().collect::<Vec<_>>();
-        frames
-            .into_iter()
-            .rev()
-            .map(|frame| nia_const_check::TypedConstFrame {
-                module_id: frame.module_id,
-                function_id: frame.function_id,
-                local_types: frame.local_types.clone(),
-                type_substitutions: frame.type_substitutions.clone(),
-                const_substitutions: frame.const_substitutions.clone(),
-            })
-            .collect()
-    }
-
-    pub(crate) fn const_expr_type_for_ir_with_expected(
-        &mut self,
-        expr: &nia_const_ir::ResolvedConstExpr,
-        expected: Option<InternedTyId>,
-    ) -> Option<nia_const_check::ConstValueType> {
-        let frames = self.typed_const_frames();
-        let trait_impls_for_module = |_| Some(self.program_trait_impls.to_vec());
-        let program_signature_scope = self.program_signature_scope;
-        let program_is_enum = |def_id| program_signature_scope.has_enum(def_id);
-        let input = nia_const_check::TypedConstQueryInput {
+        query(nia_const_check::TypedConstQueryInput {
             type_store: self.type_store,
             module: self.const_module,
             defs: self.defs,
@@ -1782,67 +1415,70 @@ impl<'a> BodyChecker<'a> {
             },
             typed_values: self.const_eval.typed_values,
             array_lengths: self.const_eval.array_lengths,
-            frames: &frames,
-        };
-        let ty = match nia_const_check::infer_resolved_const_expr_type(input, expr, expected) {
-            Ok(Some(ty)) => ty,
-            Ok(None) => return None,
+            frames: &[],
+        })
+    }
+
+    pub(crate) fn evaluate_const_expr(
+        &mut self,
+        expr: &ResolvedConstExpr,
+    ) -> Result<ConstValue, ConstError> {
+        let evaluation = self.with_typed_const_query(|input| {
+            nia_const_check::evaluate_resolved_const_expr(input, expr)
+        });
+        match evaluation {
+            Ok(evaluation) => {
+                self.diagnostics.extend(evaluation.diagnostics);
+                for demand in evaluation.provider_demands {
+                    self.record_provider_demand(demand);
+                }
+                evaluation.value
+            }
             Err(error) => {
                 self.record_internal(error);
-                return None;
+                Err(ConstError {
+                    span: expr.span(),
+                    message: "const evaluation failed after an internal compiler error".to_string(),
+                })
             }
-        };
-        Some(self.import_current_const_expr_type(ty))
+        }
     }
 
-    fn import_current_const_expr_type(
+    pub(crate) fn evaluate_const_int_expr(
         &mut self,
-        ty: nia_const_check::ConstValueType,
-    ) -> nia_const_check::ConstValueType {
-        match ty {
-            nia_const_check::ConstValueType::Runtime(ty) => {
-                nia_const_check::ConstValueType::Runtime(ty)
-            }
-            nia_const_check::ConstValueType::Array { elem, len } => {
-                nia_const_check::ConstValueType::Array {
-                    elem: Box::new(self.import_current_const_expr_type(*elem)),
-                    len,
-                }
-            }
-            nia_const_check::ConstValueType::Int => nia_const_check::ConstValueType::Int,
-            nia_const_check::ConstValueType::Bool => nia_const_check::ConstValueType::Bool,
-            nia_const_check::ConstValueType::String => nia_const_check::ConstValueType::String,
+        expr: &ResolvedConstExpr,
+    ) -> Result<nia_ty::IntConst, ConstError> {
+        match self.evaluate_const_expr(expr)? {
+            ConstValue::Int(value) => Ok(value),
+            _ => Err(ConstError {
+                span: expr.span(),
+                message: "const expression must be an integer".to_string(),
+            }),
         }
     }
 
-    fn substitute_current_const_generics(&mut self, ty: InternedTyId) -> InternedTyId {
-        let frames = self.active_const_execution_frames().collect::<Vec<_>>();
-        let substitutions = self
-            .active_const_execution_frames()
-            .flat_map(|frame| frame.type_substitutions.iter())
-            .map(|(name, ty)| (*name, *ty))
-            .collect::<SymbolMap<_>>();
-        let const_substitutions = frames
-            .into_iter()
-            .rev()
-            .flat_map(|frame| frame.const_substitutions.iter())
-            .map(|(name, arg)| (*name, arg.clone()))
-            .collect::<SymbolMap<_>>();
-        self.substitute_generics_and_consts(ty, &substitutions, &const_substitutions)
+    pub(crate) fn evaluate_const_array_len_expr(
+        &mut self,
+        expr: &ResolvedConstExpr,
+    ) -> Result<u64, ConstError> {
+        let value = self.evaluate_const_int_expr(expr)?;
+        nia_const_eval::int_to_array_len(expr.span(), value)
     }
 
-    fn resolve_const_const_generic_arg(
-        &self,
-        mut arg: nia_ty::ConstGenericArg,
-    ) -> nia_ty::ConstGenericArg {
-        if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
-            && let Some(resolved) = self
-                .active_const_execution_frames()
-                .find_map(|frame| frame.const_substitutions.get(name))
-        {
-            arg = resolved.clone();
+    pub(crate) fn const_expr_type_for_ir_with_expected(
+        &mut self,
+        expr: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
+    ) -> Option<nia_const_check::ConstValueType> {
+        match self.with_typed_const_query(|input| {
+            nia_const_check::infer_resolved_const_expr_type(input, expr, expected)
+        }) {
+            Ok(ty) => ty,
+            Err(error) => {
+                self.record_internal(error);
+                None
+            }
         }
-        arg
     }
 
     pub(crate) fn resolve_associated_const_projection_for_env(
@@ -1850,107 +1486,10 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         projection: AssociatedConstProjection,
     ) -> Result<ConstValue, ConstError> {
-        let projection = self.substitute_current_const_projection(projection);
-        match self.resolve_associated_const_projection(
-            projection.self_ty,
-            projection.trait_id,
-            &projection.trait_args,
-            &projection.trait_const_args,
-            &projection.name,
-        ) {
-            Some(nia_trait_solve::AssociatedConstResolution::Const(arg)) => {
-                const_value_from_const_generic_arg(&self.resolve_const_const_generic_arg(arg))
-                    .ok_or_else(|| ConstError {
-                        span,
-                        message: format!(
-                            "failed to evaluate associated const value `{}`",
-                            self.symbol_name(projection.name)
-                        ),
-                    })
-            }
-            Some(nia_trait_solve::AssociatedConstResolution::User(user)) => {
-                self.eval_user_associated_const_for_env(span, projection.name, *user)
-            }
-            None => Err(ConstError {
-                span,
-                message: format!(
-                    "failed to resolve associated const value `{}`",
-                    self.symbol_name(projection.name)
-                ),
-            }),
-        }
-    }
-
-    fn substitute_current_const_projection(
-        &mut self,
-        mut projection: AssociatedConstProjection,
-    ) -> AssociatedConstProjection {
-        projection.self_ty = self.substitute_current_const_generics(projection.self_ty);
-        projection.trait_args = projection
-            .trait_args
-            .into_iter()
-            .map(|arg| self.substitute_current_const_generics(arg))
-            .collect();
-        projection.trait_const_args = projection
-            .trait_const_args
-            .into_iter()
-            .map(|arg| self.substitute_current_const_const_arg(arg))
-            .collect();
-        projection
-    }
-
-    fn substitute_current_const_const_arg(
-        &mut self,
-        mut arg: nia_ty::ConstGenericArg,
-    ) -> nia_ty::ConstGenericArg {
-        arg.ty = self.substitute_current_const_generics(arg.ty);
-        self.resolve_const_const_generic_arg(arg)
-    }
-
-    fn eval_user_associated_const_for_env(
-        &mut self,
-        span: Span,
-        name: SymbolId,
-        user: nia_trait_solve::UserAssociatedConst,
-    ) -> Result<ConstValue, ConstError> {
-        let Some(expr) = self.associated_const_initializer(user.def_id) else {
-            let name = self.symbol_name(name);
-            return Err(ConstError {
-                span,
-                message: format!("associated const value `{name}` has no initializer"),
-            });
-        };
-        self.const_call_locals.push(crate::ConstCallFrame {
-            module_id: Some(user.impl_module_id),
-            function_id: None,
-            type_substitutions: user.substitutions,
-            const_substitutions: user.const_substitutions,
-            ..crate::ConstCallFrame::default()
-        });
-        let result = nia_const_eval::eval_resolved_const_expr(&expr, self);
-        self.const_call_locals.pop();
-        result
-    }
-
-    fn associated_const_initializer(&self, def_id: GlobalDefId) -> Option<ResolvedConstExpr> {
-        if def_id.module_id == self.defs.module_id {
-            return self
-                .const_module
-                .global_initializers()
-                .get(&def_id)
-                .or_else(|| {
-                    self.const_module
-                        .deferred_global_initializers()
-                        .get(&def_id)
-                })
-                .cloned();
-        }
-        let module = (self.program_const_module)(def_id.module_id)?;
-        module
-            .global_initializers()
-            .get(&def_id)
-            .or_else(|| module.deferred_global_initializers().get(&def_id))
-            .cloned()
+        self.evaluate_const_expr(&ResolvedConstExpr::name(
+            span,
+            ConstNameResolution::AssociatedConstProjection(projection),
+        ))
     }
 
     pub(crate) fn local_const_use(&self, expr: &Expr) -> Option<LocalId> {
@@ -1961,89 +1500,6 @@ impl<'a> BodyChecker<'a> {
         };
         let local = self.locals.locals.get(local_id)?;
         (local.kind == nia_local_resolve::LocalKind::ConstBinding).then_some(local_id)
-    }
-
-    fn const_call_local_value(&self, local_id: LocalId) -> Option<ConstValue> {
-        self.active_const_execution_frames()
-            .find_map(|frame| frame.locals.get(&local_id).cloned())
-    }
-
-    fn active_const_execution_frames(&self) -> impl Iterator<Item = &crate::ConstCallFrame> {
-        self.const_call_locals
-            .iter()
-            .rev()
-            .scan(true, |inside_execution, frame| {
-                if !*inside_execution {
-                    return None;
-                }
-                if frame.module_id.is_some() {
-                    *inside_execution = false;
-                }
-                Some(frame)
-            })
-    }
-
-    fn bind_const_call_local_value(
-        &mut self,
-        span: Span,
-        local_id: LocalId,
-        is_mutable: bool,
-        value: ConstValue,
-        ty: Option<nia_const_check::ConstValueType>,
-    ) -> Result<(), ConstError> {
-        let Some(frame) = self.const_call_locals.last_mut() else {
-            return Err(ConstError {
-                span,
-                message: "internal const function frame is missing".to_string(),
-            });
-        };
-        if is_mutable {
-            frame.mutable_locals.insert(local_id);
-        }
-        frame.locals.insert(local_id, value);
-        if let Some(ty) = ty {
-            frame.local_types.insert(local_id, ty);
-        }
-        Ok(())
-    }
-
-    fn assign_const_call_local_value(
-        &mut self,
-        span: Span,
-        local_id: LocalId,
-        name: Option<&SymbolId>,
-        value: ConstValue,
-    ) -> Result<(), ConstError> {
-        for frame in self.const_call_locals.iter_mut().rev() {
-            if frame.locals.contains_key(&local_id) {
-                if !frame.mutable_locals.contains(&local_id) {
-                    let name = name
-                        .map(|name| self.symbol_name(*name))
-                        .unwrap_or_else(|| "receiver".to_string());
-                    return Err(ConstError {
-                        span,
-                        message: format!("cannot assign to immutable const local `{name}`"),
-                    });
-                }
-                frame.locals.insert(local_id, value);
-                return Ok(());
-            }
-            if frame.module_id.is_some() {
-                break;
-            }
-        }
-        Err(ConstError {
-            span,
-            message: name.map_or_else(
-                || "unknown const receiver writeback target".to_string(),
-                |name| {
-                    format!(
-                        "unknown const assignment target `{}`",
-                        self.symbol_name(*name)
-                    )
-                },
-            ),
-        })
     }
 
     pub(crate) fn global_const_use(&self, expr: &Expr) -> Option<GlobalDefId> {
@@ -2064,28 +1520,6 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
         self.defs_for_module(global_id.module_id)
             .and_then(|defs| defs.as_ref().defs.get(global_id.def_id).map(|def| def.kind))
-    }
-
-    fn resolved_const_function(&self, callee: &ResolvedConstExpr) -> Option<GlobalDefId> {
-        if let Some(ConstNameResolution::Global(global_id)) = callee.name_resolution()
-            && self.global_def_kind(global_id) == Some(DefKind::Function)
-        {
-            return Some(global_id);
-        }
-        None
-    }
-
-    fn const_function_body(
-        &self,
-        def_id: GlobalDefId,
-    ) -> Option<nia_const_ir::ResolvedConstFunction> {
-        if def_id.module_id == self.defs.module_id {
-            return self.const_module.functions().get(&def_id).cloned();
-        }
-        (self.program_const_module)(def_id.module_id)?
-            .functions()
-            .get(&def_id)
-            .cloned()
     }
 }
 
@@ -2153,19 +1587,4 @@ fn explicit_array_literal_len(
             Some(checker.eval_array_repeat_count(count)?)
         }
     })
-}
-
-fn const_value_from_const_generic_arg(
-    arg: &nia_ty::ConstGenericArg,
-) -> Option<nia_const_check::ConstValue> {
-    match arg.value {
-        nia_ty::ConstGenericValue::Int(value) => Some(nia_const_check::ConstValue::Int(value)),
-        nia_ty::ConstGenericValue::Bool(value) => Some(nia_const_check::ConstValue::Bool(value)),
-        nia_ty::ConstGenericValue::Char(value) => Some(nia_const_check::ConstValue::Int(
-            nia_ty::IntConst::unsigned(value as u32 as u128),
-        )),
-        nia_ty::ConstGenericValue::GenericParam(_) | nia_ty::ConstGenericValue::ConstExpr(_) => {
-            None
-        }
-    }
 }

@@ -1568,7 +1568,7 @@ impl<'a> BodyChecker<'a> {
                             span: err.span,
                             message: err.message,
                         })?;
-                nia_const_eval::eval_resolved_const_expr(&expr, this)
+                this.evaluate_const_expr(&expr)
             })
             .ok();
         match value {

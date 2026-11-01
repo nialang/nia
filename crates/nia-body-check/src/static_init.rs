@@ -395,7 +395,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
     ) -> Result<IntConst, nia_const_eval::ConstError> {
         let expr = self.eval_static_const_expr(expr)?;
-        nia_const_eval::eval_resolved_const_int_expr(&expr, self)
+        self.evaluate_const_int_expr(&expr)
     }
 
     fn eval_static_const_array_len_expr(
@@ -403,7 +403,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
     ) -> Result<u64, nia_const_eval::ConstError> {
         let expr = self.eval_static_const_expr(expr)?;
-        nia_const_eval::eval_resolved_const_array_len_expr(&expr, self)
+        self.evaluate_const_array_len_expr(&expr)
     }
 
     fn eval_static_const_expr(
