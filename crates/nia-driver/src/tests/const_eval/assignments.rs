@@ -34,6 +34,35 @@ fun main() i32 {
 }
 
 #[test]
+fn const_function_rejects_assignment_to_unannotated_immutable_local() {
+    let root = temp_dir("const_function_rejects_assignment_to_unannotated_immutable_local");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fun width() i32 {
+    let value = 2;
+    value += 3;
+    value
+}
+
+const n: i32 = width();
+
+fun main() i32 { n }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("cannot assign to immutable const local `value`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn const_function_rejects_assignment_value_type_mismatch() {
     let root = temp_dir("const_function_rejects_assignment_value_type_mismatch");
     write(
@@ -380,6 +409,36 @@ fun main() i32 {
     let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_function_infers_mutability_for_unannotated_locals() {
+    let root = temp_dir("const_function_infers_mutability_for_unannotated_locals");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fun direct() i32 {
+    let mut value = 1;
+    value += 2;
+    value
+}
+
+const fun throughPointer() i32 {
+    let mut value = 1;
+    let pointer = &mut value;
+    pointer.* += 2;
+    value
+}
+
+const directValue: i32 = direct();
+const pointerValue: i32 = throughPointer();
+
+fun main() i32 { directValue + pointerValue }
 "#,
     );
 

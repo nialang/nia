@@ -2146,7 +2146,7 @@ impl Analyzer<'_> {
                 let explicit = binding
                     .explicit_type()
                     .map(|ty| self.substitute_ty_generics(ty));
-                let inferred = self.resolved_const_expr_type(binding.value(), explicit);
+                let inferred = self.resolved_const_binding_type(binding);
                 if let (Some(expected), Some(ConstValueType::Runtime(actual))) =
                     (explicit, &inferred)
                     && !self.const_function_types_match(expected, *actual)

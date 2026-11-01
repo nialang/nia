@@ -1332,7 +1332,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
         let ty = binding
             .explicit_type()
             .map(|ty| ConstValueType::Runtime(self.substitute_ty_generics(ty)))
-            .or_else(|| self.resolved_const_expr_type(binding.value(), None));
+            .or_else(|| self.resolved_const_binding_type(binding));
         self.bind_local_value(span, binding.local_id(), binding.is_mutable(), value, ty)
     }
 

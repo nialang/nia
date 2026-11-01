@@ -38,12 +38,49 @@ impl Analyzer<'_> {
         }
     }
 
+    /// Resolve the type of a named local initializer.
+    ///
+    /// Standalone const expressions intentionally preserve unsuffixed integer
+    /// literals as `ConstValueType::Int` until an expected type is available.
+    /// A local binding is a type-inference boundary, however: when no explicit
+    /// type or other expected type applies, Nia's language rule defaults that
+    /// integer to `i32`. Keeping this default here lets later expressions,
+    /// including references to the local, observe the same runtime type as the
+    /// ordinary body checker.
+    pub(super) fn resolved_const_binding_type(
+        &mut self,
+        binding: &nia_const_ir::ResolvedConstBinding,
+    ) -> Option<ConstValueType> {
+        let explicit = binding
+            .explicit_type()
+            .map(|ty| self.substitute_ty_generics(ty));
+        let inferred = self.resolved_const_expr_type(binding.value(), explicit);
+        if inferred.is_some() {
+            return inferred;
+        }
+        if explicit.is_some() {
+            return None;
+        }
+        let ResolvedConstExprKind::Integer(text) = binding.value().kind() else {
+            return None;
+        };
+        if integer_literal_suffix_ty(text).is_some() {
+            return None;
+        }
+        let default_int = self.current_runtime_primitive_type(PrimitiveTy::I32);
+        Some(ConstValueType::Runtime(default_int))
+    }
+
     pub(super) fn const_local_is_mutable(&self, local_id: LocalId) -> Option<bool> {
         self.active_execution_frames().find_map(|frame| {
-            frame
-                .local_types
-                .contains_key(&local_id)
-                .then(|| frame.mutable_locals.contains(&local_id))
+            // Type-only frames have `local_types`; evaluation frames may keep
+            // an inferred literal only in their value/allocation maps. These
+            // are separate facts from mutability, which is recorded uniformly
+            // in `mutable_locals`.
+            let owns_local = frame.local_types.contains_key(&local_id)
+                || frame.locals.contains_key(&local_id)
+                || frame.allocation_ids.contains_key(&local_id);
+            owns_local.then(|| frame.mutable_locals.contains(&local_id))
         })
     }
 
