@@ -577,7 +577,7 @@ impl ConstModuleLowerer<'_> {
             nia_ast::ExprKind::ArrayLiteral { elems } => {
                 let elem_type = expected_type
                     .and_then(|ty| self.array_element_type(ty))
-                    .or_else(|| self.array_element_type_hint(elems));
+                    .or_else(|| self.array_element_type_hint(elems, local_types));
                 match elems {
                     nia_ast::ArrayElements::List(values) => {
                         for value in values {
@@ -1649,13 +1649,12 @@ impl ConstModuleLowerer<'_> {
         })
     }
 
-    fn array_element_type_hint(&self, elems: &nia_ast::ArrayElements) -> Option<InternedTyId> {
-        let type_hint = |value: &Expr| match &value.kind {
-            nia_ast::ExprKind::TypedStructLiteral { ty, .. } => {
-                self.input.semantic_uses.node_type_use(&ty.node_key)
-            }
-            _ => None,
-        };
+    fn array_element_type_hint(
+        &self,
+        elems: &nia_ast::ArrayElements,
+        local_types: &LocalTypeHints,
+    ) -> Option<InternedTyId> {
+        let type_hint = |value: &Expr| self.expr_type_hint(value, local_types);
         match elems {
             nia_ast::ArrayElements::List(values) => values.iter().find_map(type_hint),
             nia_ast::ArrayElements::Repeat { value, .. } => type_hint(value),

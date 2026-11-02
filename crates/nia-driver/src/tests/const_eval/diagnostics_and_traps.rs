@@ -2293,7 +2293,13 @@ const fun evaluate() usize {
     let bundle = values::Bundle { cell: .{ value: 5 } };
     let cell = values::Cell[usize] { value: 7 };
     let slot = values::Slot { value: 11 };
+    let bundles = [
+        values::Bundle { cell: .{ value: 13 } },
+        .{ cell: .{ value: 17 } },
+    ];
+    let fromLocal = [bundle, .{ cell: .{ value: 19 } }];
     bundle.cell.value + cell.value + slot.value
+        + bundles[0].cell.value + bundles[1].cell.value + fromLocal[1].cell.value
 }
 const result: usize = evaluate();
 static computed: usize = result;
@@ -2310,5 +2316,5 @@ fun main() i32 { 0 }
         .flat_map(|module| &module.globals)
         .find(|global| global.name == sym("computed"))
         .expect("computed global");
-    assert_eq!(global.init, Some(StaticInit::Int(IntConst::unsigned(23))));
+    assert_eq!(global.init, Some(StaticInit::Int(IntConst::unsigned(72))));
 }
