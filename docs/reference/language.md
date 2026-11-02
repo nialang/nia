@@ -1659,8 +1659,11 @@ Pointers in constant evaluation follow these rules:
 - Pointers are never converted to host addresses, and integers never become
   pointers.
 
-Calls through function pointers or callable views are not constant
-evaluation. In a `const fun`, a `for` loop requires the selected `Iterable::iter`
+Constant evaluation does not materialize callable values. Function items
+(including methods), closures, thin function pointers, callable views, and
+enum constructor pointers cannot be materialized as values, stored, passed, or
+invoked indirectly during constant evaluation. Direct calls to a `const fun`
+remain available. In a `const fun`, a `for` loop requires the selected `Iterable::iter`
 and `Iterator::next` implementations to be `const fun`; the standard library's
 ranges and slices do not provide them, so loops in a `const fun` use `while`.
 
