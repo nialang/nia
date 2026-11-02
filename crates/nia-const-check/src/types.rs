@@ -294,8 +294,11 @@ pub struct ConstProgramContext<'a> {
         Option<&'a dyn Fn(ModuleId) -> Option<Arc<nia_type_normalize::TypeNormalization>>>,
     /// Lazily loads another module's signatures.
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
-    /// Lazily loads function signatures for cross-module calls.
-    pub function_signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
+    /// Resolves callable declarations by global identity, including methods.
+    /// This must use the same declaration lookup as ordinary body checking;
+    /// a type-only or ordinary-function-only module product is insufficient.
+    pub function_signature:
+        Option<&'a dyn Fn(GlobalDefId) -> Option<nia_item_signatures::FunctionSignature>>,
     /// Lazily loads value signatures for cross-module access.
     pub value_signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     /// Lazily loads cached const values for another module.
@@ -321,7 +324,7 @@ impl fmt::Debug for ConstProgramContext<'_> {
             .field("defs", &self.defs.is_some())
             .field("type_normalizations", &self.type_normalizations.is_some())
             .field("signatures", &self.signatures.is_some())
-            .field("function_signatures", &self.function_signatures.is_some())
+            .field("function_signature", &self.function_signature.is_some())
             .field("value_signatures", &self.value_signatures.is_some())
             .field("const_values", &self.const_values.is_some())
             .field("global_initializer", &self.global_initializer.is_some())
@@ -345,7 +348,7 @@ impl<'a> ConstProgramContext<'a> {
             defs: None,
             type_normalizations: None,
             signatures: None,
-            function_signatures: None,
+            function_signature: None,
             value_signatures: None,
             const_values: None,
             global_initializer: None,

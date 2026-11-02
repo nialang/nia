@@ -587,15 +587,8 @@ fn const_inputs_for_body_check(
             ),
         )
     };
-    let function_signatures_for_module = |module_id| {
-        capture_query_failure(
-            &query_failure,
-            signature_item_signatures_semantic(
-                db,
-                module_id,
-                nia_item_tree::SignatureItemSet::Functions,
-            ),
-        )
+    let function_signature = |def_id| {
+        capture_query_failure(&query_failure, function_signature_semantic(db, def_id)).flatten()
     };
     let local_visible_extensions = RefCell::new(None);
     let visible_extensions_for_module = |requested_module_id| {
@@ -665,7 +658,7 @@ fn const_inputs_for_body_check(
             defs: Some(&program_defs),
             type_normalizations: Some(&program_type_normalization),
             signatures: Some(&item_signatures_for_module),
-            function_signatures: Some(&function_signatures_for_module),
+            function_signature: Some(&function_signature),
             value_signatures: Some(&value_signatures_for_module),
             const_values: None,
             global_initializer: Some(&program_global_initializer),
@@ -1020,10 +1013,6 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         }
         capture_query_failure(&query_failure, type_normalization_semantic(db, module_id))
     };
-    let local_function_signatures = db.get(SignatureItemSignaturesQuery(
-        module_id,
-        nia_item_tree::SignatureItemSet::Functions,
-    ))?;
     let local_program_function_signature_cache =
         RefCell::new(HashMap::<GlobalDefId, ProgramFunctionSignature>::new());
     let program_function_signature = |def_id: GlobalDefId| {
@@ -1036,8 +1025,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             return Some(signature.clone());
         }
         if def_id.module_id == module_id {
-            return local_function_signatures
-                .semantic
+            return signatures
                 .functions
                 .get(&def_id.def_id)
                 .cloned()
@@ -1056,14 +1044,8 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     signature
                 });
         }
-        let signatures = capture_query_failure(
-            &query_failure,
-            db.get(SignatureItemSignaturesQuery(
-                def_id.module_id,
-                nia_item_tree::SignatureItemSet::Functions,
-            )),
-        )?;
-        let signature = signatures.semantic.functions.get(&def_id.def_id).cloned()?;
+        let signature =
+            capture_query_failure(&query_failure, function_signature_semantic(db, def_id))??;
         let defs =
             capture_query_failure(&query_failure, module_defs_semantic(db, def_id.module_id))?;
         let signature = ProgramFunctionSignature {

@@ -270,7 +270,12 @@ impl BackendAssociatedConstEvaluator {
                 defs: Some(&defs_provider),
                 type_normalizations: Some(&normalization_provider),
                 signatures: Some(&signatures_provider),
-                function_signatures: Some(&signatures_provider),
+                function_signature: Some(&|def_id: GlobalDefId| {
+                    signatures_provider(def_id.module_id)?
+                        .functions
+                        .get(&def_id.def_id)
+                        .cloned()
+                }),
                 value_signatures: Some(&signatures_provider),
                 const_values: Some(&const_values_provider),
                 global_initializer: Some(&global_initializer_provider),

@@ -580,15 +580,7 @@ impl Analyzer<'_> {
         let Some(function_id) = self.current_execution_function_id() else {
             return goals;
         };
-        let Some(signatures) = self.function_signatures_for_module(function_id.module_id) else {
-            return goals;
-        };
-        let Some(signature) = signatures
-            .as_ref()
-            .functions
-            .get(&function_id.def_id)
-            .cloned()
-        else {
+        let Some(signature) = self.function_signature(function_id) else {
             return goals;
         };
         let substitutions = self

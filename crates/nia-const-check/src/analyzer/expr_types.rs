@@ -709,12 +709,7 @@ impl Analyzer<'_> {
             }
         };
         let function_id = resolved_callee.function_id;
-        let signature = self
-            .function_signatures_for_module(function_id.module_id)?
-            .as_ref()
-            .functions
-            .get(&function_id.def_id)?
-            .clone();
+        let signature = self.function_signature(function_id)?;
         if !signature.is_const {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::CONST,

@@ -1375,6 +1375,16 @@ impl<'a> BodyChecker<'a> {
         let trait_impls_for_module = |_| Some(self.program_trait_impls.to_vec());
         let program_signature_scope = self.program_signature_scope;
         let program_is_enum = |def_id| program_signature_scope.has_enum(def_id);
+        let function_signature = |def_id: GlobalDefId| {
+            if def_id.module_id == self.defs.module_id
+                && let Some(signature) = self.const_signatures.functions.get(&def_id.def_id)
+            {
+                return Some(signature.clone());
+            }
+            program_signature_scope
+                .function(def_id)
+                .map(|function| function.signature)
+        };
         query(nia_const_check::TypedConstQueryInput {
             type_store: self.type_store,
             module: self.const_module,
@@ -1397,7 +1407,7 @@ impl<'a> BodyChecker<'a> {
                 defs: self.program.defs,
                 type_normalizations: self.program.type_normalizations,
                 signatures: self.program.signatures,
-                function_signatures: self.program.signatures,
+                function_signature: Some(&function_signature),
                 value_signatures: self.program.signatures,
                 const_values: Some(self.program_const_values),
                 global_initializer: None,

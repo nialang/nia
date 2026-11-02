@@ -1088,14 +1088,8 @@ impl Analyzer<'_> {
             }
         };
         let is_const = self
-            .function_signatures_for_module(callee.function_id.module_id)
-            .and_then(|signatures| {
-                signatures
-                    .as_ref()
-                    .functions
-                    .get(&callee.function_id.def_id)
-                    .map(|signature| signature.is_const)
-            })
+            .function_signature(callee.function_id)
+            .map(|signature| signature.is_const)
             .unwrap_or(false);
         if !is_const {
             self.report_const_into_error_failure(

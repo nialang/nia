@@ -421,14 +421,8 @@ impl ConstCommonEnv for Analyzer<'_> {
             .extend(resolved_const_substitutions);
         if let Some(function_id) = function_id {
             let return_type = self
-                .function_signatures_for_module(function_id.module_id)
-                .and_then(|signatures| {
-                    signatures
-                        .as_ref()
-                        .functions
-                        .get(&function_id.def_id)
-                        .map(|signature| signature.return_type)
-                })
+                .function_signature(function_id)
+                .map(|signature| signature.return_type)
                 .map(|return_type| self.substitute_ty_generics(return_type));
             if let Some(return_type) = return_type
                 && let Some(frame) = self.call_locals.last_mut()
@@ -1108,18 +1102,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
             }
         };
         let function_id = resolved_callee.function_id;
-        let Some(signatures) = self.function_signatures_for_module(function_id.module_id) else {
-            return Err(ConstError {
-                span,
-                message: "const expression can only call `const fun`".to_string(),
-            });
-        };
-        let Some(signature) = signatures
-            .as_ref()
-            .functions
-            .get(&function_id.def_id)
-            .cloned()
-        else {
+        let Some(signature) = self.function_signature(function_id) else {
             return Err(ConstError {
                 span,
                 message: "const expression can only call `const fun`".to_string(),
@@ -1678,14 +1661,7 @@ impl Analyzer<'_> {
     ) -> Result<nia_const_eval::ResolvedConstCallOutput, ConstError> {
         let function_id = callee.function_id;
         let signature = self
-            .function_signatures_for_module(function_id.module_id)
-            .and_then(|signatures| {
-                signatures
-                    .as_ref()
-                    .functions
-                    .get(&function_id.def_id)
-                    .cloned()
-            })
+            .function_signature(function_id)
             .ok_or_else(|| ConstError {
                 span,
                 message: "selected const trait method signature is unavailable".to_string(),
@@ -2175,14 +2151,7 @@ impl Analyzer<'_> {
 
 impl Analyzer<'_> {
     fn function_tracks_caller(&self, function_id: GlobalDefId) -> bool {
-        self.function_signatures_for_module(function_id.module_id)
-            .and_then(|signatures| {
-                signatures
-                    .as_ref()
-                    .functions
-                    .get(&function_id.def_id)
-                    .cloned()
-            })
+        self.function_signature(function_id)
             .is_some_and(|signature| {
                 signature
                     .attributes

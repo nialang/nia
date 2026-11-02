@@ -321,7 +321,7 @@ pub const SIZE: usize = Color::Red.score();
     assert!(
         entry.body_diagnostics.is_empty(),
         "signature const evaluation should resolve method receivers: {:?}",
-        entry.body_diagnostics
+        entry.body_diagnostics.diagnostics()
     );
     assert!(
         entry

@@ -391,14 +391,8 @@ impl Analyzer<'_> {
         // are published there, so it is sufficient for direct const-call
         // resolution while preserving the normal DefCollection path when it
         // is available.
-        self.function_signatures_for_module(global_id.module_id)
-            .and_then(|signatures| {
-                signatures
-                    .as_ref()
-                    .functions
-                    .contains_key(&global_id.def_id)
-                    .then_some(DefKind::Function)
-            })
+        self.function_signature(global_id)
+            .map(|_| DefKind::Function)
     }
 
     pub(super) fn extension_method_target_ty(
@@ -494,21 +488,13 @@ impl Analyzer<'_> {
             .filter_map(|(candidate_target_ty, method)| {
                 let function_id = method.def_id;
                 self.type_context(function_id.module_id);
-                self.function_signatures_for_module(function_id.module_id)
-                    .and_then(|signatures| {
-                        signatures
-                            .as_ref()
-                            .functions
-                            .get(&function_id.def_id)
-                            .cloned()
-                    })
-                    .filter(|signature| {
-                        signature
-                            .params
-                            .first()
-                            .is_some_and(|param| param.receiver.is_some())
-                            == receiver.is_some()
-                    })?;
+                self.function_signature(function_id).filter(|signature| {
+                    signature
+                        .params
+                        .first()
+                        .is_some_and(|param| param.receiver.is_some())
+                        == receiver.is_some()
+                })?;
                 actual_target_tys
                     .iter()
                     .copied()
@@ -737,14 +723,7 @@ impl Analyzer<'_> {
             .filter_map(|(candidate_target_ty, method)| {
                 let function_id = method.def_id;
                 self.type_context(function_id.module_id);
-                self.function_signatures_for_module(function_id.module_id)
-                    .and_then(|signatures| {
-                        signatures
-                            .as_ref()
-                            .functions
-                            .get(&function_id.def_id)
-                            .cloned()
-                    })
+                self.function_signature(function_id)
                     .filter(|signature| signature.is_const)?;
                 let mut target_instantiation = ConstGenericInstantiation::default();
                 self.infer_generic_substitutions_from_tys(
@@ -862,16 +841,7 @@ impl Analyzer<'_> {
                 return ResolvedConstCalleeSelection::NoMatch;
             };
             let function_id = fallback.def_id;
-            let Some(signature) = self
-                .function_signatures_for_module(function_id.module_id)
-                .and_then(|signatures| {
-                    signatures
-                        .as_ref()
-                        .functions
-                        .get(&function_id.def_id)
-                        .cloned()
-                })
-            else {
+            let Some(signature) = self.function_signature(function_id) else {
                 return ResolvedConstCalleeSelection::NoMatch;
             };
             if !signature.is_const {
@@ -884,16 +854,7 @@ impl Analyzer<'_> {
             });
         };
         let function_id = witness.def_id;
-        let Some(signature) = self
-            .function_signatures_for_module(function_id.module_id)
-            .and_then(|signatures| {
-                signatures
-                    .as_ref()
-                    .functions
-                    .get(&function_id.def_id)
-                    .cloned()
-            })
-        else {
+        let Some(signature) = self.function_signature(function_id) else {
             return ResolvedConstCalleeSelection::NoMatch;
         };
         if signature.params.len() != 1
@@ -1066,19 +1027,23 @@ impl Analyzer<'_> {
         }
     }
 
-    pub(super) fn function_signatures_for_module(
+    pub(super) fn function_signature(
         &self,
-        module_id: ModuleId,
-    ) -> Option<ModuleSignatures<'_>> {
-        if module_id == self.input.defs.module_id {
-            return Some(ModuleSignatures::Borrowed(self.input.signatures));
-        }
-        if let Some(signatures) = self.input.program.function_signatures
-            && let Some(signatures) = signatures(module_id)
+        function_id: GlobalDefId,
+    ) -> Option<nia_item_signatures::FunctionSignature> {
+        if function_id.module_id == self.input.defs.module_id
+            && let Some(signature) = self.input.signatures.functions.get(&function_id.def_id)
         {
-            return Some(ModuleSignatures::Shared(signatures));
+            return Some(signature.clone());
         }
-        (self.input.program.signatures?)(module_id).map(ModuleSignatures::Shared)
+        if let Some(provider) = self.input.program.function_signature {
+            return provider(function_id);
+        }
+        self.signatures_for_module(function_id.module_id)?
+            .as_ref()
+            .functions
+            .get(&function_id.def_id)
+            .cloned()
     }
 
     // A module's base layout product contains only instances rooted in that

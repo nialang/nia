@@ -1,4 +1,44 @@
 use super::*;
+use nia_const_eval::ConstValue;
+use std::collections::HashSet;
+
+#[test]
+fn const_function_lookup_uses_declaration_identity_with_partial_local_signatures() {
+    check_source_with_input(
+        r#"
+const fun twice[T](value: T) T { value + value }
+const fun answer() i32 { twice[i32](21) }
+const VALUE: i32 = answer();
+"#,
+        |input| {
+            let mut partial = input.signatures.clone();
+            partial.functions.clear();
+            let requested = std::cell::RefCell::new(HashSet::new());
+            let function_signature = |def_id: GlobalDefId| {
+                assert_eq!(def_id.module_id, input.defs.module_id);
+                requested.borrow_mut().insert(def_id.def_id);
+                input.signatures.functions.get(&def_id.def_id).cloned()
+            };
+            let checked = check_module_const(ConstInput {
+                signatures: &partial,
+                program: ConstProgramContext {
+                    function_signature: Some(&function_signature),
+                    ..ConstProgramContext::empty()
+                },
+                ..input
+            })
+            .expect("evaluate const functions with partial local signatures");
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            assert_eq!(requested.borrow().len(), 2);
+            assert!(
+                checked
+                    .values
+                    .values()
+                    .any(|value| { *value == ConstValue::Int(nia_ty::IntConst::signed(42)) })
+            );
+        },
+    );
+}
 
 #[test]
 fn semantic_const_lowering_requires_resolved_function_locals() {

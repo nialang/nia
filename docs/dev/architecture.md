@@ -134,6 +134,12 @@ not introduce an alternative typing rule. Qualified and omitted constructors
 carry resolved aggregate or variant identities, and constructor field context
 comes from declaration signatures rather than source-path spelling.
 
+Const calls query function declarations by `GlobalDefId`, including ordinary
+functions, extension methods, and trait methods. Body-local const evaluation
+uses the ordinary program signature scope for this lookup. Module signature
+subsets remain query inputs selected by declaration kind; a type-only subset
+must never serve as the function declaration provider.
+
 Types synthesized during body checking use the same recursive alias normalizer
 as explicit types, including aliases nested in callable signatures and trait
 arguments. A body-local cache retains these additional normalized identities;

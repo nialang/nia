@@ -279,6 +279,20 @@ pub(super) fn item_signatures_semantic(
     ))
 }
 
+pub(super) fn function_signature_semantic(
+    db: &QueryDb<CompilerContext>,
+    def_id: GlobalDefId,
+) -> QueryResult<Option<nia_item_signatures::FunctionSignature>> {
+    let defs = module_defs_semantic(db, def_id.module_id)?;
+    let set = match defs.defs.get(def_id.def_id).map(|def| def.kind) {
+        Some(nia_defs::DefKind::Method) => nia_item_tree::SignatureItemSet::ExtensionFunctions,
+        Some(nia_defs::DefKind::TraitMethod) => nia_item_tree::SignatureItemSet::Traits,
+        _ => nia_item_tree::SignatureItemSet::Functions,
+    };
+    let signatures = db.get(SignatureItemSignaturesQuery(def_id.module_id, set))?;
+    Ok(signatures.semantic.functions.get(&def_id.def_id).cloned())
+}
+
 pub(super) fn value_resolution_semantic(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
