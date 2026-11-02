@@ -125,6 +125,7 @@ entry points are:
 - `examples/`: complete Nia programs to read in order.
 - `benchmarks/`: performance workloads.
 - `maintain/`: repository audits, fixtures, and performance infrastructure.
+- `formal/`: Lean models of compiler contracts.
 - `tools/`: the development launcher, LLVM toolchain, and release scripts.
 
 ## Support And Status

@@ -1,0 +1,13 @@
+name = "nia-formal"
+defaultTargets = ["NiaFormal"]
+
+# The model reads this manifest with `include_str`; declaring it as an input
+# makes Lake rebuild the model when the manifest changes.
+[[input_file]]
+name = "valueInferenceMatrix"
+path = "NiaFormal/value_inference_matrix.json"
+text = true
+
+[[lean_lib]]
+name = "NiaFormal"
+needs = ["valueInferenceMatrix"]

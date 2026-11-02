@@ -1,29 +1,23 @@
-name: formal inference contracts
+name: formal models
 
 on:
   pull_request:
     paths:
-      - ".github/workflows/formal-inference.yml"
-      - "lean-toolchain"
-      - "docs/formal/**"
+      - ".github/workflows/formal.yml"
+      - "formal/**"
       - "crates/nia-ast/src/**"
       - "crates/nia-body-check/src/inference.rs"
       - "crates/nia-const-ir/src/lower.rs"
-      - "crates/nia-driver/Cargo.toml"
-      - "crates/nia-driver/src/tests.rs"
       - "crates/nia-driver/src/tests/value_inference_matrix.rs"
   push:
     branches:
       - main
     paths:
-      - ".github/workflows/formal-inference.yml"
-      - "lean-toolchain"
-      - "docs/formal/**"
+      - ".github/workflows/formal.yml"
+      - "formal/**"
       - "crates/nia-ast/src/**"
       - "crates/nia-body-check/src/inference.rs"
       - "crates/nia-const-ir/src/lower.rs"
-      - "crates/nia-driver/Cargo.toml"
-      - "crates/nia-driver/src/tests.rs"
       - "crates/nia-driver/src/tests/value_inference_matrix.rs"
   workflow_dispatch:
 
@@ -31,16 +25,18 @@ permissions:
   contents: read
 
 jobs:
-  prove:
-    name: Verify value-construction inference contracts
+  check:
+    name: Check formal models
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Install Lean toolchain
+      - name: Build the Lean package
         uses: leanprover/lean-action@v1
-
-      - name: Check formal model
-        run: lean docs/formal/value_inference.lean
+        with:
+          lake-package-directory: formal
+          build: true
+          test: false
+          lint: false

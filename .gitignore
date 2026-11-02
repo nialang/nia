@@ -8,3 +8,6 @@ build/
 !/benchmarks/competitive/build/
 !/crates/nia-cli/tests/cases/build/
 /.claude/
+
+# Lean build output of the formal models
+formal/.lake/

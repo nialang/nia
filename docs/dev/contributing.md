@@ -56,6 +56,7 @@ Start a change at the owner of the contract it modifies:
 | Standard-library API | [`lib/README.md`](../../lib/README.md) | The owning `lib/std` module |
 | Targets and platform support | [Platform support](../reference/platform-support.md) | `crates/nia-target-config/`, `lib/` startup resources |
 | Repository audit or performance baseline | [`maintain/README.md`](../../maintain/README.md), [`maintain/performance.md`](../../maintain/performance.md) | `maintain/` |
+| Formal model of a compiler contract | [`formal/README.md`](../../formal/README.md) | `formal/` and the compiler test that shares its manifest |
 
 ## Code Standards
 

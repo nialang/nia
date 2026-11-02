@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 
-const FORMAL_MATRIX: &str = include_str!("../../../../docs/formal/value_inference_matrix.json");
+const FORMAL_MATRIX: &str =
+    include_str!("../../../../formal/NiaFormal/value_inference_matrix.json");
 
 #[test]
 fn value_construction_compositions_check_in_runtime_and_const_contexts() {

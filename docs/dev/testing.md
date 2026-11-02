@@ -34,7 +34,10 @@ artifacts land under `target/x86_64-pc-windows-msvc/`.
 Clippy, and tests. CI additionally checks the workspace for
 `i686-unknown-linux-gnu` and the portable semantic crates for
 `wasm32-unknown-unknown`, runs Darwin suites in `.github/workflows/platform.yml`,
-and cross-links and executes probe programs between Linux and Windows.
+and cross-links and executes probe programs between Linux and Windows. A change
+to a [formal model](../../formal/README.md) or to the code it is tied to is also
+checked with `lake build` in `formal/`, which `.github/workflows/formal.yml`
+runs in CI.
 
 ## Focused Before Broad
 
