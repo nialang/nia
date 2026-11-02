@@ -971,6 +971,32 @@ impl<'a> BodyChecker<'a> {
         self.diagnostics.push(diagnostic.help(help).finish());
     }
 
+    /// Reports a qualified associated lookup miss using the same diagnostic
+    /// contract as ordinary associated calls. Keeping this in the shared
+    /// method layer prevents function-item references from drifting into a
+    /// different message or recovery path.
+    pub(in crate::calls) fn report_unknown_associated_function(
+        &mut self,
+        span: Span,
+        name: &SymbolId,
+        target_ty: InternedTyId,
+    ) {
+        let name_text = self.symbol_name(*name);
+        let target_name = self.ty_name(target_ty);
+        let summary = format!("unknown associated function `{name_text}`");
+        self.diagnostics.push(
+            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                .primary(span, summary)
+                .note(format!(
+                    "the target type is `{target_name}`, and no visible associated function named `{name_text}` was found"
+                ))
+                .help(format!(
+                    "check the type qualification, import the module that defines `{name_text}`, or use a function available for `{target_name}`"
+                ))
+                .finish(),
+        );
+    }
+
     pub(in crate::calls) fn report_method_candidates(
         &mut self,
         span: Span,
