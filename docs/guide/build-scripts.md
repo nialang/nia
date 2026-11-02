@@ -91,7 +91,10 @@ packages import must declare one; the file must lie inside its source roots.
 The library entry roots its own module tree, so its child modules sit beside
 it: with `path = "src/root.nia"`, `pub module util;` loads `src/util.nia`. Each
 dependency resolves its own dependencies from its own manifest, so two packages
-can use one name for different packages.
+can use one name for different packages. The library entry is the package's
+public face: a module whose extension methods users need is re-exported from it
+with `pub using`, as described under
+[Re-Exports](../reference/language.md#re-exports).
 
 A package's own artifacts and tests open its library the same way, by the
 package name: in package `hello`, `using hello;` opens `[library].path`. The

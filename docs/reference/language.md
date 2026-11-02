@@ -1820,8 +1820,9 @@ Method calls resolve statically; `.` never implies dynamic dispatch except on
 [trait objects](#trait-object-coercion-and-dispatch). Candidates are the trait
 implementation methods for the receiver type, which need no import (see
 [Extension Targets](#extension-targets)), and the methods of plain `extend`
-blocks for it: public ones from modules imported with `using`, and private ones
-in their own module. Two
+blocks for it: public ones from modules that the caller imports with `using` or
+that a module it imports re-exports (see [Re-Exports](#re-exports)), and
+private ones in their own module. Two
 visible methods with the same name for the same receiver type make a call
 ambiguous.
 
@@ -1891,7 +1892,8 @@ such as `for i in 0..3` need no `using`, and an import cannot add an
 implementation from a third package. A `pub(root)` or
 private trait's implementations apply only where the trait is visible.
 Extension methods declared without a trait are different: they are scoped and
-need a `using` of their module.
+need a `using` of their module, or of a module that
+[re-exports](#re-exports) it.
 
 When two implementation headers overlap, a strictly more-specific header may
 specialize the general one and is selected for matching types. A header is
@@ -2324,6 +2326,23 @@ using root::impl;
 pub using impl;                  // the module itself
 pub using impl::{frob as run};   // one item, renamed
 pub using impl::Color::*;        // every variant
+```
+
+Re-exporting a module also re-exports the `extend` blocks it declares. A
+library that keeps a type's methods in a different file from the type
+re-exports that file's module from its facade, so callers that import the
+facade or the type see the methods. Declaring the module `pub module` is not
+enough on its own, and a module's private `using` declarations never reach
+its importers:
+
+```nia ignore
+// geometry.nia: Point is declared in types.nia, its methods in methods.nia
+module types;
+module methods;
+using root::geometry::types;
+using root::geometry::methods;
+pub using types::Point;
+pub using methods;               // callers of `geometry` see Point's methods
 ```
 
 ### Visibility
