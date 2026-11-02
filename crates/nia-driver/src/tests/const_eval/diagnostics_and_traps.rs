@@ -136,6 +136,64 @@ fun main() i32 { 0 }
 }
 
 #[test]
+fn unused_const_function_rejects_bare_callable_values() {
+    let root = temp_dir("unused_const_function_rejects_bare_callable_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+fun increment(value: usize) usize {
+    value + 1
+}
+
+struct Point {
+    value: usize,
+}
+
+extend Point {
+    fun get(& self) usize {
+        self.value
+    }
+}
+
+const fun storesBareFunction() usize {
+    let callback = increment;
+    1
+}
+
+const fun storesBareMethod() usize {
+    let callback = Point::get;
+    1
+}
+
+const fun storesClosure() usize {
+    let callback = \value: usize -> value + 1;
+    1
+}
+
+fun main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("callable values are not available during const evaluation")),
+        "{:#?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("closure values are not available during const evaluation")),
+        "{:#?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn unused_const_function_rejects_runtime_call_in_unselected_branch() {
     let root = temp_dir("unused_const_function_rejects_runtime_call_in_unselected_branch");
     write(

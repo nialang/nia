@@ -291,6 +291,46 @@ const fun storesEnumConstructor() usize {
 }
 
 #[test]
+fn const_declaration_filter_rejects_bare_callable_values() {
+    let checked = pipeline_const_declarations(
+        r#"
+fun increment(value: usize) usize {
+    value + 1
+}
+
+struct Point {
+    value: usize,
+}
+
+extend Point {
+    fun get(& self) usize {
+        self.value
+    }
+}
+
+const fun storesBareFunction() usize {
+    let callback = increment;
+    1
+}
+
+const fun storesBareMethod() usize {
+    let callback = Point::get;
+    1
+}
+
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("callable values are not available during const evaluation")),
+        "{:#?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_return_tail_and_local_binding_types() {
     let checked = pipeline(
         r#"

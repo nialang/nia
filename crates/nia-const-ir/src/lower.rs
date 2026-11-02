@@ -68,9 +68,23 @@ fn lower_expr_internal(
                 ConstNameResolution::Local(local_id),
             ))
         }
-        nia_ast::ExprKind::Qualified { name, .. } => EarlyConstExprKind::Qualified(
-            lower_const_name(name, &expr.node_key, expr.span, context)?,
-        ),
+        nia_ast::ExprKind::Qualified { lhs, name, .. } => {
+            if let Some(resolution) = context.probe_name_resolution(&expr.node_key) {
+                EarlyConstExprKind::Qualified(EarlyConstName::resolved(*name, resolution))
+            } else if let Some(target) = lower_associated_function_target(lhs, expr, context)? {
+                EarlyConstExprKind::AssociatedFunction {
+                    target,
+                    name: *name,
+                }
+            } else {
+                EarlyConstExprKind::Qualified(lower_const_name(
+                    name,
+                    &expr.node_key,
+                    expr.span,
+                    context,
+                )?)
+            }
+        }
         nia_ast::ExprKind::Field { lhs, name } => EarlyConstExprKind::Field {
             lhs: Box::new(lower_expr_internal(lhs, context)?),
             name: *name,
@@ -223,6 +237,12 @@ fn lower_expr_internal(
         },
         nia_ast::ExprKind::Block(block) => {
             EarlyConstExprKind::Block(lower_block_with_context(block, context)?)
+        }
+        nia_ast::ExprKind::Closure { .. } => {
+            return Err(ConstLowerError {
+                span: expr.span,
+                message: "closure values are not available during const evaluation".to_string(),
+            });
         }
         _ => {
             return Err(ConstLowerError {
@@ -503,41 +523,7 @@ fn lower_call_with_context(
     if let nia_ast::ExprKind::Qualified { lhs, name, .. } = &callee.kind
         && context.probe_name_resolution(&callee.node_key).is_none()
     {
-        let nominal_instance = match &lhs.kind {
-            nia_ast::ExprKind::BracketSuffix {
-                callee: nominal,
-                args,
-            } => context
-                .probe_type_prefix(&nominal.node_key)
-                .or_else(|| context.probe_type_prefix(&lhs.node_key))
-                .map(|def_id| {
-                    lower_type_args_with_context(args, context)
-                        .map(|args| EarlyConstAssociatedTarget::Nominal { def_id, args })
-                }),
-            _ => None,
-        }
-        .transpose()?;
-        let target = nominal_instance.or_else(|| {
-            context
-                .probe_type_id(&lhs.node_key)
-                .or_else(|| context.probe_type_id(&callee.node_key))
-                .map(|target_ty| {
-                    EarlyConstAssociatedTarget::Type(EarlyConstTypeArg {
-                        span: lhs.span,
-                        ty_span: lhs.span,
-                        ty: Some(target_ty),
-                    })
-                })
-                .or_else(|| {
-                    context.probe_type_prefix(&lhs.node_key).map(|def_id| {
-                        EarlyConstAssociatedTarget::Nominal {
-                            def_id,
-                            args: Vec::new(),
-                        }
-                    })
-                })
-        });
-        let Some(target) = target else {
+        let Some(target) = lower_associated_function_target(lhs, callee, context)? else {
             return Ok(EarlyConstExprKind::Call {
                 callee: Box::new(lower_expr_internal(callee, context)?),
                 generic_args,
@@ -578,6 +564,48 @@ fn layout_builtin_from_symbol(name: SymbolId) -> Option<LayoutBuiltin> {
         known::ALIGN => Some(LayoutBuiltin::Align),
         _ => None,
     }
+}
+
+fn lower_associated_function_target(
+    lhs: &nia_ast::Expr,
+    expr: &nia_ast::Expr,
+    context: &dyn ConstLowerContext,
+) -> Result<Option<EarlyConstAssociatedTarget>, ConstLowerError> {
+    let nominal_instance = match &lhs.kind {
+        nia_ast::ExprKind::BracketSuffix {
+            callee: nominal,
+            args,
+        } => context
+            .probe_type_prefix(&nominal.node_key)
+            .or_else(|| context.probe_type_prefix(&lhs.node_key))
+            .map(|def_id| {
+                lower_type_args_with_context(args, context)
+                    .map(|args| EarlyConstAssociatedTarget::Nominal { def_id, args })
+            }),
+        _ => None,
+    }
+    .transpose()?;
+    let target = nominal_instance.or_else(|| {
+        context
+            .probe_type_id(&lhs.node_key)
+            .or_else(|| context.probe_type_id(&expr.node_key))
+            .map(|target_ty| {
+                EarlyConstAssociatedTarget::Type(EarlyConstTypeArg {
+                    span: lhs.span,
+                    ty_span: lhs.span,
+                    ty: Some(target_ty),
+                })
+            })
+            .or_else(|| {
+                context.probe_type_prefix(&lhs.node_key).map(|def_id| {
+                    EarlyConstAssociatedTarget::Nominal {
+                        def_id,
+                        args: Vec::new(),
+                    }
+                })
+            })
+    });
+    Ok(target)
 }
 
 fn std_builtin_call(callee: &nia_ast::Expr) -> Option<(SymbolId, Option<&nia_ast::TypeRef>, Span)> {

@@ -121,6 +121,15 @@ impl<'a> BodyChecker<'a> {
         // An explicit address only changes its representation afterwards.
         let item_ty = self.function_item_type(expr, item)?;
         if !is_readonly {
+            // A bare function item is a direct-call value at runtime, but the
+            // const evaluator deliberately has no callable value representation.
+            // Reject the value at the shared semantic boundary; direct calls do
+            // not enter this path and remain const-capable when their target is
+            // `const fun`.
+            self.reject_const_operation(
+                expr.span,
+                "callable values are not available during const evaluation",
+            );
             return Some(item_ty);
         }
         let Some(TyKind::FunctionItem {
