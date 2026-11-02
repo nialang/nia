@@ -118,6 +118,34 @@ The shared objects crossing these layers are handles and immutable products:
 facts, and `nia-query` records dependency edges. No layer receives a mutable
 global compiler context.
 
+Compile-time execution adds capability requirements to ordinary value semantics.
+`nia-sema::const_value_restriction` classifies normalized value types after body
+checking and implicit adjustments; callable values currently require a
+representation unavailable to the const engine. Direct callees are resolved
+without materializing callable values. Const IR retains unavailable capabilities
+as explicit nodes, so lowering one unsupported value does not abort independent
+body diagnostics. The evaluator rejects execution of those nodes using the same
+capability reason. An empty container or absent optional payload does not
+materialize its element type.
+
+Const IR remains an execution representation: adding a source construct requires
+its execution lowering or an explicit unavailable-capability node. This does
+not introduce an alternative typing rule. Qualified and omitted constructors
+carry resolved aggregate or variant identities, and constructor field context
+comes from declaration signatures rather than source-path spelling.
+
+Types synthesized during body checking use the same recursive alias normalizer
+as explicit types, including aliases nested in callable signatures and trait
+arguments. A body-local cache retains these additional normalized identities;
+foreign aliases are obtained from raw signature facts.
+
+Conversions must preserve source evaluation in checked IR. In particular, a
+Body IR closure-to-function-pointer node retains its source expression until
+function lowering has evaluated it and extracted any inline closure entry.
+Only Function IR reduces the result to a closure entry identity. Walks for
+closure discovery, provenance, executable dependencies, and local allocation
+all traverse the conversion source.
+
 For one declaration, the product flow is:
 
 ```text
