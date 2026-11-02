@@ -119,20 +119,13 @@ fun main() i32 { 0 }
             .filter(|diagnostic| diagnostic
                 .diagnostic
                 .summary
-                .contains("function pointer values are not available during const evaluation"))
+                .contains("callable values are not available during const evaluation"))
             .count(),
         2,
         "{:?}",
         program.diagnostics
     );
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("indirect function calls are not available during const evaluation")),
-        "{:?}",
-        program.diagnostics
-    );
+    assert_eq!(program.diagnostics.len(), 2, "{:?}", program.diagnostics);
 }
 
 #[test]
@@ -144,6 +137,7 @@ fn unused_const_function_rejects_bare_callable_values() {
 fun increment(value: usize) usize {
     value + 1
 }
+
 
 struct Point {
     value: usize,
@@ -175,22 +169,117 @@ fun main() i32 { 0 }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_eq!(program.diagnostics.len(), 3, "{:#?}", program.diagnostics);
     assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("callable values are not available during const evaluation")),
+        program
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.diagnostic.summary
+                == "callable values are not available during const evaluation"),
         "{:#?}",
         program.diagnostics
     );
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("closure values are not available during const evaluation")),
+}
+
+#[test]
+fn const_callable_capability_does_not_abort_independent_semantic_checks() {
+    let root = temp_dir("const_callable_capability_does_not_abort_independent_semantic_checks");
+    write(
+        &root.join("main.nia"),
+        r#"
+module callback;
+using root::callback;
+const fun inspect() usize {
+    let pointer: &fun(usize) usize = callback::increment;
+    let view: &Fun(usize) usize = callback::increment;
+    let closure: &Fun(usize) usize = \value -> value + 1;
+    if false {
+        let base = 1usize; let captured = \[base] value: usize -> base + value;
+        _ = callback::runtimeOnly();
+    }
+    true
+}
+fun main() i32 { 0 }
+"#,
+    );
+    write(
+        &root.join("callback.nia"),
+        r#"
+pub const fun increment(value: usize) usize { value + 1 }
+pub fun runtimeOnly() usize { 0 }
+"#,
+    );
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_eq!(program.diagnostics.len(), 6, "{:#?}", program.diagnostics);
+    assert_eq!(
+        program
+            .diagnostics
+            .iter()
+            .filter(|entry| entry.diagnostic.summary
+                == "callable values are not available during const evaluation")
+            .count(),
+        4,
         "{:#?}",
         program.diagnostics
     );
+    assert!(program.diagnostics.iter().any(|entry| {
+        entry
+            .diagnostic
+            .summary
+            .contains("const expression can only call `const fun`")
+    }));
+    assert!(program.diagnostics.iter().any(|entry| {
+        entry
+            .diagnostic
+            .summary
+            .contains("type mismatch in function body")
+    }));
+}
+
+#[test]
+fn const_global_callable_values_use_the_shared_capability() {
+    let cases = [
+        "const callback = increment;",
+        "const callback: &fun(usize) usize = increment;",
+        "const callback: &fun(usize) usize = &increment;",
+        "const callback: &Fun(usize) usize = increment;",
+        "const callback = Point::get;",
+        "const callback = &Point::get;",
+        "const callback: &fun(usize) Event = Event::Data;",
+        "const callback: &fun(usize) Event = &Event::Data;",
+        "const callback: &fun(usize) Event = .Data;",
+        "const callback: &fun(usize) Event = &.Data;",
+        "const callback: &Fun(usize) Event = Event::Data;",
+        "const callbacks: [&fun(usize) usize; 1] = [increment];",
+        "const callbacks: (&fun(usize) usize, bool) = (increment, true);",
+    ];
+    for (index, case) in cases.iter().enumerate() {
+        let root = temp_dir(&format!("const_global_callable_values_{index}"));
+        write(
+            &root.join("main.nia"),
+            &format!(
+                r#"
+const fun increment(value: usize) usize {{ value + 1 }}
+struct Point {{ value: usize }}
+extend Point {{ const fun get(& self) usize {{ self.value }} }}
+enum Event {{ Empty, Data(usize) }}
+{case}
+fun main() i32 {{ 0 }}
+"#
+            ),
+        );
+        let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+        assert!(!program.diagnostics.is_empty(), "{case}");
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .all(|entry| entry.diagnostic.summary
+                    == "callable values are not available during const evaluation"),
+            "{case}: {:#?}",
+            program.diagnostics
+        );
+    }
 }
 
 #[test]
@@ -2029,4 +2118,197 @@ fun main() i32 { 0 }
         "{:?}",
         program.diagnostics
     );
+}
+
+#[test]
+fn const_capability_preserves_direct_calls_and_uninhabited_callback_payloads() {
+    let root = temp_dir("const_direct_calls_and_empty_callback_payloads");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fun increment(value: usize) usize { value + 1 }
+struct Point { value: usize }
+extend Point { const fun get(& self) usize { self.value } }
+enum Event { Empty, Data(usize) }
+const absent: ?&fun(usize) usize = null;
+const empty: [&fun(usize) usize; 0] = [];
+const fun evaluate() usize {
+    let absent: ?&Fun(usize) usize = null;
+    let empty: [&fun(usize) usize; 0] = [];
+    _ = absent;
+    _ = empty;
+    let point = Point { value: increment(2) };
+    match Event::Data(point.get()) {
+        .Data(value) => value,
+        .Empty => 0,
+    }
+}
+const result: usize = evaluate();
+static computed: usize = result;
+fun main() i32 { 0 }
+"#,
+    );
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:#?}", program.diagnostics);
+    let codegen = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:#?}", codegen.diagnostics);
+    let global = codegen
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| &module.globals)
+        .find(|global| global.name == sym("computed"))
+        .expect("computed global");
+    assert_eq!(global.init, Some(StaticInit::Int(IntConst::unsigned(3))));
+}
+
+#[test]
+fn const_discard_preserves_side_effects_and_control_flow() {
+    let root = temp_dir("const_discard_effects");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fun effects() i32 {
+    let mut count = 1;
+    _ = { count += 2; 9 };
+    let unit: () = (_ = { count += 4; 10 });
+    count
+}
+const fun exits() i32 {
+    _ = { return 17; };
+    0
+}
+const effectsValue: i32 = effects();
+const exitsValue: i32 = exits();
+static effectsResult: i32 = effectsValue;
+static exitsResult: i32 = exitsValue;
+fun main() i32 { 0 }
+"#,
+    );
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:#?}", program.diagnostics);
+    for (name, expected) in [("effectsResult", 7), ("exitsResult", 17)] {
+        let global = program
+            .backend_lowering
+            .program
+            .modules
+            .iter()
+            .flat_map(|module| &module.globals)
+            .find(|global| global.name == sym(name))
+            .expect("global");
+        assert_eq!(global.init, Some(static_int(expected)));
+    }
+}
+
+#[test]
+fn const_match_patterns_use_imported_call_result_types() {
+    let root = temp_dir("const_match_imported_call_results");
+    write(
+        &root.join("values.nia"),
+        r#"
+pub enum Event { Empty, Data(usize) }
+pub enum Envelope { Event(Event) }
+pub const fun make() Event { Event::Data(7) }
+pub struct Source {}
+extend Source { pub const fun make(& self) Event { Event::Data(11) } }
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module values;
+using root::values;
+const fun evaluate() usize {
+    let source = values::Source {};
+    let first = match values::make() { .Data(value) => value, .Empty => 0, };
+    let second = match source.make() { .Data(value) => value, .Empty => 0, };
+    let third = match values::Event::Data(13) { .Data(value) => value, .Empty => 0, };
+    let nested = values::Envelope::Event(values::Event::Data(17));
+    let fourth = match nested {
+        .Event(event) => match event { .Data(value) => value, .Empty => 0, },
+    };
+    first + second + third + fourth
+}
+const result: usize = evaluate();
+static computed: usize = result;
+fun main() i32 { 0 }
+"#,
+    );
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:#?}", program.diagnostics);
+    let global = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| &module.globals)
+        .find(|global| global.name == sym("computed"))
+        .expect("global");
+    assert_eq!(global.init, Some(StaticInit::Int(IntConst::unsigned(48))));
+}
+
+#[test]
+fn const_global_closure_preserves_the_ordinary_owner_diagnostic() {
+    let root = temp_dir("const_global_closure_owner");
+    write(
+        &root.join("main.nia"),
+        r#"
+const callback = \value: usize -> value + 1;
+fun main() i32 { 0 }
+"#,
+    );
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let summaries = program
+        .diagnostics
+        .iter()
+        .map(|entry| entry.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(summaries.len(), 2, "{summaries:?}");
+    for expected in [
+        "callable values are not available during const evaluation",
+        "closure expressions are only supported inside function bodies",
+    ] {
+        assert!(summaries.contains(&expected), "{summaries:?}");
+    }
+}
+
+#[test]
+fn const_qualified_aggregates_propagate_imported_field_context() {
+    let root = temp_dir("const_qualified_aggregate_context");
+    write(
+        &root.join("values.nia"),
+        r#"
+pub struct Cell[T] { value: T }
+pub struct Bundle { cell: Cell[usize] }
+pub union Slot { value: usize, bytes: [u8; 8] }
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+module values;
+using root::values;
+const fun evaluate() usize {
+    let bundle = values::Bundle { cell: .{ value: 5 } };
+    let cell = values::Cell[usize] { value: 7 };
+    let slot = values::Slot { value: 11 };
+    bundle.cell.value + cell.value + slot.value
+}
+const result: usize = evaluate();
+static computed: usize = result;
+fun main() i32 { 0 }
+"#,
+    );
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:#?}", program.diagnostics);
+    let global = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| &module.globals)
+        .find(|global| global.name == sym("computed"))
+        .expect("computed global");
+    assert_eq!(global.init, Some(StaticInit::Int(IntConst::unsigned(23))));
 }

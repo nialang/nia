@@ -770,3 +770,96 @@ fn return_terminates_block_before_later_statements() {
         FunctionTerminator::Return { value: Some(_), .. }
     ));
 }
+
+#[test]
+fn closure_pointer_input_validates_and_retains_its_source() {
+    let module_ids = ModuleIdAllocator::new().expect("module IDs");
+    let module_id = module_ids.allocate().expect("module ID");
+    let store = TypeStore::new().expect("type store");
+    let append = store.append_for_module(module_id);
+    let span = Span::default();
+    let integer = intern_ty(&append, TyKind::Primitive(PrimitiveTy::I32));
+    let closure_id = ClosureId {
+        owner: GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        },
+        ordinal: 0,
+    };
+    let state = intern_ty(
+        &append,
+        TyKind::ClosureState {
+            closure_id,
+            owner_instance: None,
+            captures: vec![],
+            params: vec![],
+            return_type: integer,
+        },
+    );
+    let pointer = intern_ty(
+        &append,
+        TyKind::FunctionPointer {
+            params: vec![],
+            return_type: integer,
+            is_variadic: false,
+            abi: nia_ty::FunctionPointerAbi::Nia,
+        },
+    );
+    let closure = TypedExpr {
+        span,
+        ty: state,
+        kind: TypedExprKind::Closure {
+            closure_id,
+            captures: vec![],
+            params: vec![],
+            body: TypedBody {
+                span,
+                locals: vec![],
+                stmts: vec![],
+                ty: integer,
+                tail: Some(Box::new(TypedExpr {
+                    span,
+                    ty: integer,
+                    kind: TypedExprKind::Integer("7".to_string()),
+                })),
+            },
+        },
+    };
+    let body = TypedBody {
+        span,
+        locals: vec![],
+        stmts: vec![],
+        ty: pointer,
+        tail: Some(Box::new(TypedExpr {
+            span,
+            ty: pointer,
+            kind: TypedExprKind::ClosureFunctionPointer {
+                closure_id,
+                closure: Box::new(closure),
+            },
+        })),
+    };
+    let lower = |body: &TypedBody| {
+        lower_function_body(
+            module_id,
+            body,
+            FunctionTypeContext::for_module(&store, module_id),
+        )
+    };
+    let lowered = lower(&body).expect("inline closure pointer");
+    assert_eq!(lowered.closure_entries.len(), 1);
+    assert_eq!(lowered.closure_entries[0].closure_id, closure_id);
+    let mut invalid = body.clone();
+    let TypedExprKind::ClosureFunctionPointer { closure_id, .. } =
+        &mut invalid.tail.as_mut().expect("tail").kind
+    else {
+        panic!("pointer")
+    };
+    closure_id.ordinal += 1;
+    let error = lower(&invalid).expect_err("mismatched closure pointer identity");
+    assert!(lowering_diagnostic_message(&error).contains("does not match its source contract"));
+    let mut invalid = body.clone();
+    invalid.tail.as_mut().expect("tail").ty = integer;
+    let error = lower(&invalid).expect_err("invalid pointer result type");
+    assert!(lowering_diagnostic_message(&error).contains("does not match its source contract"));
+}

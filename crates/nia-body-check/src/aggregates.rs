@@ -892,10 +892,6 @@ impl<'a> BodyChecker<'a> {
                 fields.into_iter().map(|field| field.ty).collect()
             }
         };
-        self.reject_const_operation(
-            expr.span,
-            "function pointer values are not available during const evaluation",
-        );
         if !is_readonly {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -931,10 +927,6 @@ impl<'a> BodyChecker<'a> {
             }
         };
         let return_type = self.enum_ty(enum_id);
-        self.reject_const_operation(
-            expr.span,
-            "function pointer values are not available during const evaluation",
-        );
         let ty = self.interner.intern(TyKind::FunctionPointer {
             params,
             return_type,

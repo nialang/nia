@@ -191,6 +191,17 @@ impl<'a> BodyChecker<'a> {
         trait_const_args: Vec<ConstGenericArg>,
     ) -> TraitResolution {
         let self_ty = self.normalize_aliases_in_type(self_ty);
+        let trait_args = trait_args
+            .into_iter()
+            .map(|ty| self.normalize_aliases_in_type(ty))
+            .collect::<Vec<_>>();
+        let trait_const_args = trait_const_args
+            .into_iter()
+            .map(|mut arg| {
+                arg.ty = self.normalize_aliases_in_type(arg.ty);
+                arg
+            })
+            .collect::<Vec<_>>();
         let key = crate::TraitObligationResolutionKey {
             current_def_id: self.current_def_id,
             self_ty,

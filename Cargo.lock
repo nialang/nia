@@ -1032,6 +1032,7 @@ dependencies = [
  "nia-ids",
  "nia-literals",
  "nia-node-id",
+ "nia-sema",
  "nia-sema-ir",
  "nia-source",
  "nia-span",

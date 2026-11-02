@@ -1219,10 +1219,12 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::Function(_)
                 | TypedExprKind::EnumConstructor(_)
                 | TypedExprKind::FunctionInstance { .. }
-                | TypedExprKind::ClosureFunctionPointer { .. }
                 | TypedExprKind::BuiltinValue(_)
                 | TypedExprKind::CallerLocation(_)
                 | TypedExprKind::Trap => {}
+                TypedExprKind::ClosureFunctionPointer { closure, .. } => {
+                    visit_expr(closure, max_id)
+                }
                 TypedExprKind::Closure { captures, body, .. } => {
                     for capture in captures {
                         visit_expr(&capture.value, max_id);

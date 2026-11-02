@@ -66,6 +66,37 @@ impl<'a> BodyChecker<'a> {
         allow_closure_view: bool,
         allow_auto_address: bool,
     ) -> InternedTyId {
+        let ty = self.check_expr_inner(expr, expected, allow_closure_view, allow_auto_address);
+        // Capability validation follows the same typing and adjustment path
+        // for every value spelling. Direct callees are resolved by call checking
+        // without materializing a value and therefore do not cross this boundary.
+        if self.body_filter.checks_const_declarations() || self.in_const_context() {
+            let normalized = self.normalize_aliases_in_type(ty);
+            if let Some(restriction) = self
+                .interner
+                .get(normalized)
+                .and_then(nia_sema::const_value_restriction)
+            {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::CONST,
+                    expr.span,
+                    restriction.message(),
+                ));
+                let error = self.error();
+                self.record_expr_node_type(expr, error);
+                return error;
+            }
+        }
+        ty
+    }
+
+    fn check_expr_inner(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+        allow_closure_view: bool,
+        allow_auto_address: bool,
+    ) -> InternedTyId {
         let adaptation_expected = expected;
         let expected = self.expected_literal_type_for_auto_address(expr, expected);
         if expr_allows_expected_const_projection(expr)
@@ -232,36 +263,6 @@ impl<'a> BodyChecker<'a> {
                     self.record_expr_node_type(expr, function_ptr_ty);
                     return function_ptr_ty;
                 }
-                if matches!(op, UnaryOp::RefReadOnly)
-                    && let Some(expected) = expected
-                    && let Some(inner_ty) = self.expr_ty(inner)
-                {
-                    match self.closure_to_function_pointer(expected, inner_ty) {
-                        crate::callable_views::ClosureFunctionPointerCoercion::Compatible => {
-                            self.record_expr_node_type(expr, expected);
-                            return expected;
-                        }
-                        crate::callable_views::ClosureFunctionPointerCoercion::Capturing {
-                            capture_count,
-                        } => {
-                            let summary =
-                                "capturing closures cannot be converted to thin function pointers";
-                            self.diagnostics.push(
-                                Diagnostic::user_error(codes::TYPE_CHECK, summary)
-                                    .primary(expr.span, summary)
-                                    .note(format!(
-                                        "this closure captures {capture_count} value(s), but a thin function pointer has no environment storage"
-                                    ))
-                                    .help(
-                                        "use a callable view such as `&Fun(...)` to retain the closure environment",
-                                    )
-                                    .finish(),
-                            );
-                            return self.error();
-                        }
-                        crate::callable_views::ClosureFunctionPointerCoercion::Mismatch => {}
-                    }
-                }
                 if let ExprKind::Index {
                     lhs,
                     index: IndexArg::Range(range),
@@ -341,6 +342,12 @@ impl<'a> BodyChecker<'a> {
                             false,
                             false,
                         );
+                        if let Some(pointer_ty) = expected.and_then(|expected| {
+                            self.coerce_closure_function_pointer(inner, expected, inner_ty)
+                        }) {
+                            self.record_expr_node_type(expr, pointer_ty);
+                            return pointer_ty;
+                        }
                         let inner_ty = expected_ref_target
                             .and_then(|expected| {
                                 self.materialize_inferred_array_type(expected, inner_ty)

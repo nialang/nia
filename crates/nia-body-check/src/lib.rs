@@ -214,6 +214,7 @@ struct BodyChecker<'a> {
     signatures: BodyLocalSignatures<'a>,
     const_signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
+    dynamic_normalized_types: FastHashMap<InternedTyId, InternedTyId>,
     target: &'a TargetConfig,
     const_eval: BodyConst<'a>,
     const_module: &'a ResolvedConstModule,

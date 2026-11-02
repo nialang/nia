@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Shared semantic validation primitives for array lengths, arity, and fields.
+//! Shared semantic validation primitives for value capabilities and type shapes.
 //!
 //! These helpers return structured results and leave diagnostic wording and
 //! phase-specific recovery to their callers.
@@ -9,6 +9,9 @@ use std::hash::Hash;
 use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyKind};
+
+mod const_capability;
+pub use const_capability::{ConstValueRestriction, const_value_restriction};
 
 /// Type-shape result for implicit address formation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

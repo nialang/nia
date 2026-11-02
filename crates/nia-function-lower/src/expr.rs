@@ -339,7 +339,13 @@ impl FunctionLowerer<'_> {
             TypedExprKind::FunctionCallable { function } => FunctionExprKind::FunctionCallable {
                 function: Box::new(self.lower_value_expr(function, scope, current, ops, blocks)),
             },
-            TypedExprKind::ClosureFunctionPointer { closure_id } => {
+            TypedExprKind::ClosureFunctionPointer {
+                closure_id,
+                closure,
+            } => {
+                // Evaluate the source exactly once, including extracting an inline
+                // closure entry, before discarding its empty environment.
+                self.lower_effect_expr(closure, scope, current, ops, blocks);
                 FunctionExprKind::ClosureFunctionPointer {
                     closure_id: *closure_id,
                 }

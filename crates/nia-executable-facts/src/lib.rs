@@ -899,8 +899,10 @@ fn collect_typed_expr_refs(
         | TypedExprKind::ConstGeneric(_)
         | TypedExprKind::AssociatedConstProjection(_)
         | TypedExprKind::Local(_)
-        | TypedExprKind::EnumConstructor(_)
-        | TypedExprKind::ClosureFunctionPointer { .. } => {}
+        | TypedExprKind::EnumConstructor(_) => {}
+        TypedExprKind::ClosureFunctionPointer { closure, .. } => {
+            collect_typed_expr_refs(module, closure, refs)
+        }
         TypedExprKind::UnionStorageLiteral { relocations, .. } => {
             for relocation in relocations {
                 collect_typed_expr_refs(module, &relocation.pointee, refs);

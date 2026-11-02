@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn closure_lowering_preserves_capability_without_resolving_runtime_body() {
+    let closure = nia_ast::Expr {
+        span: span(),
+        node_key: expr_key(0),
+        kind: nia_ast::ExprKind::Closure {
+            captures: Vec::new(),
+            params: Vec::new(),
+            body: Box::new(ast_ident("runtime_body")),
+        },
+    };
+    let tuple = nia_ast::Expr {
+        span: span(),
+        node_key: expr_key(1),
+        kind: nia_ast::ExprKind::Tuple(vec![closure]),
+    };
+    let early = lower_expr_early(&tuple).expect("runtime values must not abort syntax lowering");
+    let resolved =
+        resolve_expr(early).expect("unavailable closure bodies need no const identities");
+    let ResolvedConstExprKind::Tuple(elements) = resolved.kind() else {
+        panic!("tuple construction must survive closure capability lowering");
+    };
+    assert!(matches!(
+        elements[0].kind(),
+        ResolvedConstExprKind::UnavailableValue(nia_sema::ConstValueRestriction::Callable)
+    ));
+}
+
+#[test]
 fn resolved_lowering_requires_name_resolution() {
     let semantic_uses = SemanticUseTable::default();
     let context = ResolvedConstLowerInputs::new(&semantic_uses);

@@ -2,6 +2,7 @@
 mod associated_types;
 mod block_usings;
 mod builtin_traits;
+mod callable_pointers;
 mod cases;
 mod common;
 mod const_eval;

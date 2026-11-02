@@ -84,8 +84,7 @@ impl<'a> BodyChecker<'a> {
             return Some(target_ty);
         }
         if allow_auto_address
-            && let Some(target_ty) =
-                self.coerce_auto_closure_function_pointer(expr, expected, actual)
+            && let Some(target_ty) = self.coerce_closure_function_pointer(expr, expected, actual)
         {
             return Some(target_ty);
         }
@@ -227,10 +226,6 @@ impl<'a> BodyChecker<'a> {
         {
             return None;
         }
-        self.reject_const_operation(
-            expr.span,
-            "function pointer values are not available during const evaluation",
-        );
         self.record_function_item_to_pointer_coercion(
             expr,
             FunctionItemToPointerCoercion {
@@ -241,69 +236,35 @@ impl<'a> BodyChecker<'a> {
         Some(expected_pointer)
     }
 
-    pub(crate) fn coerce_auto_closure_function_pointer(
+    pub(crate) fn coerce_closure_function_pointer(
         &mut self,
         expr: &Expr,
         expected: InternedTyId,
         actual: InternedTyId,
     ) -> Option<InternedTyId> {
-        if matches!(
-            expr.kind,
-            ExprKind::Unary {
-                op: UnaryOp::Ref | UnaryOp::RefReadOnly,
-                ..
-            }
-        ) {
-            return None;
-        }
         let expected = self.normalize_aliases_in_type(expected);
         let actual = self.normalize_aliases_in_type(actual);
-        let Some(TyKind::FunctionPointer {
-            params: expected_params,
-            return_type: expected_return,
-            is_variadic: false,
-            abi: nia_ty::FunctionPointerAbi::Nia,
-        }) = self.interner.get(expected).cloned()
+        match self.closure_to_function_pointer(expected, actual) {
+            crate::callable_views::ClosureFunctionPointerCoercion::Compatible => {}
+            crate::callable_views::ClosureFunctionPointerCoercion::Capturing { capture_count } => {
+                let summary = "capturing closures cannot be converted to thin function pointers";
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::TYPE_CHECK, summary)
+                        .primary(expr.span, summary)
+                        .note(format!(
+                            "this closure captures {capture_count} value(s), but a thin function pointer has no environment storage"
+                        ))
+                        .help("use a callable view such as `&Fun(...)` to retain the closure environment")
+                        .finish(),
+                );
+                return Some(self.error());
+            }
+            crate::callable_views::ClosureFunctionPointerCoercion::Mismatch => return None,
+        }
+        let Some(TyKind::ClosureState { closure_id, .. }) = self.interner.get(actual).cloned()
         else {
             return None;
         };
-        let Some(TyKind::ClosureState {
-            closure_id,
-            captures,
-            params: actual_params,
-            return_type: actual_return,
-            ..
-        }) = self.interner.get(actual).cloned()
-        else {
-            return None;
-        };
-        if !captures.is_empty() {
-            let summary = "capturing closures cannot be converted to thin function pointers";
-            self.diagnostics.push(
-                Diagnostic::user_error(codes::TYPE_CHECK, summary)
-                    .primary(expr.span, summary)
-                    .note(format!(
-                        "this closure captures {} value(s), but a thin function pointer has no environment storage",
-                        captures.len()
-                    ))
-                    .help("use a callable view such as `&Fun(...)` to retain the closure environment")
-                    .finish(),
-            );
-            return Some(self.error());
-        }
-        if expected_params.len() != actual_params.len()
-            || !expected_params
-                .iter()
-                .zip(actual_params)
-                .all(|(expected, actual)| self.types_match(*expected, actual))
-            || !self.types_match(expected_return, actual_return)
-        {
-            return None;
-        }
-        self.reject_const_operation(
-            expr.span,
-            "function pointer values are not available during const evaluation",
-        );
         self.record_closure_to_function_pointer_coercion(
             expr,
             nia_sema_ir::ClosureToFunctionPointerCoercion {
@@ -652,7 +613,7 @@ impl<'a> BodyChecker<'a> {
         ty: InternedTyId,
         active_projections: &mut Vec<ProjectionNormalizationKey>,
     ) -> InternedTyId {
-        let ty = self.normalize_aliases(ty);
+        let ty = self.normalize_aliases_in_type(ty);
         match self.interner.get(ty).cloned() {
             Some(TyKind::Tuple(elems)) => {
                 let elems = elems
@@ -2254,6 +2215,7 @@ impl<'a> BodyChecker<'a> {
             trait_impls_by_trait: FastHashMap::default(),
             def_trait_obligations_cache: FastHashMap::default(),
             trait_obligation_resolution_cache: FastHashMap::default(),
+            dynamic_normalized_types: FastHashMap::default(),
             type_match_cache: FastHashMap::default(),
             diagnostics: Vec::new(),
             diagnostic_owners: Vec::new(),

@@ -130,6 +130,9 @@ fn resolve_const_for_in(for_in: EarlyConstForIn) -> Result<ResolvedConstForIn, C
 pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowerError> {
     let span = expr.span;
     let kind = match expr.kind {
+        EarlyConstExprKind::UnavailableValue(restriction) => {
+            ResolvedConstExprKind::UnavailableValue(restriction)
+        }
         EarlyConstExprKind::Integer(value) => ResolvedConstExprKind::Integer(value),
         EarlyConstExprKind::Char(value) => ResolvedConstExprKind::Char(value),
         EarlyConstExprKind::ByteChar(value) => ResolvedConstExprKind::ByteChar(value),
@@ -293,6 +296,9 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
             op,
             rhs: Box::new(resolve_expr(*rhs)?),
         },
+        EarlyConstExprKind::Discard(value) => {
+            ResolvedConstExprKind::Discard(Box::new(resolve_expr(*value)?))
+        }
         EarlyConstExprKind::Assign(assign) => {
             ResolvedConstExprKind::Assign(Box::new(resolve_const_assign(*assign)?))
         }

@@ -258,6 +258,10 @@ const fun callsFunctionPointer() usize {
     callback(1)
 }
 
+const fun callsPointerParameter(callback: &fun(usize) usize) usize {
+    callback(1)
+}
+
 enum ConstructorEvent {
     Data(usize),
 }
@@ -275,19 +279,101 @@ const fun storesEnumConstructor() usize {
             .iter()
             .filter(|diagnostic| diagnostic
                 .summary
-                .contains("function pointer values are not available during const evaluation"))
+                .contains("callable values are not available during const evaluation"))
             .count(),
-        3,
+        4,
         "{:?}",
         checked.diagnostics
     );
-    assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("indirect function calls are not available during const evaluation")),
-        "{:?}",
-        checked.diagnostics
-    );
+    assert_eq!(checked.diagnostics.len(), 4, "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn const_callable_values_share_one_capability_boundary() {
+    let cases = [
+        "let callback = increment;",
+        "let callback = &increment;",
+        "let callback: &fun(usize) usize = increment;",
+        "let callback: &Fun(usize) usize = increment;",
+        "let callback: &Fun(usize) usize = &increment;",
+        "let callback = Point::get;",
+        "let callback = &Point::get;",
+        "let callback: &fun(&Point) usize = Point::get;",
+        "let callback: &Fun(&Point) usize = Point::get;",
+        r"let callback = \value: usize -> value + 1;",
+        r"let callback: &fun(usize) usize = \value -> value + 1;",
+        r"let callback: &fun(usize) usize = &\value -> value + 1;",
+        r"let callback: &Fun(usize) usize = \value -> value + 1;",
+        r"let callback: &Fun(usize) usize = &\value -> value + 1;",
+        r"let base = 1usize; let callback = \[base] value: usize -> base + value;",
+        r"let base = 1usize; let callback: &Fun(usize) usize = \[base] value -> base + value;",
+        r"let base = 1usize; let callback: &Fun(usize) usize = &\[base] value -> base + value;",
+        "let callback: &fun(usize) Event = Event::Data;",
+        "let callback: &fun(usize) Event = &Event::Data;",
+        "let callback: &Fun(usize) Event = Event::Data;",
+        "let callback: &fun(usize) Event = .Data;",
+        "let callback: &fun(usize) Event = &.Data;",
+        "let callback: &Fun(usize) Event = .Data;",
+        "let callbacks: (&fun(usize) usize, bool) = (increment, true);",
+        "let callbacks: [&fun(usize) usize; 1] = [increment];",
+        "let callback = Holder { callback: increment };",
+        "if false { let callback: &Fun(usize) usize = increment; }",
+        "_ = consume(increment);",
+        r"_ = consume(\value -> value + 1);",
+    ];
+    for case in cases {
+        let source = format!(
+            r#"
+fun increment(value: usize) usize {{ value + 1 }}
+struct Point {{ value: usize }}
+extend Point {{ fun get(& self) usize {{ self.value }} }}
+enum Event {{ Empty, Data(usize) }}
+struct Holder {{ callback: &fun(usize) usize }}
+const fun consume(callback: &Fun(usize) usize) usize {{ 0 }}
+const fun inspect() usize {{ {case} 0 }}
+"#
+        );
+        // The same spelling must remain an ordinary well-typed runtime value.
+        let runtime = pipeline(&source.replace("const fun", "fun"));
+        assert!(
+            runtime.diagnostics.is_empty(),
+            "{case}: {:#?}",
+            runtime.diagnostics
+        );
+        let checked = pipeline_const_declarations(&source);
+        assert_eq!(
+            checked.diagnostics.len(),
+            1,
+            "{case}: {:#?}",
+            checked.diagnostics
+        );
+        assert_eq!(
+            checked.diagnostics[0].summary,
+            nia_sema::ConstValueRestriction::Callable.message(),
+            "{case}: {:#?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
+fn const_callable_parameter_reads_use_the_value_boundary() {
+    for ty in ["&fun(usize) usize", "&Fun(usize) usize"] {
+        for usage in ["let copy = callback;", "callback(1);"] {
+            let source = format!("const fun inspect(callback: {ty}) usize {{ {usage} 0 }}");
+            let checked = pipeline_const_declarations(&source);
+            assert_eq!(
+                checked.diagnostics.len(),
+                1,
+                "{source}: {:#?}",
+                checked.diagnostics
+            );
+            assert_eq!(
+                checked.diagnostics[0].summary,
+                nia_sema::ConstValueRestriction::Callable.message()
+            );
+        }
+    }
 }
 
 #[test]

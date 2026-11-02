@@ -217,6 +217,15 @@ pub trait ConstCommonEnv {
         false
     }
 
+    /// Capability required when a resolved global is materialized as a value.
+    /// Direct call and enum-construction targets do not materialize the callee.
+    fn global_value_restriction(
+        &self,
+        _def_id: GlobalDefId,
+    ) -> Option<nia_sema::ConstValueRestriction> {
+        None
+    }
+
     /// Resolves a language builtin const value.
     fn resolve_builtin_const(
         &mut self,
@@ -817,6 +826,31 @@ impl EarlyConstEnv for EmptyEnv {
         span: Span,
         _builtin: LayoutBuiltin,
         _type_arg: &EarlyConstTypeArg,
+    ) -> Result<ConstValue, ConstError> {
+        Err(ConstError {
+            span,
+            message: "layout builtins are not available in this const context".to_string(),
+        })
+    }
+}
+
+impl ResolvedConstEnv for EmptyEnv {
+    fn resolve_resolved_name(
+        &mut self,
+        span: Span,
+        _resolution: ConstNameResolution,
+    ) -> Result<ConstValue, ConstError> {
+        Err(ConstError {
+            span,
+            message: "resolved const values are not available in this context".to_string(),
+        })
+    }
+
+    fn resolve_resolved_layout_builtin(
+        &mut self,
+        span: Span,
+        _builtin: LayoutBuiltin,
+        _type_arg: &ResolvedConstTypeArg,
     ) -> Result<ConstValue, ConstError> {
         Err(ConstError {
             span,

@@ -616,6 +616,8 @@ pub enum TypedExprKind {
     ClosureFunctionPointer {
         /// Closure identity.
         closure_id: nia_ids::ClosureId,
+        /// Source value, retaining inline closure definitions and evaluation effects.
+        closure: Box<TypedExpr>,
     },
     /// Calls a resolved callee with ABI-ordered arguments.
     Call {

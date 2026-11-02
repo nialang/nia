@@ -672,6 +672,7 @@ impl<'a> BodyChecker<'a> {
                     ty: coercion.pointer_ty,
                     kind: TypedExprKind::ClosureFunctionPointer {
                         closure_id: coercion.closure_id,
+                        closure: Box::new(value),
                     },
                 },
                 ExprAdjustment::PointerArrayToSlice(coercion) => TypedExpr {
@@ -1290,16 +1291,14 @@ impl<'a> BodyChecker<'a> {
                         }
                     }
                 } else if matches!(op, UnaryOp::RefReadOnly)
-                    && matches!(self.interner.get(ty), Some(TyKind::FunctionPointer { .. }))
-                    && let Some(inner_ty) = self.expr_ty(inner)
-                    && let Some(TyKind::ClosureState { closure_id, .. }) =
-                        self.interner.get(inner_ty).cloned()
+                    && let Some(plan) = self.node_expr_adjustments.get(&inner.node_key).cloned()
+                    && plan.target_ty == ty
                     && matches!(
-                        self.closure_to_function_pointer(ty, inner_ty),
-                        crate::callable_views::ClosureFunctionPointerCoercion::Compatible
+                        plan.steps.as_slice(),
+                        [ExprAdjustment::ClosureToFunctionPointer(_)]
                     )
                 {
-                    TypedExprKind::ClosureFunctionPointer { closure_id }
+                    self.lower_expr_adjustment_plan(inner, &plan).kind
                 } else if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly) {
                     let inner = self.lower_expr_with_ty(inner, inner_ty);
                     lowered_ty = self.interner.intern(TyKind::Pointer {

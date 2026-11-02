@@ -260,6 +260,27 @@ impl BodyInputValidator<'_, '_> {
                 }
                 Ok(())
             }
+            TypedExprKind::ClosureFunctionPointer {
+                closure_id,
+                closure,
+            } => {
+                self.validate_value_expr(closure)?;
+                if !matches!(
+                    (self.types.get(closure.ty), self.types.get(expr.ty)),
+                    (Some(TyKind::ClosureState { closure_id: source_id, captures, params, return_type, .. }),
+                     Some(TyKind::FunctionPointer { params: target_params, return_type: target_return,
+                         is_variadic: false, abi: nia_ty::FunctionPointerAbi::Nia }))
+                    if source_id == closure_id && captures.is_empty()
+                        && params == target_params && return_type == target_return
+                ) {
+                    return Err(FunctionLoweringInvariant {
+                        span: expr.span,
+                        message: "closure function pointer does not match its source contract"
+                            .to_string(),
+                    });
+                }
+                Ok(())
+            }
             TypedExprKind::Closure {
                 closure_id,
                 captures,
@@ -297,6 +318,7 @@ impl BodyInputValidator<'_, '_> {
                 Ok(())
             }
             TypedExprKind::CallableCoercion { state, .. } => self.validate_value_expr(state),
+            TypedExprKind::FunctionCallable { function } => self.validate_value_expr(function),
             TypedExprKind::Binary { lhs, rhs, .. } | TypedExprKind::Index { lhs, index: rhs } => {
                 self.validate_value_expr(lhs)?;
                 self.validate_value_expr(rhs)
@@ -340,8 +362,6 @@ impl BodyInputValidator<'_, '_> {
             | TypedExprKind::Function(_)
             | TypedExprKind::EnumConstructor(_)
             | TypedExprKind::FunctionInstance { .. }
-            | TypedExprKind::ClosureFunctionPointer { .. }
-            | TypedExprKind::FunctionCallable { .. }
             | TypedExprKind::BuiltinValue(_)
             | TypedExprKind::CallerLocation(_)
             | TypedExprKind::Trap

@@ -197,6 +197,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         trait_impls_by_trait: FastHashMap::default(),
         def_trait_obligations_cache: FastHashMap::default(),
         trait_obligation_resolution_cache: FastHashMap::default(),
+        dynamic_normalized_types: FastHashMap::default(),
         type_match_cache: FastHashMap::default(),
         diagnostics: Vec::new(),
         diagnostic_owners: Vec::new(),

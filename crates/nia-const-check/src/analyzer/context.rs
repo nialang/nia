@@ -932,6 +932,13 @@ impl Analyzer<'_> {
         let ConstNameResolution::Global(variant_id) = expr.name_resolution()? else {
             return None;
         };
+        self.const_enum_variant_signature(variant_id)
+    }
+
+    pub(super) fn const_enum_variant_signature(
+        &self,
+        variant_id: GlobalDefId,
+    ) -> Option<(GlobalDefId, nia_item_signatures::EnumVariantSignature)> {
         if self.def_kind_of(variant_id) != Some(DefKind::EnumVariant) {
             return None;
         }

@@ -795,6 +795,7 @@ impl Analyzer<'_> {
         expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
         match expr.kind() {
+            ResolvedConstExprKind::UnavailableValue(_) => None,
             ResolvedConstExprKind::Name(resolution) => self
                 .resolved_const_enum_variant_value_type(expr)
                 .or_else(|| self.const_name_resolution_type(resolution.clone())),
@@ -1003,6 +1004,12 @@ impl Analyzer<'_> {
             | ResolvedConstExprKind::Method { .. }
             | ResolvedConstExprKind::AssociatedFunction { .. }
             | ResolvedConstExprKind::Null => None,
+            ResolvedConstExprKind::Discard(value) => {
+                self.resolved_const_expr_type(value, None);
+                Some(ConstValueType::Runtime(
+                    self.current_runtime_tuple_type(Vec::new()),
+                ))
+            }
             ResolvedConstExprKind::Assign(assign) => {
                 self.check_resolved_const_assignment(expr.span(), assign);
                 Some(ConstValueType::Runtime(

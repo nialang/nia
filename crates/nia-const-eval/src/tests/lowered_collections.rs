@@ -9,6 +9,50 @@ use nia_ids::LocalId;
 use nia_ty::TyKind;
 
 #[test]
+fn discard_evaluates_its_value_and_yields_unit_in_both_const_ir_forms() {
+    let (module, errors) = nia_parser::parse_module("fun main() () { _ = 7 }");
+    assert!(errors.is_empty(), "{errors:?}");
+    let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("function");
+    };
+    let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
+    let early = nia_const_ir::lower_expr_early(expr).expect("discard lowers");
+    assert_eq!(
+        eval_early_const_expr(&early, &mut EmptyEnv).unwrap(),
+        ConstValue::Tuple(vec![])
+    );
+    let resolved = nia_const_ir::resolve_expr(early).expect("resolved discard");
+    assert_eq!(
+        eval_resolved_const_expr(&resolved, &mut EmptyEnv).unwrap(),
+        ConstValue::Tuple(vec![])
+    );
+}
+
+#[test]
+fn closure_capability_survives_lowering_and_rejects_execution() {
+    let (module, errors) =
+        nia_parser::parse_module(r"fun main() usize { (1, \value: usize -> value + 1) }");
+    assert!(errors.is_empty(), "{errors:?}");
+    let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
+    let early = nia_const_ir::lower_expr_early(expr).expect("closure capability must lower");
+    let error = eval_early_const_expr(&early, &mut EmptyEnv).expect_err("no const callable values");
+    assert_eq!(
+        error.message,
+        nia_sema::ConstValueRestriction::Callable.message()
+    );
+    let resolved = nia_const_ir::resolve_expr(early).expect("capability has complete identity");
+    let error = eval_resolved_const_expr(&resolved, &mut EmptyEnv)
+        .expect_err("resolved evaluation must enforce the same capability");
+    assert_eq!(
+        error.message,
+        nia_sema::ConstValueRestriction::Callable.message()
+    );
+}
+
+#[test]
 fn evaluates_lowered_match_with_string_patterns() {
     let (module, errors) = nia_parser::parse_module(
         r#"

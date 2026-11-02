@@ -6,7 +6,8 @@
 //! initialization.
 //!
 //! The IR stores only the expression, statement, block, function, parameter,
-//! binding, and field forms that are valid inputs to compile-time evaluation,
+//! binding, and field forms needed by compile-time evaluation, including
+//! explicit unavailable-value capabilities for shared semantic diagnostics,
 //! while preserving the semantic ids and source spans needed by name, local,
 //! type-argument, and diagnostic queries. Compile-time execution never reads
 //! AST. A [`ResolvedConstModule`] holds a module's const enums, global and

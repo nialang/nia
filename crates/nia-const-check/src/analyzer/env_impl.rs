@@ -63,6 +63,26 @@ impl ConstCommonEnv for Analyzer<'_> {
         self.def_kind_of(def_id) == Some(DefKind::EnumVariant)
     }
 
+    fn global_value_restriction(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<nia_sema::ConstValueRestriction> {
+        let callable = match self.def_kind_of(def_id)? {
+            DefKind::Function | DefKind::Method | DefKind::TraitMethod => true,
+            DefKind::EnumVariant => {
+                self.const_enum_variant_signature(def_id)
+                    .is_some_and(|(_, variant)| {
+                        !matches!(
+                            variant.payload,
+                            nia_item_signatures::EnumVariantPayloadSignature::Unit
+                        )
+                    })
+            }
+            _ => false,
+        };
+        callable.then_some(nia_sema::ConstValueRestriction::Callable)
+    }
+
     fn resolve_builtin_const(
         &mut self,
         span: Span,

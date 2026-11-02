@@ -138,16 +138,28 @@ fn lower_expr_internal(
                 .collect::<Result<Vec<_>, _>>()?,
         },
         nia_ast::ExprKind::QualifiedStructLiteral { target, fields } => {
-            EarlyConstExprKind::EnumStructLiteral {
-                variant: Box::new(lower_expr_internal(target, context)?),
-                fields: fields
-                    .iter()
-                    .map(|field| lower_field_init_with_context(field, context))
-                    .collect::<Result<Vec<_>, _>>()?,
+            let fields = fields
+                .iter()
+                .map(|field| lower_field_init_with_context(field, context))
+                .collect::<Result<Vec<_>, _>>()?;
+            if let Some(ty) = context.probe_aggregate_type(&expr.node_key) {
+                EarlyConstExprKind::StructLiteral {
+                    ty: EarlyConstTypeArg {
+                        span: target.span,
+                        ty_span: target.span,
+                        ty: Some(ty),
+                    },
+                    fields,
+                }
+            } else {
+                EarlyConstExprKind::EnumStructLiteral {
+                    variant: Box::new(lower_expr_internal(target, context)?),
+                    fields,
+                }
             }
         }
         nia_ast::ExprKind::OmittedAggregateLiteral { fields } => {
-            let Some(ty) = context.probe_omitted_aggregate_type(&expr.node_key) else {
+            let Some(ty) = context.probe_aggregate_type(&expr.node_key) else {
                 return Err(ConstLowerError {
                     span: expr.span,
                     message: "unsupported const expression".to_string(),
@@ -199,6 +211,13 @@ fn lower_expr_internal(
             op: lower_binary_op(*op),
             rhs: Box::new(lower_expr_internal(rhs, context)?),
         },
+        nia_ast::ExprKind::Assign {
+            lhs,
+            op: nia_ast::AssignOp::Assign,
+            rhs,
+        } if matches!(lhs.kind, nia_ast::ExprKind::Underscore) => {
+            EarlyConstExprKind::Discard(Box::new(lower_expr_internal(rhs, context)?))
+        }
         nia_ast::ExprKind::Assign { lhs, op, rhs } => {
             EarlyConstExprKind::Assign(Box::new(EarlyConstAssign {
                 lhs: lower_assign_target_with_context(lhs, context)?,
@@ -239,10 +258,7 @@ fn lower_expr_internal(
             EarlyConstExprKind::Block(lower_block_with_context(block, context)?)
         }
         nia_ast::ExprKind::Closure { .. } => {
-            return Err(ConstLowerError {
-                span: expr.span,
-                message: "closure values are not available during const evaluation".to_string(),
-            });
+            EarlyConstExprKind::UnavailableValue(nia_sema::ConstValueRestriction::Callable)
         }
         _ => {
             return Err(ConstLowerError {

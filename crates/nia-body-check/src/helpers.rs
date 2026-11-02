@@ -439,26 +439,42 @@ impl<'a> BodyChecker<'a> {
         None
     }
 
+    /// Normalize types synthesized after the explicit-type normalization pass
+    /// with the same recursive normalizer and raw cross-module alias provider.
     pub(crate) fn normalize_aliases_in_type(&mut self, ty: InternedTyId) -> InternedTyId {
         let ty = self.normalize_aliases(ty);
-        match self.interner.get(ty).cloned() {
-            Some(TyKind::Nominal {
-                def_id,
-                args,
-                const_args,
-            }) => self
-                .expand_type_alias_instance(def_id, &args, &const_args)
-                .unwrap_or(ty),
-            Some(TyKind::Pointer { is_readonly, elem }) => {
-                let elem = self.normalize_aliases_in_type(elem);
-                self.interner.intern(TyKind::Pointer { is_readonly, elem })
+        if let Some(normalized) = self.dynamic_normalized_types.get(&ty) {
+            return *normalized;
+        }
+        let external_alias = |def_id| {
+            self.program_signature_scope
+                .type_alias(def_id)
+                .map(|alias| alias.signature)
+        };
+        match nia_type_normalize::normalize_module_types(
+            nia_type_normalize::TypeNormalizationInput {
+                module_id: self.defs.module_id,
+                type_store: self.type_store,
+                input_ids: &[ty],
+                signatures: self.const_signatures,
+                external_alias: Some(&external_alias),
+            },
+        ) {
+            Ok(normalization) => {
+                let normalized = normalization.normalize(ty);
+                self.dynamic_normalized_types
+                    .extend(normalization.normalized);
+                for diagnostic in normalization.diagnostics {
+                    if !self.diagnostics.contains(&diagnostic) {
+                        self.diagnostics.push(diagnostic);
+                    }
+                }
+                normalized
             }
-            Some(TyKind::VolatilePointer { is_readonly, elem }) => {
-                let elem = self.normalize_aliases_in_type(elem);
-                self.interner
-                    .intern(TyKind::VolatilePointer { is_readonly, elem })
+            Err(error) => {
+                self.failure.record(error);
+                self.error()
             }
-            _ => ty,
         }
     }
 

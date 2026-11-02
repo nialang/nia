@@ -1246,6 +1246,9 @@ pub enum ResolvedConstMatchArmBodyKind {
 /// semantic facts. Required types such as casts and builtin type arguments use
 /// non-optional resolved ids in their owning nodes.
 pub enum ResolvedConstExprKind {
+    /// A well-formed source value whose representation requires runtime support.
+    /// Retained for capability diagnostics rather than failing syntax lowering.
+    UnavailableValue(nia_sema::ConstValueRestriction),
     /// Integer literal text, retaining source spelling until typing.
     Integer(String),
     /// Unicode scalar literal text.
@@ -1417,6 +1420,8 @@ pub enum ResolvedConstExprKind {
     },
     /// Assignment expression.
     Assign(Box<ResolvedConstAssign>),
+    /// Evaluates a value for its effects and yields unit.
+    Discard(Box<ResolvedConstExpr>),
     /// Integer range expression.
     Range(ResolvedConstRange),
     /// Conditional expression.
@@ -2078,6 +2083,8 @@ impl EarlyConstName {
 /// source omitted a type, while a present type argument may independently carry
 /// a not-yet-resolved type id.
 pub enum EarlyConstExprKind {
+    /// Runtime value preserved until semantic capability checking or execution.
+    UnavailableValue(nia_sema::ConstValueRestriction),
     /// Integer literal text.
     Integer(String),
     /// Character literal text.
@@ -2251,6 +2258,8 @@ pub enum EarlyConstExprKind {
     },
     /// Assignment expression.
     Assign(Box<EarlyConstAssign>),
+    /// Evaluates a value for its effects and yields unit.
+    Discard(Box<EarlyConstExpr>),
     /// Integer range expression.
     Range(EarlyConstRange),
     /// Conditional expression.

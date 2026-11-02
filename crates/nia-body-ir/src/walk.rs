@@ -243,8 +243,8 @@ fn walk_expr<'a>(expr: &'a TypedExpr, visit: &mut impl FnMut(&'a TypedBody)) {
         | TypedExprKind::FunctionInstance { .. }
         | TypedExprKind::BuiltinValue(_)
         | TypedExprKind::CallerLocation(_)
-        | TypedExprKind::Trap
-        | TypedExprKind::ClosureFunctionPointer { .. } => {}
+        | TypedExprKind::Trap => {}
+        TypedExprKind::ClosureFunctionPointer { closure, .. } => walk_expr(closure, visit),
     }
 }
 

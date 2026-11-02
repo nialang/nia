@@ -215,6 +215,12 @@ fn eval_resolved_const_expr_flow(
     let span = expr.span();
     env.consume_const_eval_step(span)?;
     let value = match expr.kind() {
+        ResolvedConstExprKind::UnavailableValue(restriction) => {
+            return Err(ConstError {
+                span,
+                message: restriction.message().to_string(),
+            });
+        }
         ResolvedConstExprKind::Bool(value) => ConstValue::Bool(*value),
         ResolvedConstExprKind::Null => ConstValue::Optional(None),
         ResolvedConstExprKind::String(literal) => eval_string_literal(literal)
@@ -254,15 +260,25 @@ fn eval_resolved_const_expr_flow(
                 span,
                 message: format!("invalid byte char literal `{text}` in const expression"),
             })?,
-        ResolvedConstExprKind::Name(resolution) => match resolution {
-            ConstNameResolution::Global(variant) if env.is_enum_variant(*variant) => {
-                ConstValue::Enum {
-                    variant: *variant,
-                    payload: ConstEnumPayload::Unit,
-                }
+        ResolvedConstExprKind::Name(resolution) => {
+            if let ConstNameResolution::Global(def_id) = resolution
+                && let Some(restriction) = env.global_value_restriction(*def_id)
+            {
+                return Err(ConstError {
+                    span,
+                    message: restriction.message().to_string(),
+                });
             }
-            _ => env.resolve_resolved_name(span, resolution.clone())?,
-        },
+            match resolution {
+                ConstNameResolution::Global(variant) if env.is_enum_variant(*variant) => {
+                    ConstValue::Enum {
+                        variant: *variant,
+                        payload: ConstEnumPayload::Unit,
+                    }
+                }
+                _ => env.resolve_resolved_name(span, resolution.clone())?,
+            }
+        }
         ResolvedConstExprKind::Field { .. }
         | ResolvedConstExprKind::Index { .. }
         | ResolvedConstExprKind::Slice { .. } => {
@@ -486,6 +502,10 @@ fn eval_resolved_const_expr_flow(
         ResolvedConstExprKind::Binary { lhs, op, rhs } => {
             return binary::eval_resolved_binary_flow(expr, lhs, *op, rhs, env);
         }
+        ResolvedConstExprKind::Discard(value) => match eval_resolved_const_expr_flow(value, env)? {
+            ConstEvalFlow::Value(_) => ConstValue::Tuple(Vec::new()),
+            flow => return Ok(flow),
+        },
         ResolvedConstExprKind::Assign(assign) => {
             env.prepare_resolved_assignment(assign)?;
             return assignment::eval_resolved_assign_expr_flow(span, assign, env);
@@ -519,7 +539,9 @@ fn eval_resolved_const_expr_flow(
         ResolvedConstExprKind::Method { .. } | ResolvedConstExprKind::AssociatedFunction { .. } => {
             return Err(ConstError {
                 span,
-                message: "const function target cannot be used as a value".to_string(),
+                message: nia_sema::ConstValueRestriction::Callable
+                    .message()
+                    .to_string(),
             });
         }
     };
@@ -532,6 +554,12 @@ fn eval_const_expr_flow(
 ) -> Result<ConstEvalFlow, ConstError> {
     env.consume_const_eval_step(expr.span())?;
     let value = match &expr.kind {
+        EarlyConstExprKind::UnavailableValue(restriction) => {
+            return Err(ConstError {
+                span: expr.span,
+                message: restriction.message().to_string(),
+            });
+        }
         EarlyConstExprKind::Bool(value) => ConstValue::Bool(*value),
         EarlyConstExprKind::Null => ConstValue::Optional(None),
         EarlyConstExprKind::String(literal) => eval_string_literal(literal)
@@ -578,6 +606,14 @@ fn eval_const_expr_flow(
                 message: format!("invalid byte char literal `{text}` in const expression"),
             })?,
         EarlyConstExprKind::Ident(name) | EarlyConstExprKind::Qualified(name) => {
+            if let Some(ConstNameResolution::Global(def_id)) = name.resolution()
+                && let Some(restriction) = env.global_value_restriction(def_id)
+            {
+                return Err(ConstError {
+                    span: expr.span,
+                    message: restriction.message().to_string(),
+                });
+            }
             if let Some(variant) = aggregates::early_enum_variant_id(name, env) {
                 ConstValue::Enum {
                     variant,
@@ -789,6 +825,10 @@ fn eval_const_expr_flow(
         EarlyConstExprKind::Binary { lhs, op, rhs } => {
             return binary::eval_binary_flow(expr.span, lhs, *op, rhs, env);
         }
+        EarlyConstExprKind::Discard(value) => match eval_const_expr_flow(value, env)? {
+            ConstEvalFlow::Value(_) => ConstValue::Tuple(Vec::new()),
+            flow => return Ok(flow),
+        },
         EarlyConstExprKind::Assign(assign) => {
             return assignment::eval_assign_expr_flow(expr.span, assign, env);
         }

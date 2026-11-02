@@ -24,7 +24,7 @@ type LocalTypeHints = HashMap<LocalId, (InternedTyId, Option<nia_ast::TypeRef>)>
 type ExpectedTypeHint<'a> = (Option<InternedTyId>, Option<&'a nia_ast::TypeRef>);
 
 #[derive(Default)]
-struct OmittedMaps {
+struct ConstructorMaps {
     aggregate_types: HashMap<VersionedNodeKey, InternedTyId>,
     omitted_members: HashMap<VersionedNodeKey, GlobalDefId>,
     omitted_associated_types: HashMap<VersionedNodeKey, InternedTyId>,
@@ -239,7 +239,7 @@ impl ConstModuleLowerer<'_> {
                     .as_ref()
                     .and_then(|ty| self.input.semantic_uses.node_type_use(&ty.node_key))
             });
-        let mut omitted_maps = OmittedMaps::default();
+        let mut omitted_maps = ConstructorMaps::default();
         let mut local_types = LocalTypeHints::new();
         for param in &function.params {
             let Some(local_id) = self.input.semantic_uses.node_local_def(&param.node_key) else {
@@ -266,10 +266,7 @@ impl ConstModuleLowerer<'_> {
         }
         let context = nia_const_ir::ResolvedConstLowerInputs::new(&semantic_uses)
             .with_symbols(self.input.symbols)
-            .with_omitted_constructor_maps(
-                &omitted_maps.aggregate_types,
-                &omitted_maps.omitted_members,
-            )
+            .with_constructor_maps(&omitted_maps.aggregate_types, &omitted_maps.omitted_members)
             .with_omitted_associated_types(&omitted_maps.omitted_associated_types);
         match nia_const_ir::lower_function_resolved_with_context(function.span, function, &context)
         {
@@ -298,7 +295,7 @@ impl ConstModuleLowerer<'_> {
         let mut allowed_locals = HashSet::new();
         self.collect_expr_locals(expr, &mut allowed_locals);
         let semantic_uses = self.semantic_uses_with_allowed_locals(&allowed_locals);
-        let mut maps = OmittedMaps::default();
+        let mut maps = ConstructorMaps::default();
         let mut local_types = LocalTypeHints::new();
         self.collect_expr_omitted_maps(
             expr,
@@ -309,7 +306,7 @@ impl ConstModuleLowerer<'_> {
         );
         let context = nia_const_ir::ResolvedConstLowerInputs::new(&semantic_uses)
             .with_symbols(self.input.symbols)
-            .with_omitted_constructor_maps(&maps.aggregate_types, &maps.omitted_members)
+            .with_constructor_maps(&maps.aggregate_types, &maps.omitted_members)
             .with_omitted_associated_types(&maps.omitted_associated_types);
         match nia_const_ir::lower_expr_resolved_with_context(expr, &context) {
             Ok(expr) => Some(expr),
@@ -324,7 +321,7 @@ impl ConstModuleLowerer<'_> {
         }
     }
 
-    fn omitted_constructor_maps(
+    fn constructor_maps(
         &self,
         expr: &Expr,
         expected_type: Option<InternedTyId>,
@@ -340,7 +337,29 @@ impl ConstModuleLowerer<'_> {
         {
             aggregate_types.insert(expr.node_key.clone(), expected_type);
         }
-        let enum_id = self.enum_def_for_type(expected_type, expected_ref);
+        if let nia_ast::ExprKind::QualifiedStructLiteral { target, .. } = &expr.kind
+            && let Some(ty) = self.qualified_aggregate_type(target)
+        {
+            aggregate_types.insert(expr.node_key.clone(), ty);
+        }
+        // An omitted constructor used as a callable is selected by its result
+        // type, while a constructor call is selected by the expression result.
+        let constructor_result = expected_type.and_then(|ty| match self.input.type_store.get(ty) {
+            Some(
+                TyKind::FunctionPointer { return_type, .. }
+                | TyKind::Callable { return_type, .. }
+                | TyKind::CallablePointee { return_type, .. },
+            ) if matches!(expr.kind, nia_ast::ExprKind::OmittedMember { .. }) => Some(*return_type),
+            _ => None,
+        });
+        let enum_id = self.enum_def_for_type(
+            constructor_result.or(expected_type),
+            if constructor_result.is_some() {
+                None
+            } else {
+                expected_ref
+            },
+        );
         let variant_for = |name: &nia_symbol::SymbolId| {
             let enum_id = enum_id?;
             self.enum_variant_by_name(enum_id, *name)
@@ -411,7 +430,7 @@ impl ConstModuleLowerer<'_> {
         block: &nia_ast::Block,
         return_type: Option<InternedTyId>,
         return_ref: Option<&nia_ast::TypeRef>,
-        maps: &mut OmittedMaps,
+        maps: &mut ConstructorMaps,
         local_types: &mut LocalTypeHints,
     ) {
         for stmt in &block.stmts {
@@ -439,7 +458,7 @@ impl ConstModuleLowerer<'_> {
         stmt: &nia_ast::Stmt,
         expr_expected: ExpectedTypeHint<'_>,
         return_expected: ExpectedTypeHint<'_>,
-        maps: &mut OmittedMaps,
+        maps: &mut ConstructorMaps,
         local_types: &mut LocalTypeHints,
     ) {
         match &stmt.kind {
@@ -546,11 +565,10 @@ impl ConstModuleLowerer<'_> {
         expr: &Expr,
         expected_type: Option<InternedTyId>,
         expected_ref: Option<&nia_ast::TypeRef>,
-        maps: &mut OmittedMaps,
+        maps: &mut ConstructorMaps,
         local_types: &mut LocalTypeHints,
     ) {
-        let (aggregates, members) =
-            self.omitted_constructor_maps(expr, expected_type, expected_ref);
+        let (aggregates, members) = self.constructor_maps(expr, expected_type, expected_ref);
         maps.aggregate_types.extend(aggregates);
         maps.omitted_members.extend(members);
         let associated = self.omitted_associated_maps(expr, expected_type, expected_ref);
@@ -639,6 +657,18 @@ impl ConstModuleLowerer<'_> {
                 self.collect_expr_omitted_maps(lhs, None, None, maps, local_types);
                 self.collect_expr_omitted_maps(rhs, None, None, maps, local_types);
             }
+            nia_ast::ExprKind::Unary {
+                op: nia_ast::UnaryOp::RefReadOnly,
+                expr: inner,
+            } if expected_type.is_some_and(|ty| {
+                matches!(
+                    self.input.type_store.get(ty),
+                    Some(TyKind::FunctionPointer { .. } | TyKind::Callable { .. })
+                )
+            }) =>
+            {
+                self.collect_expr_omitted_maps(inner, expected_type, None, maps, local_types);
+            }
             nia_ast::ExprKind::Unary { expr: inner, .. }
             | nia_ast::ExprKind::Try { expr: inner }
             | nia_ast::ExprKind::Cast { expr: inner, .. } => {
@@ -703,6 +733,10 @@ impl ConstModuleLowerer<'_> {
                 );
             }
             nia_ast::ExprKind::QualifiedStructLiteral { target, fields } => {
+                if let Some(ty) = self.qualified_aggregate_type(target) {
+                    self.collect_aggregate_field_omitted_maps(fields, Some(ty), maps, local_types);
+                    return;
+                }
                 self.collect_expr_omitted_maps(target, None, None, maps, local_types);
                 let field_types =
                     self.enum_variant_field_types(target, expected_type, expected_ref);
@@ -827,6 +861,10 @@ impl ConstModuleLowerer<'_> {
                     .and_then(|use_| match use_ {
                         SemanticValueUse::Local(local_id) => local_types.get(&local_id).cloned(),
                         SemanticValueUse::Global(_) => None,
+                    })
+                    .or_else(|| {
+                        self.expr_type_hint(&matched.target, local_types)
+                            .map(|ty| (ty, None))
                     });
                 for arm in &matched.arms {
                     for pattern in &arm.patterns {
@@ -891,7 +929,7 @@ impl ConstModuleLowerer<'_> {
         &self,
         fields: &[nia_ast::FieldInit],
         aggregate_type: Option<InternedTyId>,
-        maps: &mut OmittedMaps,
+        maps: &mut ConstructorMaps,
         local_types: &mut LocalTypeHints,
     ) {
         for field in fields {
@@ -899,6 +937,27 @@ impl ConstModuleLowerer<'_> {
                 aggregate_type.and_then(|ty| self.aggregate_field_type(ty, field.name));
             self.collect_expr_omitted_maps(&field.value, field_type, None, maps, local_types);
         }
+    }
+
+    /// A qualified brace constructor may name a type or an enum variant.
+    /// Use resolved type-prefix identity rather than treating both as values.
+    fn qualified_aggregate_type(&self, target: &Expr) -> Option<InternedTyId> {
+        if let Some(ty) = self.input.semantic_uses.node_type_use(&target.node_key) {
+            return Some(ty);
+        }
+        let def_id = self
+            .input
+            .semantic_uses
+            .node_type_prefix(&target.node_key)?;
+        self.input
+            .type_store
+            .append_for_module(self.input.defs.module_id)
+            .intern(TyKind::Nominal {
+                def_id,
+                args: Vec::new(),
+                const_args: Vec::new(),
+            })
+            .ok()
     }
 
     fn aggregate_field_type(
@@ -1130,6 +1189,27 @@ impl ConstModuleLowerer<'_> {
         let signatures = foreign_signatures
             .as_deref()
             .unwrap_or(self.input.signatures);
+        if let Some(enum_id) = signatures.enums.iter().find_map(|(id, signature)| {
+            signature
+                .variants
+                .iter()
+                .any(|variant| variant.def_id == global.def_id)
+                .then_some(*id)
+        }) {
+            return self
+                .input
+                .type_store
+                .append_for_module(self.input.defs.module_id)
+                .intern(TyKind::Nominal {
+                    def_id: GlobalDefId {
+                        module_id: global.module_id,
+                        def_id: enum_id,
+                    },
+                    args: Vec::new(),
+                    const_args: Vec::new(),
+                })
+                .ok();
+        }
         let signature = signatures.functions.get(&global.def_id)?;
         let (type_substitutions, const_substitutions) =
             self.explicit_call_substitutions(&signature.generic_params, bracket_args);
@@ -1514,7 +1594,12 @@ impl ConstModuleLowerer<'_> {
             nia_ast::ExprKind::TypedStructLiteral { ty, .. } => {
                 self.input.semantic_uses.node_type_use(&ty.node_key)
             }
-            nia_ast::ExprKind::Call { .. } => self.direct_call_return_type(expr, local_types),
+            nia_ast::ExprKind::QualifiedStructLiteral { target, .. } => {
+                self.qualified_aggregate_type(target)
+            }
+            nia_ast::ExprKind::Call { callee, .. } => {
+                self.direct_call_return_type(callee, local_types)
+            }
             _ => None,
         }
     }
@@ -1582,7 +1667,7 @@ impl ConstModuleLowerer<'_> {
         pattern: &nia_ast::Pattern,
         expected_type: Option<InternedTyId>,
         expected_ref: Option<&nia_ast::TypeRef>,
-        maps: &mut OmittedMaps,
+        maps: &mut ConstructorMaps,
         local_types: &mut LocalTypeHints,
     ) {
         match &pattern.kind {
@@ -1602,12 +1687,12 @@ impl ConstModuleLowerer<'_> {
                 fields,
             } => {
                 let (aggregates, members) =
-                    self.omitted_constructor_maps(constructor, expected_type, expected_ref);
+                    self.constructor_maps(constructor, expected_type, expected_ref);
                 maps.aggregate_types.extend(aggregates);
                 maps.omitted_members.extend(members);
                 if let Some(variant_id) =
                     self.pattern_variant_id(constructor, expected_type, expected_ref)
-                    && let Some(variant) = self.local_enum_variant_signature(variant_id)
+                    && let Some(variant) = self.enum_variant_signature(variant_id)
                 {
                     match (&variant.payload, fields) {
                         (
@@ -1738,19 +1823,24 @@ impl ConstModuleLowerer<'_> {
         })
     }
 
-    fn local_enum_variant_signature(
+    fn enum_variant_signature(
         &self,
         variant_id: GlobalDefId,
-    ) -> Option<&nia_item_signatures::EnumVariantSignature> {
-        if variant_id.module_id != self.input.defs.module_id {
+    ) -> Option<nia_item_signatures::EnumVariantSignature> {
+        let foreign_signatures = (variant_id.module_id != self.input.defs.module_id)
+            .then(|| (self.input.signatures_for_module?)(variant_id.module_id))
+            .flatten();
+        if variant_id.module_id != self.input.defs.module_id && foreign_signatures.is_none() {
             return None;
         }
-        self.input
-            .signatures
+        foreign_signatures
+            .as_deref()
+            .unwrap_or(self.input.signatures)
             .enums
             .values()
             .flat_map(|signature| signature.variants.iter())
             .find(|variant| variant.def_id == variant_id.def_id)
+            .cloned()
     }
 
     fn omitted_associated_maps(

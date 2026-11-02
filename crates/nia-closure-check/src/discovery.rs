@@ -267,8 +267,10 @@ fn collect_expr_closures<'a>(
         | TypedExprKind::FunctionInstance { .. }
         | TypedExprKind::BuiltinValue(_)
         | TypedExprKind::CallerLocation(_)
-        | TypedExprKind::Trap
-        | TypedExprKind::ClosureFunctionPointer { .. } => {}
+        | TypedExprKind::Trap => {}
+        TypedExprKind::ClosureFunctionPointer { closure, .. } => {
+            collect_expr_closures(closure, callables)
+        }
     }
 }
 
