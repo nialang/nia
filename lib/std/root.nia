@@ -3,10 +3,11 @@
 // Common value types and entry points are re-exported here for concise
 // `std::name` paths. Domain-specific APIs remain under their modules.
 //
-// Public submodule facades re-export supported APIs. Providers and internal
-// implementations stay package-private; `os` deliberately exposes its native
-// platform interfaces. Importing a facade does not itself select every
-// provider. Callback parameters are borrowed for the
+// Public submodule facades re-export supported APIs. Implementation namespaces
+// stay package-private; selected provider edges are published only for the
+// facade types that need them. `os` deliberately exposes its native platform
+// interfaces. Importing a facade does not itself select every provider.
+// Callback parameters are borrowed for the
 // duration of a call unless an API explicitly returns an owner such as
 // `mem::CallableAllocation`.
 
@@ -43,6 +44,17 @@ pub using cstring::{CString, CStringBuildError, CStringError, CStringView};
 pub using fs::{Path, PathView};
 pub using source::{SourceLocation, callerLocation};
 pub using string::{String, TextError, TextFormatError};
+
+// Root collection types are re-exported values, while their implementations
+// remain split across provider modules. Re-export those providers explicitly
+// so methods such as `HashMap::deinit` remain available through `using std`.
+pub using collections::array_list::list as array_list_provider;
+pub using collections::hash_map::map as hash_map_map_provider;
+pub using collections::hash_map::storage as hash_map_storage_provider;
+pub using collections::hash_set as hash_set_provider;
+pub using collections::tree_map::map as tree_map_map_provider;
+pub using collections::tree_map::storage as tree_map_storage_provider;
+pub using collections::tree_set as tree_set_provider;
 
 using root::iter::range;
 using root::hash;

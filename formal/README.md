@@ -57,7 +57,7 @@ must be added to the manifest and the model by hand.
 
 `ModuleVisibility.lean` models the source-visible extension set separately
 from trait implementation witnesses. Extension methods follow the caller's
-direct module imports, explicit `pub using` module re-exports, and provider
+direct module imports, explicit `pub using` module/provider re-exports, and provider
 demands recorded for that caller. Imports and provider demands belonging to an
 imported module do not become caller imports. Importing a nominal type does not
 implicitly import external extension providers; only members declared in the

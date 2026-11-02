@@ -273,6 +273,9 @@ fn visible_extension_provider_modules_follow_only_explicit_edges() {
     facade_surface
         .reexported_modules
         .insert(sym("implementation"), reexported);
+    facade_surface
+        .reexported_provider_modules
+        .push(facade_provider);
     let mut reexported_surface = nia_defs::ModulePublicSurface::new(reexported);
     reexported_surface
         .reexported_modules
@@ -295,11 +298,10 @@ fn visible_extension_provider_modules_follow_only_explicit_edges() {
         public_surfaces: &public_surfaces,
     });
 
-    let mut expected = vec![facade, reexported, nested, direct_provider];
+    let mut expected = vec![facade, reexported, nested, facade_provider, direct_provider];
     expected.sort();
     assert_eq!(modules, expected);
     assert!(!modules.contains(&private_import));
-    assert!(!modules.contains(&facade_provider));
 }
 
 #[test]

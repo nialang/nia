@@ -13,6 +13,11 @@ using root::collections::hash_map::iterators;
 using root::collections::hash_map::map;
 using root::collections::hash_map::storage;
 
+// Storage owns fallible teardown while map owns the public operations. Both
+// are part of HashMap's split provider surface.
+pub using map;
+pub using storage;
+
 pub using context::{DefaultHashMapContext, SipHashMapContext};
 pub using entries::{
     HashMapEntry,

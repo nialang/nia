@@ -3,6 +3,7 @@
     "root_module",
     "direct_using",
     "public_reexport",
+    "public_provider_reexport",
     "direct_provider_demand",
     "trait_provider_closure",
     "private_using_is_local",

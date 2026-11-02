@@ -58,6 +58,10 @@ pub struct ModulePublicSurface {
     /// modules so consumers can follow explicit re-exports without treating
     /// every public child namespace as an implicit import.
     pub reexported_modules: SymbolMap<ModuleId>,
+    /// Explicit `pub using` provider edges. These make extension members from
+    /// a split implementation module visible through a facade without
+    /// exporting that module's namespace when the provider is package-private.
+    pub reexported_provider_modules: Vec<ModuleId>,
     /// Exported values by name.
     pub values: SymbolMap<PublicItem>,
     /// Exported types by name.
@@ -71,6 +75,7 @@ impl ModulePublicSurface {
             module_id,
             modules: SymbolMap::default(),
             reexported_modules: SymbolMap::default(),
+            reexported_provider_modules: Vec::new(),
             values: SymbolMap::default(),
             types: SymbolMap::default(),
         }

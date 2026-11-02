@@ -27,6 +27,13 @@ using root::collections::hash_set;
 using root::collections::tree_map;
 using root::collections::tree_set;
 
+// Re-export split provider modules so collection methods remain available
+// through the collections facade while private imports stay module-local.
+pub using hash_map::map as hash_map_map;
+pub using hash_map::storage as hash_map_storage;
+pub using tree_map::map as tree_map_map;
+pub using tree_map::storage as tree_map_storage;
+
 pub using array_list::ArrayList;
 pub using hash_set::{HashSet, HashSetIter, HashSetIterWithContext, HashSetWithContext};
 pub using tree_map::{TreeMap, TreeMapEntry, TreeMapEntryMut, TreeMapEntryRef, TreeMapIter, TreeMapIterMut};

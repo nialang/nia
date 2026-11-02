@@ -376,6 +376,7 @@ fn extension_visibility_modules(
         }
         if let Some(surface) = context.public_surfaces.public_surface(module_id) {
             pending_modules.extend(surface.reexported_modules.values().copied());
+            pending_modules.extend(surface.reexported_provider_modules.iter().copied());
         }
     }
     visible.extend(
@@ -383,6 +384,16 @@ fn extension_visibility_modules(
             .graph
             .provider_dependencies(context.module_id, false),
     );
+    // The standard-library root is a public type facade. Its explicit
+    // provider re-exports apply to the public types reached through qualified
+    // `std::...` paths, even when the caller imports a sibling std module
+    // such as `std::mem`. The provider facts are still target-filtered during
+    // method lookup, so this does not import unrelated user extensions.
+    if let Some(std_root) = context.graph.package_root_module(&nia_symbol::known::STD)
+        && let Some(surface) = context.public_surfaces.public_surface(std_root)
+    {
+        visible.extend(surface.reexported_provider_modules.iter().copied());
+    }
     visible.remove(&context.module_id);
     let mut modules = visible.into_iter().collect::<Vec<_>>();
     modules.sort();

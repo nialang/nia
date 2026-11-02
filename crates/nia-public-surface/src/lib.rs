@@ -353,6 +353,17 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                     lexical_namespaces: None,
                 };
                 let expansion = expand_using(&context, defs, using, &local_modules);
+                // A public facade may intentionally publish an extension
+                // provider whose module namespace is package-private. Resolve
+                // the same directive in the local visible scope and retain
+                // only module entries as provider facts; item and namespace
+                // exports continue to use the public-only expansion below.
+                let provider_context = UsingExpansionContext {
+                    mode: UsingLookupMode::Visible,
+                    ..context
+                };
+                let provider_expansion =
+                    expand_using(&provider_context, defs, using, &local_modules);
                 iteration_unresolved += expansion
                     .failures
                     .iter()
@@ -362,6 +373,15 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                     .get(defs.module_id)
                     .cloned()
                     .unwrap_or_else(|| ModulePublicSurface::new(defs.module_id));
+                for entry in provider_expansion.entries {
+                    if let ResolvedEntryKind::Module(target_module) = entry.kind {
+                        if !surface.reexported_provider_modules.contains(&target_module) {
+                            surface.reexported_provider_modules.push(target_module);
+                            surface.reexported_provider_modules.sort();
+                            iteration_changed = true;
+                        }
+                    }
+                }
                 for entry in expansion.entries {
                     match entry.kind {
                         ResolvedEntryKind::Module(target_module) => {

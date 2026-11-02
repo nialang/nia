@@ -12,6 +12,10 @@ using root::collections::tree_map::map;
 using root::collections::tree_map::storage;
 using root::collections::tree_map::types;
 
+// The map and storage providers jointly define TreeMap's public operations.
+pub using map;
+pub using storage;
+
 pub using entries::{TreeMapEntry, TreeMapEntryMut, TreeMapEntryRef};
 pub using map::TreeMap;
 pub using types::{TreeMapIter, TreeMapIterMut};

@@ -31,6 +31,12 @@ pub(root) module targets;
 pub(root) module types;
 pub(root) module validation;
 
+// Build API values use the standard string and path views directly. Re-export
+// their provider modules so build scripts can use the facade's documented
+// view methods without inheriting private imports from implementation files.
+pub using root::string;
+pub using root::fs::path;
+
 using root::build::artifacts;
 using root::build::core;
 using root::build::error_format;
@@ -39,6 +45,23 @@ using root::build::plan;
 using root::build::probes;
 using root::build::step_registration;
 using root::build::targets;
+
+// Public build API providers are split across focused files. Re-export the
+// provider modules explicitly so associated constructors and methods remain
+// available through `using std::build` without inheriting their private
+// implementation imports.
+pub using commands;
+pub using artifacts;
+pub using core;
+pub using dependencies;
+pub using handles;
+pub using lifecycle;
+pub using modules;
+pub using paths;
+pub using plan;
+pub using step_registration;
+pub using steps;
+pub using targets;
 
 pub using error::{
     Error,
