@@ -2,6 +2,33 @@
 use super::common::*;
 
 #[test]
+fn closure_range_bounds_retain_context_until_inference_is_complete() {
+    for (range_type, expression) in [
+        ("i64..i64", "1..5"),
+        ("i64..=i64", "1..=5"),
+        ("i64..", "1.."),
+        ("..i64", "..5"),
+        ("..=i64", "..=5"),
+        ("..", ".."),
+        ("(i64..i64, bool)", "(1..5, true)"),
+        ("?(i64..i64)", "?(1..5)"),
+    ] {
+        let checked = pipeline(&format!(
+            "fun apply[F, T](callback: F) T where F: Fun() T {{ callback() }}\n\
+             fun main() {range_type} {{\n\
+                 let callback = \\-> {expression};\n\
+                 apply(callback)\n\
+             }}\n"
+        ));
+        assert!(
+            checked.diagnostics.is_empty(),
+            "{expression}: {:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
 fn checks_direct_calls_to_concrete_closure_values() {
     let checked = pipeline(
         r#"
@@ -1458,13 +1485,20 @@ fn diverging_branches_do_not_constrain_contextual_call_payloads_to_unit() {
         "match source() { ?value => value, null => { loop {} }, }",
         "match source() { ?value => value, null => stop(), }",
         "if source() is ?value { value } else { stop() }",
+        "match source() { ?value => value, null => stopWith[i32](1), }",
+        "match source() { ?value => value, null => Stopper {}.stop(), }",
+        "match source() { ?value => value, null => halt(), }",
     ] {
         let source = format!(
             r#"
 fun source[Value]() ?Value {{ null }}
 fun stop() never {{ loop {{}} }}
+fun stopWith[Value](value: Value) never {{ _ = value; loop {{}} }}
+struct Stopper {{}}
+extend Stopper {{ fun stop(self) never {{ loop {{}} }} }}
 fun consume(value: i64) i64 {{ value }}
 fun main() i32 {{
+    let halt: &fun() never = stop;
     let identity = \item -> item;
     let value = {body};
     _ = consume(identity(value));

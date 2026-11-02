@@ -565,14 +565,28 @@ impl<'a> BodyChecker<'a> {
         self.substitute_generics_and_consts(field.ty, &substitutions, &const_substitutions)
     }
 
-    pub(crate) fn supports_field_access(&mut self, ty: InternedTyId) -> bool {
+    pub(crate) fn has_named_field(&mut self, ty: InternedTyId, name: &SymbolId) -> bool {
         let Some((def_id, _, _)) = self.field_base_type(ty) else {
             return false;
         };
         if self.is_union_def(def_id) {
-            self.resolved_union_signature(def_id).is_some()
+            self.resolved_union_signature(def_id)
+                .is_some_and(|resolved| {
+                    resolved
+                        .signature
+                        .fields
+                        .iter()
+                        .any(|field| &field.name == name)
+                })
         } else {
-            self.resolved_struct_signature(def_id).is_some()
+            self.resolved_struct_signature(def_id)
+                .is_some_and(|resolved| {
+                    resolved
+                        .signature
+                        .fields
+                        .iter()
+                        .any(|field| &field.name == name)
+                })
         }
     }
 

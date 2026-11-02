@@ -617,10 +617,10 @@ impl<'a> BodyChecker<'a> {
             provider_demand_recorded = self.record_method_provider_demand(receiver_ty, *call.name);
             // Method lookup and field-call fallback are independent. A
             // nominal receiver can still expose a callable field even when
-            // no extension candidate is currently loaded, so provider
-            // discovery must not turn a provisional method miss into a
-            // diagnostic before the ordinary field checker gets a chance.
-            if !self.supports_field_access(receiver_ty) {
+            // no extension candidate is loaded. Fall back only if that field
+            // exists; otherwise a call miss belongs to method lookup rather
+            // than the field checker.
+            if !self.has_named_field(receiver_ty, call.name) {
                 let name = self.symbol_name(*call.name);
                 let receiver_name = self.ty_name(receiver_ty);
                 let summary = format!("unknown method `{name}`");
@@ -632,7 +632,7 @@ impl<'a> BodyChecker<'a> {
                         )
                         .note(format!("the receiver has type `{receiver_name}`"))
                         .help(format!(
-                            "check the method name, import a trait that provides `{name}`, or use a field access"
+                            "check the method name or use `using` to import the module that declares the extension method `{name}`"
                         ))
                         .finish(),
                 );

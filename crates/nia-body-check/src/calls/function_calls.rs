@@ -1600,6 +1600,25 @@ impl<'a> BodyChecker<'a> {
         let pattern = self.normalization.normalize(pattern);
         match (self.interner.get(pattern).cloned(), actual) {
             (_, InferredType::Unknown) => true,
+            (
+                Some(TyKind::Range {
+                    kind: pattern_kind,
+                    bound: pattern_bound,
+                }),
+                InferredType::Range {
+                    kind: actual_kind,
+                    bound: actual_bound,
+                },
+            ) => {
+                pattern_kind == *actual_kind
+                    && match (pattern_bound, actual_bound) {
+                        (Some(pattern), Some(actual)) => {
+                            self.generic_pattern_accepts_inferred_shape(pattern, actual)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
+            }
             (Some(TyKind::Tuple(patterns)), InferredType::Tuple(actuals)) => {
                 patterns.len() == actuals.len()
                     && patterns.iter().zip(actuals).all(|(pattern, actual)| {
@@ -2381,6 +2400,14 @@ impl<'a> BodyChecker<'a> {
         match inferred {
             InferredType::Unknown => None,
             InferredType::Known(ty) => Some(*ty),
+            InferredType::Range { kind, bound } => {
+                let bound = match bound {
+                    Some(bound) => Some(self.materialize_inferred_type(bound)?),
+                    None if *kind == nia_ty::RangeTyKind::Full => None,
+                    None => return None,
+                };
+                Some(self.interner.intern(TyKind::Range { kind: *kind, bound }))
+            }
             InferredType::Tuple(elems) => {
                 let elems = elems
                     .iter()
@@ -2426,6 +2453,23 @@ impl<'a> BodyChecker<'a> {
         }
         let pattern = self.normalization.normalize(pattern);
         match (self.interner.get(pattern).cloned(), actual) {
+            (
+                Some(TyKind::Range {
+                    kind: pattern_kind,
+                    bound: Some(pattern_bound),
+                }),
+                InferredType::Range {
+                    kind: actual_kind,
+                    bound: Some(actual_bound),
+                },
+            ) if pattern_kind == *actual_kind => {
+                self.infer_generics_from_inferred_type(
+                    pattern_bound,
+                    actual_bound,
+                    substitutions,
+                    span,
+                );
+            }
             (Some(TyKind::Tuple(patterns)), InferredType::Tuple(actuals))
                 if patterns.len() == actuals.len() =>
             {

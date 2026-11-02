@@ -696,6 +696,92 @@ impl<'a> BodyChecker<'a> {
                     return_type,
                 })
             }
+            Some(TyKind::ClosureState {
+                closure_id,
+                owner_instance,
+                captures,
+                params,
+                return_type,
+            }) => {
+                // Concrete callable values can retain associated projections
+                // from generic argument inference. Normalize their components
+                // just like callable views, including the instance identity,
+                // so the state signature and its body locals agree in BIR.
+                let captures = captures
+                    .into_iter()
+                    .map(|ty| self.normalize_projection_inner(ty, active_projections))
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|ty| self.normalize_projection_inner(ty, active_projections))
+                    .collect();
+                let return_type = self.normalize_projection_inner(return_type, active_projections);
+                let owner_instance = owner_instance.map(|owner| nia_ty::ClosureOwnerInstance {
+                    arg_module_id: owner.arg_module_id,
+                    self_arg: owner
+                        .self_arg
+                        .map(|ty| self.normalize_projection_inner(ty, active_projections)),
+                    args: owner
+                        .args
+                        .into_iter()
+                        .map(|ty| self.normalize_projection_inner(ty, active_projections))
+                        .collect(),
+                    const_args: owner
+                        .const_args
+                        .into_iter()
+                        .map(|mut arg| {
+                            arg.ty = self.normalize_projection_inner(arg.ty, active_projections);
+                            arg
+                        })
+                        .collect(),
+                });
+                self.interner.intern(TyKind::ClosureState {
+                    closure_id,
+                    owner_instance,
+                    captures,
+                    params,
+                    return_type,
+                })
+            }
+            Some(TyKind::FunctionItem {
+                def_id,
+                arg_module_id,
+                self_arg,
+                args,
+                const_args,
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let self_arg =
+                    self_arg.map(|ty| self.normalize_projection_inner(ty, active_projections));
+                let args = args
+                    .into_iter()
+                    .map(|ty| self.normalize_projection_inner(ty, active_projections))
+                    .collect();
+                let const_args = const_args
+                    .into_iter()
+                    .map(|mut arg| {
+                        arg.ty = self.normalize_projection_inner(arg.ty, active_projections);
+                        arg
+                    })
+                    .collect();
+                let params = params
+                    .into_iter()
+                    .map(|ty| self.normalize_projection_inner(ty, active_projections))
+                    .collect();
+                let return_type = self.normalize_projection_inner(return_type, active_projections);
+                self.interner.intern(TyKind::FunctionItem {
+                    def_id,
+                    arg_module_id,
+                    self_arg,
+                    args,
+                    const_args,
+                    params,
+                    return_type,
+                    is_variadic,
+                })
+            }
             Some(TyKind::Optional { elem }) => {
                 let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Optional { elem })
@@ -888,9 +974,7 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::GenericParam(_)
-                | TyKind::ClosureState { .. }
-                | TyKind::SelfParam
-                | TyKind::FunctionItem { .. },
+                | TyKind::SelfParam,
             )
             | None => ty,
         }

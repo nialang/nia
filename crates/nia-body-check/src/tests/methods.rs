@@ -2,6 +2,41 @@
 use super::common::*;
 
 #[test]
+fn missing_nominal_method_is_not_reported_as_a_field_access() {
+    for target in ["Thing", "&Thing", "&mut Thing", "Slot"] {
+        let checked = pipeline(&format!(
+            "struct Thing {{ value: i32 }}\n\
+             union Slot {{ value: i32 }}\n\
+             fun need(value: i32) i32 {{ value }}\n\
+             fun main(receiver: {target}) {{ receiver.missing(need(true)); }}\n"
+        ));
+        assert_eq!(
+            checked.diagnostics.len(),
+            2,
+            "{target}: {:?}",
+            checked.diagnostics
+        );
+        let method = checked
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.summary == "unknown method `missing`")
+            .expect("method diagnostic");
+        assert!(
+            method
+                .help
+                .iter()
+                .any(|help| help.contains("using") && help.contains("extension"))
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.summary.contains("expected i32, got bool"))
+        );
+    }
+}
+
+#[test]
 fn failed_bracket_base_preserves_type_readings_and_independent_value_errors() {
     for (expression, independent_errors) in [
         ("missing[i32](1)", 0),

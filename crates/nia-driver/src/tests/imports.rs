@@ -409,7 +409,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("unknown struct field `writeAll`")),
+            .contains("unknown method `writeAll`")),
         "{:?}",
         program.diagnostics
     );
@@ -440,13 +440,13 @@ fun reject(stdout: process::ChildStdout, stdin: process::ChildStdin, bytes: &mut
     assert!(
         summaries
             .iter()
-            .any(|summary| summary.contains("unknown struct field `write`")),
+            .any(|summary| summary.contains("unknown method `write`")),
         "{summaries:?}"
     );
     assert!(
         summaries
             .iter()
-            .any(|summary| summary.contains("unknown struct field `read`")),
+            .any(|summary| summary.contains("unknown method `read`")),
         "{summaries:?}"
     );
 }
@@ -1551,6 +1551,91 @@ fun main() usize {
 
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn iterator_method_inference_preserves_literal_range_bounds() {
+    for (name, imports, body) in [
+        ("range_count", "using std::iter;", "(1..5).iter().count()"),
+        (
+            "range_map",
+            "using std::iter;",
+            "(1..5).iter().map(\\value -> value * value).count()",
+        ),
+        (
+            "range_map_function_item",
+            "using std::iter;",
+            "(1..5).iter().map(projected[std::iter::Range[i32]]).count()",
+        ),
+        (
+            "slice_count",
+            "using std::iter;",
+            "let values: &[i32] = [1, 2]; values.iter().count()",
+        ),
+        (
+            "range_map_fold",
+            "using std::iter;",
+            "let squares = (1..5).iter().map(\\value -> value * value); squares.fold(0, \\total, value -> total + value) as usize",
+        ),
+        (
+            "range_position",
+            "using std::iter;",
+            "let found = (1..10).iter().position(\\value -> value * value > 20); if found is ?index { index } else { 0 }",
+        ),
+        (
+            "range_count_with_closure",
+            "using std::iter;",
+            "let unrelated = \\value -> value + 1; _ = unrelated(0); (1..5).iter().count()",
+        ),
+    ] {
+        let root = temp_dir(name);
+        write(
+            &root.join("main.nia"),
+            &format!(
+                "{imports}\n\
+                 fun projected[I](value: [I as Iterator]::Item) [I as Iterator]::Item\n\
+                 where I: Iterator {{ value }}\n\
+                 fun main() usize {{ {body} }}\n"
+            ),
+        );
+        let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
+        assert_no_error_diagnostics(&program.diagnostics);
+    }
+}
+
+#[test]
+fn iterator_consumers_require_the_extension_module_in_scope() {
+    for body in [
+        "(1..5).iter().count()",
+        "let values: &[i32] = [1, 2]; values.iter().count()",
+        "let unrelated = \\value -> value + 1; _ = unrelated(0); (1..5).iter().count()",
+    ] {
+        let root = temp_dir("iterator_consumers_require_extension_scope");
+        write(
+            &root.join("main.nia"),
+            &format!("fun main() usize {{ {body} }}\n"),
+        );
+        let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.diagnostic.severity() == nia_diagnostic::Severity::Error
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{body}: {:?}", program.diagnostics);
+        assert_eq!(
+            errors[0].diagnostic.summary, "unknown method `count`",
+            "{body}"
+        );
+        assert!(
+            errors[0]
+                .diagnostic
+                .help
+                .iter()
+                .any(|help| help.contains("using"))
+        );
+    }
 }
 
 #[test]
@@ -2795,7 +2880,7 @@ where T: Marker {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("unknown struct field `tag`")),
+            .contains("unknown method `tag`")),
         "{:?}",
         program.diagnostics
     );
@@ -3834,10 +3919,7 @@ fun main() i32 {
     );
     assert!(
         program.diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .diagnostic
-                .summary
-                .contains("unknown struct field")
+            diagnostic.diagnostic.summary.contains("unknown method")
                 || diagnostic.diagnostic.summary.contains("trait bound")
         }),
         "package-private trait witness must not be visible outside package: {:?}",

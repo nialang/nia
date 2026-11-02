@@ -88,6 +88,10 @@ pub(crate) enum InferredType {
     Unknown,
     Known(InternedTyId),
     Tuple(Vec<InferredType>),
+    Range {
+        kind: RangeTyKind,
+        bound: Option<Box<InferredType>>,
+    },
     Pointer {
         is_readonly: bool,
         elem: Box<InferredType>,
@@ -153,6 +157,12 @@ enum InferShape {
     Known(InternedTyId),
     NumericLiteral(NumericLiteralKind),
     Tuple(Vec<InferId>),
+    // `None` means a genuinely unbounded `..`, never an unresolved endpoint.
+    // Keep endpoint inference ids until they resolve, just like tuple leaves.
+    Range {
+        kind: RangeTyKind,
+        bound: Option<InferId>,
+    },
     Pointer {
         is_readonly: bool,
         elem: InferId,
@@ -450,6 +460,10 @@ impl FunctionInference {
                     .collect();
                 self.with_shape(InferShape::Tuple(elems))
             }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound.map(|bound| self.signature_term(checker, bound, generics));
+                self.with_shape(InferShape::Range { kind, bound })
+            }
             Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.signature_term(checker, elem, generics);
                 self.with_shape(InferShape::Pointer { is_readonly, elem })
@@ -579,6 +593,18 @@ impl FunctionInference {
             return None;
         };
         let callee_term = self.local_term(local);
+        if let Some(InferShape::Callable {
+            params,
+            return_type,
+        }) = self.expanded_shape(checker, callee_term)
+        {
+            return Some(CallSignatureTerms {
+                callable_bounds: vec![None; params.len()],
+                params,
+                return_type,
+                callee_uses_bound: false,
+            });
+        }
         let callee_ty = self.resolve(checker, callee_term)?;
         let (params, return_type) = checker.static_callable_bound(callee_ty)?;
         let callable_bounds = vec![None; params.len()];
@@ -654,8 +680,7 @@ impl FunctionInference {
             return None;
         }
         let signature = self.method_call_signature_terms(checker, lhs, name, receiver)?;
-        let result = expected.unwrap_or(signature.return_type);
-        self.unify(checker, result, signature.return_type);
+        let result = self.call_result(checker, signature.return_type, expected);
         for (index, (arg, param)) in args.iter().zip(signature.params).enumerate() {
             let callable_bound = signature
                 .callable_bounds
@@ -674,6 +699,27 @@ impl FunctionInference {
             }
         }
         Some(result)
+    }
+
+    /// Connect a call's produced value to its context without treating
+    /// divergence as a value equality. The callee keeps its actual `never`
+    /// signature, but a call that cannot return contributes no value-type
+    /// constraint to an enclosing branch, just like a diverging block.
+    fn call_result(
+        &mut self,
+        checker: &BodyChecker<'_>,
+        return_type: InferId,
+        expected: Option<InferId>,
+    ) -> InferId {
+        if self
+            .resolve(checker, return_type)
+            .is_some_and(|ty| checker.is_never(ty))
+        {
+            return expected.unwrap_or_else(|| self.fresh());
+        }
+        let result = expected.unwrap_or(return_type);
+        self.unify(checker, result, return_type);
+        result
     }
 
     /// Allocate an unconstrained equivalence-class representative.
@@ -737,6 +783,10 @@ impl FunctionInference {
             Some(TyKind::Tuple(elems)) => Some(InferShape::Tuple(
                 elems.into_iter().map(|elem| self.known(elem)).collect(),
             )),
+            Some(TyKind::Range { kind, bound }) => Some(InferShape::Range {
+                kind,
+                bound: bound.map(|bound| self.known(bound)),
+            }),
             Some(TyKind::Pointer { is_readonly, elem }) => Some(InferShape::Pointer {
                 is_readonly,
                 elem: self.known(elem),
@@ -837,6 +887,14 @@ impl FunctionInference {
         // Committing the outer equality first would erase that conflict and
         // let resolution publish a misleading composite type.
         let children_compatible = match (&left_shape, &right_shape) {
+            (
+                Some(InferShape::Range {
+                    bound: Some(left), ..
+                }),
+                Some(InferShape::Range {
+                    bound: Some(right), ..
+                }),
+            ) => self.unify_inner(checker, *left, *right),
             (Some(InferShape::Tuple(left)), Some(InferShape::Tuple(right))) => left
                 .iter()
                 .zip(right)
@@ -944,6 +1002,9 @@ impl FunctionInference {
                 Some(InferShape::Tuple(elements)) => elements
                     .into_iter()
                     .any(|element| visit(inference, checker, needle, element, visiting)),
+                Some(InferShape::Range { bound, .. }) => {
+                    bound.is_some_and(|bound| visit(inference, checker, needle, bound, visiting))
+                }
                 Some(InferShape::Pointer { elem, .. }) | Some(InferShape::Optional { elem }) => {
                     visit(inference, checker, needle, elem, visiting)
                 }
@@ -1002,6 +1063,16 @@ impl FunctionInference {
                 left.len() == right.len()
             }
             (
+                Some(InferShape::Range {
+                    kind: left_kind,
+                    bound: left_bound,
+                }),
+                Some(InferShape::Range {
+                    kind: right_kind,
+                    bound: right_bound,
+                }),
+            ) => left_kind == right_kind && left_bound.is_some() == right_bound.is_some(),
+            (
                 Some(InferShape::Pointer {
                     is_readonly: left, ..
                 }),
@@ -1030,6 +1101,14 @@ impl FunctionInference {
         match shape {
             InferShape::Known(ty) => Some(ty),
             InferShape::NumericLiteral(_) => None,
+            InferShape::Range { kind, bound } => {
+                let bound = match bound {
+                    Some(bound) => Some(self.resolve(checker, bound)?),
+                    None if kind == RangeTyKind::Full => None,
+                    None => return None,
+                };
+                Some(checker.interner.intern(TyKind::Range { kind, bound }))
+            }
             InferShape::Tuple(elems) => {
                 let elems = elems
                     .into_iter()
@@ -1072,6 +1151,10 @@ impl FunctionInference {
         match shape {
             InferShape::Known(ty) => InferredType::Known(ty),
             InferShape::NumericLiteral(_) => InferredType::Unknown,
+            InferShape::Range { kind, bound } => InferredType::Range {
+                kind,
+                bound: bound.map(|bound| Box::new(self.inferred_type(checker, bound))),
+            },
             InferShape::Tuple(elems) => InferredType::Tuple(
                 elems
                     .into_iter()
@@ -1432,11 +1515,10 @@ impl FunctionInference {
                 if let (Some(start), Some(end)) = (start, end) {
                     self.unify(checker, start, end);
                 }
-                let bound = start
-                    .and_then(|start| self.resolve(checker, start))
-                    .or_else(|| end.and_then(|end| self.resolve(checker, end)));
-                let ty = checker.interner.intern(TyKind::Range { kind, bound });
-                self.known(ty)
+                self.with_shape(InferShape::Range {
+                    kind,
+                    bound: start.or(end),
+                })
             }
             ExprKind::TypedStructLiteral { ty, fields } => {
                 for field in fields {
@@ -1640,8 +1722,7 @@ impl FunctionInference {
                     if let Some(signature) =
                         self.function_call_signature_terms(checker, generic_callee, Some(type_args))
                     {
-                        let result = expected.unwrap_or(signature.return_type);
-                        self.unify(checker, result, signature.return_type);
+                        let result = self.call_result(checker, signature.return_type, expected);
                         for (index, (arg, param)) in args.iter().zip(signature.params).enumerate() {
                             let callable_bound = signature
                                 .callable_bounds
@@ -1721,16 +1802,18 @@ impl FunctionInference {
                         .as_ref()
                         .map(|signature| signature.params.clone())
                         .unwrap_or_else(|| (0..args.len()).map(|_| self.fresh()).collect());
-                    let result = expected
-                        .or_else(|| {
-                            known_signature
-                                .as_ref()
-                                .map(|signature| signature.return_type)
-                        })
-                        .unwrap_or_else(|| self.fresh());
+                    // Preserve the connection to the instantiated return
+                    // even when context is available: generic leaves may be
+                    // shared with a callback bound.
+                    let result = known_signature
+                        .as_ref()
+                        .map(|signature| self.call_result(checker, signature.return_type, expected))
+                        .unwrap_or_else(|| expected.unwrap_or_else(|| self.fresh()));
                     let callable = self.with_shape(InferShape::Callable {
                         params: params.clone(),
-                        return_type: result,
+                        return_type: known_signature
+                            .as_ref()
+                            .map_or(result, |signature| signature.return_type),
                     });
                     let callee_term = self.constrain_expr(
                         checker,
