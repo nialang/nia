@@ -23,6 +23,7 @@ fn formal_visibility_manifest_matches_import_regression_groups() {
             vec![
                 "imports_public_extension_methods_through_explicit_reexport",
                 "public_module_reexports_scope_associated_extension_members",
+                "package_root_facade_provider_reexport_activates_for_a_sibling_import",
             ],
         ),
     ];
@@ -2753,6 +2754,42 @@ extend types::Point {
     pub fun len2(& self) i32 {
         4
     }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn package_root_facade_provider_reexport_activates_for_a_sibling_import() {
+    let root = temp_dir("package_root_facade_provider_reexport_activates_for_a_sibling_import");
+    write(
+        &root.join("main.nia"),
+        r#"
+module impls;
+module types;
+pub using root::types::Point;
+pub using root::impls;
+using root::types;
+
+fun main(p: root::Point) i32 {
+    p.len2()
+}
+"#,
+    );
+    write(
+        &root.join("types.nia"),
+        r#"pub struct Point { x: i32, y: i32 }"#,
+    );
+    write(
+        &root.join("impls.nia"),
+        r#"
+using root::types;
+
+extend types::Point {
+    pub fun len2(&self) i32 { 4 }
 }
 "#,
     );

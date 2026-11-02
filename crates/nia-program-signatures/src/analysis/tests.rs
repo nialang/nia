@@ -305,6 +305,83 @@ fn visible_extension_provider_modules_follow_only_explicit_edges() {
 }
 
 #[test]
+fn direct_import_activates_the_imported_package_facade_providers() {
+    let mut graph =
+        ModuleGraph::with_symbol_text(SourcePath::new("main.nia"), Arc::new(test_symbols()))
+            .expect("create module graph");
+    let entry = graph.entry();
+    let facade = intern_child(&mut graph, entry, "facade", nia_ids::Visibility::Public);
+    let provider = intern_child(&mut graph, entry, "provider", nia_ids::Visibility::Public);
+
+    let mut using_scope = ModuleUsingScope::default();
+    using_scope.modules.insert(sym("facade"), facade);
+
+    let mut root_surface = nia_defs::ModulePublicSurface::new(entry);
+    root_surface.reexported_provider_modules.push(provider);
+    let surfaces = HashMap::from([(entry, Arc::new(root_surface))]);
+    let public_surfaces = |module_id| surfaces.get(&module_id).cloned();
+
+    let modules = visible_extension_provider_modules(VisibleExtensionProviderModulesInput {
+        module_id: entry,
+        graph: &graph,
+        using_scope: &using_scope,
+        public_surfaces: &public_surfaces,
+    });
+
+    assert_eq!(modules, vec![facade, provider]);
+}
+
+#[test]
+fn package_facade_providers_do_not_activate_through_a_reexported_child() {
+    let mut graph =
+        ModuleGraph::with_symbol_text(SourcePath::new("main.nia"), Arc::new(test_symbols()))
+            .expect("create module graph");
+    let entry = graph.entry();
+    let facade = intern_child(&mut graph, entry, "facade", nia_ids::Visibility::Public);
+    let dep_root = graph
+        .intern_package_root(&sym("dep"), SourcePath::new("dep/root.nia"))
+        .expect("intern dependency package root");
+    let dep_facade = intern_child(&mut graph, dep_root, "facade", nia_ids::Visibility::Public);
+    let dep_provider = intern_child(
+        &mut graph,
+        dep_root,
+        "provider",
+        nia_ids::Visibility::Public,
+    );
+
+    let mut using_scope = ModuleUsingScope::default();
+    using_scope.modules.insert(sym("facade"), facade);
+
+    let mut facade_surface = nia_defs::ModulePublicSurface::new(facade);
+    facade_surface
+        .reexported_modules
+        .insert(sym("dep_facade"), dep_facade);
+    let mut dep_root_surface = nia_defs::ModulePublicSurface::new(dep_root);
+    dep_root_surface
+        .reexported_provider_modules
+        .push(dep_provider);
+    let surfaces = HashMap::from([
+        (facade, Arc::new(facade_surface)),
+        (dep_root, Arc::new(dep_root_surface)),
+    ]);
+    let public_surfaces = |module_id| surfaces.get(&module_id).cloned();
+
+    let modules = visible_extension_provider_modules(VisibleExtensionProviderModulesInput {
+        module_id: entry,
+        graph: &graph,
+        using_scope: &using_scope,
+        public_surfaces: &public_surfaces,
+    });
+
+    assert!(modules.contains(&facade));
+    assert!(modules.contains(&dep_facade));
+    assert!(
+        !modules.contains(&dep_provider),
+        "a dependency's package facade must be explicitly re-exported by the importing facade"
+    );
+}
+
+#[test]
 fn const_generic_supertrait_instances_require_exact_impl_arguments() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");

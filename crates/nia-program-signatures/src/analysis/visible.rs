@@ -364,12 +364,13 @@ fn extension_visibility_modules(
     context: &ExtensionVisibilityContext<'_>,
 ) -> Vec<nia_ids::ModuleId> {
     let mut visible = HashSet::from([context.module_id]);
-    let mut pending_modules = context
+    let direct_imports = context
         .using_scope
         .modules
         .values()
         .copied()
-        .collect::<VecDeque<_>>();
+        .collect::<Vec<_>>();
+    let mut pending_modules = direct_imports.iter().copied().collect::<VecDeque<_>>();
     while let Some(module_id) = pending_modules.pop_front() {
         if !visible.insert(module_id) {
             continue;
@@ -384,15 +385,23 @@ fn extension_visibility_modules(
             .graph
             .provider_dependencies(context.module_id, false),
     );
-    // The standard-library root is a public type facade. Its explicit
-    // provider re-exports apply to the public types reached through qualified
-    // `std::...` paths, even when the caller imports a sibling std module
-    // such as `std::mem`. The provider facts are still target-filtered during
-    // method lookup, so this does not import unrelated user extensions.
-    if let Some(std_root) = context.graph.package_root_module(&nia_symbol::known::STD)
-        && let Some(surface) = context.public_surfaces.public_surface(std_root)
-    {
-        visible.extend(surface.reexported_provider_modules.iter().copied());
+    // A package root is the namespace facade for every module in that
+    // package. A qualified type path such as `std::HashMap` can therefore
+    // reach a type re-exported by the root even when the source imports a
+    // sibling module (`std::mem` or `std::process`). Activate only the root
+    // facades of the caller's direct imports; following every reachable
+    // module would make a package's private re-exports leak across another
+    // facade. The root contributes provider edges only when it published them
+    // explicitly with `pub using`, preserving the same rule as an ordinary
+    // facade.
+    let package_roots = direct_imports
+        .into_iter()
+        .filter_map(|module| context.graph.current_package_root_module(module))
+        .collect::<HashSet<_>>();
+    for package_root in package_roots {
+        if let Some(surface) = context.public_surfaces.public_surface(package_root) {
+            visible.extend(surface.reexported_provider_modules.iter().copied());
+        }
     }
     visible.remove(&context.module_id);
     let mut modules = visible.into_iter().collect::<Vec<_>>();

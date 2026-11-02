@@ -57,14 +57,15 @@ must be added to the manifest and the model by hand.
 
 `ModuleVisibility.lean` models the source-visible extension set separately
 from trait implementation witnesses. Extension methods follow the caller's
-direct module imports, explicit `pub using` module/provider re-exports, and provider
+direct module imports, explicit `pub using` module/provider re-exports, provider
+edges published by the facade of a directly imported package, and provider
 demands recorded for that caller. Imports and provider demands belonging to an
 imported module do not become caller imports. Importing a nominal type does not
 implicitly import external extension providers; only members declared in the
 nominal type's owner module use the separate nominal-owner lookup. Trait
 witnesses remain a transitive closure of their own provider edges. The model
 proves these sets have distinct propagation rules and that public re-exports are
-followed transitively.
+followed transitively without hard-coding a package such as `std`.
 
 [`NiaFormal/visibility_matrix.json`](NiaFormal/visibility_matrix.json) lists
 the modeled rules and the driver cases that exercise import leakage,

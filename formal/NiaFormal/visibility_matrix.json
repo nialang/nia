@@ -4,6 +4,7 @@
     "direct_using",
     "public_reexport",
     "public_provider_reexport",
+    "package_facade_provider_reexport",
     "direct_provider_demand",
     "trait_provider_closure",
     "private_using_is_local",
@@ -22,6 +23,7 @@
   ],
   "public_reexport_cases": [
     "imports_public_extension_methods_through_explicit_reexport",
-    "public_module_reexports_scope_associated_extension_members"
+    "public_module_reexports_scope_associated_extension_members",
+    "package_root_facade_provider_reexport_activates_for_a_sibling_import"
   ]
 }

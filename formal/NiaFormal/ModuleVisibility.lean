@@ -11,6 +11,8 @@ structure Input where
   directImports : List Nat
   publicReexports : List (Prod Nat Nat)
   publicProviderReexports : List (Prod Nat Nat)
+  packageRootImports : List (Prod Nat Nat)
+  packageFacadeProviderReexports : List (Prod Nat Nat)
   privateUsings : List (Prod Nat Nat)
   typeImports : List Nat
   directExtensionProviders : List Nat
@@ -31,6 +33,10 @@ def extensionModuleVisible (input : Input) (module : Nat) : Prop :=
   module = input.root \/
     ReexportReachable input.directImports input.publicReexports module \/
     ReexportReachable input.directImports input.publicProviderReexports module \/
+    (∃ imported root,
+      List.Mem imported input.directImports ∧
+      List.Mem (imported, root) input.packageRootImports ∧
+      List.Mem (root, module) input.packageFacadeProviderReexports) \/
     List.Mem module input.directExtensionProviders
 
 inductive TraitWitnessReachable (edges : List (Prod Nat Nat)) : Nat -> Nat -> Prop where
@@ -49,6 +55,7 @@ inductive VisibilityRule where
   | directUsing
   | publicReexport
   | publicProviderReexport
+  | packageFacadeProviderReexport
   | directProviderDemand
   | traitProviderClosure
   | privateUsingIsLocal
@@ -62,6 +69,7 @@ def VisibilityRule.name : VisibilityRule -> String
   | .directUsing => "direct_using"
   | .publicReexport => "public_reexport"
   | .publicProviderReexport => "public_provider_reexport"
+  | .packageFacadeProviderReexport => "package_facade_provider_reexport"
   | .directProviderDemand => "direct_provider_demand"
   | .traitProviderClosure => "trait_provider_closure"
   | .privateUsingIsLocal => "private_using_is_local"
@@ -71,6 +79,7 @@ def VisibilityRule.name : VisibilityRule -> String
 
 def allVisibilityRules : List VisibilityRule := [
   .rootModule, .directUsing, .publicReexport, .publicProviderReexport,
+  .packageFacadeProviderReexport,
   .directProviderDemand, .traitProviderClosure, .privateUsingIsLocal,
   .providerDemandsAreModuleLocal,
   .typeImportDoesNotImportExtensionProvider, .separateExtensionAndTraitClosures
@@ -105,7 +114,8 @@ theorem public_reexport_chain_is_visible (input : Input)
 
 theorem direct_provider_demand_is_visible (input : Input) (module : Nat)
     (h : List.Mem module input.directExtensionProviders) :
-    extensionModuleVisible input module := by exact Or.inr (Or.inr (Or.inr h))
+    extensionModuleVisible input module := by
+  exact Or.inr (Or.inr (Or.inr (Or.inr h)))
 
 theorem direct_public_provider_reexport_is_visible (input : Input)
     (parent provider : Nat)
@@ -113,6 +123,14 @@ theorem direct_public_provider_reexport_is_visible (input : Input)
     (hedge : List.Mem (parent, provider) input.publicProviderReexports) :
     extensionModuleVisible input provider := by
   exact Or.inr (Or.inr (Or.inl (.reexport (.direct hparent) hedge)))
+
+theorem package_facade_provider_reexport_is_visible (input : Input)
+    (imported root provider : Nat)
+    (himport : List.Mem imported input.directImports)
+    (hroot : List.Mem (imported, root) input.packageRootImports)
+    (hedge : List.Mem (root, provider) input.packageFacadeProviderReexports) :
+    extensionModuleVisible input provider := by
+  exact Or.inr (Or.inr (Or.inr (Or.inl ⟨imported, root, himport, hroot, hedge⟩)))
 
 theorem private_using_edges_do_not_change_extension_visibility
     (input : Input) (privateUsings : List (Prod Nat Nat)) (module : Nat) :
