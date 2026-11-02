@@ -52,6 +52,12 @@ pub struct ModulePublicSurface {
     pub module_id: ModuleId,
     /// Exported child modules by name.
     pub modules: SymbolMap<ModuleId>,
+    /// Module targets introduced by this module's public `using` directives.
+    ///
+    /// This is a subset of `modules`, kept separate from declared public child
+    /// modules so consumers can follow explicit re-exports without treating
+    /// every public child namespace as an implicit import.
+    pub reexported_modules: SymbolMap<ModuleId>,
     /// Exported values by name.
     pub values: SymbolMap<PublicItem>,
     /// Exported types by name.
@@ -64,6 +70,7 @@ impl ModulePublicSurface {
         Self {
             module_id,
             modules: SymbolMap::default(),
+            reexported_modules: SymbolMap::default(),
             values: SymbolMap::default(),
             types: SymbolMap::default(),
         }

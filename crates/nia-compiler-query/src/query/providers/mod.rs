@@ -8,8 +8,8 @@ use nia_executable_reachability::{
     filter_semantic_facts_for_reachable_items,
 };
 use nia_program_signatures::{
-    ProgramNonFunctionSignatureMaps, ProgramSignatureContext, ProgramSignatureResolvers,
-    ProgramTraitMethodIndex,
+    ProgramNonFunctionSignatureMaps, ProgramPublicSurfaceResolver, ProgramSignatureContext,
+    ProgramSignatureResolvers, ProgramTraitMethodIndex,
 };
 use nia_symbol::SymbolId;
 use std::cell::RefCell;
@@ -169,6 +169,12 @@ impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
         .clone();
         self.types.borrow_mut().insert(key, item.clone());
         item
+    }
+}
+
+impl ProgramPublicSurfaceResolver for QueryPublicSurfaceLookup<'_> {
+    fn public_surface(&self, module_id: ModuleId) -> Option<Arc<ModulePublicSurface>> {
+        PublicSurfaceLookup::public_surface(self, module_id)
     }
 }
 
@@ -547,22 +553,6 @@ pub(super) struct CompilerQueryProviders {
             &QueryDb<CompilerContext>,
             ModuleId,
         ) -> QueryResult<ExtensionProviderValidationFactsValue>,
-    pub(super) extension_provider_nominal_module_facts:
-        fn(
-            &QueryDb<CompilerContext>,
-            ModuleId,
-        ) -> QueryResult<ExtensionProviderNominalModuleFactsValue>,
-    pub(super) extension_provider_nominal_candidate_modules:
-        fn(
-            &QueryDb<CompilerContext>,
-            ExtensionProviderNominalTargetNames,
-        ) -> QueryResult<ExtensionProviderNominalCandidateModulesValue>,
-    pub(super) extension_provider_nominal_modules_for_targets:
-        fn(
-            &QueryDb<CompilerContext>,
-            ExtensionProviderNominalTargets,
-            ModuleId,
-        ) -> QueryResult<ExtensionProviderNominalModulesForTargetsValue>,
     pub(super) extension_method_index:
         fn(&QueryDb<CompilerContext>) -> QueryResult<ExtensionMethodIndexValue>,
     pub(super) extension_methods_named:
@@ -659,12 +649,6 @@ impl Default for CompilerQueryProviders {
             program_abi_signatures: provide_program_abi_signatures,
             extension_provider_module_facts: provide_extension_provider_module_facts,
             extension_provider_validation_facts: provide_extension_provider_validation_facts,
-            extension_provider_nominal_module_facts:
-                provide_extension_provider_nominal_module_facts,
-            extension_provider_nominal_candidate_modules:
-                provide_extension_provider_nominal_candidate_modules,
-            extension_provider_nominal_modules_for_targets:
-                provide_extension_provider_nominal_modules_for_targets,
             extension_method_index: provide_extension_method_index,
             extension_methods_named: provide_extension_methods_named,
             extension_method_by_id: provide_extension_method_by_id,

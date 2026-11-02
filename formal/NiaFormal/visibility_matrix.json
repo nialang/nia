@@ -1,0 +1,26 @@
+{
+  "rules": [
+    "root_module",
+    "direct_using",
+    "public_reexport",
+    "direct_provider_demand",
+    "trait_provider_closure",
+    "private_using_is_local",
+    "provider_demands_are_module_local",
+    "type_import_does_not_import_extension_provider",
+    "separate_extension_and_trait_closures"
+  ],
+  "runtime_cases": [
+    "io_import_without_use",
+    "io_import_with_io_use",
+    "process_import_with_init_use",
+    "explicit_iter_import_with_io_use"
+  ],
+  "nominal_type_cases": [
+    "importing_a_nominal_type_does_not_import_its_external_extension_provider"
+  ],
+  "public_reexport_cases": [
+    "imports_public_extension_methods_through_explicit_reexport",
+    "public_module_reexports_scope_associated_extension_members"
+  ]
+}

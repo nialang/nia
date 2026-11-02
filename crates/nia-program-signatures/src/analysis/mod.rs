@@ -9,7 +9,7 @@ use nia_defs::{
 use nia_diagnostic::{Diagnostic, DiagnosticBuilder, codes};
 use nia_ids::{
     BuiltinAssociatedType, BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId,
-    ReceiverKind, TraitImplId, Visibility,
+    ReceiverKind, TraitImplId,
 };
 use nia_item_signatures::{
     FunctionSignature, GenericParamSignature, GenericParamSignatureKind, ItemSignatures,
@@ -39,17 +39,6 @@ use facts::collect_program_trait_impls;
 pub use facts::*;
 use types::*;
 pub use visible::*;
-
-/// A module that can provide inherent extensions for a nominal target.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NominalExtensionProviderEntry {
-    /// Nominal type definition receiving the extension.
-    pub target: GlobalDefId,
-    /// Module containing the extension declaration.
-    pub module_id: nia_ids::ModuleId,
-    /// Visibility of the extension member.
-    pub visibility: Visibility,
-}
 
 /// Minimal module inputs used to qualify item signatures with global ids.
 pub struct ModuleSignatureInput<'a> {
@@ -629,58 +618,6 @@ pub fn collect_extension_method_index_for_module(
         }
     }
     extensions
-}
-
-/// Collects nominal targets that can provide visible extensions.
-pub fn collect_nominal_extension_providers_for_module(
-    module: &ExtensionMethodIndexModuleInput<'_>,
-    trait_defs: &HashSet<GlobalDefId>,
-) -> Vec<NominalExtensionProviderEntry> {
-    let mut providers = Vec::new();
-    for impl_signature in &module.signatures.trait_impls {
-        let target_ty = module.normalization.normalize(impl_signature.target_ty);
-        if !is_extendable_target(module.type_store, target_ty) {
-            continue;
-        }
-        let Some(target) = nominal_target_def_id(module.type_store, target_ty) else {
-            continue;
-        };
-        let trait_id = impl_trait_id_for_index(module, impl_signature, trait_defs);
-        if trait_id.is_none() {
-            providers.extend(impl_signature.methods.iter().map(|method| {
-                NominalExtensionProviderEntry {
-                    target,
-                    module_id: module.module_id,
-                    visibility: method.visibility,
-                }
-            }));
-        }
-        providers.extend(impl_signature.associated_values.iter().map(|value| {
-            NominalExtensionProviderEntry {
-                target,
-                module_id: module.module_id,
-                visibility: value.visibility,
-            }
-        }));
-    }
-    providers.sort_by_key(|provider| {
-        (
-            provider.target,
-            provider.module_id,
-            visibility_rank(provider.visibility),
-        )
-    });
-    providers.dedup();
-    providers
-}
-
-fn visibility_rank(visibility: Visibility) -> u8 {
-    match visibility {
-        Visibility::Private => 0,
-        Visibility::PublicSuper => 1,
-        Visibility::PublicRoot => 2,
-        Visibility::Public => 3,
-    }
 }
 
 fn normalize_where_predicates(

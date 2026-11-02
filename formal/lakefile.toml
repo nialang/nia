@@ -8,6 +8,11 @@ name = "valueInferenceMatrix"
 path = "NiaFormal/value_inference_matrix.json"
 text = true
 
+[[input_file]]
+name = "moduleVisibilityMatrix"
+path = "NiaFormal/visibility_matrix.json"
+text = true
+
 [[lean_lib]]
 name = "NiaFormal"
-needs = ["valueInferenceMatrix"]
+needs = ["valueInferenceMatrix", "moduleVisibilityMatrix"]

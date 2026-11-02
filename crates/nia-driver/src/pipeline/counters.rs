@@ -316,10 +316,6 @@ pub(super) fn emit_compilation_counters(
             "extension_provider_module_facts",
         ),
         (
-            "query.executions.extension_provider_nominal_module_facts",
-            "extension_provider_nominal_module_facts",
-        ),
-        (
             "query.executions.extension_provider_validation_facts",
             "extension_provider_validation_facts",
         ),

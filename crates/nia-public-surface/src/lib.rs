@@ -365,11 +365,15 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                 for entry in expansion.entries {
                     match entry.kind {
                         ResolvedEntryKind::Module(target_module) => {
-                            if surface.modules.contains_key(&entry.name) {
+                            if let Some(existing) = surface.modules.get(&entry.name).copied() {
+                                if existing == target_module {
+                                    surface.reexported_modules.insert(entry.name, target_module);
+                                }
                                 continue;
                             }
                             iteration_changed = true;
                             surface.modules.insert(entry.name, target_module);
+                            surface.reexported_modules.insert(entry.name, target_module);
                         }
                         ResolvedEntryKind::Item(item) => {
                             if entry_already_present(&surface, &entry.name, item.namespace) {

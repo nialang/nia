@@ -37,10 +37,9 @@ use nia_program_signatures::{
     ExtensionMethodIndexModuleInput, ExtensionMethodValidationInput, ExtensionModuleInput,
     ExtensionTraitSignatureIndex, ModuleProgramSignatureFacts, ModuleSignatureInput,
     VisibleExtensionsForModule, VisibleExtensionsInput, VisibleTraitImplsForModule,
-    VisibleTypeSignatures, collect_extension_associated_value_index_for_module,
+    collect_extension_associated_value_index_for_module,
     collect_extension_method_diagnostics_for_module, collect_extension_method_index_for_module,
-    collect_nominal_extension_providers_for_module, visible_extensions_for_module,
-    visible_trait_impls_for_module,
+    visible_extensions_for_module, visible_trait_impls_for_module,
 };
 use nia_public_surface::{
     TypeExposureIndex, compute_exported_public_surfaces_with_symbols,
@@ -126,12 +125,7 @@ use types::*;
 
 type ExtensionProviderModuleFactsValue = ExtensionProviderModuleFactsQueryValue;
 type ExtensionProviderValidationFactsValue = ExtensionProviderValidationFactsQueryValue;
-type ExtensionProviderNominalModuleFactsValue = ExtensionProviderNominalModuleFactsQueryValue;
 type ExtensionProviderDiscoveryIndexValue = ExtensionProviderDiscoveryIndexQueryValue;
-type ExtensionProviderNominalCandidateModulesValue =
-    ExtensionProviderNominalCandidateModulesQueryValue;
-type ExtensionProviderNominalModulesForTargetsValue =
-    ExtensionProviderNominalModulesForTargetsQueryValue;
 type TypeExposureIndexValue = TypeExposureIndex;
 type ExtensionMethodIndexValue = ExtensionMethodIndexQueryValue;
 type ExtensionMethodsNamedValue = ExtensionMethodsNamedQueryValue;

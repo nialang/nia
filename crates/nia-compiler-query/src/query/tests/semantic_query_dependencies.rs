@@ -94,11 +94,6 @@ helper::value()
         "value_resolution",
         "visible_extensions"
     ));
-    assert!(!trace_has_dependency(
-        &trace,
-        "value_resolution",
-        "extension_provider_nominal_modules"
-    ));
 }
 
 #[test]

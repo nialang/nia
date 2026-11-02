@@ -15,6 +15,7 @@ toolchain is pinned in [`lean-toolchain`](lean-toolchain).
 | Module | Contract | Compiler test |
 | --- | --- | --- |
 | [`NiaFormal/ValueInference.lean`](NiaFormal/ValueInference.lean) | Contextual typing of value construction | [`value_inference_matrix.rs`](../crates/nia-driver/src/tests/value_inference_matrix.rs) |
+| [`NiaFormal/ModuleVisibility.lean`](NiaFormal/ModuleVisibility.lean) | Explicit extension visibility and separate trait-witness closure | [`imports.rs`](../crates/nia-driver/src/tests/imports.rs) |
 
 ### Value construction inference
 
@@ -51,6 +52,27 @@ cases. The links are:
 The third link does not reach the manifest: nothing checks that
 `ast_expression_forms` names exactly the `ExprKind` variants, so a new variant
 must be added to the manifest and the model by hand.
+
+### Module visibility
+
+`ModuleVisibility.lean` models the source-visible extension set separately
+from trait implementation witnesses. Extension methods follow the caller's
+direct module imports, explicit `pub using` module re-exports, and provider
+demands recorded for that caller. Imports and provider demands belonging to an
+imported module do not become caller imports. Importing a nominal type does not
+implicitly import external extension providers; only members declared in the
+nominal type's owner module use the separate nominal-owner lookup. Trait
+witnesses remain a transitive closure of their own provider edges. The model
+proves these sets have distinct propagation rules and that public re-exports are
+followed transitively.
+
+[`NiaFormal/visibility_matrix.json`](NiaFormal/visibility_matrix.json) lists
+the modeled rules and the driver cases that exercise import leakage,
+nominal-type imports, and explicit re-exports. The Lean build checks the rule
+inventory; the driver tests read the same JSON and check that their cases match
+the manifest. This still does not prove
+the Rust loader and query implementation correct, so the end-to-end cases are
+required alongside the model.
 
 ## Building
 

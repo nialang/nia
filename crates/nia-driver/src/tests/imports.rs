@@ -7,6 +7,39 @@ use nia_span::Span;
 use std::collections::BTreeSet;
 use std::{fs, path::Path, sync::Arc};
 
+const VISIBILITY_MATRIX: &str = include_str!("../../../../formal/NiaFormal/visibility_matrix.json");
+
+#[test]
+fn formal_visibility_manifest_matches_import_regression_groups() {
+    let matrix: serde_json::Value =
+        serde_json::from_str(VISIBILITY_MATRIX).expect("formal visibility matrix is valid JSON");
+    let expected = [
+        (
+            "nominal_type_cases",
+            vec!["importing_a_nominal_type_does_not_import_its_external_extension_provider"],
+        ),
+        (
+            "public_reexport_cases",
+            vec![
+                "imports_public_extension_methods_through_explicit_reexport",
+                "public_module_reexports_scope_associated_extension_members",
+            ],
+        ),
+    ];
+    for (group, expected_cases) in expected {
+        let actual = matrix[group]
+            .as_array()
+            .unwrap_or_else(|| panic!("visibility matrix has `{group}` cases"))
+            .iter()
+            .map(|case| case.as_str().expect("case names are strings"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            actual, expected_cases,
+            "formal visibility case group `{group}`"
+        );
+    }
+}
+
 trait TestModulePath {
     fn path(&self) -> &SourcePath;
 }
@@ -1639,6 +1672,91 @@ fn iterator_consumers_require_the_extension_module_in_scope() {
 }
 
 #[test]
+fn imported_modules_do_not_leak_their_private_extension_imports() {
+    let cases = [
+        (
+            "io_import_without_use",
+            "using std::io;\n",
+            "(1..5).iter().count()",
+            false,
+        ),
+        (
+            "io_import_with_io_use",
+            "using std::io;\n",
+            "_ = io::debugPrint(\"hello\", []); (1..5).iter().count()",
+            false,
+        ),
+        (
+            "process_import_with_init_use",
+            "using std::process;\n",
+            "_ = init; (1..5).iter().count()",
+            false,
+        ),
+        (
+            "explicit_iter_import_with_io_use",
+            "using std::io;\nusing std::iter;\n",
+            "_ = io::debugPrint(\"hello\", []); (1..5).iter().count()",
+            true,
+        ),
+    ];
+
+    let matrix: serde_json::Value =
+        serde_json::from_str(VISIBILITY_MATRIX).expect("formal visibility matrix is valid JSON");
+    let manifest_cases = matrix["runtime_cases"]
+        .as_array()
+        .expect("visibility matrix lists runtime cases")
+        .iter()
+        .map(|case| case.as_str().expect("case names are strings"))
+        .collect::<Vec<_>>();
+    let test_cases = cases
+        .iter()
+        .map(|(name, _, _, _)| *name)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        test_cases, manifest_cases,
+        "runtime cases and formal visibility manifest must cover the same matrix"
+    );
+
+    for (name, imports, body, should_succeed) in cases {
+        let root = temp_dir(name);
+        let parameters = if name == "process_import_with_init_use" {
+            "init: process::Init"
+        } else {
+            ""
+        };
+        write(
+            &root.join("main.nia"),
+            &format!("{imports}fun main({parameters}) usize {{ {body} }}\n"),
+        );
+
+        let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
+        if should_succeed {
+            assert_no_error_diagnostics(&program.diagnostics);
+            continue;
+        }
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.diagnostic.severity() == nia_diagnostic::Severity::Error
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{name}: {:?}", program.diagnostics);
+        assert_eq!(
+            errors[0].diagnostic.summary, "unknown method `count`",
+            "{name}"
+        );
+        assert!(
+            errors[0]
+                .diagnostic
+                .help
+                .iter()
+                .any(|help| help.contains("using"))
+        );
+    }
+}
+
+#[test]
 fn std_facade_exposes_iter_range_types_under_iter_namespace() {
     let root = temp_dir("std_facade_exposes_iter_range_types_under_iter_namespace");
     write(
@@ -2522,8 +2640,47 @@ fun main() u128 {
 }
 
 #[test]
-fn imports_public_extension_methods_through_import_closure() {
-    let root = temp_dir("imports_public_extension_methods_through_import_closure");
+fn imports_public_extension_methods_through_explicit_reexport() {
+    let root = temp_dir("imports_public_extension_methods_through_explicit_reexport");
+    write(
+        &root.join("main.nia"),
+        r#"
+module point_ext;
+module math;
+module facade;
+using root::math;
+using root::facade;
+
+fun main(p: math::Point) i32 {
+    p.len2()
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"pub struct Point { x: i32, y: i32 }"#,
+    );
+    write(&root.join("facade.nia"), r#"pub using root::point_ext;"#);
+    write(
+        &root.join("point_ext.nia"),
+        r#"
+using root::math;
+
+extend math::Point {
+    pub fun len2(& self) i32 {
+        4
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn does_not_import_private_extension_methods_from_an_imported_module() {
+    let root = temp_dir("does_not_import_private_extension_methods_from_an_imported_module");
     write(
         &root.join("main.nia"),
         r#"
@@ -2549,20 +2706,25 @@ fun main(p: math::Point) i32 {
 using root::math;
 
 extend math::Point {
-    pub fun len2(& self) i32 {
-        4
-    }
+    pub fun len2(&self) i32 { 4 }
 }
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert_no_error_diagnostics(&program.diagnostics);
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.diagnostic.summary == "unknown method `len2`" }),
+        "private imported-module using leaked an extension method: {:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
-fn facade_reexported_type_exposes_public_inherent_extension_methods() {
-    let root = temp_dir("facade_reexported_type_exposes_public_inherent_extension_methods");
+fn facade_reexported_type_uses_an_explicit_extension_provider_import() {
+    let root = temp_dir("facade_reexported_type_uses_an_explicit_extension_provider_import");
     write(
         &root.join("main.nia"),
         r#"
@@ -2570,6 +2732,7 @@ module facade;
 module impls;
 module types;
 using root::facade;
+using root::impls;
 
 fun main(p: facade::Point) i32 {
     p.len2()
@@ -2596,6 +2759,47 @@ extend types::Point {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program.diagnostics);
+}
+
+#[test]
+fn importing_a_nominal_type_does_not_import_its_external_extension_provider() {
+    let root = temp_dir("nominal_type_import_does_not_import_external_extension_provider");
+    write(
+        &root.join("main.nia"),
+        r#"
+module impls;
+module types;
+using root::types;
+
+fun main(p: types::Point) i32 {
+    p.len2()
+}
+"#,
+    );
+    write(
+        &root.join("types.nia"),
+        r#"pub struct Point { x: i32, y: i32 }"#,
+    );
+    write(
+        &root.join("impls.nia"),
+        r#"
+using root::types;
+
+extend types::Point {
+    pub fun len2(&self) i32 { 4 }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.diagnostic.summary == "unknown method `len2`" }),
+        "importing only the nominal type exposed an external extension provider: {:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
@@ -2674,6 +2878,7 @@ module facade;
 module impls;
 module types;
 using root::facade;
+using root::impls;
 
 fun main() usize {
     let mut bag = facade::Bag[i32]::init();
@@ -2724,6 +2929,7 @@ module facade;
 module impls;
 module types;
 using root::facade;
+using root::impls;
 
 fun main() u64 {
     facade::One::hash(3) + facade::Two::hash(4)
@@ -2934,8 +3140,8 @@ extend i32 : containers::Marker {
 }
 
 #[test]
-fn imports_generic_structural_extension_methods_through_import_closure() {
-    let root = temp_dir("imports_generic_structural_extension_methods_through_import_closure");
+fn imports_generic_structural_extension_methods_through_public_reexport() {
+    let root = temp_dir("imports_generic_structural_extension_methods_through_public_reexport");
     write(
         &root.join("main.nia"),
         r#"
@@ -2957,7 +3163,7 @@ fun main(mut_ptr: &mut u8) i32 {
 }
 "#,
     );
-    write(&root.join("share.nia"), r#"using root::ptr;"#);
+    write(&root.join("share.nia"), r#"pub using root::ptr;"#);
     write(
         &root.join("ptr.nia"),
         r#"
@@ -2980,7 +3186,7 @@ extend[T] &T {
 }
 
 #[test]
-fn lowers_imported_generic_structural_extension_instances() {
+fn lowers_imported_generic_structural_extension_instances_through_public_reexport() {
     let root = temp_dir("lowers_imported_generic_structural_extension_instances");
     write(
         &root.join("main.nia"),
@@ -3003,7 +3209,7 @@ fun main(mut_ptr: &mut u8) i32 {
 }
 "#,
     );
-    write(&root.join("share.nia"), r#"using root::ptr;"#);
+    write(&root.join("share.nia"), r#"pub using root::ptr;"#);
     write(
         &root.join("ptr.nia"),
         r#"
@@ -3076,8 +3282,9 @@ extend[T] RawPtr[T] {
 }
 
 #[test]
-fn does_not_import_private_extension_methods_through_import_closure() {
-    let root = temp_dir("does_not_import_private_extension_methods_through_import_closure");
+fn does_not_import_private_extension_methods_through_a_private_module_import() {
+    let root =
+        temp_dir("does_not_import_private_extension_methods_through_a_private_module_import");
     write(
         &root.join("main.nia"),
         r#"
@@ -3111,20 +3318,76 @@ extend math::Point {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    let inaccessible_method = program
+    let missing_method = program
         .diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.diagnostic.summary == "method `len2` is private")
-        .expect("private extension method diagnostic");
+        .find(|diagnostic| diagnostic.diagnostic.summary == "unknown method `len2`")
+        .expect("unknown extension method diagnostic");
     assert!(
-        inaccessible_method
+        missing_method
             .diagnostic
-            .related
+            .help
             .iter()
-            .any(|related| related.message.contains("restricted method is declared")),
-        "missing private method declaration evidence: {:?}",
-        inaccessible_method.diagnostic
+            .any(|help| help.contains("using")),
+        "unknown method should explain its import requirement: {:?}",
+        missing_method.diagnostic
     );
+}
+
+#[test]
+fn public_module_reexports_scope_associated_extension_members() {
+    let source = r#"
+module math;
+module ext;
+module facade;
+using root::math;
+using root::facade;
+
+fun main() usize {
+    let marker = math::Marker::make();
+    _ = marker;
+    math::Marker::LIMIT
+}
+"#;
+    let extension = r#"
+using root::math;
+
+extend math::Marker {
+    pub fun make() math::Marker { .{} }
+    pub const LIMIT: usize = 12usize;
+}
+"#;
+
+    let private_root = temp_dir("private_reexport_hides_associated_extension_members");
+    write(&private_root.join("main.nia"), source);
+    write(&private_root.join("math.nia"), "pub struct Marker {}\n");
+    write(&private_root.join("facade.nia"), "using root::ext;\n");
+    write(&private_root.join("ext.nia"), extension);
+    let private_program =
+        check_program(private_root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        private_program.diagnostics.iter().any(|diagnostic| {
+            diagnostic.diagnostic.summary == "unknown associated function `make`"
+        }),
+        "private imported-module using exposed an associated function: {:?}",
+        private_program.diagnostics
+    );
+    assert!(
+        private_program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.diagnostic.summary.contains("LIMIT") }),
+        "private imported-module using exposed an associated value: {:?}",
+        private_program.diagnostics
+    );
+
+    let public_root = temp_dir("public_reexport_exposes_associated_extension_members");
+    write(&public_root.join("main.nia"), source);
+    write(&public_root.join("math.nia"), "pub struct Marker {}\n");
+    write(&public_root.join("facade.nia"), "pub using root::ext;\n");
+    write(&public_root.join("ext.nia"), extension);
+    let public_program = check_program(public_root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&public_program.diagnostics);
 }
 
 #[test]

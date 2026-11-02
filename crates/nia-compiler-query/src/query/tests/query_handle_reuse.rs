@@ -15,7 +15,6 @@ fn compiler_fact_batches_reuse_cached_product_handles() {
     let abi = db.expect_get(ModuleAbiSignatureFactsQuery(module_id));
     let trait_solving = db.expect_get(ExtensionTraitSolvingModuleFactsQuery(module_id));
     let provider = db.expect_get(ExtensionProviderModuleFactsQuery(module_id));
-    let nominal = db.expect_get(ExtensionProviderNominalModuleFactsQuery(module_id));
     let visible_extensions: Arc<VisibleExtensionsForModule> =
         db.expect_get(VisibleExtensionsQuery(module_id));
     let visible_trait_impls: Arc<VisibleTraitImplsForModule> =
@@ -36,9 +35,6 @@ fn compiler_fact_batches_reuse_cached_product_handles() {
     let provider_batch = db
         .get_many([ExtensionProviderModuleFactsQuery(module_id)])
         .expect("provider batch should succeed");
-    let nominal_batch = db
-        .get_many([ExtensionProviderNominalModuleFactsQuery(module_id)])
-        .expect("nominal provider batch should succeed");
     let visible_extensions_batch = db
         .get_many([VisibleExtensionsQuery(module_id)])
         .expect("visible extension batch should succeed");
@@ -56,7 +52,6 @@ fn compiler_fact_batches_reuse_cached_product_handles() {
     assert!(Arc::ptr_eq(&abi, &abi_batch[0]));
     assert!(Arc::ptr_eq(&trait_solving, &trait_solving_batch[0]));
     assert!(Arc::ptr_eq(&provider, &provider_batch[0]));
-    assert!(Arc::ptr_eq(&nominal, &nominal_batch[0]));
     assert!(Arc::ptr_eq(
         &visible_extensions,
         &visible_extensions_batch[0]

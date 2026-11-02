@@ -1,1 +1,2 @@
 import NiaFormal.ValueInference
+import NiaFormal.ModuleVisibility

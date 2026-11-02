@@ -5,21 +5,16 @@ use std::{
 };
 
 use nia_defs::{
-    DefCollection, ExtensionAssociatedValues, ExtensionMethods, PublicNamespace,
-    VisibleExtensionAssociatedValue, VisibleExtensionMethod, VisibleExtensionMethods,
+    DefCollection, ExtensionAssociatedValues, ExtensionMethods, VisibleExtensionAssociatedValue,
+    VisibleExtensionMethod, VisibleExtensionMethods,
 };
-use nia_ids::{GlobalDefId, Visibility};
-use nia_item_signatures::{ProgramTraitImplSignature, ProgramTypeAliasSignature};
-use nia_ty::{TyKind, TypeStore};
+use nia_item_signatures::ProgramTraitImplSignature;
+use nia_ty::TypeStore;
 use nia_type_normalize::TypeNormalization;
 
 /// Resolves a module id to its canonical type normalization context.
 pub type TypeNormalizationResolver<'a> =
     &'a dyn Fn(nia_ids::ModuleId) -> Option<Arc<TypeNormalization>>;
-/// Resolves nominal targets to modules that provide visible extensions.
-pub type NominalExtensionProviderResolver<'a> =
-    &'a dyn Fn(&[GlobalDefId]) -> Vec<nia_ids::ModuleId>;
-
 #[derive(Debug, Clone, PartialEq)]
 /// Extensions visible from one module after using-scope and visibility closure.
 pub struct VisibleExtensionsForModule {
@@ -42,17 +37,23 @@ pub trait ProgramDefsResolver {
     fn defs(&self, module_id: nia_ids::ModuleId) -> Option<Arc<DefCollection>>;
 }
 
-/// Resolves a module's imported using scope.
-pub trait ProgramUsingScopeResolver {
-    /// Returns the using scope for a module, if available.
-    fn using_scope(&self, module_id: nia_ids::ModuleId) -> Option<Arc<nia_defs::ModuleUsingScope>>;
+/// Resolves the public module namespace of an imported module.
+pub trait ProgramPublicSurfaceResolver {
+    /// Returns the public surface for a module, if available.
+    fn public_surface(
+        &self,
+        module_id: nia_ids::ModuleId,
+    ) -> Option<Arc<nia_defs::ModulePublicSurface>>;
 }
 
-impl<F> ProgramUsingScopeResolver for F
+impl<F> ProgramPublicSurfaceResolver for F
 where
-    F: Fn(nia_ids::ModuleId) -> Option<Arc<nia_defs::ModuleUsingScope>>,
+    F: Fn(nia_ids::ModuleId) -> Option<Arc<nia_defs::ModulePublicSurface>>,
 {
-    fn using_scope(&self, module_id: nia_ids::ModuleId) -> Option<Arc<nia_defs::ModuleUsingScope>> {
+    fn public_surface(
+        &self,
+        module_id: nia_ids::ModuleId,
+    ) -> Option<Arc<nia_defs::ModulePublicSurface>> {
         self(module_id)
     }
 }
@@ -61,38 +62,25 @@ where
 pub struct VisibleExtensionsInput<'a> {
     /// Module from which visibility is queried.
     pub module_id: nia_ids::ModuleId,
-    /// Type store used to normalize extension targets.
-    pub type_store: &'a TypeStore,
     /// Module graph used for visibility checks.
     pub graph: &'a dyn nia_imports::ModuleGraphLookup,
     /// Current module's using scope.
     pub using_scope: &'a nia_defs::ModuleUsingScope,
-    /// Resolver for imported modules' using scopes.
-    pub using_scopes: &'a dyn ProgramUsingScopeResolver,
+    /// Public surfaces used to follow explicit public module re-exports.
+    pub public_surfaces: &'a dyn ProgramPublicSurfaceResolver,
     /// Definition resolver for extension members and traits.
     pub defs: &'a dyn ProgramDefsResolver,
     /// Per-module canonical type-normalization resolver.
     pub normalizations: TypeNormalizationResolver<'a>,
-    /// Resolver for visible type aliases.
-    pub visible_type_signatures: VisibleTypeSignatures<'a>,
     /// Collected extension methods.
     pub extensions: &'a ExtensionMethods,
     /// Collected extension associated values.
     pub associated_values: &'a ExtensionAssociatedValues,
-    /// Resolver for nominal extension provider modules.
-    pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
     /// Optional precomputed visible module closure.
     pub visible_modules: Option<&'a [nia_ids::ModuleId]>,
     /// Modules whose trait implementations are facts here; see
     /// [`visible_trait_impl_modules`].
     pub trait_witness_modules: &'a [nia_ids::ModuleId],
-}
-
-/// Type-signature callbacks needed while resolving visible aliases.
-#[derive(Clone, Copy)]
-pub struct VisibleTypeSignatures<'a> {
-    /// Resolves a type alias by global definition id.
-    pub type_alias: &'a dyn Fn(GlobalDefId) -> Option<ProgramTypeAliasSignature>,
 }
 
 struct VisibleExtensionResolverCache<'a> {
@@ -134,16 +122,13 @@ pub fn visible_extensions_for_module(
 ) -> VisibleExtensionsForModule {
     let VisibleExtensionsInput {
         module_id,
-        type_store,
         graph,
         using_scope,
-        using_scopes,
+        public_surfaces,
         defs,
         normalizations,
-        visible_type_signatures,
         extensions,
         associated_values,
-        nominal_extension_providers,
         visible_modules,
         trait_witness_modules,
         ..
@@ -153,18 +138,13 @@ pub fn visible_extensions_for_module(
     let visible_modules = if let Some(visible_modules) = visible_modules {
         visible_modules
     } else {
-        let visibility_context = VisibilityClosureContext {
+        let visibility_context = ExtensionVisibilityContext {
             module_id,
-            type_store,
             graph,
             using_scope,
-            using_scopes,
-            defs,
-            normalizations,
-            visible_type_signatures,
-            nominal_extension_providers,
+            public_surfaces,
         };
-        computed_visible_modules = declared_module_closure(&visibility_context);
+        computed_visible_modules = extension_visibility_modules(&visibility_context);
         &computed_visible_modules
     };
     let witness_modules = trait_witness_modules;
@@ -321,34 +301,30 @@ pub fn visible_trait_impls_for_module(
     }
 }
 
-/// Inputs for computing extension-provider and trait-witness module closures.
+/// Inputs for computing source-visible extension modules.
 pub struct VisibleExtensionProviderModulesInput<'a> {
     /// Module from which visibility is queried.
     pub module_id: nia_ids::ModuleId,
-    /// Type store used to normalize public type targets.
-    pub type_store: &'a TypeStore,
     /// Module graph used for visibility checks.
     pub graph: &'a dyn nia_imports::ModuleGraphLookup,
     /// Current module's using scope.
     pub using_scope: &'a nia_defs::ModuleUsingScope,
-    /// Resolver for imported using scopes.
-    pub using_scopes: &'a dyn ProgramUsingScopeResolver,
-    /// Definition resolver.
-    pub defs: &'a dyn ProgramDefsResolver,
-    /// Per-module normalization resolver.
-    pub normalizations: TypeNormalizationResolver<'a>,
-    /// Resolver for visible type aliases.
-    pub visible_type_signatures: VisibleTypeSignatures<'a>,
-    /// Resolver for nominal extension provider modules.
-    pub nominal_extension_providers: NominalExtensionProviderResolver<'a>,
+    /// Public surfaces used to follow explicit public module re-exports.
+    pub public_surfaces: &'a dyn ProgramPublicSurfaceResolver,
 }
 
-/// Returns modules contributing visible inherent extensions.
+/// Returns modules contributing extensions visible in this module's source.
+///
+/// Visibility is based on this module's own `using` scope and its own selected
+/// provider edges. Imported modules' private `using` declarations and provider
+/// demands are implementation details of those modules; they do not become
+/// imports in the caller. Inherent members declared in a nominal type's owner
+/// module are resolved separately through the nominal-owner lookup.
 pub fn visible_extension_provider_modules(
     input: VisibleExtensionProviderModulesInput<'_>,
 ) -> Vec<nia_ids::ModuleId> {
-    let context = visibility_closure_context(input);
-    declared_module_closure(&context)
+    let context = extension_visibility_context(input);
+    extension_visibility_modules(&context)
 }
 
 /// Returns the modules whose trait implementations are facts for `module_id`.
@@ -373,164 +349,49 @@ pub fn visible_trait_impl_modules(
     modules
 }
 
-fn visibility_closure_context<'a>(
+fn extension_visibility_context<'a>(
     input: VisibleExtensionProviderModulesInput<'a>,
-) -> VisibilityClosureContext<'a> {
-    VisibilityClosureContext {
+) -> ExtensionVisibilityContext<'a> {
+    ExtensionVisibilityContext {
         module_id: input.module_id,
-        type_store: input.type_store,
         graph: input.graph,
         using_scope: input.using_scope,
-        using_scopes: input.using_scopes,
-        defs: input.defs,
-        normalizations: input.normalizations,
-        visible_type_signatures: input.visible_type_signatures,
-        nominal_extension_providers: input.nominal_extension_providers,
+        public_surfaces: input.public_surfaces,
     }
 }
 
-fn declared_module_closure(context: &VisibilityClosureContext<'_>) -> Vec<nia_ids::ModuleId> {
-    let mut seen = HashSet::new();
-    let mut queue = VecDeque::new();
-    let mut pending_provider_targets = Vec::new();
-    let mut resolved_provider_targets = HashSet::new();
-    enqueue_using_scope_modules(context.using_scope, &mut queue);
-    queue.extend(
+fn extension_visibility_modules(
+    context: &ExtensionVisibilityContext<'_>,
+) -> Vec<nia_ids::ModuleId> {
+    let mut visible = HashSet::from([context.module_id]);
+    let mut pending_modules = context
+        .using_scope
+        .modules
+        .values()
+        .copied()
+        .collect::<VecDeque<_>>();
+    while let Some(module_id) = pending_modules.pop_front() {
+        if !visible.insert(module_id) {
+            continue;
+        }
+        if let Some(surface) = context.public_surfaces.public_surface(module_id) {
+            pending_modules.extend(surface.reexported_modules.values().copied());
+        }
+    }
+    visible.extend(
         context
             .graph
             .provider_dependencies(context.module_id, false),
     );
-    collect_public_inherent_extension_provider_targets_for_using_scope(
-        context,
-        context.using_scope,
-        &mut pending_provider_targets,
-    );
-
-    loop {
-        while let Some(visible) = queue.pop_front() {
-            if visible == context.module_id || !seen.insert(visible) {
-                continue;
-            }
-            if let Some(using_scope) = context.using_scopes.using_scope(visible) {
-                enqueue_using_scope_modules(&using_scope, &mut queue);
-                collect_public_inherent_extension_provider_targets_for_using_scope(
-                    context,
-                    &using_scope,
-                    &mut pending_provider_targets,
-                );
-            }
-            queue.extend(context.graph.provider_dependencies(visible, false));
-        }
-
-        pending_provider_targets.sort();
-        pending_provider_targets.dedup();
-        pending_provider_targets.retain(|target| resolved_provider_targets.insert(*target));
-        if pending_provider_targets.is_empty() {
-            break;
-        }
-
-        enqueue_public_inherent_extension_provider_modules_for_targets(
-            context,
-            &pending_provider_targets,
-            &mut queue,
-        );
-        pending_provider_targets.clear();
-    }
-
-    let mut modules = seen.into_iter().collect::<Vec<_>>();
+    visible.remove(&context.module_id);
+    let mut modules = visible.into_iter().collect::<Vec<_>>();
     modules.sort();
     modules
 }
 
-fn enqueue_using_scope_modules(
-    using_scope: &nia_defs::ModuleUsingScope,
-    queue: &mut VecDeque<nia_ids::ModuleId>,
-) {
-    queue.extend(using_scope.modules.values().copied());
-}
-
-struct VisibilityClosureContext<'a> {
+struct ExtensionVisibilityContext<'a> {
     module_id: nia_ids::ModuleId,
-    type_store: &'a TypeStore,
     graph: &'a dyn nia_imports::ModuleGraphLookup,
     using_scope: &'a nia_defs::ModuleUsingScope,
-    using_scopes: &'a dyn ProgramUsingScopeResolver,
-    defs: &'a dyn ProgramDefsResolver,
-    normalizations: TypeNormalizationResolver<'a>,
-    visible_type_signatures: VisibleTypeSignatures<'a>,
-    nominal_extension_providers: NominalExtensionProviderResolver<'a>,
-}
-
-fn collect_public_inherent_extension_provider_targets_for_using_scope(
-    context: &VisibilityClosureContext<'_>,
-    using_scope: &nia_defs::ModuleUsingScope,
-    targets: &mut Vec<GlobalDefId>,
-) {
-    targets.extend(
-        using_scope
-            .types
-            .values()
-            .filter(|entry| entry.namespace == PublicNamespace::Type)
-            .filter_map(|entry| {
-                nominal_def_id_for_public_type(
-                    GlobalDefId {
-                        module_id: entry.target_module,
-                        def_id: entry.target_def_id,
-                    },
-                    context.type_store,
-                    context.defs,
-                    context.normalizations,
-                    context.visible_type_signatures,
-                )
-            }),
-    );
-}
-
-fn enqueue_public_inherent_extension_provider_modules_for_targets(
-    context: &VisibilityClosureContext<'_>,
-    type_def_ids: &[GlobalDefId],
-    queue: &mut VecDeque<nia_ids::ModuleId>,
-) {
-    if type_def_ids.is_empty() {
-        return;
-    }
-    queue.extend(
-        (context.nominal_extension_providers)(type_def_ids)
-            .into_iter()
-            .filter(|provider| {
-                nia_imports::visibility_allows(
-                    Visibility::Public,
-                    context.graph,
-                    *provider,
-                    context.module_id,
-                )
-            }),
-    );
-}
-
-fn nominal_def_id_for_public_type(
-    def_id: GlobalDefId,
-    type_store: &TypeStore,
-    defs: &dyn ProgramDefsResolver,
-    normalizations: TypeNormalizationResolver<'_>,
-    visible_type_signatures: VisibleTypeSignatures<'_>,
-) -> Option<GlobalDefId> {
-    let defs = defs.defs(def_id.module_id)?;
-    let def = defs.defs.get(def_id.def_id)?;
-    if matches!(
-        def.kind,
-        nia_defs::DefKind::Struct | nia_defs::DefKind::Union | nia_defs::DefKind::Enum
-    ) {
-        return Some(def_id);
-    }
-    if def.kind != nia_defs::DefKind::TypeAlias {
-        return None;
-    }
-    let normalization = normalizations(def_id.module_id)?;
-    let alias = (visible_type_signatures.type_alias)(def_id)?;
-    let normalized = normalization.normalize(alias.signature.target);
-    match type_store.get(normalized) {
-        Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
-        _ => None,
-    }
+    public_surfaces: &'a dyn ProgramPublicSurfaceResolver,
 }

@@ -56,7 +56,6 @@ pub(super) fn provide_extension_provider_discovery_index(
     }
     time_provider(timings, "extension_provider_discovery_index", || {
         let mut provider_modules = Vec::new();
-        let mut nominal_summaries = Vec::new();
         let mut method_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         let mut trait_impl_candidates_by_name: HashMap<SymbolId, Vec<ModuleId>> = HashMap::new();
         for module_id in trait_modules {
@@ -65,7 +64,6 @@ pub(super) fn provide_extension_provider_discovery_index(
                 continue;
             }
             provider_modules.push(module_id);
-            nominal_summaries.push((module_id, summary.as_ref().clone()));
             for name in summary.method_index_names() {
                 method_candidates_by_name
                     .entry(name)
@@ -81,8 +79,6 @@ pub(super) fn provide_extension_provider_discovery_index(
         }
         provider_modules.sort();
         provider_modules.dedup();
-        let nominal_candidates =
-            nia_provider_summary::NominalProviderCandidateIndex::from_summaries(nominal_summaries);
         for modules in method_candidates_by_name.values_mut() {
             modules.sort();
             modules.dedup();
@@ -93,7 +89,6 @@ pub(super) fn provide_extension_provider_discovery_index(
         }
         Ok(ExtensionProviderDiscoveryIndexQueryValue {
             provider_modules,
-            nominal_candidates,
             method_candidates_by_name,
             trait_impl_candidates_by_name,
         })
@@ -237,7 +232,6 @@ pub(super) fn provide_extension_provider_module_facts(
                 methods: nia_defs::ExtensionMethods::default(),
                 associated_values: nia_defs::ExtensionAssociatedValues::default(),
                 associated_value_diagnostics: db.context().diagnostic_store.bundle(Vec::new())?,
-                nominal_providers: Vec::new(),
             });
         }
 
@@ -266,8 +260,6 @@ pub(super) fn provide_extension_provider_module_facts(
         let methods = collect_extension_method_index_for_module(&module, &trait_index.trait_defs);
         let (associated_values, associated_value_diagnostics) =
             collect_extension_associated_value_index_for_module(&module, &trait_index.trait_defs);
-        let nominal_providers =
-            collect_nominal_extension_providers_for_module(&module, &trait_index.trait_defs);
         Ok(ExtensionProviderModuleFactsQueryValue {
             methods,
             associated_values,
@@ -275,7 +267,6 @@ pub(super) fn provide_extension_provider_module_facts(
                 .context()
                 .diagnostic_store
                 .bundle(associated_value_diagnostics)?,
-            nominal_providers,
         })
     })
 }
@@ -431,125 +422,6 @@ fn extension_provider_module_facts(
         .into_iter()
         .map(|module_id| db.get(ExtensionProviderModuleFactsQuery(module_id)))
         .collect()
-}
-
-pub(super) fn provide_extension_provider_nominal_module_facts(
-    db: &QueryDb<CompilerContext>,
-    module_id: ModuleId,
-) -> QueryResult<ExtensionProviderNominalModuleFactsValue> {
-    time_module_provider(
-        db,
-        "extension_provider_nominal_module_facts",
-        module_id,
-        || {
-            if !*db.get(ExtensionProviderModuleEligibilityQuery(module_id))? {
-                return Ok(ExtensionProviderNominalModuleFactsQueryValue {
-                    nominal_providers: Vec::new(),
-                });
-            }
-
-            let defs = module_defs_semantic(db, module_id)?;
-            let lowering = db.get(SignatureTypeLoweringQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Traits,
-            ))?;
-            let signatures = db.get(SignatureItemSignaturesQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Traits,
-            ))?;
-            let normalization = db.get(SignatureTypeNormalizationQuery(
-                module_id,
-                nia_item_tree::SignatureItemSet::Traits,
-            ))?;
-            let module = ExtensionMethodIndexModuleInput {
-                module_id,
-                type_store: &db.context().type_store,
-                defs: &defs,
-                lowering: &lowering.semantic,
-                signatures: &signatures.semantic,
-                normalization: &normalization.semantic,
-            };
-            let trait_index = db.get(ExtensionTraitSignatureIndexQuery)?;
-            let nominal_providers =
-                collect_nominal_extension_providers_for_module(&module, &trait_index.trait_defs);
-            Ok(ExtensionProviderNominalModuleFactsQueryValue { nominal_providers })
-        },
-    )
-}
-
-pub(super) fn provide_extension_provider_nominal_candidate_modules(
-    db: &QueryDb<CompilerContext>,
-    names: ExtensionProviderNominalTargetNames,
-) -> QueryResult<ExtensionProviderNominalCandidateModulesValue> {
-    time_provider(
-        db.context().timings(),
-        "extension_provider_nominal_candidate_modules",
-        || {
-            let discovery = db.get(ExtensionProviderDiscoveryIndexQuery)?;
-            let modules = discovery.nominal_candidates.candidates(names.as_slice());
-            Ok(ExtensionProviderNominalCandidateModulesQueryValue { modules })
-        },
-    )
-}
-
-pub(super) fn provide_extension_provider_nominal_modules_for_targets(
-    db: &QueryDb<CompilerContext>,
-    targets: ExtensionProviderNominalTargets,
-    accessing_module: ModuleId,
-) -> QueryResult<ExtensionProviderNominalModulesForTargetsValue> {
-    time_provider(
-        db.context().timings(),
-        "extension_provider_nominal_modules_for_targets",
-        || {
-            let graph = db.get(ModuleGraphQuery)?;
-            let index_names = extension_provider_nominal_target_names_for_targets(db, &targets)?;
-            let candidate_modules = db
-                .get(ExtensionProviderNominalCandidateModulesQuery(
-                    ExtensionProviderNominalTargetNames::new(index_names),
-                ))?
-                .modules
-                .clone();
-            let mut modules = Vec::new();
-            for module_id in candidate_modules {
-                let facts = db.get(ExtensionProviderNominalModuleFactsQuery(module_id))?;
-                modules.extend(
-                    facts
-                        .nominal_providers
-                        .iter()
-                        .copied()
-                        .filter(|provider| {
-                            targets.as_slice().binary_search(&provider.target).is_ok()
-                                && nia_imports::visibility_allows(
-                                    provider.visibility,
-                                    &graph,
-                                    provider.module_id,
-                                    accessing_module,
-                                )
-                        })
-                        .map(|provider| provider.module_id),
-                );
-            }
-            modules.sort();
-            modules.dedup();
-            Ok(ExtensionProviderNominalModulesForTargetsQueryValue { modules })
-        },
-    )
-}
-
-fn extension_provider_nominal_target_names_for_targets(
-    db: &QueryDb<CompilerContext>,
-    targets: &ExtensionProviderNominalTargets,
-) -> QueryResult<Vec<SymbolId>> {
-    let type_exposures = db.get(TypeExposureIndexQuery)?;
-    let mut names = Vec::new();
-
-    for target in targets.as_slice().iter().copied() {
-        names.extend(type_exposures.names_for(target).iter().cloned());
-    }
-
-    names.sort();
-    names.dedup();
-    Ok(names)
 }
 
 pub(super) fn provide_extension_method_index(
@@ -809,52 +681,14 @@ fn visible_modules_for_module(
     compute: fn(nia_program_signatures::VisibleExtensionProviderModulesInput<'_>) -> Vec<ModuleId>,
 ) -> QueryResult<Vec<ModuleId>> {
     let graph = QueryModuleGraphLookup::new(db)?;
-    let defs = SharedProgramDefsResolver::new(db);
-    let query_failure = RefCell::new(None);
-    let using_scopes =
-        |module_id| capture_query_failure(&query_failure, db.get(ModuleUsingScopeQuery(module_id)));
+    let public_surfaces = QueryPublicSurfaceLookup::new(db);
     let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
-    let extension_method_normalization = |module_id| {
-        capture_query_failure(
-            &query_failure,
-            signature_type_normalization_semantic(
-                db,
-                module_id,
-                nia_item_tree::SignatureItemSet::Traits,
-            ),
-        )
-    };
-    let type_alias = |def_id| {
-        capture_query_failure(
-            &query_failure,
-            db.get(ProgramTypeAliasSignatureQuery(def_id)),
-        )
-        .and_then(|signature| signature.as_ref().clone())
-    };
-    let nominal_extension_providers = |target_def_ids: &[GlobalDefId]| {
-        capture_query_failure(
-            &query_failure,
-            db.get(ExtensionProviderNominalModulesForTargetsQuery(
-                ExtensionProviderNominalTargets::new(target_def_ids.to_vec()),
-                module_id,
-            )),
-        )
-        .map(|providers| providers.modules.clone())
-        .unwrap_or_default()
-    };
     let provider_modules = compute(
         nia_program_signatures::VisibleExtensionProviderModulesInput {
             module_id,
-            type_store: &db.context().type_store,
             graph: &graph,
             using_scope: &using_scope,
-            using_scopes: &using_scopes,
-            defs: &defs,
-            normalizations: &extension_method_normalization,
-            visible_type_signatures: VisibleTypeSignatures {
-                type_alias: &type_alias,
-            },
-            nominal_extension_providers: &nominal_extension_providers,
+            public_surfaces: &public_surfaces,
         },
     );
     let mut visible_modules = Vec::with_capacity(provider_modules.len() + 1);
@@ -862,10 +696,9 @@ fn visible_modules_for_module(
     visible_modules.extend(provider_modules);
     visible_modules.sort();
     visible_modules.dedup();
-    if let Some(error) = query_failure
-        .into_inner()
-        .or_else(|| graph.take_failure())
-        .or_else(|| defs.take_failure())
+    if let Some(error) = graph
+        .take_failure()
+        .or_else(|| public_surfaces.take_failure())
     {
         Err(error)
     } else {
@@ -879,9 +712,8 @@ pub(super) fn provide_visible_extensions(
 ) -> QueryResult<VisibleExtensionsValue> {
     let graph = QueryModuleGraphLookup::new(db)?;
     let defs = SharedProgramDefsResolver::new(db);
+    let public_surfaces = QueryPublicSurfaceLookup::new(db);
     let query_failure = RefCell::new(None);
-    let using_scopes =
-        |module_id| capture_query_failure(&query_failure, db.get(ModuleUsingScopeQuery(module_id)));
     let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
     let extension_method_normalization = |module_id| {
         capture_query_failure(
@@ -892,24 +724,6 @@ pub(super) fn provide_visible_extensions(
                 nia_item_tree::SignatureItemSet::Traits,
             ),
         )
-    };
-    let type_alias = |def_id| {
-        capture_query_failure(
-            &query_failure,
-            db.get(ProgramTypeAliasSignatureQuery(def_id)),
-        )
-        .and_then(|signature| signature.as_ref().clone())
-    };
-    let nominal_extension_providers = |target_def_ids: &[GlobalDefId]| {
-        capture_query_failure(
-            &query_failure,
-            db.get(ExtensionProviderNominalModulesForTargetsQuery(
-                ExtensionProviderNominalTargets::new(target_def_ids.to_vec()),
-                module_id,
-            )),
-        )
-        .map(|providers| providers.modules.clone())
-        .unwrap_or_default()
     };
     let mut visible_modules = visible_provider_modules_for_module(db, module_id)?;
     visible_modules.sort();
@@ -944,24 +758,20 @@ pub(super) fn provide_visible_extensions(
     }
     let visible_extensions = visible_extensions_for_module(VisibleExtensionsInput {
         module_id,
-        type_store: &db.context().type_store,
         graph: &graph,
         using_scope: &using_scope,
-        using_scopes: &using_scopes,
+        public_surfaces: &public_surfaces,
         defs: &defs,
         normalizations: &extension_method_normalization,
-        visible_type_signatures: VisibleTypeSignatures {
-            type_alias: &type_alias,
-        },
         extensions: &extension_methods,
         associated_values: &associated_values,
-        nominal_extension_providers: &nominal_extension_providers,
         visible_modules: Some(visible_modules.as_slice()),
         trait_witness_modules: &trait_witness_modules,
     });
     if let Some(error) = query_failure
         .into_inner()
         .or_else(|| graph.take_failure())
+        .or_else(|| public_surfaces.take_failure())
         .or_else(|| defs.take_failure())
     {
         Err(error)

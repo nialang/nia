@@ -5,10 +5,9 @@
 //! tree: the target type, the optional trait, and the declared method and
 //! associated-value names. Type references are classified syntactically only;
 //! local alias chains are followed, while unresolved imports and structural
-//! targets remain conservative. [`NominalProviderCandidateIndex`] maps a definite
-//! nominal name to the modules that may provide extensions for it, so
-//! extension discovery can skip modules that cannot match while still
-//! visiting every conservative provider.
+//! targets remain conservative for trait-provider discovery, which skips
+//! modules that cannot satisfy a semantic provider demand while still visiting
+//! every conservative provider.
 //!
 //! [`ProviderDemand`] records one cross-module fact requested during semantic
 //! analysis; [`ProviderFactRevision`] is a monotonic revision token for those
@@ -19,8 +18,6 @@ mod demand;
 pub use demand::{
     ProviderDemand, ProviderFactRevision, ProviderFactRevisionTransition, ProviderRequest,
 };
-
-use std::collections::HashSet;
 
 use nia_ast::{GenericParam, PathSegmentKind, TypeArg, TypeKind, TypeRef};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
@@ -70,79 +67,6 @@ pub struct ProviderTypeRef {
 pub struct ProviderTarget {
     /// Classified target type reference.
     pub ty: ProviderTypeRef,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-/// Candidate category used by nominal provider discovery.
-pub enum NominalProviderCandidate {
-    /// Provider has a definite nominal name.
-    Named(SymbolId),
-    /// Provider requires conservative fallback matching.
-    Conservative,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-/// Stable module index keyed by definite nominal provider names.
-pub struct NominalProviderCandidateIndex<M> {
-    named: SymbolMap<Vec<M>>,
-    conservative: Vec<M>,
-}
-
-impl<M> NominalProviderCandidateIndex<M>
-where
-    M: Copy + Ord + Eq,
-{
-    /// Builds an index from module summaries, sorting and deduplicating modules.
-    pub fn from_summaries(
-        summaries: impl IntoIterator<Item = (M, ProviderSummary)>,
-    ) -> NominalProviderCandidateIndex<M> {
-        let mut named: SymbolMap<Vec<M>> = SymbolMap::default();
-        let mut conservative = Vec::new();
-        for (module, summary) in summaries {
-            for candidate in summary.nominal_provider_candidates() {
-                match candidate {
-                    NominalProviderCandidate::Named(name) => {
-                        named.entry(name).or_default().push(module);
-                    }
-                    NominalProviderCandidate::Conservative => conservative.push(module),
-                }
-            }
-        }
-        for modules in named.values_mut() {
-            modules.sort();
-            modules.dedup();
-        }
-        conservative.sort();
-        conservative.dedup();
-        NominalProviderCandidateIndex {
-            named,
-            conservative,
-        }
-    }
-
-    /// Returns modules that may provide the requested nominal name.
-    pub fn named(&self, name: &SymbolId) -> &[M] {
-        self.named.get(name).map(Vec::as_slice).unwrap_or(&[])
-    }
-
-    /// Returns every possible module for these names. Syntax cannot exclude
-    /// unresolved aliases; semantic facts decide their canonical identity.
-    pub fn candidates(&self, names: &[SymbolId]) -> Vec<M> {
-        let mut modules = self.conservative.clone();
-        for name in names {
-            modules.extend_from_slice(self.named(name));
-        }
-        modules.sort();
-        modules.dedup();
-        modules
-    }
-
-    /// Iterates all indexed modules in key order.
-    pub fn all_named(&self) -> impl Iterator<Item = M> + '_ {
-        self.named
-            .values()
-            .flat_map(|modules| modules.iter().copied())
-    }
 }
 
 impl ProviderSummary {
@@ -239,37 +163,6 @@ impl ProviderSummary {
         !self.providers.is_empty()
     }
 
-    /// Reports whether a provider may match a nominal target name.
-    pub fn may_define_nominal_provider_for(&self, target_type_name: &SymbolId) -> bool {
-        self.providers
-            .iter()
-            .any(|provider| provider.target.ty.may_match_nominal_name(target_type_name))
-    }
-
-    /// Returns deterministic nominal provider candidates for this summary.
-    pub fn nominal_provider_candidates(&self) -> Vec<NominalProviderCandidate> {
-        let mut candidates = HashSet::new();
-        for provider in &self.providers {
-            candidates.insert(provider.target.ty.semantic_nominal_provider_candidate());
-        }
-        let mut candidates = candidates.into_iter().collect::<Vec<_>>();
-        candidates.sort_by(|lhs, rhs| match (lhs, rhs) {
-            (NominalProviderCandidate::Conservative, NominalProviderCandidate::Conservative) => {
-                std::cmp::Ordering::Equal
-            }
-            (NominalProviderCandidate::Conservative, NominalProviderCandidate::Named(_)) => {
-                std::cmp::Ordering::Less
-            }
-            (NominalProviderCandidate::Named(_), NominalProviderCandidate::Conservative) => {
-                std::cmp::Ordering::Greater
-            }
-            (NominalProviderCandidate::Named(lhs), NominalProviderCandidate::Named(rhs)) => {
-                lhs.cmp(rhs)
-            }
-        });
-        candidates
-    }
-
     /// Returns sorted method names declared by providers.
     pub fn method_index_names(&self) -> Vec<SymbolId> {
         let mut names = self
@@ -299,7 +192,11 @@ impl ProviderSummary {
         names
     }
 
-    /// Reports whether an inherent provider may define an associated item.
+    /// Reports whether a nominal provider summary includes an inherent item.
+    ///
+    /// This inspects the summary only; it does not make the provider visible
+    /// to a source module. Source visibility is determined by that module's
+    /// imports and provider-demand edges in the compiler.
     pub fn defines_inherent_associated_item(
         &self,
         target_type_name: &SymbolId,
@@ -307,7 +204,10 @@ impl ProviderSummary {
     ) -> bool {
         self.providers.iter().any(|provider| {
             provider.trait_ref.is_none()
-                && provider.target.ty.may_match_nominal_name(target_type_name)
+                && provider
+                    .target
+                    .ty
+                    .may_match_demand_nominal_name(target_type_name)
                 && provider.has_associated_item(associated_name)
         })
     }
@@ -554,12 +454,6 @@ impl ProviderTypeRef {
         }
     }
 
-    fn may_match_nominal_name(&self, name: &SymbolId) -> bool {
-        self.is_generic_or_structural_target
-            || self.semantic_is_conservative
-            || self.last_name.as_ref().is_none_or(|last| last == name)
-    }
-
     fn may_match_demand_nominal_name(&self, name: &SymbolId) -> bool {
         self.is_generic_or_structural_target
             || self.semantic_is_conservative
@@ -581,18 +475,6 @@ impl ProviderTypeRef {
                 (Some(provider), Some(demand)) => provider == demand,
                 _ => true,
             })
-    }
-
-    fn semantic_nominal_provider_candidate(&self) -> NominalProviderCandidate {
-        // A qualified path is useful as a loading hint, but its terminal
-        // name cannot establish canonical nominal identity: it may name
-        // an alias or reexport in another module.
-        if self.semantic_is_conservative || !self.target_is_local_nominal {
-            return NominalProviderCandidate::Conservative;
-        }
-        self.last_name
-            .map(NominalProviderCandidate::Named)
-            .unwrap_or(NominalProviderCandidate::Conservative)
     }
 
     fn is_definite_semantic_name(&self) -> bool {
@@ -785,9 +667,7 @@ extend Widget {
         );
 
         assert!(summary.has_providers());
-        assert!(summary.defines_inherent_associated_item(&sym("Widget"), &sym("score")));
-        assert!(summary.defines_inherent_associated_item(&sym("Widget"), &sym("Kind")));
-        assert!(!summary.defines_inherent_associated_item(&sym("Widget"), &sym("missing")));
+        assert!(summary.has_providers());
         assert_eq!(summary.method_index_names(), vec![sym("score")]);
     }
 
@@ -824,7 +704,7 @@ extend Widget : Hash {
     }
 
     #[test]
-    fn nominal_provider_summary_keeps_generic_targets_conservative() {
+    fn summarizes_generic_inherent_provider_targets() {
         let summary = summary_for(
             r#"
 trait IntoError[Target] {
@@ -848,7 +728,7 @@ where Source: IntoError[Target]
 "#,
         );
 
-        assert!(summary.may_define_nominal_provider_for(&sym("Error")));
+        assert!(summary.has_providers());
     }
 
     #[test]
@@ -949,46 +829,6 @@ extend[T] Cursor[T] : Iterator {}
     }
 
     #[test]
-    fn nominal_provider_summary_filters_unrelated_plain_targets() {
-        let summary = summary_for(
-            r#"
-struct Used {}
-struct Unused {}
-
-extend Used {
-    pub fun len(&self) i32 { 1 }
-}
-"#,
-        );
-
-        assert!(summary.may_define_nominal_provider_for(&sym("Used")));
-        assert!(!summary.may_define_nominal_provider_for(&sym("Other")));
-        assert_eq!(
-            summary.nominal_provider_candidates(),
-            vec![NominalProviderCandidate::Named(sym("Used"))]
-        );
-    }
-
-    #[test]
-    fn nominal_provider_summary_keeps_imported_alias_targets() {
-        let summary = summary_for(
-            r#"
-module types;
-using types::{Used};
-
-extend Used {
-    pub fun init() Used {
-        Used {}
-    }
-}
-"#,
-        );
-
-        assert!(summary.defines_inherent_associated_item(&sym("Used"), &sym("init")));
-        assert!(summary.defines_inherent_associated_item(&sym("Other"), &sym("init")));
-    }
-
-    #[test]
     fn public_extension_summary_keeps_qualified_inherent_targets_for_unknown_receivers() {
         let summary = summary_for(
             r#"
@@ -1011,93 +851,6 @@ extend fs::File {
             None,
             &sym("reader")
         ));
-    }
-
-    #[test]
-    fn nominal_provider_summary_indexes_resolved_local_alias_targets() {
-        let summary = summary_for(
-            r#"
-struct Used {}
-type Alias = Used;
-
-extend Alias {
-    pub fun len(&self) i32 { 1 }
-}
-"#,
-        );
-
-        assert!(summary.may_define_nominal_provider_for(&sym("Used")));
-        assert!(!summary.may_define_nominal_provider_for(&sym("Other")));
-        assert_eq!(
-            summary.nominal_provider_candidates(),
-            vec![NominalProviderCandidate::Named(sym("Used"))]
-        );
-        let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
-        assert!(index.named(&sym("Alias")).is_empty());
-        assert_eq!(index.named(&sym("Used")), &[0usize]);
-    }
-
-    #[test]
-    fn nominal_candidates_preserve_unresolved_aliases_and_deduplicate_modules() {
-        let qualified = summary_for("extend types::Alias { pub fun make() () {} }");
-        let imported = summary_for("extend Alias { pub fun make() () {} }");
-        let local = summary_for("struct Used {} extend Used { pub fun make() () {} }");
-        let unrelated = summary_for("struct Other {} extend Other { pub fun make() () {} }");
-        let index = NominalProviderCandidateIndex::from_summaries([
-            (3usize, qualified.clone()),
-            (1, imported),
-            (2, local),
-            (4, unrelated),
-            (3, qualified),
-        ]);
-        assert_eq!(index.candidates(&[sym("Used"), sym("Used")]), vec![1, 2, 3]);
-        assert_eq!(index.candidates(&[sym("Unknown")]), vec![1, 3]);
-    }
-
-    #[test]
-    fn nominal_provider_index_skips_structural_targets() {
-        let summary = summary_for(
-            r#"
-extend[T] [T] {
-    fun size(&self) usize { 0usize }
-}
-
-extend[T] &T {
-    fun ptr(self) bool { true }
-}
-
-extend () {
-    fun unit(self) i32 { 1 }
-}
-"#,
-        );
-
-        assert!(summary.may_define_nominal_provider_for(&sym("Used")));
-        assert_eq!(
-            summary.nominal_provider_candidates(),
-            vec![NominalProviderCandidate::Conservative]
-        );
-        let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
-        assert!(index.all_named().next().is_none());
-    }
-
-    #[test]
-    fn nominal_provider_index_skips_generic_parameter_targets() {
-        let summary = summary_for(
-            r#"
-extend[T] T {
-    fun rank(self) i32 { 1 }
-}
-"#,
-        );
-
-        assert!(summary.may_define_nominal_provider_for(&sym("Used")));
-        assert_eq!(
-            summary.nominal_provider_candidates(),
-            vec![NominalProviderCandidate::Conservative]
-        );
-        let index = NominalProviderCandidateIndex::from_summaries([(0usize, summary)]);
-        assert!(index.named(&sym("T")).is_empty());
     }
 
     #[test]
