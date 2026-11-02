@@ -151,6 +151,7 @@ impl BodyChecker<'_> {
 #[derive(Clone, Debug)]
 enum InferShape {
     Known(InternedTyId),
+    NumericLiteral(NumericLiteralKind),
     Tuple(Vec<InferId>),
     Pointer {
         is_readonly: bool,
@@ -173,6 +174,12 @@ enum InferShape {
         params: Vec<InferId>,
         return_type: InferId,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NumericLiteralKind {
+    Integer,
+    Float,
 }
 
 /// One union-find node. `shape` belongs to the representative after a merge;
@@ -247,6 +254,7 @@ struct FunctionInference {
     closures: Vec<ClosureTerms>,
     closure_locals: HashMap<LocalId, VersionedNodeKey>,
     closure_uses: HashMap<LocalId, ClosureUse>,
+    default_numeric_terms: Vec<(InferId, NumericLiteralKind)>,
     obligations: Vec<InferenceObligation>,
     return_stack: Vec<InferId>,
 }
@@ -278,6 +286,12 @@ impl BodyChecker<'_> {
                 self.inferred_call_results.insert(key, ty);
             }
         }
+        // Numeric defaults are needed to publish a closure signature such as
+        // `\value -> value + 1`, but must not be applied to unrelated call
+        // arguments before ordinary generic-call inference has seen their
+        // contextual type (for example `max(usize, usize)`).
+        inference.default_unconstrained_numeric_literals(self);
+        inference.solve_obligations(self);
 
         let mut closure_uses: Vec<_> = inference.closure_uses.values().copied().collect();
         closure_uses.sort_by_key(|usage| (usage.first.start, usage.first.end));
@@ -886,7 +900,16 @@ impl FunctionInference {
         if self.nodes[left].rank == self.nodes[right].rank {
             self.nodes[root].rank = self.nodes[root].rank.saturating_add(1);
         }
-        self.nodes[root].shape = left_shape.clone().or(right_shape.clone());
+        self.nodes[root].shape = match (&left_shape, &right_shape) {
+            (Some(left_shape), Some(right_shape)) => match (left_shape, right_shape) {
+                (InferShape::NumericLiteral(_), InferShape::Known(ty))
+                | (InferShape::Known(ty), InferShape::NumericLiteral(_)) => {
+                    Some(InferShape::Known(*ty))
+                }
+                _ => Some(left_shape.clone()),
+            },
+            _ => left_shape.clone().or(right_shape.clone()),
+        };
 
         true
     }
@@ -937,7 +960,7 @@ impl FunctionInference {
                         .any(|param| visit(inference, checker, needle, param, visiting))
                         || visit(inference, checker, needle, return_type, visiting)
                 }
-                Some(InferShape::Known(_)) | None => false,
+                Some(InferShape::Known(_) | InferShape::NumericLiteral(_)) | None => false,
             };
             visiting.pop();
             result
@@ -962,6 +985,18 @@ impl FunctionInference {
             (None, _) | (_, None) => true,
             (Some(InferShape::Known(left)), Some(InferShape::Known(right))) => {
                 left == right || checker.is_error_ty(*left) || checker.is_error_ty(*right)
+            }
+            (Some(InferShape::NumericLiteral(left)), Some(InferShape::NumericLiteral(right))) => {
+                left == right
+            }
+            (Some(InferShape::NumericLiteral(kind)), Some(InferShape::Known(ty)))
+            | (Some(InferShape::Known(ty)), Some(InferShape::NumericLiteral(kind))) => {
+                checker.is_error_ty(*ty)
+                    || matches!(checker.interner.get(*ty), Some(TyKind::Primitive(primitive))
+                    if match kind {
+                        NumericLiteralKind::Integer => primitive.is_integer(),
+                        NumericLiteralKind::Float => primitive.is_float(),
+                    })
             }
             (Some(InferShape::Tuple(left)), Some(InferShape::Tuple(right))) => {
                 left.len() == right.len()
@@ -994,6 +1029,7 @@ impl FunctionInference {
         let shape = self.expanded_shape(checker, id)?;
         match shape {
             InferShape::Known(ty) => Some(ty),
+            InferShape::NumericLiteral(_) => None,
             InferShape::Tuple(elems) => {
                 let elems = elems
                     .into_iter()
@@ -1035,6 +1071,7 @@ impl FunctionInference {
         };
         match shape {
             InferShape::Known(ty) => InferredType::Known(ty),
+            InferShape::NumericLiteral(_) => InferredType::Unknown,
             InferShape::Tuple(elems) => InferredType::Tuple(
                 elems
                     .into_iter()
@@ -1340,14 +1377,30 @@ impl FunctionInference {
             self.call_results.insert(expr.node_key.clone(), term);
         }
         let actual = match &expr.kind {
-            ExprKind::Integer(_) => self.known(
-                integer_literal_suffix_ty(expr)
-                    .map_or_else(|| checker.i32(), |ty| checker.interner.primitive(ty)),
-            ),
-            ExprKind::Float(_) => self.known(
-                float_literal_suffix_ty(expr)
-                    .map_or_else(|| checker.f64(), |ty| checker.interner.primitive(ty)),
-            ),
+            ExprKind::Integer(_) => match integer_literal_suffix_ty(expr) {
+                Some(ty) => self.known(checker.interner.primitive(ty)),
+                None => {
+                    let term =
+                        self.with_shape(InferShape::NumericLiteral(NumericLiteralKind::Integer));
+                    if checker.is_untyped_numeric_literal_expr(expr) {
+                        self.default_numeric_terms
+                            .push((term, NumericLiteralKind::Integer));
+                    }
+                    term
+                }
+            },
+            ExprKind::Float(_) => match float_literal_suffix_ty(expr) {
+                Some(ty) => self.known(checker.interner.primitive(ty)),
+                None => {
+                    let term =
+                        self.with_shape(InferShape::NumericLiteral(NumericLiteralKind::Float));
+                    if checker.is_untyped_numeric_literal_expr(expr) {
+                        self.default_numeric_terms
+                            .push((term, NumericLiteralKind::Float));
+                    }
+                    term
+                }
+            },
             ExprKind::Bool(_) => self.known(checker.bool()),
             ExprKind::Char(_) => self.known(checker.interner.primitive(PrimitiveTy::Char)),
             ExprKind::ByteChar(_) => self.known(checker.interner.primitive(PrimitiveTy::U8)),
@@ -1735,8 +1788,26 @@ impl FunctionInference {
                     self.unify(checker, bool_term, rhs);
                     bool_term
                 } else {
-                    let lhs = self.constrain_expr(checker, lhs, None);
-                    let rhs = self.constrain_expr(checker, rhs, None);
+                    let lhs_is_untyped = checker.is_untyped_numeric_literal_expr(lhs);
+                    let rhs_is_untyped = checker.is_untyped_numeric_literal_expr(rhs);
+                    let (lhs, rhs) = match (lhs_is_untyped, rhs_is_untyped) {
+                        (true, false) => {
+                            let rhs_term = self.constrain_expr(checker, rhs, None);
+                            let lhs_term = self.constrain_expr(checker, lhs, Some(rhs_term));
+                            self.unify(checker, lhs_term, rhs_term);
+                            (lhs_term, rhs_term)
+                        }
+                        (false, true) => {
+                            let lhs_term = self.constrain_expr(checker, lhs, None);
+                            let rhs_term = self.constrain_expr(checker, rhs, Some(lhs_term));
+                            self.unify(checker, lhs_term, rhs_term);
+                            (lhs_term, rhs_term)
+                        }
+                        _ => (
+                            self.constrain_expr(checker, lhs, None),
+                            self.constrain_expr(checker, rhs, None),
+                        ),
+                    };
                     let output = if matches!(
                         op,
                         BinaryOp::Lt
@@ -1856,11 +1927,27 @@ impl FunctionInference {
                 // and is not an equality constraint in this solver.
                 value
             }
-            _ => {
+            ExprKind::Error
+            | ExprKind::String(_)
+            | ExprKind::ByteString(_)
+            | ExprKind::Raw(_)
+            | ExprKind::Null
+            | ExprKind::PathRoot(_)
+            | ExprKind::Underscore
+            | ExprKind::TypeTarget { .. }
+            | ExprKind::TraitTarget { .. }
+            | ExprKind::BracketSuffix { .. }
+            | ExprKind::ArrayLiteral { .. }
+            | ExprKind::OmittedAggregateLiteral { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::TupleField { .. }
+            | ExprKind::Index { .. } => {
                 // Even a form whose result has no structural inference rule
                 // must contribute the calls and closures in its children.
-                // Use the canonical AST walker so an opaque outer expression
-                // cannot silently disconnect a nested contextual use.
+                // Use the canonical AST walker so an outer expression cannot
+                // disconnect a nested contextual use. Keep this list explicit:
+                // a new AST form must choose a structural constraint rule or
+                // deliberately participate only through its children.
                 nia_ast_walk::walk_expr(
                     &mut ExpressionConstraintCollector {
                         inference: self,
@@ -1911,6 +1998,44 @@ impl FunctionInference {
             });
             if pending.len() == before {
                 break;
+            }
+        }
+    }
+
+    /// Apply the language's literal defaults only after contextual equalities
+    /// and deferred obligations have reached a fixed point. This lets an
+    /// unconstrained literal inherit a type from its surrounding expression
+    /// while preserving `i32`/`f64` when no such context exists.
+    fn default_unconstrained_numeric_literals(&mut self, checker: &mut BodyChecker<'_>) {
+        for (term, primitive) in std::mem::take(&mut self.default_numeric_terms) {
+            let root = self.find(term);
+            let closure_terms = self
+                .closures
+                .iter()
+                .flat_map(|closure| {
+                    closure
+                        .params
+                        .iter()
+                        .copied()
+                        .chain(std::iter::once(closure.return_type))
+                })
+                .collect::<Vec<_>>();
+            let closure_related = closure_terms
+                .into_iter()
+                .any(|candidate| self.find(candidate) == root);
+            if !closure_related {
+                continue;
+            }
+            if matches!(
+                self.expanded_shape(checker, term),
+                Some(InferShape::NumericLiteral(kind)) if kind == primitive
+            ) {
+                let primitive = match primitive {
+                    NumericLiteralKind::Integer => PrimitiveTy::I32,
+                    NumericLiteralKind::Float => PrimitiveTy::F64,
+                };
+                let default = self.known(checker.interner.primitive(primitive));
+                self.unify(checker, term, default);
             }
         }
     }

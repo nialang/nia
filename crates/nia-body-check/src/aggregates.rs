@@ -254,6 +254,10 @@ impl<'a> BodyChecker<'a> {
         aggregate_ty: InternedTyId,
         fields: &[nia_ast::FieldInit],
     ) -> InternedTyId {
+        // Type aliases are transparent at value construction. Resolve the
+        // expected type before looking up the nominal declaration so an
+        // omitted literal has the same field checking as its canonical type.
+        let aggregate_ty = self.normalization.normalize(aggregate_ty);
         let (def_id, args, const_args) = match self.expect_ty_kind(aggregate_ty) {
             TyKind::Nominal {
                 def_id,

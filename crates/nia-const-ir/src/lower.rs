@@ -260,7 +260,12 @@ fn lower_expr_internal(
         nia_ast::ExprKind::Closure { .. } => {
             EarlyConstExprKind::UnavailableValue(nia_sema::ConstValueRestriction::Callable)
         }
-        _ => {
+        nia_ast::ExprKind::Error
+        | nia_ast::ExprKind::Raw(_)
+        | nia_ast::ExprKind::PathRoot(_)
+        | nia_ast::ExprKind::Underscore
+        | nia_ast::ExprKind::TypeTarget { .. }
+        | nia_ast::ExprKind::TraitTarget { .. } => {
             return Err(ConstLowerError {
                 span: expr.span,
                 message: "unsupported const expression".to_string(),

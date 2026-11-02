@@ -107,9 +107,19 @@ impl Analyzer<'_> {
                 );
                 let concrete_expected =
                     expected.filter(|expected| !self.type_contains_generic(*expected));
-                let Some(arg_ty) =
-                    self.resolved_const_arg_runtime_type(arg_expr, concrete_expected)
-                else {
+                let inferred_arg_ty = self
+                    .resolved_const_arg_runtime_type(arg_expr, concrete_expected)
+                    .or_else(|| {
+                        if concrete_expected.is_none()
+                            && self.is_untyped_const_numeric_expr(arg_expr)
+                        {
+                            self.resolved_const_expr_with_numeric_defaults(arg_expr)
+                                .and_then(|ty| ty.runtime())
+                        } else {
+                            None
+                        }
+                    });
+                let Some(arg_ty) = inferred_arg_ty else {
                     if concrete_expected.is_some_and(|expected| {
                         self.resolved_const_arg_expected_compatibility(arg_expr, expected)
                             == ConstTypeCompatibility::Mismatch

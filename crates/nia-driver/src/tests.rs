@@ -18,6 +18,7 @@ mod trait_impls;
 mod trait_objects;
 mod type_system;
 mod using;
+mod value_inference_matrix;
 mod visibility_matrix;
 
 #[test]

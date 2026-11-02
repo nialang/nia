@@ -1884,7 +1884,7 @@ impl<'a> BodyChecker<'a> {
         }
 
         let mut prechecked_rhs = None;
-        if self.is_untyped_numeric_literal_expr(lhs) && !self.is_numeric_literal_expr(rhs) {
+        if self.is_untyped_numeric_literal_expr(lhs) && !self.is_untyped_numeric_literal_expr(rhs) {
             let rhs_actual = self.check_expr(rhs);
             let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
             if self.is_numeric(rhs_ty) && self.can_expected_type_drive_builtin_operator(rhs_ty, op)

@@ -1,0 +1,46 @@
+name: formal inference contracts
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/formal-inference.yml"
+      - "lean-toolchain"
+      - "docs/formal/**"
+      - "crates/nia-ast/src/**"
+      - "crates/nia-body-check/src/inference.rs"
+      - "crates/nia-const-ir/src/lower.rs"
+      - "crates/nia-driver/Cargo.toml"
+      - "crates/nia-driver/src/tests.rs"
+      - "crates/nia-driver/src/tests/value_inference_matrix.rs"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/formal-inference.yml"
+      - "lean-toolchain"
+      - "docs/formal/**"
+      - "crates/nia-ast/src/**"
+      - "crates/nia-body-check/src/inference.rs"
+      - "crates/nia-const-ir/src/lower.rs"
+      - "crates/nia-driver/Cargo.toml"
+      - "crates/nia-driver/src/tests.rs"
+      - "crates/nia-driver/src/tests/value_inference_matrix.rs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    name: Verify value-construction inference contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Lean toolchain
+        uses: leanprover/lean-action@v1
+
+      - name: Check formal model
+        run: lean docs/formal/value_inference.lean

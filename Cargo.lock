@@ -1106,6 +1106,7 @@ dependencies = [
  "nia-timing",
  "nia-toolchain",
  "nia-ty",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 
