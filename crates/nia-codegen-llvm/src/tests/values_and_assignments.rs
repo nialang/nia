@@ -80,8 +80,14 @@ fun below(value: u16) bool { value < 4u16 }
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("icmp eq i32"), "expected widened equality:\n{ir}");
-    assert!(ir.contains("icmp ult i32"), "expected widened unsigned comparison:\n{ir}");
+    assert!(
+        ir.contains("icmp eq i32"),
+        "expected widened equality:\n{ir}"
+    );
+    assert!(
+        ir.contains("icmp ult i32"),
+        "expected widened unsigned comparison:\n{ir}"
+    );
 }
 
 #[test]
