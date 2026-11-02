@@ -374,12 +374,12 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                     .cloned()
                     .unwrap_or_else(|| ModulePublicSurface::new(defs.module_id));
                 for entry in provider_expansion.entries {
-                    if let ResolvedEntryKind::Module(target_module) = entry.kind {
-                        if !surface.reexported_provider_modules.contains(&target_module) {
-                            surface.reexported_provider_modules.push(target_module);
-                            surface.reexported_provider_modules.sort();
-                            iteration_changed = true;
-                        }
+                    if let ResolvedEntryKind::Module(target_module) = entry.kind
+                        && !surface.reexported_provider_modules.contains(&target_module)
+                    {
+                        surface.reexported_provider_modules.push(target_module);
+                        surface.reexported_provider_modules.sort();
+                        iteration_changed = true;
                     }
                 }
                 for entry in expansion.entries {
