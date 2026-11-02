@@ -6,8 +6,9 @@ on:
       - ".github/workflows/formal.yml"
       - "formal/**"
       - "crates/nia-ast/src/**"
-      - "crates/nia-body-check/src/inference.rs"
-      - "crates/nia-const-ir/src/lower.rs"
+      - "crates/nia-body-check/src/**"
+      - "crates/nia-const-check/src/**"
+      - "crates/nia-const-ir/src/**"
       - "crates/nia-driver/src/tests/value_inference_matrix.rs"
   push:
     branches:
@@ -16,8 +17,9 @@ on:
       - ".github/workflows/formal.yml"
       - "formal/**"
       - "crates/nia-ast/src/**"
-      - "crates/nia-body-check/src/inference.rs"
-      - "crates/nia-const-ir/src/lower.rs"
+      - "crates/nia-body-check/src/**"
+      - "crates/nia-const-check/src/**"
+      - "crates/nia-const-ir/src/**"
       - "crates/nia-driver/src/tests/value_inference_matrix.rs"
   workflow_dispatch:
 

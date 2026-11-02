@@ -63,6 +63,8 @@ lake build
 ```
 
 The manifest is declared as a Lake input, so editing it rebuilds the model.
+Manifest changes also trigger the build/std workflow, which runs the Rust
+matrix tests; changes to the checker sources trigger the formal workflow.
 The compiler side runs with the driver tests:
 
 ```sh
