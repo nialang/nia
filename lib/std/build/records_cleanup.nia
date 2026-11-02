@@ -21,6 +21,10 @@ using root::build::types::{
     Step,
     TargetStorage,
 };
+using root::build::commands;
+using root::build::modules;
+using root::build::steps;
+using root::build::targets;
 
 pub(root) trait OwnedBuildValue {
     fun deinitOwned(

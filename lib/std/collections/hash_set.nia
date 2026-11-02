@@ -8,6 +8,7 @@ using root::collections::hash_map;
 using root::mem;
 using root::hash;
 using root::iter;
+using root::option;
 
 pub struct HashSetWithContext[K, C]
 where K: Sized, C: hash_map::HashMapContext[K]

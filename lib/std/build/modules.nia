@@ -14,7 +14,9 @@ using root::mem;
 using root::string;
 using root::error::CleanupAccumulator;
 using root::build::error;
+using root::build::handles;
 using root::build::paths::isValidBuildPath;
+using root::fs::path;
 using root::build::types;
 
 using error::Error;

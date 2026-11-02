@@ -9,8 +9,10 @@ using root::mem;
 using root::string;
 using root::error::CleanupAccumulator;
 using root::build::error;
+using root::build::handles;
 using root::build::paths::{isValidBuildPath, isValidPackagePath};
 using root::build::types;
+using root::build::paths;
 
 using error::Error;
 using types::{

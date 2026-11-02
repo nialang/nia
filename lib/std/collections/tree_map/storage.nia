@@ -2,6 +2,7 @@
 
 using root::error;
 using root::mem;
+using root::option;
 using root::mem::layout::LayoutBuilder;
 using super::map;
 using super::types;

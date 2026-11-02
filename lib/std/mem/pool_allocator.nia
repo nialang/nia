@@ -11,6 +11,8 @@ using root::mem::allocator;
 using root::mem::types;
 using root::mem::layout::LayoutBuilder;
 using root::option;
+using root::result;
+using root::math::alignment;
 
 using allocator::Allocator;
 using root::mem::error::Error;

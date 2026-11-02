@@ -5,6 +5,7 @@
 
 using root::build::artifacts;
 using root::build::commands::{validateExternalCommand, validateRunArguments};
+using root::build::handles;
 using root::build::error;
 using root::build::queries::{
     findEmitObjectStep as findEmitObjectStepRecord,

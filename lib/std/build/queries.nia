@@ -3,6 +3,8 @@
 // Record scans live here so query policy stays independent from mutation.
 
 using root::build::types;
+using root::build::handles;
+using root::string;
 
 using types::{
     ExecutableHandle,

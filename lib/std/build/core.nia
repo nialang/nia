@@ -21,6 +21,7 @@ using root::build::dependencies::{findGeneratedSourceProducer, hasDependency};
 using root::build::diagnostics::{reportBuildError, reportUnknownBuildStep};
 using root::build::handles;
 using root::build::modules::validateModuleImports;
+using root::build::steps;
 using root::build::paths::{isValidBuildPath, isValidPackagePath};
 using root::build::queries::{
     findExecutable as findExecutableRecord,

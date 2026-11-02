@@ -3,6 +3,7 @@
 using root::cmp;
 using root::error;
 using root::mem;
+using root::option;
 using super::entries;
 using super::storage;
 using super::types;

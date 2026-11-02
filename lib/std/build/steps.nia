@@ -11,6 +11,7 @@ using root::error::CleanupAccumulator;
 using root::build::commands;
 using root::build::error;
 using root::build::types;
+using root::build::paths;
 
 using error::Error;
 using types::{
