@@ -62,6 +62,29 @@ fun main() i32 {
 }
 
 #[test]
+fn widens_scalar_narrow_integer_comparisons_before_llvm_lowering() {
+    let root = temp_dir("widens_scalar_narrow_integer_comparisons_before_llvm_lowering");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fun equals(value: i8) bool { value == -3i8 }
+fun below(value: u16) bool { value < 4u16 }
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("icmp eq i32"), "expected widened equality:\n{ir}");
+    assert!(ir.contains("icmp ult i32"), "expected widened unsigned comparison:\n{ir}");
+}
+
+#[test]
 fn emits_nested_value_function_flow_from_function_ir() {
     let root = temp_dir("emits_nested_value_function_flow_from_function_ir");
     let main = root.join("main.nia");

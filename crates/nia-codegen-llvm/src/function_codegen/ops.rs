@@ -331,50 +331,200 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 return self.emit_checked_int_shift(span, lhs, op, rhs_ty, rhs, is_signed);
             }
             BinaryOp::Eq => {
-                self.builder
-                    .build_basic_int_compare(IntPredicate::EQ, lhs, rhs, "eqtmp")
+                return self.emit_integer_compare(
+                    span,
+                    operand_ty,
+                    IntPredicate::EQ,
+                    lhs,
+                    rhs,
+                    "eqtmp",
+                );
             }
             BinaryOp::Ne => {
-                self.builder
-                    .build_basic_int_compare(IntPredicate::NE, lhs, rhs, "netmp")
+                return self.emit_integer_compare(
+                    span,
+                    operand_ty,
+                    IntPredicate::NE,
+                    lhs,
+                    rhs,
+                    "netmp",
+                );
             }
             BinaryOp::Lt if is_signed => {
-                self.builder
-                    .build_basic_int_compare(IntPredicate::SLT, lhs, rhs, "lttmp")
+                return self.emit_integer_compare(
+                    span,
+                    operand_ty,
+                    IntPredicate::SLT,
+                    lhs,
+                    rhs,
+                    "lttmp",
+                );
             }
             BinaryOp::Lt => {
-                self.builder
-                    .build_basic_int_compare(IntPredicate::ULT, lhs, rhs, "lttmp")
+                return self.emit_integer_compare(
+                    span,
+                    operand_ty,
+                    IntPredicate::ULT,
+                    lhs,
+                    rhs,
+                    "lttmp",
+                );
             }
             BinaryOp::Le if is_signed => {
-                self.builder
-                    .build_basic_int_compare(IntPredicate::SLE, lhs, rhs, "letmp")
+                return self.emit_integer_compare(
+                    span,
+                    operand_ty,
+                    IntPredicate::SLE,
+                    lhs,
+                    rhs,
+                    "letmp",
+                );
             }
             BinaryOp::Le => {
-                self.builder
-                    .build_basic_int_compare(IntPredicate::ULE, lhs, rhs, "letmp")
+                return self.emit_integer_compare(
+                    span,
+                    operand_ty,
+                    IntPredicate::ULE,
+                    lhs,
+                    rhs,
+                    "letmp",
+                );
             }
             BinaryOp::Gt if is_signed => {
-                self.builder
-                    .build_basic_int_compare(IntPredicate::SGT, lhs, rhs, "gttmp")
+                return self.emit_integer_compare(
+                    span,
+                    operand_ty,
+                    IntPredicate::SGT,
+                    lhs,
+                    rhs,
+                    "gttmp",
+                );
             }
             BinaryOp::Gt => {
-                self.builder
-                    .build_basic_int_compare(IntPredicate::UGT, lhs, rhs, "gttmp")
+                return self.emit_integer_compare(
+                    span,
+                    operand_ty,
+                    IntPredicate::UGT,
+                    lhs,
+                    rhs,
+                    "gttmp",
+                );
             }
             BinaryOp::Ge if is_signed => {
-                self.builder
-                    .build_basic_int_compare(IntPredicate::SGE, lhs, rhs, "getmp")
+                return self.emit_integer_compare(
+                    span,
+                    operand_ty,
+                    IntPredicate::SGE,
+                    lhs,
+                    rhs,
+                    "getmp",
+                );
             }
             BinaryOp::Ge => {
-                self.builder
-                    .build_basic_int_compare(IntPredicate::UGE, lhs, rhs, "getmp")
+                return self.emit_integer_compare(
+                    span,
+                    operand_ty,
+                    IntPredicate::UGE,
+                    lhs,
+                    rhs,
+                    "getmp",
+                );
             }
             BinaryOp::And | BinaryOp::Or => {
                 return Err(self.error(span, "logical operator reached non-short-circuit path"));
             }
         };
         result.map_err(|_| self.error(span, "failed to build binary operation"))
+    }
+
+    /// LLVM's AArch64 legalizer has a target-specific lowering for narrow
+    /// integer comparisons.  Keeping the comparison in i8/i16 can turn an
+    /// equality against a negative constant into a zero-extended add, which
+    /// changes the wraparound semantics of the original narrow operation.
+    /// Normalize scalar narrow operands to i32 before comparing so every
+    /// target sees the same mathematical value.  Vectors retain their lane
+    /// type; their compare lowering is already lane-aware.
+    fn emit_integer_compare(
+        &mut self,
+        span: Span,
+        operand_ty: InternedTyId,
+        predicate: IntPredicate,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if !self.is_integer_like(operand_ty) {
+            return self
+                .builder
+                .build_basic_int_compare(predicate, lhs, rhs, name)
+                .map_err(|_| self.error(span, "failed to build integer comparison"));
+        }
+        let is_vector = matches!(
+            self.module.ty_kind(operand_ty),
+            Some(nia_ty::TyKind::Vector { .. })
+        );
+        if is_vector {
+            return self
+                .builder
+                .build_basic_int_compare(predicate, lhs, rhs, name)
+                .map_err(|_| self.error(span, "failed to build integer comparison"));
+        }
+        let bits = self.integer_bits(operand_ty, span)?;
+        if bits >= 32 {
+            return self
+                .builder
+                .build_basic_int_compare(predicate, lhs, rhs, name)
+                .map_err(|_| self.error(span, "failed to build integer comparison"));
+        }
+
+        let lhs = lhs.into_int_value()?;
+        let mut rhs = rhs.into_int_value()?;
+        let comparison_is_signed = matches!(
+            predicate,
+            IntPredicate::EQ
+                | IntPredicate::NE
+                | IntPredicate::SLT
+                | IntPredicate::SLE
+                | IntPredicate::SGT
+                | IntPredicate::SGE
+        );
+        let operand_bits = lhs.get_type()?.bit_width();
+        let rhs_bits = rhs.get_type()?.bit_width();
+        if rhs_bits != operand_bits {
+            let operand_type = lhs.get_type()?;
+            rhs = if rhs_bits > operand_bits {
+                self.builder
+                    .build_int_truncate(rhs, operand_type, "cmp.operand")
+                    .map_err(|_| self.error(span, "failed to narrow integer comparison operand"))?
+            } else if comparison_is_signed {
+                self.builder
+                    .build_int_s_extend(rhs, operand_type, "cmp.operand")
+                    .map_err(|_| self.error(span, "failed to widen integer comparison operand"))?
+            } else {
+                self.builder
+                    .build_int_z_extend(rhs, operand_type, "cmp.operand")
+                    .map_err(|_| self.error(span, "failed to widen integer comparison operand"))?
+            };
+        }
+        let target = self.module.context.i32_type();
+        let extend = |builder: &mut Self, value: IntValue<'ctx>| {
+            if comparison_is_signed {
+                builder
+                    .builder
+                    .build_int_s_extend(value, target, "cmp.wide")
+            } else {
+                builder
+                    .builder
+                    .build_int_z_extend(value, target, "cmp.wide")
+            }
+        };
+        let lhs = extend(self, lhs)
+            .map_err(|_| self.error(span, "failed to widen integer comparison"))?;
+        let rhs = extend(self, rhs)
+            .map_err(|_| self.error(span, "failed to widen integer comparison"))?;
+        self.builder
+            .build_basic_int_compare(predicate, lhs.into(), rhs.into(), name)
+            .map_err(|_| self.error(span, "failed to build integer comparison"))
     }
 
     fn emit_checked_vector_shift(
