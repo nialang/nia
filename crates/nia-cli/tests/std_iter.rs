@@ -316,13 +316,13 @@ using std::slice;
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let squares = (1..5).iter().fold(0, &\acc, value -> acc + value * value);
-    let add = \acc, value -> acc + value;
+    let add = \acc: i32, value: i32 -> acc + value;
     let sum = (1..5).iter().fold(0, &add);
     let inclusive = (1..=4).iter().fold(0, &\acc: i32, value -> acc + value);
     let wide = (1u64..4).iter().fold(0u64, &\acc, value -> acc + value);
     let prefix = (1..100).iter().take(3).fold(0, &\acc, value -> acc + value);
     let values: [i32; 3] = [1, 2, 3];
-    let addItem = \acc, value -> acc + value.*;
+    let addItem = \acc: i32, value: &i32 -> acc + value.*;
     let sliceSum = (&values).iter().fold(0, &addItem);
     let sliceSquares = (&values).iter().fold(0, &\acc, value -> acc + value.* * value.*);
     let mut seen = 0;

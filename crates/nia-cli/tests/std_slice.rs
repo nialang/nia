@@ -484,5 +484,5 @@ fun main() () {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("unknown struct field `rev`"), "{stderr}");
+    assert!(stderr.contains("unknown method `rev`"), "{stderr}");
 }

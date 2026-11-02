@@ -17,6 +17,7 @@ fn option_ok_or_converts_some_to_success() {
         &main,
         r#"
 using std::mem;
+using std::option;
 using std::process;
 
 pub fun main(init: process::Init) process::ExitCode!() {
@@ -67,6 +68,7 @@ fn option_ok_or_converts_null_to_error() {
         &main,
         r#"
 using std::mem;
+using std::option;
 using std::process;
 
 pub fun main(init: process::Init) process::ExitCode!() {
@@ -117,6 +119,7 @@ fn option_ok_or_else_infers_error_from_closures() {
         &main,
         r#"
 using std::mem;
+using std::option;
 using std::process;
 
 pub fun main(init: process::Init) process::ExitCode!() {
@@ -179,6 +182,7 @@ fn option_ok_or_propagates_with_try() {
         &main,
         r#"
 using std::mem;
+using std::option;
 using std::process;
 
 fun compute(input: ?i32) mem::Error!i32 {
@@ -237,6 +241,7 @@ fn option_ok_or_chains_with_map() {
         &main,
         r#"
 using std::mem;
+using std::option;
 using std::process;
 
 pub fun main(init: process::Init) process::ExitCode!() {
@@ -288,6 +293,7 @@ fn option_ok_or_works_with_different_error_types() {
     std::fs::write(
         &main,
         r#"
+using std::option;
 using std::process;
 
 enum CustomError: i32 {
