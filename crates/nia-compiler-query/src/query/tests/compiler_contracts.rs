@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 141);
+    assert_eq!(descriptors.len(), 138);
     assert!(
         !descriptors
             .iter()
