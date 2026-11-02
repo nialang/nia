@@ -95,6 +95,31 @@ fun main() i32 {
 }
 
 #[test]
+fn omitted_constructors_in_match_statement_arms_are_const_evaluable() {
+    let root = temp_dir("omitted_constructors_in_match_statement_arms_are_const_evaluable");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Point { value: usize }
+
+const fun choose(flag: bool) Point {
+    match flag {
+        true => return .{ value: 7usize },
+        false => return .{ value: 9usize },
+    }
+}
+
+const result: usize = choose(true).value;
+
+fun main() i32 { result as i32 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn omitted_patterns_are_const_evaluable() {
     let root = temp_dir("omitted_patterns_are_const_evaluable");
     write(

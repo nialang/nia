@@ -73,6 +73,8 @@ y
     let const_module = lower_module_const(ConstModuleInput {
         type_store: &type_store,
         defs_for_module: None,
+        signatures_for_module: None,
+        visible_extensions_for_module: None,
         active_item_tree: &active_item_tree,
         defs: &defs,
         signatures: &signatures,

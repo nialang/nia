@@ -12,6 +12,7 @@ use nia_const_ir::{
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_item_signatures::{GenericParamSignatureKind, generic_argument_substitutions};
 use nia_item_tree::{ItemTreeNode, ItemTreeNodeKind};
 use nia_local_resolve::LocalKind;
 use nia_node_id::VersionedNodeKey;
@@ -20,6 +21,7 @@ use nia_span::Span;
 use nia_ty::TyKind;
 
 type LocalTypeHints = HashMap<LocalId, (InternedTyId, Option<nia_ast::TypeRef>)>;
+type ExpectedTypeHint<'a> = (Option<InternedTyId>, Option<&'a nia_ast::TypeRef>);
 
 #[derive(Default)]
 struct OmittedMaps {
@@ -412,70 +414,130 @@ impl ConstModuleLowerer<'_> {
         maps: &mut OmittedMaps,
         local_types: &mut LocalTypeHints,
     ) {
+        for stmt in &block.stmts {
+            self.collect_stmt_omitted_maps(
+                stmt,
+                (None, None),
+                (return_type, return_ref),
+                maps,
+                local_types,
+            );
+        }
         if let Some(tail) = block.tail.as_deref() {
             self.collect_expr_omitted_maps(tail, return_type, return_ref, maps, local_types);
         }
-        for stmt in &block.stmts {
-            match &stmt.kind {
-                nia_ast::StmtKind::Binding(binding) => {
-                    if let Some(value) = binding.value.as_ref() {
-                        let expected = binding
-                            .ty
-                            .as_ref()
-                            .and_then(|ty| self.input.semantic_uses.node_type_use(&ty.node_key));
-                        self.collect_expr_omitted_maps(
-                            value,
-                            expected,
+    }
+
+    /// Collects contextual constructor identities from one statement.
+    ///
+    /// Match arms may contain any single statement, not only an expression
+    /// statement. Keeping this traversal in one place prevents binding,
+    /// return, defer, and nested-control-flow arms from silently losing the
+    /// same semantic context that ordinary function blocks receive.
+    fn collect_stmt_omitted_maps(
+        &self,
+        stmt: &nia_ast::Stmt,
+        expr_expected: ExpectedTypeHint<'_>,
+        return_expected: ExpectedTypeHint<'_>,
+        maps: &mut OmittedMaps,
+        local_types: &mut LocalTypeHints,
+    ) {
+        match &stmt.kind {
+            nia_ast::StmtKind::Binding(binding) => {
+                if let Some(value) = binding.value.as_ref() {
+                    let expected = binding
+                        .ty
+                        .as_ref()
+                        .and_then(|ty| self.input.semantic_uses.node_type_use(&ty.node_key));
+                    let inferred = expected.or_else(|| self.expr_type_hint(value, local_types));
+                    if let Some(inferred) = inferred {
+                        self.collect_pattern_omitted_maps(
+                            &binding.pattern,
+                            Some(inferred),
                             binding.ty.as_ref(),
                             maps,
                             local_types,
                         );
-                        if let Some(expected) = expected {
-                            self.collect_pattern_omitted_maps(
-                                &binding.pattern,
-                                Some(expected),
-                                binding.ty.as_ref(),
-                                maps,
-                                local_types,
-                            );
-                        }
                     }
-                }
-                nia_ast::StmtKind::Return(Some(value)) => {
                     self.collect_expr_omitted_maps(
                         value,
-                        return_type,
-                        return_ref,
+                        inferred,
+                        binding.ty.as_ref(),
                         maps,
                         local_types,
                     );
                 }
-                nia_ast::StmtKind::ForIn(for_in) => self.collect_function_omitted_maps(
-                    &for_in.body,
-                    return_type,
-                    return_ref,
-                    maps,
-                    local_types,
-                ),
-                nia_ast::StmtKind::While(while_stmt) => self.collect_function_omitted_maps(
-                    &while_stmt.body,
-                    return_type,
-                    return_ref,
-                    maps,
-                    local_types,
-                ),
-                nia_ast::StmtKind::Loop(loop_stmt) => self.collect_function_omitted_maps(
-                    &loop_stmt.body,
-                    return_type,
-                    return_ref,
-                    maps,
-                    local_types,
-                ),
-                nia_ast::StmtKind::Expr(expr) => {
-                    self.collect_expr_omitted_maps(expr, None, None, maps, local_types)
-                }
-                _ => {}
             }
+            nia_ast::StmtKind::Static(binding) => {
+                if let Some(value) = binding.value.as_ref() {
+                    let expected = binding
+                        .ty
+                        .as_ref()
+                        .and_then(|ty| self.input.semantic_uses.node_type_use(&ty.node_key));
+                    self.collect_expr_omitted_maps(
+                        value,
+                        expected,
+                        binding.ty.as_ref(),
+                        maps,
+                        local_types,
+                    );
+                }
+            }
+            nia_ast::StmtKind::Expr(expr) => {
+                self.collect_expr_omitted_maps(
+                    expr,
+                    expr_expected.0,
+                    expr_expected.1,
+                    maps,
+                    local_types,
+                );
+            }
+            nia_ast::StmtKind::Return(Some(value)) => {
+                self.collect_expr_omitted_maps(
+                    value,
+                    return_expected.0,
+                    return_expected.1,
+                    maps,
+                    local_types,
+                );
+            }
+            nia_ast::StmtKind::Defer(expr) => {
+                self.collect_expr_omitted_maps(expr, None, None, maps, local_types);
+            }
+            nia_ast::StmtKind::ForIn(for_in) => {
+                self.collect_expr_omitted_maps(&for_in.iter, None, None, maps, local_types);
+                self.collect_pattern_omitted_maps(&for_in.pattern, None, None, maps, local_types);
+                self.collect_function_omitted_maps(
+                    &for_in.body,
+                    return_expected.0,
+                    return_expected.1,
+                    maps,
+                    local_types,
+                );
+            }
+            nia_ast::StmtKind::While(while_stmt) => {
+                self.collect_expr_omitted_maps(&while_stmt.cond, None, None, maps, local_types);
+                self.collect_function_omitted_maps(
+                    &while_stmt.body,
+                    return_expected.0,
+                    return_expected.1,
+                    maps,
+                    local_types,
+                );
+            }
+            nia_ast::StmtKind::Loop(loop_stmt) => {
+                self.collect_function_omitted_maps(
+                    &loop_stmt.body,
+                    return_expected.0,
+                    return_expected.1,
+                    maps,
+                    local_types,
+                );
+            }
+            nia_ast::StmtKind::Using(_)
+            | nia_ast::StmtKind::Return(None)
+            | nia_ast::StmtKind::Break
+            | nia_ast::StmtKind::Continue => {}
         }
     }
 
@@ -537,7 +599,22 @@ impl ConstModuleLowerer<'_> {
                 }
             }
             nia_ast::ExprKind::Call { callee, args } => {
-                let parameter_types = self.direct_call_parameter_types(callee);
+                let parameter_types = self.direct_call_parameter_types(callee, local_types);
+                let receiver = match &callee.kind {
+                    nia_ast::ExprKind::Field { lhs, .. } => Some(lhs.as_ref()),
+                    nia_ast::ExprKind::BracketSuffix { callee, .. } => {
+                        if let nia_ast::ExprKind::Field { lhs, .. } = &callee.kind {
+                            Some(lhs.as_ref())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(lhs) = receiver {
+                    let receiver_type = self.expr_type_hint(lhs, local_types);
+                    self.collect_expr_omitted_maps(lhs, receiver_type, None, maps, local_types);
+                }
                 for (index, arg) in args.iter().enumerate() {
                     self.collect_expr_omitted_maps(
                         arg,
@@ -548,6 +625,68 @@ impl ConstModuleLowerer<'_> {
                         maps,
                         local_types,
                     );
+                }
+            }
+            nia_ast::ExprKind::BracketSuffix { callee, args } => {
+                self.collect_expr_omitted_maps(callee, None, None, maps, local_types);
+                for arg in args {
+                    if let Some(expr) = arg.expr.as_ref() {
+                        self.collect_expr_omitted_maps(expr, None, None, maps, local_types);
+                    }
+                }
+            }
+            nia_ast::ExprKind::Binary { lhs, rhs, .. } => {
+                self.collect_expr_omitted_maps(lhs, None, None, maps, local_types);
+                self.collect_expr_omitted_maps(rhs, None, None, maps, local_types);
+            }
+            nia_ast::ExprKind::Unary { expr: inner, .. }
+            | nia_ast::ExprKind::Try { expr: inner }
+            | nia_ast::ExprKind::Cast { expr: inner, .. } => {
+                self.collect_expr_omitted_maps(inner, None, None, maps, local_types);
+            }
+            nia_ast::ExprKind::OptionalSome { expr: inner }
+            | nia_ast::ExprKind::ErrorOk { expr: inner }
+            | nia_ast::ExprKind::ErrorErr { expr: inner } => {
+                let inner_type = expected_type.and_then(|ty| match self.input.type_store.get(ty) {
+                    Some(TyKind::Optional { elem })
+                    | Some(TyKind::ErrorUnion { value: elem, .. }) => Some(*elem),
+                    _ => None,
+                });
+                self.collect_expr_omitted_maps(inner, inner_type, None, maps, local_types);
+            }
+            nia_ast::ExprKind::Field { lhs, .. } | nia_ast::ExprKind::TupleField { lhs, .. } => {
+                self.collect_expr_omitted_maps(lhs, None, None, maps, local_types);
+            }
+            nia_ast::ExprKind::Index { lhs, index } => {
+                self.collect_expr_omitted_maps(lhs, None, None, maps, local_types);
+                match index {
+                    nia_ast::IndexArg::Expr(index) => {
+                        self.collect_expr_omitted_maps(index, None, None, maps, local_types);
+                    }
+                    nia_ast::IndexArg::Range(range) => {
+                        if let Some(start) = range.start.as_deref() {
+                            self.collect_expr_omitted_maps(start, None, None, maps, local_types);
+                        }
+                        if let Some(end) = range.end.as_deref() {
+                            self.collect_expr_omitted_maps(end, None, None, maps, local_types);
+                        }
+                    }
+                }
+            }
+            nia_ast::ExprKind::Assign { lhs, rhs, .. } => {
+                let lhs_type = self.expr_type_hint(lhs, local_types);
+                self.collect_expr_omitted_maps(lhs, lhs_type, None, maps, local_types);
+                self.collect_expr_omitted_maps(rhs, lhs_type, None, maps, local_types);
+            }
+            nia_ast::ExprKind::Qualified { lhs, .. } => {
+                self.collect_expr_omitted_maps(lhs, None, None, maps, local_types);
+            }
+            nia_ast::ExprKind::Range(range) => {
+                if let Some(start) = range.start.as_deref() {
+                    self.collect_expr_omitted_maps(start, None, None, maps, local_types);
+                }
+                if let Some(end) = range.end.as_deref() {
+                    self.collect_expr_omitted_maps(end, None, None, maps, local_types);
                 }
             }
             nia_ast::ExprKind::TypedStructLiteral { ty, fields } => {
@@ -563,14 +702,31 @@ impl ConstModuleLowerer<'_> {
                     local_types,
                 );
             }
+            nia_ast::ExprKind::QualifiedStructLiteral { target, fields } => {
+                self.collect_expr_omitted_maps(target, None, None, maps, local_types);
+                let field_types =
+                    self.enum_variant_field_types(target, expected_type, expected_ref);
+                for field in fields {
+                    self.collect_expr_omitted_maps(
+                        &field.value,
+                        field_types
+                            .as_ref()
+                            .and_then(|types| types.get(&field.name).copied()),
+                        None,
+                        maps,
+                        local_types,
+                    );
+                }
+            }
             nia_ast::ExprKind::OmittedAggregateLiteral { fields } => {
                 self.collect_aggregate_field_omitted_maps(fields, expected_type, maps, local_types);
             }
             nia_ast::ExprKind::If {
+                cond,
                 then_branch,
                 else_branch,
-                ..
             } => {
+                self.collect_expr_omitted_maps(cond, None, None, maps, local_types);
                 self.collect_function_omitted_maps(
                     then_branch,
                     expected_type,
@@ -588,6 +744,73 @@ impl ConstModuleLowerer<'_> {
                     );
                 }
             }
+            nia_ast::ExprKind::IfPattern(if_pattern) => {
+                self.collect_expr_omitted_maps(&if_pattern.target, None, None, maps, local_types);
+                self.collect_pattern_omitted_maps(
+                    &if_pattern.pattern,
+                    None,
+                    None,
+                    maps,
+                    local_types,
+                );
+                self.collect_function_omitted_maps(
+                    &if_pattern.then_branch,
+                    expected_type,
+                    expected_ref,
+                    maps,
+                    local_types,
+                );
+                if let Some(else_branch) = if_pattern.else_branch.as_deref() {
+                    self.collect_expr_omitted_maps(
+                        else_branch,
+                        expected_type,
+                        expected_ref,
+                        maps,
+                        local_types,
+                    );
+                }
+            }
+            nia_ast::ExprKind::IfPatternChain(chain) => {
+                for clause in &chain.clauses {
+                    match clause {
+                        nia_ast::IfPatternChainClause::Pattern { target, pattern } => {
+                            self.collect_expr_omitted_maps(target, None, None, maps, local_types);
+                            self.collect_pattern_omitted_maps(
+                                pattern,
+                                None,
+                                None,
+                                maps,
+                                local_types,
+                            );
+                        }
+                        nia_ast::IfPatternChainClause::Condition(condition) => {
+                            self.collect_expr_omitted_maps(
+                                condition,
+                                None,
+                                None,
+                                maps,
+                                local_types,
+                            );
+                        }
+                    }
+                }
+                self.collect_function_omitted_maps(
+                    &chain.then_branch,
+                    expected_type,
+                    expected_ref,
+                    maps,
+                    local_types,
+                );
+                if let Some(else_branch) = chain.else_branch.as_deref() {
+                    self.collect_expr_omitted_maps(
+                        else_branch,
+                        expected_type,
+                        expected_ref,
+                        maps,
+                        local_types,
+                    );
+                }
+            }
             nia_ast::ExprKind::Block(block) => self.collect_function_omitted_maps(
                 block,
                 expected_type,
@@ -596,6 +819,7 @@ impl ConstModuleLowerer<'_> {
                 local_types,
             ),
             nia_ast::ExprKind::Match(matched) => {
+                self.collect_expr_omitted_maps(&matched.target, None, None, maps, local_types);
                 let target_hint = self
                     .input
                     .semantic_uses
@@ -631,19 +855,21 @@ impl ConstModuleLowerer<'_> {
                             maps,
                             local_types,
                         ),
-                        nia_ast::MatchArmBody::Stmt(stmt) => {
-                            if let nia_ast::StmtKind::Expr(body) = &stmt.kind {
-                                self.collect_expr_omitted_maps(
-                                    body,
-                                    expected_type,
-                                    expected_ref,
-                                    maps,
-                                    local_types,
-                                );
-                            }
-                        }
+                        nia_ast::MatchArmBody::Stmt(stmt) => self.collect_stmt_omitted_maps(
+                            stmt,
+                            (expected_type, expected_ref),
+                            (expected_type, expected_ref),
+                            maps,
+                            local_types,
+                        ),
                     }
                 }
+            }
+            nia_ast::ExprKind::Closure { captures, body, .. } => {
+                for capture in captures {
+                    self.collect_expr_omitted_maps(&capture.value, None, None, maps, local_types);
+                }
+                self.collect_expr_omitted_maps(body, None, None, maps, local_types);
             }
             _ => {}
         }
@@ -680,38 +906,662 @@ impl ConstModuleLowerer<'_> {
         ty: InternedTyId,
         name: nia_symbol::SymbolId,
     ) -> Option<InternedTyId> {
-        let TyKind::Nominal { def_id, .. } = self.input.type_store.get(ty)? else {
-            return None;
-        };
-        if def_id.module_id != self.input.defs.module_id {
-            return None;
-        }
-        let signature = self.input.signatures.structs.get(&def_id.def_id)?;
-        signature
-            .fields
-            .iter()
-            .find(|field| field.name == name)
-            .map(|field| field.ty)
-    }
-
-    fn direct_call_parameter_types(&self, callee: &Expr) -> Option<Vec<InternedTyId>> {
-        let SemanticValueUse::Global(global) =
-            self.input.semantic_uses.node_value_use(&callee.node_key)?
+        let TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        } = self.input.type_store.get(ty)?
         else {
             return None;
         };
-        if global.module_id != self.input.defs.module_id {
+        let foreign_signatures = (def_id.module_id != self.input.defs.module_id)
+            .then(|| (self.input.signatures_for_module?)(def_id.module_id))
+            .flatten();
+        if def_id.module_id != self.input.defs.module_id && foreign_signatures.is_none() {
             return None;
         }
-        let signature = self.input.signatures.functions.get(&global.def_id)?;
-        Some(
-            signature
-                .params
-                .iter()
-                .filter(|param| param.receiver.is_none())
-                .map(|param| param.ty)
-                .collect(),
+        let signatures = foreign_signatures
+            .as_deref()
+            .unwrap_or(self.input.signatures);
+        let (generic_params, field_type) =
+            if let Some(signature) = signatures.structs.get(&def_id.def_id) {
+                (
+                    &signature.generic_params,
+                    signature
+                        .fields
+                        .iter()
+                        .find(|field| field.name == name)
+                        .map(|field| field.ty)?,
+                )
+            } else {
+                let signature = signatures.unions.get(&def_id.def_id)?;
+                (
+                    &signature.generic_params,
+                    signature
+                        .fields
+                        .iter()
+                        .find(|field| field.name == name)
+                        .map(|field| field.ty)?,
+                )
+            };
+        let substitutions = generic_argument_substitutions(generic_params, args, const_args);
+        let (type_substitutions, const_substitutions) = substitutions.unwrap_or_default();
+        nia_ty::substitute_ty(
+            self.input.type_store,
+            &self
+                .input
+                .type_store
+                .append_for_module(self.input.defs.module_id),
+            field_type,
+            &|generic| type_substitutions.get(generic).copied(),
+            &|generic| const_substitutions.get(generic).cloned(),
+            None,
         )
+        .ok()
+    }
+
+    fn direct_call_parameter_types(
+        &self,
+        callee: &Expr,
+        local_types: &LocalTypeHints,
+    ) -> Option<Vec<InternedTyId>> {
+        let (value_callee, bracket_args) = match &callee.kind {
+            nia_ast::ExprKind::BracketSuffix { callee, args } => (callee.as_ref(), args.as_slice()),
+            _ => (callee, &[] as &[nia_ast::BracketArg]),
+        };
+        if let nia_ast::ExprKind::Field { lhs, name } = &value_callee.kind {
+            return self.method_call_parameter_types(lhs, *name, local_types, bracket_args);
+        }
+        let SemanticValueUse::Global(global) = self
+            .input
+            .semantic_uses
+            .node_value_use(&value_callee.node_key)?
+        else {
+            return None;
+        };
+        let foreign_signatures = (global.module_id != self.input.defs.module_id)
+            .then(|| (self.input.signatures_for_module?)(global.module_id))
+            .flatten();
+        if global.module_id != self.input.defs.module_id && foreign_signatures.is_none() {
+            return None;
+        }
+        let signatures = foreign_signatures
+            .as_deref()
+            .unwrap_or(self.input.signatures);
+        let signature = signatures.functions.get(&global.def_id)?;
+        let (type_substitutions, const_substitutions) =
+            self.explicit_call_substitutions(&signature.generic_params, bracket_args);
+        let params = signature
+            .params
+            .iter()
+            .filter(|param| param.receiver.is_none())
+            .map(|param| {
+                nia_ty::substitute_ty(
+                    self.input.type_store,
+                    &self
+                        .input
+                        .type_store
+                        .append_for_module(self.input.defs.module_id),
+                    param.ty,
+                    &|generic| type_substitutions.get(generic).copied(),
+                    &|generic| const_substitutions.get(generic).cloned(),
+                    None,
+                )
+                .ok()
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(params)
+    }
+
+    /// Reconstructs the substitutions owned by an explicit call-site generic
+    /// list. The ordinary checker records these facts, but const lowering also
+    /// needs them while it propagates a method's return type into a later
+    /// field or method receiver. Keeping this reconstruction declaration-order
+    /// based preserves interleaved type/const parameters.
+    fn explicit_call_substitutions(
+        &self,
+        params: &[nia_item_signatures::GenericParamSignature],
+        args: &[nia_ast::BracketArg],
+    ) -> (
+        nia_symbol::SymbolMap<InternedTyId>,
+        nia_symbol::SymbolMap<nia_ty::ConstGenericArg>,
+    ) {
+        let mut type_substitutions = nia_symbol::SymbolMap::default();
+        let mut const_substitutions = nia_symbol::SymbolMap::default();
+        for (param, arg) in params.iter().zip(args) {
+            match param.kind {
+                GenericParamSignatureKind::Type => {
+                    if let Some(ty) = arg.ty.as_ref()
+                        && !matches!(ty.kind, nia_ast::TypeKind::Infer)
+                        && let Some(ty) = self.input.semantic_uses.node_type_use(&ty.node_key)
+                    {
+                        type_substitutions.insert(param.name, ty);
+                    }
+                }
+                GenericParamSignatureKind::Const { ty } => {
+                    if let Some(expr) = arg.expr.as_ref()
+                        && let Some(value) = self.explicit_const_generic_value(expr)
+                    {
+                        const_substitutions
+                            .insert(param.name, nia_ty::ConstGenericArg { ty, value });
+                    }
+                }
+            }
+        }
+        (type_substitutions, const_substitutions)
+    }
+
+    fn explicit_const_generic_value(&self, expr: &Expr) -> Option<nia_ty::ConstGenericValue> {
+        match &expr.kind {
+            nia_ast::ExprKind::Integer(text) => nia_literals::eval_int_literal(text)
+                .ok()
+                .map(nia_ty::IntConst::unsigned)
+                .map(nia_ty::ConstGenericValue::Int),
+            nia_ast::ExprKind::Bool(value) => Some(nia_ty::ConstGenericValue::Bool(*value)),
+            nia_ast::ExprKind::Char(text) => nia_literals::decode_char_literal(text)
+                .and_then(char::from_u32)
+                .map(nia_ty::ConstGenericValue::Char),
+            nia_ast::ExprKind::Unary {
+                op: nia_ast::UnaryOp::Neg,
+                expr: inner,
+            } => match self.explicit_const_generic_value(inner)? {
+                nia_ty::ConstGenericValue::Int(value) => Some(nia_ty::ConstGenericValue::Int(
+                    nia_ty::IntConst::signed_bits(0u128.wrapping_sub(value.bits())),
+                )),
+                _ => Some(nia_ty::ConstGenericValue::ConstExpr(
+                    nia_ids::GlobalConstExprId {
+                        module_id: self.input.defs.module_id,
+                        const_expr_id: nia_ids::ConstExprId::from_syntax(expr.node_key.clone()),
+                    },
+                )),
+            },
+            nia_ast::ExprKind::Ident(_name) => self
+                .input
+                .semantic_uses
+                .node_const_generic_use(&expr.node_key)
+                .copied()
+                .map(nia_ty::ConstGenericValue::GenericParam)
+                .or_else(|| {
+                    matches!(
+                        self.input.semantic_uses.node_value_use(&expr.node_key),
+                        Some(SemanticValueUse::Global(_))
+                    )
+                    .then(|| {
+                        nia_ty::ConstGenericValue::ConstExpr(nia_ids::GlobalConstExprId {
+                            module_id: self.input.defs.module_id,
+                            const_expr_id: nia_ids::ConstExprId::from_syntax(expr.node_key.clone()),
+                        })
+                    })
+                }),
+            _ => Some(nia_ty::ConstGenericValue::ConstExpr(
+                nia_ids::GlobalConstExprId {
+                    module_id: self.input.defs.module_id,
+                    const_expr_id: nia_ids::ConstExprId::from_syntax(expr.node_key.clone()),
+                },
+            )),
+        }
+    }
+
+    fn direct_call_return_type(
+        &self,
+        callee: &Expr,
+        local_types: &LocalTypeHints,
+    ) -> Option<InternedTyId> {
+        let (value_callee, bracket_args) = match &callee.kind {
+            nia_ast::ExprKind::BracketSuffix { callee, args } => (callee.as_ref(), args.as_slice()),
+            _ => (callee, &[] as &[nia_ast::BracketArg]),
+        };
+        if let nia_ast::ExprKind::Field { lhs, name } = &value_callee.kind {
+            return self.method_call_return_type(lhs, *name, local_types, bracket_args);
+        }
+        let SemanticValueUse::Global(global) = self
+            .input
+            .semantic_uses
+            .node_value_use(&value_callee.node_key)?
+        else {
+            return None;
+        };
+        let foreign_signatures = (global.module_id != self.input.defs.module_id)
+            .then(|| (self.input.signatures_for_module?)(global.module_id))
+            .flatten();
+        if global.module_id != self.input.defs.module_id && foreign_signatures.is_none() {
+            return None;
+        }
+        let signatures = foreign_signatures
+            .as_deref()
+            .unwrap_or(self.input.signatures);
+        let signature = signatures.functions.get(&global.def_id)?;
+        let (type_substitutions, const_substitutions) =
+            self.explicit_call_substitutions(&signature.generic_params, bracket_args);
+        nia_ty::substitute_ty(
+            self.input.type_store,
+            &self
+                .input
+                .type_store
+                .append_for_module(self.input.defs.module_id),
+            signature.return_type,
+            &|generic| type_substitutions.get(generic).copied(),
+            &|generic| const_substitutions.get(generic).cloned(),
+            None,
+        )
+        .ok()
+    }
+
+    fn method_call_return_type(
+        &self,
+        receiver: &Expr,
+        name: nia_symbol::SymbolId,
+        local_types: &LocalTypeHints,
+        bracket_args: &[nia_ast::BracketArg],
+    ) -> Option<InternedTyId> {
+        let receiver_ty = self.expr_type_hint(receiver, local_types)?;
+        let visible = self
+            .input
+            .visible_extensions_for_module
+            .and_then(|provider| provider(self.input.defs.module_id))?;
+        let (method, mut type_substitutions, mut const_substitutions) = visible
+            .all_methods_named(&name)
+            .into_iter()
+            .find_map(|(target, method)| {
+                let mut types = nia_symbol::SymbolMap::default();
+                let mut consts = nia_symbol::SymbolMap::default();
+                self.match_type_pattern(target, receiver_ty, &mut types, &mut consts)
+                    .then_some((method, types, consts))
+            })?;
+        let foreign_signatures = (method.def_id.module_id != self.input.defs.module_id)
+            .then(|| (self.input.signatures_for_module?)(method.def_id.module_id))
+            .flatten();
+        if method.def_id.module_id != self.input.defs.module_id && foreign_signatures.is_none() {
+            return None;
+        }
+        let signatures = foreign_signatures
+            .as_deref()
+            .unwrap_or(self.input.signatures);
+        let signature = signatures.functions.get(&method.def_id.def_id)?;
+        let (explicit_types, explicit_consts) =
+            self.explicit_call_substitutions(&signature.generic_params, bracket_args);
+        type_substitutions.extend(explicit_types);
+        const_substitutions.extend(explicit_consts);
+        nia_ty::substitute_ty(
+            self.input.type_store,
+            &self
+                .input
+                .type_store
+                .append_for_module(self.input.defs.module_id),
+            signature.return_type,
+            &|generic| type_substitutions.get(generic).copied(),
+            &|generic| const_substitutions.get(generic).cloned(),
+            None,
+        )
+        .ok()
+    }
+
+    fn method_call_parameter_types(
+        &self,
+        receiver: &Expr,
+        name: nia_symbol::SymbolId,
+        local_types: &LocalTypeHints,
+        bracket_args: &[nia_ast::BracketArg],
+    ) -> Option<Vec<InternedTyId>> {
+        let receiver_ty = self.expr_type_hint(receiver, local_types)?;
+        let visible = self
+            .input
+            .visible_extensions_for_module
+            .and_then(|provider| provider(self.input.defs.module_id))?;
+        let (method, mut target_substitutions, mut target_const_substitutions) = visible
+            .all_methods_named(&name)
+            .into_iter()
+            .find_map(|(target, method)| {
+                let mut type_substitutions = nia_symbol::SymbolMap::default();
+                let mut const_substitutions = nia_symbol::SymbolMap::default();
+                self.match_type_pattern(
+                    target,
+                    receiver_ty,
+                    &mut type_substitutions,
+                    &mut const_substitutions,
+                )
+                .then_some((method, type_substitutions, const_substitutions))
+            })?;
+        let foreign_signatures = (method.def_id.module_id != self.input.defs.module_id)
+            .then(|| (self.input.signatures_for_module?)(method.def_id.module_id))
+            .flatten();
+        if method.def_id.module_id != self.input.defs.module_id && foreign_signatures.is_none() {
+            return None;
+        }
+        let signatures = foreign_signatures
+            .as_deref()
+            .unwrap_or(self.input.signatures);
+        let signature = signatures.functions.get(&method.def_id.def_id)?;
+        let (explicit_types, explicit_consts) =
+            self.explicit_call_substitutions(&signature.generic_params, bracket_args);
+        for (name, ty) in explicit_types {
+            target_substitutions.insert(name, ty);
+        }
+        for (name, arg) in explicit_consts {
+            target_const_substitutions.insert(name, arg);
+        }
+        signature
+            .params
+            .iter()
+            .filter(|param| param.receiver.is_none())
+            .map(|param| {
+                nia_ty::substitute_ty(
+                    self.input.type_store,
+                    &self
+                        .input
+                        .type_store
+                        .append_for_module(self.input.defs.module_id),
+                    param.ty,
+                    &|generic| target_substitutions.get(generic).copied(),
+                    &|generic| target_const_substitutions.get(generic).cloned(),
+                    None,
+                )
+                .ok()
+            })
+            .collect::<Option<Vec<_>>>()
+    }
+
+    /// Matches a visible extension target against the concrete receiver while
+    /// retaining the substitutions needed to contextualize its method fields.
+    /// This is the same structural relation used by ordinary method lookup,
+    /// reduced to the declaration facts available during const IR lowering.
+    fn match_type_pattern(
+        &self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut nia_symbol::SymbolMap<InternedTyId>,
+        const_substitutions: &mut nia_symbol::SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> bool {
+        if pattern == actual {
+            return true;
+        }
+        let Some(pattern_kind) = self.input.type_store.get(pattern).cloned() else {
+            return false;
+        };
+        let Some(actual_kind) = self.input.type_store.get(actual).cloned() else {
+            return false;
+        };
+        match (pattern_kind, actual_kind) {
+            (TyKind::GenericParam(name), _) => {
+                if let Some(existing) = substitutions.get(&name).copied() {
+                    existing == actual
+                } else {
+                    substitutions.insert(name, actual);
+                    true
+                }
+            }
+            (TyKind::SelfParam, _) => true,
+            (TyKind::Tuple(patterns), TyKind::Tuple(actuals)) => {
+                patterns.len() == actuals.len()
+                    && patterns.iter().zip(actuals).all(|(pattern, actual)| {
+                        self.match_type_pattern(
+                            *pattern,
+                            actual,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    })
+            }
+            (
+                TyKind::Pointer {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                },
+            )
+            | (
+                TyKind::VolatilePointer {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                TyKind::VolatilePointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                },
+            ) => {
+                pattern_readonly == actual_readonly
+                    && self.match_type_pattern(
+                        pattern_elem,
+                        actual_elem,
+                        substitutions,
+                        const_substitutions,
+                    )
+            }
+            (
+                TyKind::Slice {
+                    is_readonly: pattern_readonly,
+                    elem: pattern_elem,
+                },
+                TyKind::Slice {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                },
+            ) => {
+                pattern_readonly == actual_readonly
+                    && self.match_type_pattern(
+                        pattern_elem,
+                        actual_elem,
+                        substitutions,
+                        const_substitutions,
+                    )
+            }
+            (TyKind::SlicePointee { elem: pattern }, TyKind::SlicePointee { elem: actual }) => {
+                self.match_type_pattern(pattern, actual, substitutions, const_substitutions)
+            }
+            (
+                TyKind::Array {
+                    len: pattern_len,
+                    elem: pattern_elem,
+                },
+                TyKind::Array {
+                    len: actual_len,
+                    elem: actual_elem,
+                },
+            ) => {
+                self.match_array_len(&pattern_len, &actual_len, const_substitutions)
+                    && self.match_type_pattern(
+                        pattern_elem,
+                        actual_elem,
+                        substitutions,
+                        const_substitutions,
+                    )
+            }
+            (TyKind::Optional { elem: pattern }, TyKind::Optional { elem: actual })
+            | (
+                TyKind::Range {
+                    kind: _,
+                    bound: Some(pattern),
+                },
+                TyKind::Range {
+                    kind: _,
+                    bound: Some(actual),
+                },
+            ) => self.match_type_pattern(pattern, actual, substitutions, const_substitutions),
+            (
+                TyKind::ErrorUnion {
+                    error: pattern_error,
+                    value: pattern_value,
+                },
+                TyKind::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                },
+            ) => {
+                self.match_type_pattern(
+                    pattern_error,
+                    actual_error,
+                    substitutions,
+                    const_substitutions,
+                ) && self.match_type_pattern(
+                    pattern_value,
+                    actual_value,
+                    substitutions,
+                    const_substitutions,
+                )
+            }
+            (
+                TyKind::Nominal {
+                    def_id: pattern_def,
+                    args: pattern_args,
+                    const_args: pattern_consts,
+                },
+                TyKind::Nominal {
+                    def_id: actual_def,
+                    args: actual_args,
+                    const_args: actual_consts,
+                },
+            ) => {
+                pattern_def == actual_def
+                    && pattern_args.len() == actual_args.len()
+                    && pattern_consts.len() == actual_consts.len()
+                    && pattern_args
+                        .iter()
+                        .zip(actual_args)
+                        .all(|(pattern, actual)| {
+                            self.match_type_pattern(
+                                *pattern,
+                                actual,
+                                substitutions,
+                                const_substitutions,
+                            )
+                        })
+                    && pattern_consts
+                        .iter()
+                        .zip(actual_consts)
+                        .all(|(pattern, actual)| {
+                            self.match_const_arg(pattern, &actual, const_substitutions)
+                        })
+            }
+            (TyKind::Primitive(pattern), TyKind::Primitive(actual)) => pattern == actual,
+            (TyKind::BuiltinType(pattern), TyKind::BuiltinType(actual)) => pattern == actual,
+            (
+                TyKind::Vector {
+                    elem: pattern_elem,
+                    lanes: pattern_lanes,
+                },
+                TyKind::Vector {
+                    elem: actual_elem,
+                    lanes: actual_lanes,
+                },
+            ) => pattern_elem == actual_elem && pattern_lanes == actual_lanes,
+            _ => false,
+        }
+    }
+
+    fn match_array_len(
+        &self,
+        pattern: &nia_ty::ArrayLenTy,
+        actual: &nia_ty::ArrayLenTy,
+        substitutions: &mut nia_symbol::SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> bool {
+        match (pattern, actual) {
+            (nia_ty::ArrayLenTy::GenericParam(name), nia_ty::ArrayLenTy::ConstValue(value)) => {
+                let argument = nia_ty::ConstGenericArg {
+                    ty: self
+                        .input
+                        .type_store
+                        .append_for_module(self.input.defs.module_id)
+                        .intern(TyKind::Primitive(nia_ty::PrimitiveTy::Usize))
+                        .ok()
+                        .unwrap_or_else(|| self.input.type_store.error()),
+                    value: nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(
+                        (*value).into(),
+                    )),
+                };
+                if let Some(existing) = substitutions.get(name) {
+                    existing == &argument
+                } else {
+                    substitutions.insert(*name, argument);
+                    true
+                }
+            }
+            (left, right) => left == right,
+        }
+    }
+
+    fn match_const_arg(
+        &self,
+        pattern: &nia_ty::ConstGenericArg,
+        actual: &nia_ty::ConstGenericArg,
+        substitutions: &mut nia_symbol::SymbolMap<nia_ty::ConstGenericArg>,
+    ) -> bool {
+        match &pattern.value {
+            nia_ty::ConstGenericValue::GenericParam(name) => {
+                if let Some(existing) = substitutions.get(name) {
+                    existing == actual
+                } else {
+                    substitutions.insert(*name, actual.clone());
+                    true
+                }
+            }
+            _ => pattern == actual,
+        }
+    }
+
+    fn expr_type_hint(&self, expr: &Expr, local_types: &LocalTypeHints) -> Option<InternedTyId> {
+        if let Some(ty) = self.input.semantic_uses.node_type_use(&expr.node_key) {
+            return Some(ty);
+        }
+        if let Some(SemanticValueUse::Local(local_id)) =
+            self.input.semantic_uses.node_value_use(&expr.node_key)
+        {
+            return local_types.get(&local_id).map(|(ty, _)| *ty);
+        }
+        match &expr.kind {
+            nia_ast::ExprKind::TypedStructLiteral { ty, .. } => {
+                self.input.semantic_uses.node_type_use(&ty.node_key)
+            }
+            nia_ast::ExprKind::Call { .. } => self.direct_call_return_type(expr, local_types),
+            _ => None,
+        }
+    }
+
+    fn enum_variant_field_types(
+        &self,
+        target: &Expr,
+        expected_type: Option<InternedTyId>,
+        expected_ref: Option<&nia_ast::TypeRef>,
+    ) -> Option<HashMap<nia_symbol::SymbolId, InternedTyId>> {
+        let variant_id = self
+            .input
+            .semantic_uses
+            .node_value_use(&target.node_key)
+            .and_then(|use_| match use_ {
+                SemanticValueUse::Global(id) => Some(id),
+                SemanticValueUse::Local(_) => None,
+            })
+            .or_else(|| {
+                let nia_ast::ExprKind::OmittedMember { name } = &target.kind else {
+                    return None;
+                };
+                let enum_id = self.enum_def_for_type(expected_type, expected_ref)?;
+                self.enum_variant_by_name(enum_id, *name)
+            })?;
+        let foreign_signatures = (variant_id.module_id != self.input.defs.module_id)
+            .then(|| (self.input.signatures_for_module?)(variant_id.module_id))
+            .flatten();
+        if variant_id.module_id != self.input.defs.module_id && foreign_signatures.is_none() {
+            return None;
+        }
+        let signatures = foreign_signatures
+            .as_deref()
+            .unwrap_or(self.input.signatures);
+        signatures.enums.values().find_map(|signature| {
+            signature
+                .variants
+                .iter()
+                .find(|variant| variant.def_id == variant_id.def_id)
+                .and_then(|variant| match &variant.payload {
+                    nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                        Some(fields.iter().map(|field| (field.name, field.ty)).collect())
+                    }
+                    nia_item_signatures::EnumVariantPayloadSignature::Unit
+                    | nia_item_signatures::EnumVariantPayloadSignature::Tuple(_) => None,
+                })
+        })
     }
 
     fn array_element_type_hint(&self, elems: &nia_ast::ArrayElements) -> Option<InternedTyId> {

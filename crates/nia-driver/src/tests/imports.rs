@@ -3955,6 +3955,235 @@ extend Value {
 }
 
 #[test]
+fn omitted_const_cross_module_function_aggregate_argument_is_typed() {
+    let root = temp_dir("omitted_const_cross_module_function_aggregate_argument_is_typed");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+using root::api;
+
+const fun make() i32 {
+    api::take(.{ value: 41 })
+}
+
+const fun make_generic() i32 {
+    api::take_generic[i32](.{ value: 42 })
+}
+
+const fun make_inferred_generic() i32 {
+    api::take_generic(.{ value: 43 })
+}
+
+const result: i32 = make();
+const generic_result: i32 = make_generic();
+const inferred_generic_result: i32 = make_inferred_generic();
+
+fun main() i32 { result + generic_result + inferred_generic_result - 126 }
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+pub struct Value { value: i32 }
+
+pub const fun take(value: Value) i32 {
+    value.value
+}
+
+pub struct GenericValue[T] { value: T }
+
+pub const fun take_generic[T](value: GenericValue[T]) T {
+    value.value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn omitted_const_cross_module_method_aggregate_argument_is_typed() {
+    let root = temp_dir("omitted_const_cross_module_method_aggregate_argument_is_typed");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+using root::api;
+
+const fun make() i32 {
+    let receiver: api::Value = .{ value: 1 };
+    receiver.take(.{ value: 41 })
+}
+
+const result: i32 = make();
+
+fun main() i32 { result }
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+pub struct Value { value: i32 }
+
+extend Value {
+    pub const fun take(self, other: Value) i32 {
+        other.value
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn omitted_const_cross_module_generic_method_aggregate_argument_is_typed() {
+    let root = temp_dir("omitted_const_cross_module_generic_method_aggregate_argument_is_typed");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+using root::api;
+
+const fun make() i32 {
+    let receiver: api::Box[i32] = .{ value: 1 };
+    receiver.take(.{ value: 41 })
+}
+
+const result: i32 = make();
+
+fun main() i32 { result }
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+pub struct Box[T] { value: T }
+
+extend[T] Box[T] {
+    pub const fun take(self, other: Box[T]) i32 {
+        41
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_lowering_substitutes_cross_module_generic_method_return_fields() {
+    let root = temp_dir("const_lowering_substitutes_cross_module_generic_method_return_fields");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+using root::api;
+
+const fun read(value: i32) i32 {
+    let receiver: api::Box[i32] = .{ value: value };
+    receiver.make(41).value
+}
+
+const result: i32 = read(1);
+
+fun main() i32 { result }
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+pub struct Box[T] { value: T }
+
+extend[T] Box[T] {
+    pub const fun make(self, value: T) Box[T] {
+        Box[T] { value: value }
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_lowering_propagates_explicit_cross_module_const_generic_arguments() {
+    let root = temp_dir("const_lowering_propagates_explicit_cross_module_const_generic_arguments");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+using root::api;
+
+const fun read() i32 {
+    api::take[3](.{ values: [1, 2, 3] })
+}
+
+const result: i32 = read();
+
+fun main() i32 { result }
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+pub struct Buffer[N: usize] { values: [i32; N] }
+
+pub const fun take[N: usize](value: Buffer[N]) i32 {
+    value.values[2]
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn omitted_const_cross_module_aggregate_combinations_are_typed() {
+    let root = temp_dir("omitted_const_cross_module_aggregate_combinations_are_typed");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+using root::api;
+
+const fun result() i32 {
+    api::take_point(.{ value: 1 })
+        + api::take_union(.{ point: .{ value: 2 } })
+        + api::take_tuple((.{ value: 3 }, [4, 5]))
+        + api::take_event(.Data { point: .{ value: 4 } })
+}
+
+const value: i32 = result();
+
+fun main() i32 { value }
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+pub struct Point { value: i32 }
+pub union Slot { point: Point, bytes: [u8; 4] }
+pub enum Event { Data { point: Point } }
+
+pub const fun take_point(value: Point) i32 { value.value }
+pub const fun take_union(value: Slot) i32 { 2 }
+pub const fun take_tuple(value: (Point, [i32; 2])) i32 { value.0.value }
+pub const fun take_event(value: Event) i32 { 4 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn missing_child_module_reports_the_declaration_once() {
     let root = temp_dir("missing_child_module_reports_the_declaration_once");
     let source = "module child;\nusing child::helper;\n\nfun main() i32 {\n    helper()\n}\n";

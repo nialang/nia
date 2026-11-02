@@ -229,10 +229,18 @@ pub(super) fn provide_signature_const_module(
     let signatures = db.get(SignatureConstItemSignaturesQuery(module_id))?;
     let source_path = db.get(ModulePathQuery(module_id))?;
     let defs_for_module = |owner| module_defs_semantic(db, owner).ok();
+    let signatures_for_module = |owner| db.get(SignatureConstItemSignaturesQuery(owner)).ok();
+    let visible_extensions_for_module = |owner| {
+        db.get(VisibleExtensionsQuery(owner))
+            .ok()
+            .map(|facts| Arc::clone(&facts.methods))
+    };
     Ok(nia_const_check::lower_module_const(
         nia_const_check::ConstModuleInput {
             type_store: &db.context().type_store,
             defs_for_module: Some(&defs_for_module),
+            signatures_for_module: Some(&signatures_for_module),
+            visible_extensions_for_module: Some(&visible_extensions_for_module),
             active_item_tree: &active_item_tree,
             defs: &defs,
             signatures: &signatures,

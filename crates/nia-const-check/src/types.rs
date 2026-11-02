@@ -240,6 +240,17 @@ pub struct ConstModuleInput<'a> {
     /// Lazily loads definition scopes for enums owned by imported modules.
     pub defs_for_module:
         Option<&'a dyn Fn(nia_ids::ModuleId) -> Option<std::sync::Arc<DefCollection>>>,
+    /// Lazily loads item signatures for definitions owned by imported modules.
+    ///
+    /// Const lowering must use the same declaration facts as ordinary body
+    /// checking when contextualizing omitted aggregate constructors. Keeping
+    /// this as a provider avoids copying foreign signatures into the active
+    /// module and preserves the program's separated compilation boundary.
+    pub signatures_for_module:
+        Option<&'a dyn Fn(nia_ids::ModuleId) -> Option<std::sync::Arc<ItemSignatures>>>,
+    /// Lazily loads visible extension methods for the active module.
+    pub visible_extensions_for_module:
+        Option<&'a dyn Fn(nia_ids::ModuleId) -> Option<std::sync::Arc<VisibleExtensionMethods>>>,
     /// Active item tree selecting the module's current revision.
     pub active_item_tree: &'a ActiveModuleItemTree,
     /// Definition identities used during lowering.

@@ -190,6 +190,12 @@ fn filtered_const_global_initializer_for_body_check(
     let graph = db.get(ModuleGraphQuery)?;
     let program_defs =
         |module_id| capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id));
+    let program_signatures =
+        |module_id| capture_query_failure(&query_failure, item_signatures_semantic(db, module_id));
+    let program_visible_extensions = |module_id| {
+        capture_query_failure(&query_failure, db.get(VisibleExtensionsQuery(module_id)))
+            .map(|facts| Arc::clone(&facts.methods))
+    };
     let public_surfaces = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.public_surfaces",
@@ -304,6 +310,8 @@ fn filtered_const_global_initializer_for_body_check(
                 nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
                     type_store: &db.context().type_store,
                     defs_for_module: Some(&program_defs),
+                    signatures_for_module: Some(&program_signatures),
+                    visible_extensions_for_module: Some(&program_visible_extensions),
                     active_item_tree: &filtered_active_item_tree,
                     defs: &defs,
                     signatures: &signatures,
@@ -426,6 +434,17 @@ fn const_inputs_for_body_check(
     );
     let filtered_const_exprs = const_expr_subset_for_ids(&lowered.const_exprs, &needed_const_exprs);
     let defs_for_module = |owner| full_module_defs_semantic(db, owner).ok();
+    let signatures_for_module = |owner| {
+        if fact_mode.signature_facts_for(owner) {
+            return db.get(SignatureConstItemSignaturesQuery(owner)).ok();
+        }
+        item_signatures_semantic(db, owner).ok()
+    };
+    let visible_extensions_for_module = |owner| {
+        db.get(VisibleExtensionsQuery(owner))
+            .ok()
+            .map(|facts| Arc::clone(&facts.methods))
+    };
     let lower_module = || {
         time_module_provider(
             db,
@@ -436,6 +455,8 @@ fn const_inputs_for_body_check(
                 nia_const_check::lower_module_const(nia_const_check::ConstModuleInput {
                     type_store: &db.context().type_store,
                     defs_for_module: Some(&defs_for_module),
+                    signatures_for_module: Some(&signatures_for_module),
+                    visible_extensions_for_module: Some(&visible_extensions_for_module),
                     active_item_tree: &inputs.active_item_tree,
                     defs,
                     signatures,
