@@ -311,6 +311,7 @@ written in parentheses, as in `(limit)`.
 ```nia
 using std::io;
 using std::process;
+using std::slice;
 
 fun sum(values: &[i32]) i32 {
     let mut total = 0;
@@ -378,6 +379,7 @@ all=15 partial=9 filled=14 text=5 bytes=4 third=?
 ```nia
 using std::io;
 using std::process;
+using std::slice;
 
 enum ParseError {
     Empty,
@@ -629,6 +631,7 @@ generic code requires the `Sized` bound on `T`.
 
 ```nia
 using std::io;
+using std::iter;
 using std::process;
 
 // `&Fun(i32) i32` is a non-owning view of any closure with that signature.
@@ -685,6 +688,10 @@ Parameter types are inferred from how the closure is used: `increment` gets its
 type from being passed to `applyTwice`, and the `map` and `fold` closures from
 the iterator they are called on. An annotation is needed only when no use
 determines a parameter.
+
+`map` and `fold` are extension methods declared in `std::iter`, so the program
+imports that module. Extension methods, unlike trait methods, are available
+only where their module is imported with `using`.
 
 A function that accepts any closure takes a callable view, `&Fun(Args) Return`
 or `&mut Fun(Args) Return`. Passing the closure where a view is expected

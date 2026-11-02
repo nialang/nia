@@ -2,6 +2,7 @@
 // and conversion between error types with `IntoError`.
 using std::io;
 using std::process;
+using std::slice;
 
 enum ParseError {
     Empty,

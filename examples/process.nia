@@ -3,6 +3,7 @@
 using std::fs;
 using std::io;
 using std::process;
+using std::slice;
 
 pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 2] = ["-c", "printf '%s\n' \"$NIA_EXAMPLE_MODE\""];

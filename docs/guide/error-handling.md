@@ -88,7 +88,9 @@ usually wraps the errors of the modules it calls:
 
 ```nia
 using std::io;
+using std::option;
 using std::process;
+using std::slice;
 
 enum ParseError {
     Empty,
@@ -176,7 +178,9 @@ uses this for checked arithmetic, whose operations return `null` on overflow:
 ```nia
 using std::io;
 using std::mem;
+using std::option;
 using std::process;
+using std::result;
 
 fun totalLength(parts: &[usize]) mem::Error!usize {
     let mut total: usize = 0;
@@ -220,6 +224,7 @@ wrapping conversion to one word:
 ```nia
 using std::io;
 using std::process;
+using std::result;
 
 enum ReadError {
     Missing,
@@ -288,6 +293,7 @@ reported:
 using std::error;
 using std::io;
 using std::process;
+using std::result;
 
 enum CloseError {
     Busy,
@@ -365,6 +371,7 @@ When a value must change as you go, record what to restore and undo it in a
 using std::io;
 using std::mem;
 using std::process;
+using std::result;
 
 fun appendAll(
     list: &mut std::ArrayList[i32],

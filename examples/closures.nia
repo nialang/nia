@@ -1,6 +1,7 @@
 // Closures with explicit captures, callable views and function pointers,
 // parameter inference from use, and lazy iterator adapters.
 using std::io;
+using std::iter;
 using std::process;
 
 // `&Fun(i32) i32` is a non-owning view of any closure with that signature.

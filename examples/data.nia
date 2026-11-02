@@ -2,6 +2,7 @@
 // `static` storage.
 using std::io;
 using std::process;
+using std::slice;
 
 const width: usize = 4;
 static greeting = b"nia";
