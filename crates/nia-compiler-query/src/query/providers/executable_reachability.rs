@@ -941,10 +941,7 @@ fn executable_check_in_session(
             || reachable_module_inputs_by_id(&checked_inputs),
         );
         for batch_item in batch_items {
-            let Some(module_input) = checked_inputs
-                .iter()
-                .copied()
-                .find(|input| input.module_id == batch_item.module_id)
+            let Some(module_input) = checked_inputs_by_id.get(&batch_item.module_id).copied()
             else {
                 return_session_error!(QueryError::internal(format!(
                     "checked module {:?} has no reachable input",
