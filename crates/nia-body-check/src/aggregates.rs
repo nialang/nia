@@ -1338,13 +1338,15 @@ impl<'a> BodyChecker<'a> {
         &self,
         expr: &Expr,
     ) -> Result<nia_const_ir::ResolvedConstExpr, nia_const_ir::ConstLowerError> {
-        let semantic_uses = self.const_semantic_uses();
+        let semantic_uses = self
+            .const_semantic_uses
+            .get_or_init(|| self.build_const_semantic_uses());
         let context =
-            nia_const_ir::ResolvedConstLowerInputs::new(&semantic_uses).with_symbols(self.symbols);
+            nia_const_ir::ResolvedConstLowerInputs::new(semantic_uses).with_symbols(self.symbols);
         nia_const_ir::lower_expr_resolved_with_context(expr, &context)
     }
 
-    fn const_semantic_uses(&self) -> SemanticUseTable {
+    fn build_const_semantic_uses(&self) -> SemanticUseTable {
         let node_value_uses = self
             .semantic_uses
             .node_value_uses

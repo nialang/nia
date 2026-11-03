@@ -141,6 +141,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         values: input.values,
         locals: input.locals,
         semantic_uses: input.semantic_uses,
+        const_semantic_uses: std::cell::OnceCell::new(),
         type_resolution: input.type_resolution,
         interner: types,
         type_lowering: input.lowered,

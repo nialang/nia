@@ -32,7 +32,7 @@
 
 use nia_ice::{Ice, IceResult};
 use parking_lot::Mutex;
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::fmt;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -208,6 +208,7 @@ struct BodyChecker<'a> {
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     semantic_uses: &'a SemanticUseTable,
+    const_semantic_uses: OnceCell<SemanticUseTable>,
     type_resolution: &'a nia_type_resolve::TypeResolution,
     interner: BodyTypeCx<'a>,
     type_lowering: &'a TypeLowering,

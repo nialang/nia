@@ -2248,6 +2248,7 @@ impl<'a> BodyChecker<'a> {
             values: self.values,
             locals: self.locals,
             semantic_uses: self.semantic_uses,
+            const_semantic_uses: std::cell::OnceCell::new(),
             type_resolution: self.type_resolution,
             interner: BodyTypeCx::new(self.type_store, self.defs.module_id, self.failure.clone()),
             type_lowering: self.type_lowering,
