@@ -21,6 +21,10 @@ pub(crate) const USAGE_EXIT_CODE: u8 = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HelpTopic {
     Main,
+    New,
+    Init,
+    Add,
+    Workspace,
     Build,
     Update,
     Clean,
@@ -33,6 +37,10 @@ impl HelpTopic {
     pub(crate) fn scope(self) -> Scope {
         match self {
             Self::Main => Scope::GLOBAL,
+            Self::New => Scope::NEW,
+            Self::Init => Scope::INIT,
+            Self::Add => Scope::ADD,
+            Self::Workspace => Scope::WORKSPACE,
             Self::Build => Scope::BUILD,
             Self::Update => Scope::UPDATE,
             Self::Clean => Scope::CLEAN,
@@ -173,7 +181,40 @@ pub(crate) struct EmitExeOptions {
 pub(crate) enum CliAction {
     Help(HelpTopic),
     Version,
+    Project {
+        action: ProjectAction,
+        diagnostics_format: DiagnosticsFormat,
+    },
     Run(Box<Cli>),
+}
+
+#[derive(Debug)]
+pub(crate) enum ProjectAction {
+    New(ProjectCreate),
+    Init(ProjectCreate),
+    Add(ProjectAdd),
+    AddWorkspaceMember {
+        root: Option<PathBuf>,
+        name: String,
+        artifacts: crate::project::Artifacts,
+    },
+}
+
+#[derive(Debug)]
+pub(crate) struct ProjectCreate {
+    pub(crate) root: PathBuf,
+    pub(crate) name: Option<String>,
+    pub(crate) artifacts: crate::project::Artifacts,
+    pub(crate) workspace: bool,
+    pub(crate) members: Vec<String>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ProjectAdd {
+    pub(crate) root: Option<PathBuf>,
+    pub(crate) name: String,
+    pub(crate) section: crate::project::DependencySection,
+    pub(crate) source: crate::project::DependencySpec,
 }
 
 #[derive(Debug)]
@@ -235,6 +276,9 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
     }
     let command = args[command_index].as_str();
     let rest = &args[command_index + 1..];
+    if matches!(command, "new" | "init" | "add" | "workspace") {
+        return parse_project_command(command, rest, prefix);
+    }
     let topic = match command {
         "help" => return help_topic(rest).map(CliAction::Help),
         "build" => HelpTopic::Build,
@@ -277,6 +321,9 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
             ));
         }
         HelpTopic::EmitKind(kind) => parse_emit(&scanned, kind)?,
+        HelpTopic::New | HelpTopic::Init | HelpTopic::Add | HelpTopic::Workspace => {
+            unreachable!("project commands are parsed before compiler command scanning")
+        }
         HelpTopic::Main => unreachable!("the main topic is not a command"),
     };
     Ok(CliAction::Run(Box::new(global.into_cli(command))))
@@ -342,6 +389,10 @@ fn topic_name(topic: HelpTopic) -> String {
         HelpTopic::Check => "`nia check`".to_string(),
         HelpTopic::Emit => "`nia emit`".to_string(),
         HelpTopic::EmitKind(kind) => format!("`nia emit {}`", kind.flag()),
+        HelpTopic::New => "`nia new`".to_string(),
+        HelpTopic::Init => "`nia init`".to_string(),
+        HelpTopic::Add => "`nia add`".to_string(),
+        HelpTopic::Workspace => "`nia workspace`".to_string(),
     }
 }
 
@@ -409,6 +460,10 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
     match words.as_slice() {
         [] => Ok(HelpTopic::Main),
         ["build"] => Ok(HelpTopic::Build),
+        ["new"] => Ok(HelpTopic::New),
+        ["init"] => Ok(HelpTopic::Init),
+        ["add"] => Ok(HelpTopic::Add),
+        ["workspace"] => Ok(HelpTopic::Workspace),
         ["update"] => Ok(HelpTopic::Update),
         ["clean"] => Ok(HelpTopic::Clean),
         ["check"] => Ok(HelpTopic::Check),
@@ -429,13 +484,254 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
                 )),
             },
         },
-        [command @ ("build" | "check" | "clean"), extra, ..] => {
+        [
+            command @ ("build" | "check" | "clean" | "new" | "init" | "add" | "workspace"),
+            extra,
+            ..,
+        ] => {
             let topic = help_topic(&[(*command).to_string()])?;
             Err(unknown(extra, topic))
         }
         ["emit", _, extra, ..] => Err(unknown(extra, HelpTopic::Emit)),
         [topic, ..] => Err(unknown(topic, HelpTopic::Main)),
     }
+}
+
+fn parse_project_command(command: &str, args: &[String], prefix: Scanned) -> CliResult<CliAction> {
+    let topic = match command {
+        "new" => HelpTopic::New,
+        "init" => HelpTopic::Init,
+        "add" => HelpTopic::Add,
+        "workspace" => HelpTopic::Workspace,
+        _ => unreachable!(),
+    };
+    let scanned =
+        args::scan_from(args, topic.scope(), prefix).map_err(|error| scan_error(error, topic))?;
+    if scanned.has(OptionId::Help) {
+        return Ok(CliAction::Help(topic));
+    }
+    if scanned.has(OptionId::Version) {
+        return Ok(CliAction::Version);
+    }
+    let global = GlobalOptions::from_scanned(&scanned, topic)?;
+    let action = match command {
+        "new" | "init" => parse_project_create(command, &scanned)?,
+        "add" => ProjectAction::Add(parse_project_add(&scanned)?),
+        "workspace" => parse_workspace_command(&scanned)?,
+        _ => unreachable!(),
+    };
+    Ok(CliAction::Project {
+        action,
+        diagnostics_format: global.diagnostics_format,
+    })
+}
+
+fn parse_project_create(command: &str, scanned: &Scanned) -> CliResult<ProjectAction> {
+    let topic = if command == "new" {
+        HelpTopic::New
+    } else {
+        HelpTopic::Init
+    };
+    let root = match scanned.positionals.as_slice() {
+        [root] => PathBuf::from(root),
+        [] if command == "init" => PathBuf::from("."),
+        [] => {
+            return Err(CliError::new(
+                "missing destination path for `nia new`",
+                topic,
+            ));
+        }
+        [_, extra, ..] => {
+            return Err(CliError::new(
+                format!("unexpected argument `{extra}` for {}", topic_name(topic)),
+                topic,
+            ));
+        }
+    };
+    let workspace = scanned.has(OptionId::WorkspaceTemplate);
+    let members = scanned
+        .all(OptionId::Member)
+        .map(|item| item.value.clone().expect("member option takes a value"))
+        .collect::<Vec<_>>();
+    if !workspace && !members.is_empty() {
+        return Err(CliError::new("`--member` requires `--workspace`", topic));
+    }
+    if workspace && !members.is_empty() && scanned.has(OptionId::ProjectName) {
+        return Err(CliError::new(
+            "`--name` cannot be combined with explicit workspace `--member` names",
+            topic,
+        ));
+    }
+    let create = ProjectCreate {
+        root,
+        name: scanned
+            .last(OptionId::ProjectName)
+            .map(|item| item.value.clone().expect("name option takes a value")),
+        artifacts: crate::project::Artifacts {
+            executable: scanned.has(OptionId::ExeTemplate),
+            library: scanned.has(OptionId::LibTemplate),
+        },
+        workspace,
+        members,
+    };
+    Ok(if command == "new" {
+        ProjectAction::New(create)
+    } else {
+        ProjectAction::Init(create)
+    })
+}
+
+fn parse_project_add(scanned: &Scanned) -> CliResult<ProjectAdd> {
+    let topic = HelpTopic::Add;
+    let name = match scanned.positionals.as_slice() {
+        [name] => name.clone(),
+        [] => {
+            return Err(CliError::new(
+                "missing dependency name for `nia add`",
+                topic,
+            ));
+        }
+        [_, extra, ..] => {
+            return Err(CliError::new(
+                format!("unexpected argument `{extra}` for `nia add`"),
+                topic,
+            ));
+        }
+    };
+    let path = scanned
+        .last(OptionId::PathSource)
+        .map(|item| item.value.clone().expect("path source takes a value"));
+    let git = scanned
+        .last(OptionId::GitSource)
+        .map(|item| item.value.clone().expect("Git source takes a value"));
+    let registry = scanned
+        .last(OptionId::Registry)
+        .map(|item| item.value.clone().expect("registry takes a value"));
+    if usize::from(path.is_some()) + usize::from(git.is_some()) + usize::from(registry.is_some())
+        != 1
+    {
+        return Err(CliError::new(
+            "choose exactly one dependency source: `--path`, `--git`, or `--registry`",
+            topic,
+        ));
+    }
+    let rev = scanned
+        .last(OptionId::GitRev)
+        .map(|item| item.value.clone().expect("revision takes a value"));
+    let tag = scanned
+        .last(OptionId::GitTag)
+        .map(|item| item.value.clone().expect("tag takes a value"));
+    let branch = scanned
+        .last(OptionId::GitBranch)
+        .map(|item| item.value.clone().expect("branch takes a value"));
+    if [rev.is_some(), tag.is_some(), branch.is_some()]
+        .into_iter()
+        .filter(|selected| *selected)
+        .count()
+        > 1
+    {
+        return Err(CliError::new(
+            "a Git dependency accepts only one of `--rev`, `--tag`, or `--branch`",
+            topic,
+        ));
+    }
+    let registry_package = scanned
+        .last(OptionId::RegistryPackage)
+        .map(|item| item.value.clone().expect("package takes a value"));
+    let version = scanned.last(OptionId::DependencyVersion).map(|item| {
+        item.value
+            .clone()
+            .expect("version requirement takes a value")
+    });
+    if git.is_none() && (rev.is_some() || tag.is_some() || branch.is_some()) {
+        return Err(CliError::new(
+            "`--rev`, `--tag`, and `--branch` require `--git`",
+            topic,
+        ));
+    }
+    if registry.is_none() && (registry_package.is_some() || version.is_some()) {
+        return Err(CliError::new(
+            "`--package` and `--version` require `--registry`",
+            topic,
+        ));
+    }
+    let section = match scanned
+        .last(OptionId::DependencyScope)
+        .map(|item| item.value.as_deref().expect("scope takes a value"))
+        .unwrap_or("runtime")
+    {
+        "runtime" => crate::project::DependencySection::Runtime,
+        "build" => crate::project::DependencySection::Build,
+        "dev" | "development" => crate::project::DependencySection::Development,
+        "optional" => crate::project::DependencySection::Optional,
+        "lazy" => crate::project::DependencySection::Lazy,
+        other => {
+            return Err(CliError::new(
+                format!("unknown dependency scope `{other}`"),
+                topic,
+            ));
+        }
+    };
+    let source = if let Some(path) = path {
+        crate::project::DependencySpec::Path(path)
+    } else if let Some(url) = git {
+        crate::project::DependencySpec::Git {
+            url,
+            rev,
+            tag,
+            branch,
+        }
+    } else {
+        crate::project::DependencySpec::Registry {
+            registry: registry.expect("selected registry source"),
+            package: registry_package
+                .ok_or_else(|| CliError::new("registry dependencies require `--package`", topic))?,
+            version: version
+                .ok_or_else(|| CliError::new("registry dependencies require `--version`", topic))?,
+        }
+    };
+    Ok(ProjectAdd {
+        root: scanned
+            .last(OptionId::Root)
+            .map(|item| PathBuf::from(item.value.as_deref().expect("root takes a value"))),
+        name,
+        section,
+        source,
+    })
+}
+
+fn parse_workspace_command(scanned: &Scanned) -> CliResult<ProjectAction> {
+    let topic = HelpTopic::Workspace;
+    let (subcommand, rest) = scanned
+        .positionals
+        .split_first()
+        .ok_or_else(|| CliError::new("expected `nia workspace add-member <name>`", topic))?;
+    if subcommand != "add-member" {
+        return Err(CliError::new(
+            format!("unknown `nia workspace` command `{subcommand}`"),
+            topic,
+        ));
+    }
+    let name = match rest {
+        [name] => name.clone(),
+        [] => return Err(CliError::new("missing workspace member name", topic)),
+        [_, extra, ..] => {
+            return Err(CliError::new(
+                format!("unexpected argument `{extra}` for `nia workspace add-member`"),
+                topic,
+            ));
+        }
+    };
+    Ok(ProjectAction::AddWorkspaceMember {
+        root: scanned
+            .last(OptionId::Root)
+            .map(|item| PathBuf::from(item.value.as_deref().expect("root takes a value"))),
+        name,
+        artifacts: crate::project::Artifacts {
+            executable: scanned.has(OptionId::ExeTemplate),
+            library: scanned.has(OptionId::LibTemplate),
+        },
+    })
 }
 
 struct GlobalOptions {
@@ -557,7 +853,7 @@ fn value(occurrence: &Occurrence) -> &str {
 
 fn parse_package_options(scanned: &Scanned, topic: HelpTopic) -> CliResult<PackageOptions> {
     let err = |message: String| CliError::new(message, topic);
-    if scanned.has(OptionId::Workspace) && scanned.has(OptionId::Package) {
+    if scanned.has(OptionId::WorkspaceSelection) && scanned.has(OptionId::Package) {
         return Err(err(
             "`--workspace` cannot be combined with `--package`".to_string()
         ));
@@ -593,7 +889,7 @@ fn parse_package_options(scanned: &Scanned, topic: HelpTopic) -> CliResult<Packa
             .all(OptionId::Package)
             .map(|occurrence| value(occurrence).to_owned())
             .collect(),
-        workspace_all: scanned.has(OptionId::Workspace),
+        workspace_all: scanned.has(OptionId::WorkspaceSelection),
         locked: scanned.has(OptionId::Locked),
         offline: scanned.has(OptionId::Offline),
         jobs,
@@ -1013,6 +1309,14 @@ mod tests {
         }
     }
 
+    fn project(args: &[&str]) -> ProjectAction {
+        match parse(args) {
+            Ok(CliAction::Project { action, .. }) => action,
+            Ok(action) => panic!("{args:?}: expected project action, got {action:?}"),
+            Err(error) => panic!("{args:?}: {}", error.message),
+        }
+    }
+
     #[test]
     fn global_options_never_take_another_options_value() {
         for args in [
@@ -1247,6 +1551,110 @@ mod tests {
             &run(&["update"]).command,
             CliCommand::Update { root: None, names } if names.is_empty()
         ));
+    }
+
+    #[test]
+    fn project_commands_parse_package_artifacts_workspace_and_dependency_scope() {
+        let action = project(&["new", "app", "--lib", "--exe"]);
+        assert!(matches!(
+            action,
+            ProjectAction::New(ProjectCreate {
+                root,
+                artifacts: crate::project::Artifacts { executable: true, library: true },
+                workspace: false,
+                ..
+            }) if root == std::path::Path::new("app")
+        ));
+
+        let action = project(&[
+            "new",
+            "mono",
+            "--workspace",
+            "--member",
+            "app",
+            "--member",
+            "core",
+            "--lib",
+        ]);
+        assert!(matches!(
+            action,
+            ProjectAction::New(ProjectCreate { members, workspace: true, artifacts, .. })
+                if members == ["app", "core"] && artifacts.library && !artifacts.executable
+        ));
+
+        let action = project(&[
+            "add",
+            "json",
+            "--registry",
+            "nia",
+            "--package",
+            "acme/json",
+            "--version",
+            "^1.2",
+            "--scope",
+            "dev",
+        ]);
+        assert!(matches!(
+            action,
+            ProjectAction::Add(ProjectAdd {
+                name,
+                section: crate::project::DependencySection::Development,
+                source: crate::project::DependencySpec::Registry { version, .. },
+                ..
+            }) if name == "json" && version == "^1.2"
+        ));
+
+        assert!(matches!(
+            parse(&[
+                "add",
+                "json",
+                "--path",
+                "../json",
+                "--diagnostics-format=json"
+            ]),
+            Ok(CliAction::Project {
+                diagnostics_format: DiagnosticsFormat::Json,
+                ..
+            })
+        ));
+        assert!(matches!(
+            parse(&["add", "json", "--help"]),
+            Ok(CliAction::Help(HelpTopic::Add))
+        ));
+        assert_errors(&[
+            (&["new"], "missing destination path"),
+            (
+                &["new", "mono", "--member", "app"],
+                "requires `--workspace`",
+            ),
+            (
+                &[
+                    "new",
+                    "mono",
+                    "--workspace",
+                    "--name",
+                    "root",
+                    "--member",
+                    "app",
+                ],
+                "cannot be combined",
+            ),
+            (
+                &[
+                    "add",
+                    "json",
+                    "--path",
+                    "../json",
+                    "--git",
+                    "https://example.test/json",
+                ],
+                "choose exactly one",
+            ),
+            (
+                &["workspace", "add-member"],
+                "missing workspace member name",
+            ),
+        ]);
     }
 
     #[test]

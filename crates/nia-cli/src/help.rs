@@ -67,6 +67,10 @@ pub(crate) fn error_help_text(topic: HelpTopic, style: HelpStyle) -> String {
 pub(crate) fn help_command(topic: HelpTopic) -> String {
     match topic {
         HelpTopic::Main => "nia help".to_string(),
+        HelpTopic::New => "nia help new".to_string(),
+        HelpTopic::Init => "nia help init".to_string(),
+        HelpTopic::Add => "nia help add".to_string(),
+        HelpTopic::Workspace => "nia help workspace".to_string(),
         HelpTopic::Build => "nia help build".to_string(),
         HelpTopic::Update => "nia help update".to_string(),
         HelpTopic::Clean => "nia help clean".to_string(),
@@ -118,11 +122,62 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     "refresh Git revisions and registry versions in nia.lock",
                 ),
                 ("clean", "remove build outputs and caches"),
+                ("new <path>", "create a package or workspace"),
+                ("init [path]", "initialize a package or workspace"),
+                ("add <name>", "add a dependency to the current package"),
+                (
+                    "workspace add-member <name>",
+                    "add a package to the current workspace",
+                ),
                 ("check <path>", "check a package or source file"),
                 ("emit --<target> <path>", "inspect or write compiler output"),
                 ("help [command]", "show command help"),
             ],
             examples: &["nia build", "nia check src/main.nia"],
+        },
+        HelpTopic::New => HelpDoc {
+            title: "nia new",
+            about: "Create a Nia package or workspace from a validated template.",
+            usage: &["nia new <path> [--exe] [--lib] [--workspace] [--member <name> ...]"],
+            commands: &[],
+            examples: &[
+                "nia new app",
+                "nia new app --lib",
+                "nia new mono --workspace --member app --member core",
+            ],
+        },
+        HelpTopic::Init => HelpDoc {
+            title: "nia init",
+            about: "Initialize a Nia package or workspace in an existing directory.",
+            usage: &["nia init [<path>] [--exe] [--lib] [--workspace] [--member <name> ...]"],
+            commands: &[],
+            examples: &[
+                "nia init .",
+                "nia init . --lib",
+                "nia init . --workspace --member app",
+            ],
+        },
+        HelpTopic::Add => HelpDoc {
+            title: "nia add",
+            about: "Add a dependency to the current package manifest.",
+            usage: &[
+                "nia add <name> (--path <dir> | --git <url> | --registry <name> --package <namespace/name> --version <requirement>) [--scope <scope>] [--root <package-dir>]",
+            ],
+            commands: &[],
+            examples: &[
+                "nia add json --path ../json",
+                "nia add helper --git https://example.test/helper.git --scope build",
+            ],
+        },
+        HelpTopic::Workspace => HelpDoc {
+            title: "nia workspace",
+            about: "Manage packages in the current Nia workspace.",
+            usage: &["nia workspace add-member <name> [--exe] [--lib] [--root <workspace-dir>]"],
+            commands: &[],
+            examples: &[
+                "nia workspace add-member tools",
+                "nia workspace add-member core --lib",
+            ],
         },
         HelpTopic::Build => HelpDoc {
             title: "nia build",
@@ -298,11 +353,15 @@ fn paint(text: &str, part: StylePart, style: HelpStyle) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::args::{OPTIONS, Scope};
+    use crate::args::OPTIONS;
 
     fn topics() -> Vec<HelpTopic> {
         let mut topics = vec![
             HelpTopic::Main,
+            HelpTopic::New,
+            HelpTopic::Init,
+            HelpTopic::Add,
+            HelpTopic::Workspace,
             HelpTopic::Build,
             HelpTopic::Update,
             HelpTopic::Check,
@@ -322,19 +381,11 @@ mod tests {
                 if spec.usage.is_empty() {
                     continue;
                 }
-                // The emit overview lists only options every emit target accepts.
-                let accepted = spec.scope.contains(Scope::GLOBAL)
-                    || if topic == HelpTopic::Emit {
-                        EmitKind::ALL
-                            .into_iter()
-                            .all(|kind| spec.scope.contains(kind.scope()))
-                    } else {
-                        spec.scope.contains(topic.scope())
-                    };
-                let listed = text.contains(spec.usage);
-                let expected = accepted
-                    && (topic == HelpTopic::Main || spec.id != args::OptionId::Version)
-                    && (topic != HelpTopic::Main || spec.scope.contains(Scope::GLOBAL));
+                let listed = text.contains(spec.usage) && text.contains(spec.about);
+                // Context-specific options can share a spelling and help
+                // usage while carrying different meanings in disjoint scopes.
+                let expected = args::help_rows(topic.scope(), topic == HelpTopic::Main)
+                    .any(|candidate| candidate.id == spec.id);
                 assert_eq!(listed, expected, "{topic:?}: `{}`", spec.usage);
             }
         }
@@ -358,6 +409,27 @@ mod tests {
             text.contains("cached Git and registry dependencies without fetching"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn project_help_matches_required_paths_and_command_specific_options() {
+        let new = help_text(HelpTopic::New, HelpStyle::Plain);
+        assert!(new.contains("nia new <path>"), "{new}");
+        assert!(new.contains("--exe"), "{new}");
+        assert!(new.contains("--lib"), "{new}");
+        assert!(
+            new.contains("create a workspace instead of a standalone package"),
+            "{new}"
+        );
+        assert!(!new.contains("select every workspace member"), "{new}");
+
+        let init = help_text(HelpTopic::Init, HelpStyle::Plain);
+        assert!(init.contains("nia init [<path>]"), "{init}");
+
+        let add = help_text(HelpTopic::Add, HelpStyle::Plain);
+        assert!(add.contains("--version <requirement>"), "{add}");
+        assert!(!add.contains("--version-req"), "{add}");
+        assert!(add.contains("--root <dir>"), "{add}");
     }
 
     #[test]

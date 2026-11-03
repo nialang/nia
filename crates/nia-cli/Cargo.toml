@@ -28,6 +28,8 @@ nia-target-config.workspace = true
 serde_json.workspace = true
 crossterm.workspace = true
 unicode-width.workspace = true
+toml_edit = "0.24"
+glob.workspace = true
 
 [dev-dependencies]
 libc.workspace = true

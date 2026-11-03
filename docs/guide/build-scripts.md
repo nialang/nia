@@ -265,6 +265,15 @@ under the workspace directory must be listed as a member or explicitly
 excluded; an excluded package builds independently. A nested workspace
 cannot also be a member of its parent workspace.
 
+`nia new <directory> --workspace --member <name>` creates a virtual workspace
+with members under `packages/` and the default `packages/*` pattern.
+`nia workspace add-member <name>` creates another member there; the new package
+is immediately covered by that pattern, or its path is appended when the
+workspace uses explicit member paths. From the workspace root, use
+`nia add <dependency> --path <relative-path> --root packages/<member>` to edit a
+member's manifest. `nia add` also accepts Git and registry sources and can
+target build, development, optional, or lazy dependency tables with `--scope`.
+
 Running `nia build` inside a member selects that package. Running
 from the workspace root selects `default-members`, or all members when that
 field is omitted. `--workspace` selects every member, and repeatable

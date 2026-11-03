@@ -33,11 +33,12 @@ mod args;
 mod cli;
 mod help;
 mod progress;
+mod project;
 
 use cli::{
     Cli, CliAction, CliCommand, CliError, DiagnosticsFormat, EmitExeOptions, EmitObjOptions,
-    EmitTarget, HelpTopic, ObjectOutput, PackageOptions, ProgressMode, RuntimeMode,
-    USAGE_EXIT_CODE,
+    EmitTarget, HelpTopic, ObjectOutput, PackageOptions, ProgressMode, ProjectAction, ProjectAdd,
+    ProjectCreate, RuntimeMode, USAGE_EXIT_CODE,
 };
 use help::{HelpStyle, error_help_text, help_command, help_text};
 
@@ -63,6 +64,10 @@ fn main() -> ExitCode {
 ",
             nia_compat::COMPILER_VERSION
         )),
+        Ok(CliAction::Project {
+            action,
+            diagnostics_format,
+        }) => run_project_action(action, diagnostics_format),
         Ok(CliAction::Run(cli)) => {
             let mut cli = *cli;
             if let Err(error) = resolve_output_policy(&mut cli) {
@@ -75,6 +80,44 @@ fn main() -> ExitCode {
         Err(error) => {
             report_cli_error(&error, diagnostics_format);
             ExitCode::from(USAGE_EXIT_CODE)
+        }
+    }
+}
+
+fn run_project_action(action: ProjectAction, format: DiagnosticsFormat) -> ExitCode {
+    let result = match action {
+        ProjectAction::New(ProjectCreate {
+            root,
+            name,
+            artifacts,
+            workspace,
+            members,
+        }) => project::new_project(&root, name.as_deref(), artifacts, workspace, &members),
+        ProjectAction::Init(ProjectCreate {
+            root,
+            name,
+            artifacts,
+            workspace,
+            members,
+        }) => project::init_project(&root, name.as_deref(), artifacts, workspace, &members),
+        ProjectAction::Add(ProjectAdd {
+            root,
+            name,
+            section,
+            source,
+        }) => project::add_dependency(root.as_deref(), &name, section, source),
+        ProjectAction::AddWorkspaceMember {
+            root,
+            name,
+            artifacts,
+        } => project::add_workspace_member(root.as_deref(), &name, artifacts),
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => {
+            let rendered = render_cli_boundary_error(nia_diagnostic::codes::LOAD, &message, format);
+            write_diagnostic_report(&rendered, format);
+            ExitCode::FAILURE
         }
     }
 }

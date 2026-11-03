@@ -134,6 +134,32 @@ Dependencies go in `[dependencies]`, for example
 `json = { git = "https://example.com/json.git", tag = "v1.0.0" }`; see
 [Package manifest](build-scripts.md#package-manifest).
 
+Create a package with `nia new`; it writes a validated manifest and keeps the
+library and executable entry points in separate directories:
+
+```sh
+nia new hello
+nia new core --lib
+nia new app --exe --lib
+```
+
+The default is an executable. `--lib` adds a library, and the flags can be
+combined. The generated layout uses `src/main.nia` for the executable and
+`lib/root.nia` for the library. `nia init [path]` creates the same template in
+an existing directory without replacing files; its default path is the current
+directory. Both commands accept `--name` when you want a package name other
+than the directory name.
+
+Create a workspace with one or more initial packages using
+`nia new mono --workspace --member app --member core`. The root manifest uses
+`packages/*`, and each member gets its own `nia.toml` and source layout. Add a
+member later with `nia workspace add-member tools`; `--lib` and `--exe` choose
+its artifacts. To add a dependency, run `nia add json --path ../json` inside a
+package. At a virtual workspace root, pass `--root packages/app` to select the
+member whose manifest should change. Git and registry sources, as well as
+runtime, build, development, optional, and lazy scopes are available; run
+`nia help add` for the full syntax.
+
 `src/main.nia` holds the hello-world program above. Each entry becomes a step
 named after it, an executable also gets a `run-<name>` step, and `all`, the
 default, builds every executable and runs every suite. A package that needs
@@ -175,6 +201,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
 | Command | What it does |
 | --- | --- |
+| `nia new <path>` / `nia init [path]` | Create a package or workspace, or initialize one in an existing directory. |
+| `nia add <name>` | Add a path, Git, or registry dependency to a package manifest. |
+| `nia workspace add-member <name>` | Create and register a package under a workspace. |
 | `nia build [step]` | Runs the named step, or the default step when none is named. |
 | `nia update [name ...]` | Refreshes Git revisions and registry versions in `nia.lock`. |
 | `nia clean` | Removes build outputs and caches; see [Build directory](build-scripts.md#build-directory). |

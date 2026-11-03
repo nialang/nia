@@ -49,6 +49,10 @@ impl Scope {
     pub(crate) const EMIT_EXE: Self = Self(1 << 8);
     pub(crate) const UPDATE: Self = Self(1 << 9);
     pub(crate) const CLEAN: Self = Self(1 << 10);
+    pub(crate) const NEW: Self = Self(1 << 11);
+    pub(crate) const INIT: Self = Self(1 << 12);
+    pub(crate) const ADD: Self = Self(1 << 13);
+    pub(crate) const WORKSPACE: Self = Self(1 << 14);
     /// Every emit kind, used before the kind is known.
     pub(crate) const EMIT_ANY: Self = Self::EMIT_INSPECT
         .or(Self::EMIT_CHECKED)
@@ -142,7 +146,8 @@ pub(crate) enum OptionId {
     Target,
     Root,
     Package,
-    Workspace,
+    WorkspaceSelection,
+    WorkspaceTemplate,
     Locked,
     Offline,
     Jobs,
@@ -170,9 +175,23 @@ pub(crate) enum OptionId {
     LibraryPath,
     Library,
     Rpath,
+    ProjectName,
+    ExeTemplate,
+    LibTemplate,
+    Member,
+    PathSource,
+    GitSource,
+    GitRev,
+    GitTag,
+    GitBranch,
+    Registry,
+    RegistryPackage,
+    DependencyVersion,
+    DependencyScope,
 }
 
 /// One accepted option and its help row.
+#[derive(Clone, Copy)]
 pub(crate) struct OptionSpec {
     pub(crate) id: OptionId,
     /// Spellings, e.g. `["-j", "--jobs"]`. Short spellings come first.
@@ -257,9 +276,13 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Root,
         names: &["--root"],
         arity: Arity::Value,
-        scope: Scope::BUILD.or(Scope::UPDATE).or(Scope::CLEAN),
+        scope: Scope::BUILD
+            .or(Scope::UPDATE)
+            .or(Scope::CLEAN)
+            .or(Scope::ADD)
+            .or(Scope::WORKSPACE),
         usage: "--root <dir>",
-        about: "start package discovery here instead of the current directory",
+        about: "start package or workspace discovery here instead of the current directory",
     },
     OptionSpec {
         id: OptionId::Package,
@@ -270,12 +293,124 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         about: "select a workspace member; may be repeated",
     },
     OptionSpec {
-        id: OptionId::Workspace,
+        id: OptionId::WorkspaceSelection,
         names: &["--workspace"],
         arity: Arity::Flag,
         scope: Scope::BUILD,
         usage: "--workspace",
         about: "select every workspace member",
+    },
+    OptionSpec {
+        id: OptionId::WorkspaceTemplate,
+        names: &["--workspace"],
+        arity: Arity::Flag,
+        scope: Scope::NEW.or(Scope::INIT),
+        usage: "--workspace",
+        about: "create a workspace instead of a standalone package",
+    },
+    OptionSpec {
+        id: OptionId::ProjectName,
+        names: &["--name"],
+        arity: Arity::Value,
+        scope: Scope::NEW.or(Scope::INIT),
+        usage: "--name <name>",
+        about: "set the package name (defaults to the directory name; for a workspace, names its default member)",
+    },
+    OptionSpec {
+        id: OptionId::ExeTemplate,
+        names: &["--exe"],
+        arity: Arity::Flag,
+        scope: Scope::NEW.or(Scope::INIT).or(Scope::WORKSPACE),
+        usage: "--exe",
+        about: "include an executable artifact in the package template",
+    },
+    OptionSpec {
+        id: OptionId::LibTemplate,
+        names: &["--lib"],
+        arity: Arity::Flag,
+        scope: Scope::NEW.or(Scope::INIT).or(Scope::WORKSPACE),
+        usage: "--lib",
+        about: "include a library artifact in the package template",
+    },
+    OptionSpec {
+        id: OptionId::Member,
+        names: &["--member"],
+        arity: Arity::Value,
+        scope: Scope::NEW.or(Scope::INIT),
+        usage: "--member <name>",
+        about: "add an initial workspace package; may be repeated",
+    },
+    OptionSpec {
+        id: OptionId::PathSource,
+        names: &["--path"],
+        arity: Arity::Value,
+        scope: Scope::ADD,
+        usage: "--path <dir>",
+        about: "use a local package dependency",
+    },
+    OptionSpec {
+        id: OptionId::GitSource,
+        names: &["--git"],
+        arity: Arity::Value,
+        scope: Scope::ADD,
+        usage: "--git <url>",
+        about: "use a Git package dependency",
+    },
+    OptionSpec {
+        id: OptionId::GitRev,
+        names: &["--rev"],
+        arity: Arity::Value,
+        scope: Scope::ADD,
+        usage: "--rev <commit>",
+        about: "select a full Git commit hash",
+    },
+    OptionSpec {
+        id: OptionId::GitTag,
+        names: &["--tag"],
+        arity: Arity::Value,
+        scope: Scope::ADD,
+        usage: "--tag <tag>",
+        about: "select a Git tag",
+    },
+    OptionSpec {
+        id: OptionId::GitBranch,
+        names: &["--branch"],
+        arity: Arity::Value,
+        scope: Scope::ADD,
+        usage: "--branch <branch>",
+        about: "select a Git branch",
+    },
+    OptionSpec {
+        id: OptionId::Registry,
+        names: &["--registry"],
+        arity: Arity::Value,
+        scope: Scope::ADD,
+        usage: "--registry <name>",
+        about: "use a configured package registry",
+    },
+    OptionSpec {
+        id: OptionId::RegistryPackage,
+        names: &["--package"],
+        arity: Arity::Value,
+        scope: Scope::ADD,
+        usage: "--package <namespace/name>",
+        about: "select the registry package identity",
+    },
+    OptionSpec {
+        id: OptionId::DependencyVersion,
+        names: &["--version"],
+        arity: Arity::Value,
+        scope: Scope::ADD,
+        usage: "--version <requirement>",
+        about: "select the registry version requirement",
+    },
+    OptionSpec {
+        id: OptionId::DependencyScope,
+        names: &["--scope"],
+        arity: Arity::Value,
+        scope: Scope::ADD,
+        usage: "--scope <runtime|build|dev|optional|lazy>",
+        about: "choose the Nia dependency scope (default: runtime)",
     },
     OptionSpec {
         id: OptionId::Locked,
@@ -711,7 +846,7 @@ pub(crate) fn scan_from(
             scanned.positionals.push(arg.clone());
             continue;
         }
-        let (spec, name, attached) = match lookup(arg) {
+        let (spec, name, attached) = match lookup(arg, scope) {
             Some(found) => found,
             None => {
                 return Err(ScanError::Unknown {
@@ -775,24 +910,38 @@ fn push_occurrence(
 }
 
 /// Finds the spec for one argument and splits off an attached value.
-fn lookup(arg: &str) -> Option<(&'static OptionSpec, &'static str, Option<String>)> {
+fn lookup(arg: &str, scope: Scope) -> Option<(&'static OptionSpec, &'static str, Option<String>)> {
     if let Some(long) = arg.strip_prefix("--") {
         let (name, value) = match long.split_once('=') {
             Some((name, value)) => (name, Some(value.to_string())),
             None => (long, None),
         };
-        return OPTIONS.iter().find_map(|spec| {
-            spec.names
-                .iter()
-                .find(|candidate| candidate.strip_prefix("--") == Some(name))
-                .map(|candidate| (spec, *candidate, value.clone()))
-        });
+        return OPTIONS
+            .iter()
+            .filter(|spec| spec.scope.contains(scope) || spec.scope.contains(Scope::GLOBAL))
+            .find_map(|spec| {
+                spec.names
+                    .iter()
+                    .find(|candidate| candidate.strip_prefix("--") == Some(name))
+                    .map(|candidate| (spec, *candidate, value.clone()))
+            })
+            .or_else(|| {
+                OPTIONS.iter().find_map(|spec| {
+                    spec.names
+                        .iter()
+                        .find(|candidate| candidate.strip_prefix("--") == Some(name))
+                        .map(|candidate| (spec, *candidate, value.clone()))
+                })
+            });
     }
     // Short options: `-O<level>` is one switch; `-vvv` and `-qq` repeat;
     // otherwise `-x` takes a value attached as `-xvalue` or `-x=value`.
     let short = &arg[..2.min(arg.len())];
     let rest = &arg[short.len()..];
-    let spec = OPTIONS.iter().find(|spec| spec.names.contains(&short))?;
+    let spec = OPTIONS
+        .iter()
+        .find(|spec| spec.scope.contains(scope) && spec.names.contains(&short))
+        .or_else(|| OPTIONS.iter().find(|spec| spec.names.contains(&short)))?;
     let name = *spec.names.iter().find(|candidate| **candidate == short)?;
     match spec.id {
         // `-O` alone means `-O2`; `-O3` carries its level in the remainder.
@@ -928,12 +1077,29 @@ mod tests {
     }
 
     #[test]
-    fn every_option_has_a_unique_spelling() {
-        let mut seen = std::collections::HashSet::new();
+    fn duplicate_option_spellings_have_disjoint_command_scopes() {
+        let mut seen = std::collections::HashMap::<&str, Vec<Scope>>::new();
         for spec in OPTIONS {
             for name in spec.names {
-                assert!(seen.insert(*name), "`{name}` is listed twice");
+                let scopes = seen.entry(name).or_default();
+                assert!(
+                    scopes.iter().all(|scope| scope.0 & spec.scope.0 == 0),
+                    "`{name}` is ambiguous between command scopes"
+                );
+                scopes.push(spec.scope);
             }
         }
+    }
+
+    #[test]
+    fn contextual_project_options_resolve_without_changing_emit_options() {
+        let template = scan(&args(&["--exe"]), Scope::NEW).unwrap();
+        assert!(template.has(OptionId::ExeTemplate));
+        let emit = scan(&args(&["--exe"]), Scope::EMIT_ANY).unwrap();
+        assert!(emit.has(OptionId::EmitTarget(EmitKind::Exe)));
+        let registry_dep = scan(&args(&["--package", "acme/json"]), Scope::ADD).unwrap();
+        assert!(registry_dep.has(OptionId::RegistryPackage));
+        let build = scan(&args(&["--package", "app"]), Scope::BUILD).unwrap();
+        assert!(build.has(OptionId::Package));
     }
 }
