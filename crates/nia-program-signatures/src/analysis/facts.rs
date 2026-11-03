@@ -36,7 +36,7 @@ pub fn collect_module_program_signature_facts(
             module_id: module.module_id,
             def_id: *def_id,
         })
-        .collect();
+        .collect::<HashSet<_>>();
     let modules = [module];
     ModuleProgramSignatureFacts {
         trait_defs,
@@ -114,6 +114,11 @@ pub fn collect_program_functions_excluding(
     excluded: &HashSet<GlobalDefId>,
 ) -> HashMap<GlobalDefId, ProgramFunctionSignature> {
     let mut functions = HashMap::new();
+    let capacity = modules
+        .iter()
+        .map(|module| module.signatures.functions.len())
+        .sum();
+    functions.reserve(capacity);
     for module in modules {
         for (def_id, signature) in &module.signatures.functions {
             let global_def_id = GlobalDefId {
@@ -140,6 +145,12 @@ pub fn collect_program_globals(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramGlobalSignature> {
     let mut globals = HashMap::new();
+    globals.reserve(
+        modules
+            .iter()
+            .map(|module| module.signatures.globals.len())
+            .sum(),
+    );
     for module in modules {
         for (def_id, signature) in &module.signatures.globals {
             globals.insert(
@@ -161,6 +172,12 @@ pub fn collect_program_consts(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramConstSignature> {
     let mut consts = HashMap::new();
+    consts.reserve(
+        modules
+            .iter()
+            .map(|module| module.signatures.consts.len())
+            .sum(),
+    );
     for module in modules {
         for (def_id, signature) in &module.signatures.consts {
             consts.insert(
@@ -182,6 +199,12 @@ pub fn collect_program_structs(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramStructSignature> {
     let mut structs = HashMap::new();
+    structs.reserve(
+        modules
+            .iter()
+            .map(|module| module.signatures.structs.len())
+            .sum(),
+    );
     for module in modules {
         for (def_id, signature) in &module.signatures.structs {
             structs.insert(
@@ -203,6 +226,12 @@ pub fn collect_program_unions(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramUnionSignature> {
     let mut unions = HashMap::new();
+    unions.reserve(
+        modules
+            .iter()
+            .map(|module| module.signatures.unions.len())
+            .sum(),
+    );
     for module in modules {
         for (def_id, signature) in &module.signatures.unions {
             unions.insert(
@@ -224,6 +253,12 @@ pub fn collect_program_enums(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramEnumSignature> {
     let mut enums = HashMap::new();
+    enums.reserve(
+        modules
+            .iter()
+            .map(|module| module.signatures.enums.len())
+            .sum(),
+    );
     for module in modules {
         for (def_id, signature) in &module.signatures.enums {
             enums.insert(
@@ -245,6 +280,12 @@ pub fn collect_program_traits(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramTraitSignature> {
     let mut traits = HashMap::new();
+    traits.reserve(
+        modules
+            .iter()
+            .map(|module| module.signatures.traits.len())
+            .sum(),
+    );
     for module in modules {
         for (def_id, signature) in &module.signatures.traits {
             traits.insert(
@@ -266,6 +307,12 @@ pub fn collect_program_type_aliases(
     modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramTypeAliasSignature> {
     let mut type_aliases = HashMap::new();
+    type_aliases.reserve(
+        modules
+            .iter()
+            .map(|module| module.signatures.type_aliases.len())
+            .sum(),
+    );
     for module in modules {
         for (def_id, signature) in &module.signatures.type_aliases {
             type_aliases.insert(
