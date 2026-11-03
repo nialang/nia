@@ -829,13 +829,13 @@ name = "nia-cli"
 version = "0.3.0-dev"
 dependencies = [
  "crossterm",
- "glob",
  "libc",
  "nia-alloc",
  "nia-build",
  "nia-compat",
  "nia-diagnostic",
  "nia-driver",
+ "nia-lexer",
  "nia-linker",
  "nia-loader-query",
  "nia-package-metadata",

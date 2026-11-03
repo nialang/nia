@@ -3212,6 +3212,43 @@ impl WorkspaceManifest {
         })
     }
 
+    /// Reports whether a normalized workspace-relative path is excluded by
+    /// this workspace. Exclusions apply to the path and its descendants.
+    pub fn is_excluded_path(&self, relative_path: &str) -> bool {
+        workspace_path_excluded(relative_path, &self.exclude)
+    }
+
+    /// Reports whether a workspace-relative path is covered by a declared
+    /// member pattern, even when the package has not been created yet.
+    pub fn member_pattern_matches_path(&self, relative_path: &str) -> io::Result<bool> {
+        let raw = read_raw_manifest(&self.root)?;
+        let workspace = raw.workspace.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "manifest does not declare a `[workspace]` table",
+            )
+        })?;
+        let relative = normalize_workspace_path(relative_path, "workspace member")?;
+        workspace
+            .members
+            .into_iter()
+            .try_fold(false, |matched, member| {
+                if matched {
+                    return Ok(true);
+                }
+                let pattern = normalize_workspace_path(&member, "workspace member")?;
+                let pattern = glob::Pattern::new(&pattern)
+                    .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+                Ok(pattern.matches_path_with(
+                    Path::new(&relative),
+                    glob::MatchOptions {
+                        require_literal_separator: true,
+                        ..glob::MatchOptions::new()
+                    },
+                ))
+            })
+    }
+
     /// Finds the nearest workspace containing `package_root` as a declared member.
     pub fn discover_for_package(package_root: &Path) -> io::Result<Option<Self>> {
         let package_root = canonical_real_directory(package_root)?;
@@ -7425,6 +7462,24 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         fs::write(root.join("nia.toml"), "[workspace]\nmembers = [\"packages/*\"]\ndefault-members = [\"packages/a*\"]\nexclude = [\"packages/excluded\"]\n").unwrap();
         let workspace = WorkspaceManifest::read(&root).unwrap();
         assert_eq!(workspace.members, ["packages/app", "packages/core"]);
+        assert!(workspace.is_excluded_path("packages/excluded"));
+        assert!(workspace.is_excluded_path("packages/excluded/nested"));
+        assert!(!workspace.is_excluded_path("packages/app"));
+        assert!(
+            workspace
+                .member_pattern_matches_path("packages/future")
+                .unwrap()
+        );
+        assert!(
+            !workspace
+                .member_pattern_matches_path("packages/tools/future")
+                .unwrap()
+        );
+        assert!(
+            workspace
+                .member_pattern_matches_path("packages/excluded")
+                .unwrap()
+        );
         assert_eq!(workspace.default_members.unwrap(), ["packages/app"]);
         assert!(
             WorkspaceManifest::discover(&root.join("packages/excluded"))

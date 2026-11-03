@@ -70,7 +70,6 @@ pub(crate) fn help_command(topic: HelpTopic) -> String {
         HelpTopic::New => "nia help new".to_string(),
         HelpTopic::Init => "nia help init".to_string(),
         HelpTopic::Add => "nia help add".to_string(),
-        HelpTopic::Workspace => "nia help workspace".to_string(),
         HelpTopic::Build => "nia help build".to_string(),
         HelpTopic::Update => "nia help update".to_string(),
         HelpTopic::Clean => "nia help clean".to_string(),
@@ -125,10 +124,6 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 ("new <path>", "create a package or workspace"),
                 ("init [path]", "initialize a package or workspace"),
                 ("add <name>", "add a dependency to the current package"),
-                (
-                    "workspace add-member <name>",
-                    "add a package to the current workspace",
-                ),
                 ("check <path>", "check a package or source file"),
                 ("emit --<target> <path>", "inspect or write compiler output"),
                 ("help [command]", "show command help"),
@@ -137,18 +132,19 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         },
         HelpTopic::New => HelpDoc {
             title: "nia new",
-            about: "Create a Nia package or workspace from a validated template.",
+            about: "Create a Nia package or workspace from a validated template. The default package includes lib, src, and tests.",
             usage: &["nia new <path> [--exe] [--lib] [--workspace] [--member <name> ...]"],
             commands: &[],
             examples: &[
                 "nia new app",
-                "nia new app --lib",
+                "nia new core --lib",
+                "nia new tool --exe",
                 "nia new mono --workspace --member app --member core",
             ],
         },
         HelpTopic::Init => HelpDoc {
             title: "nia init",
-            about: "Initialize a Nia package or workspace in an existing directory.",
+            about: "Initialize a Nia package or workspace in an existing directory. The default package includes lib, src, and tests.",
             usage: &["nia init [<path>] [--exe] [--lib] [--workspace] [--member <name> ...]"],
             commands: &[],
             examples: &[
@@ -167,16 +163,6 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             examples: &[
                 "nia add json --path ../json",
                 "nia add helper --git https://example.test/helper.git --scope build",
-            ],
-        },
-        HelpTopic::Workspace => HelpDoc {
-            title: "nia workspace",
-            about: "Manage packages in the current Nia workspace.",
-            usage: &["nia workspace add-member <name> [--exe] [--lib] [--root <workspace-dir>]"],
-            commands: &[],
-            examples: &[
-                "nia workspace add-member tools",
-                "nia workspace add-member core --lib",
             ],
         },
         HelpTopic::Build => HelpDoc {
@@ -361,7 +347,6 @@ mod tests {
             HelpTopic::New,
             HelpTopic::Init,
             HelpTopic::Add,
-            HelpTopic::Workspace,
             HelpTopic::Build,
             HelpTopic::Update,
             HelpTopic::Check,
@@ -385,7 +370,7 @@ mod tests {
                 // Context-specific options can share a spelling and help
                 // usage while carrying different meanings in disjoint scopes.
                 let expected = args::help_rows(topic.scope(), topic == HelpTopic::Main)
-                    .any(|candidate| candidate.id == spec.id);
+                    .any(|candidate| candidate.id == spec.id && candidate.about == spec.about);
                 assert_eq!(listed, expected, "{topic:?}: `{}`", spec.usage);
             }
         }

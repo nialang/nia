@@ -19,13 +19,14 @@ fn new_generates_a_checkable_executable_package() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(root.join("nia.toml").is_file());
+    assert!(root.join("lib/root.nia").is_file());
     assert!(root.join("src/main.nia").is_file());
-    assert!(!root.join("lib/root.nia").exists());
+    assert!(root.join("tests/unit.nia").is_file());
 
     let check = support::nia_command()
-        .args(["check", "src/main.nia", "--runtime", "freestanding"])
-        .current_dir(&root)
-        .output_timeout_for_compiler("check the generated executable template");
+        .args(["build", "test", "--root"])
+        .arg(&root)
+        .output_timeout_for_build("build and run the generated test template");
     assert!(
         check.status.success(),
         "{}",
@@ -34,12 +35,12 @@ fn new_generates_a_checkable_executable_package() {
 }
 
 #[test]
-fn init_dot_and_workspace_member_commands_create_native_layouts() {
+fn init_dot_and_workspace_new_commands_create_native_layouts() {
     let parent = temp_dir("init_dot_and_workspace_commands");
     let initialized = parent.join("initialized");
     std::fs::create_dir(&initialized).unwrap();
     let init = support::nia_command()
-        .args(["init", "--lib"])
+        .args(["init"])
         .current_dir(&initialized)
         .output_timeout_for_compiler("initialize the current directory");
     assert!(
@@ -48,7 +49,8 @@ fn init_dot_and_workspace_member_commands_create_native_layouts() {
         String::from_utf8_lossy(&init.stderr)
     );
     assert!(initialized.join("lib/root.nia").is_file());
-    assert!(!initialized.join("src/main.nia").exists());
+    assert!(initialized.join("src/main.nia").is_file());
+    assert!(initialized.join("tests/unit.nia").is_file());
 
     let workspace = parent.join("mono");
     let create = support::nia_command()
@@ -61,9 +63,9 @@ fn init_dot_and_workspace_member_commands_create_native_layouts() {
         String::from_utf8_lossy(&create.stderr)
     );
     let add = support::nia_command()
-        .args(["workspace", "add-member", "core", "--lib", "--root", ".."])
+        .args(["new", "../core", "--lib"])
         .current_dir(workspace.join("packages/app"))
-        .output_timeout_for_compiler("add a workspace member without lock recursion");
+        .output_timeout_for_compiler("create a workspace member through nia new");
     assert!(
         add.status.success(),
         "{}",
@@ -71,16 +73,32 @@ fn init_dot_and_workspace_member_commands_create_native_layouts() {
     );
     assert!(workspace.join("packages/core/nia.toml").is_file());
     assert!(workspace.join("packages/core/lib/root.nia").is_file());
+    assert!(workspace.join("packages/core/tests/unit.nia").is_file());
     assert!(!workspace.join("packages/core/src/main.nia").exists());
     let manifest = std::fs::read_to_string(workspace.join("nia.toml")).unwrap();
     assert!(manifest.contains("members = [\"packages/*\"]"));
+
+    let initialized_member = workspace.join("packages/tools");
+    std::fs::create_dir(&initialized_member).unwrap();
+    let init = support::nia_command()
+        .args(["init", "../tools", "--exe"])
+        .current_dir(workspace.join("packages/app"))
+        .output_timeout_for_compiler("initialize a workspace member through nia init");
+    assert!(
+        init.status.success(),
+        "{}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+    assert!(initialized_member.join("src/main.nia").is_file());
+    assert!(initialized_member.join("tests/unit.nia").is_file());
+    assert!(!initialized_member.join("lib/root.nia").exists());
 }
 
 #[test]
 fn add_path_dependency_edits_the_selected_package_manifest() {
     let parent = temp_dir("add_path_dependency");
     for (name, args) in [
-        ("app", vec!["new", "app"]),
+        ("app", vec!["new", "app", "--exe"]),
         ("util", vec!["new", "util", "--lib"]),
     ] {
         let output = support::nia_command()

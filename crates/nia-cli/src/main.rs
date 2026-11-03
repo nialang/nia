@@ -106,11 +106,6 @@ fn run_project_action(action: ProjectAction, format: DiagnosticsFormat) -> ExitC
             section,
             source,
         }) => project::add_dependency(root.as_deref(), &name, section, source),
-        ProjectAction::AddWorkspaceMember {
-            root,
-            name,
-            artifacts,
-        } => project::add_workspace_member(root.as_deref(), &name, artifacts),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

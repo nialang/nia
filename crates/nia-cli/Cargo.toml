@@ -21,6 +21,7 @@ nia-driver = { workspace = true, default-features = false }
 nia-diagnostic.workspace = true
 nia-loader-query.workspace = true
 nia-linker.workspace = true
+nia-lexer.workspace = true
 nia-source.workspace = true
 nia-timing.workspace = true
 nia-toolchain.workspace = true
@@ -29,7 +30,6 @@ serde_json.workspace = true
 crossterm.workspace = true
 unicode-width.workspace = true
 toml_edit = "0.24"
-glob.workspace = true
 
 [dev-dependencies]
 libc.workspace = true

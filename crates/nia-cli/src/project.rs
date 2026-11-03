@@ -12,7 +12,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use nia_package_metadata::{PackageManifest, WorkspaceManifest};
+use nia_package_metadata::{PackageManifest, WorkspaceManifest, WorkspacePackageFields};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value};
 
 static TEMPORARY_ID: AtomicU64 = AtomicU64::new(0);
@@ -30,7 +30,7 @@ impl Artifacts {
         } else {
             Self {
                 executable: true,
-                library: false,
+                library: true,
             }
         }
     }
@@ -88,6 +88,9 @@ pub(crate) fn new_project(
         return Err("`--member` is only valid with `--workspace`".to_owned());
     }
     if workspace {
+        if workspace_target(root)?.is_some() {
+            return Err("cannot create a workspace nested inside another workspace".to_owned());
+        }
         if !members.is_empty() && name.is_some() {
             return Err(
                 "`--name` cannot be combined with explicit workspace `--member` names".to_owned(),
@@ -104,8 +107,11 @@ pub(crate) fn new_project(
         })
     } else {
         let project_name = inferred_project_name(root, name, "path")?;
+        if let Some(target) = workspace_target(root)? {
+            return create_workspace_package(&project_name, artifacts.normalized(), target);
+        }
         create_new_tree(root, |staging| {
-            populate_package(staging, &project_name, artifacts.normalized(), false, true)
+            populate_package(staging, &project_name, artifacts.normalized(), None, true)
         })
     }
 }
@@ -160,6 +166,10 @@ pub(crate) fn init_project(
     if root.join("nia.toml").exists() {
         return Err(format!("`{}` already contains nia.toml", root.display()));
     }
+    let containing_workspace = workspace_target(&root)?;
+    if workspace && containing_workspace.is_some() {
+        return Err("cannot create a workspace nested inside another workspace".to_owned());
+    }
     let member_names = if workspace {
         if members.is_empty() {
             vec![inferred_project_name(&root, name, "directory")?]
@@ -171,7 +181,21 @@ pub(crate) fn init_project(
     };
     validate_unique_names(&member_names)?;
 
-    let staging = create_temporary_directory(root.parent().unwrap_or(&root), "nia-init")?;
+    // Hold the shared workspace lock until both the complete package and its
+    // membership are published, just as `new` does.
+    let _workspace_lock = containing_workspace
+        .as_ref()
+        .map(WorkspaceTarget::lock_state)
+        .transpose()?;
+    let shared_package = containing_workspace
+        .as_ref()
+        .map(|target| target.package_fields(&member_names[0]))
+        .transpose()?;
+    let staging_parent = containing_workspace
+        .as_ref()
+        .and_then(|workspace| workspace.root.parent())
+        .unwrap_or_else(|| root.parent().unwrap_or(&root));
+    let staging = create_temporary_directory(staging_parent, "nia-init")?;
     let result = if workspace {
         populate_workspace(&staging, &member_names, artifacts.normalized())
     } else {
@@ -179,21 +203,22 @@ pub(crate) fn init_project(
             &staging,
             &member_names[0],
             artifacts.normalized(),
-            false,
-            true,
+            shared_package.as_ref(),
+            containing_workspace.is_none(),
         )
     };
     if let Err(error) = result {
         let _ = fs::remove_dir_all(&staging);
         return Err(error);
     }
-    let files = match collect_regular_files(&staging) {
+    let mut files = match collect_regular_files(&staging) {
         Ok(files) => files,
         Err(error) => {
             let _ = fs::remove_dir_all(&staging);
             return Err(error);
         }
     };
+    files.sort_by_key(|path| path == Path::new("nia.toml"));
     let mut created_files = Vec::new();
     let mut created_dirs = Vec::new();
     for relative in &files {
@@ -225,6 +250,23 @@ pub(crate) fn init_project(
                 ));
             }
         }
+    }
+    if let Some(target) = containing_workspace
+        && let Err(error) = register_workspace_member(&root, &member_names[0], &target)
+    {
+        if !error.preserve_package {
+            rollback_created(&created_files, &created_dirs);
+        }
+        let _ = fs::remove_dir_all(&staging);
+        return Err(if error.preserve_package {
+            format!(
+                "{}; generated package files remain at `{}`",
+                error.message,
+                root.display()
+            )
+        } else {
+            error.message
+        });
     }
     let _ = fs::remove_dir_all(&staging);
     Ok(())
@@ -308,186 +350,6 @@ pub(crate) fn add_dependency(
     Ok(())
 }
 
-/// Creates a package under `packages/` and registers it as a workspace member.
-/// Existing workspace patterns are honored; otherwise the explicit member
-/// path is appended to the manifest.
-pub(crate) fn add_workspace_member(
-    root: Option<&Path>,
-    name: &str,
-    artifacts: Artifacts,
-) -> Result<(), String> {
-    validate_project_name(name)?;
-    let workspace_root = discover_workspace_root(root)?;
-    // The workspace root owns the shared build state and gives every member
-    // the same package-state lock. Resolve it directly so the lock identity
-    // does not depend on a potentially changing first-member list.
-    let workspace_layout = nia_package_metadata::BuildLayout::for_package(&workspace_root)
-        .map_err(|error| format!("cannot resolve workspace state: {error}"))?;
-    let _state_lock = workspace_layout
-        .lock_state()
-        .map_err(|error| format!("cannot lock workspace state: {error}"))?;
-
-    // Re-read all workspace inputs under the shared lock. In particular, a
-    // concurrent member addition must be observed before choosing a path or
-    // updating the manifest.
-    let workspace = WorkspaceManifest::read(&workspace_root)
-        .map_err(|error| format!("cannot read workspace: {error}"))?;
-    let members_on_disk = workspace
-        .member_packages()
-        .map_err(|error| format!("cannot read workspace members: {error}"))?;
-    if members_on_disk.iter().any(|member| member.name == name) {
-        return Err(format!(
-            "workspace already contains a package named `{name}`"
-        ));
-    }
-    let relative = format!("packages/{name}");
-    let destination = workspace_root.join(&relative);
-    let manifest_path = workspace_root.join("nia.toml");
-    let original = fs::read_to_string(&manifest_path)
-        .map_err(|error| format!("cannot read `{}`: {error}", manifest_path.display()))?;
-    let mut document = original
-        .parse::<DocumentMut>()
-        .map_err(|error| format!("cannot parse `{}`: {error}", manifest_path.display()))?;
-    let covered_by_pattern = document
-        .get("workspace")
-        .and_then(Item::as_table)
-        .and_then(|workspace| workspace.get("members"))
-        .and_then(Item::as_array)
-        .is_some_and(|members| {
-            members.iter().any(|member| {
-                member.as_str().is_some_and(|pattern| {
-                    glob::Pattern::new(pattern)
-                        .is_ok_and(|pattern| pattern.matches_path(Path::new(&relative)))
-                })
-            })
-        });
-    let workspace_table = document
-        .get_mut("workspace")
-        .and_then(Item::as_table_mut)
-        .ok_or_else(|| "workspace manifest has no `[workspace]` table".to_owned())?;
-    if let Some(members) = workspace_table.get_mut("members") {
-        let members = members
-            .as_array_mut()
-            .ok_or_else(|| "workspace `[workspace].members` must be an array".to_owned())?;
-        if !covered_by_pattern {
-            members.push(relative.as_str());
-        }
-    } else {
-        let mut members = Array::new();
-        members.push(relative.as_str());
-        workspace_table["members"] = value_item(members);
-    }
-    let updated = document.to_string();
-
-    if destination_exists(&destination) {
-        return Err(format!(
-            "workspace member path `{}` already exists",
-            destination.display()
-        ));
-    }
-    let parent = destination.parent().expect("workspace member has a parent");
-    create_real_directory(parent)?;
-    let staging_parent = workspace_root.parent().unwrap_or(&workspace_root);
-    let staging = create_temporary_directory(staging_parent, "nia-member")?;
-    if let Err(error) = populate_package(&staging, name, artifacts.normalized(), true, false) {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(error);
-    }
-    if let Err(error) = fs::rename(&staging, &destination) {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(format!(
-            "cannot create workspace member `{}`: {error}",
-            destination.display()
-        ));
-    }
-    if let Err(error) = if covered_by_pattern {
-        Ok(())
-    } else {
-        write_atomic(&manifest_path, updated.as_bytes())
-    } {
-        return Err(rollback_added_member(
-            &destination,
-            &manifest_path,
-            &original,
-            covered_by_pattern,
-            format!("cannot update workspace manifest: {error}"),
-        ));
-    }
-    let verified_members =
-        WorkspaceManifest::read(&workspace_root).and_then(|workspace| workspace.member_packages());
-    let verified_members = match verified_members {
-        Ok(members) => members,
-        Err(error) => {
-            return Err(rollback_added_member(
-                &destination,
-                &manifest_path,
-                &original,
-                covered_by_pattern,
-                format!("updated workspace is invalid: {error}"),
-            ));
-        }
-    };
-    let canonical_destination = match fs::canonicalize(&destination) {
-        Ok(path) => path,
-        Err(error) => {
-            return Err(rollback_added_member(
-                &destination,
-                &manifest_path,
-                &original,
-                covered_by_pattern,
-                format!(
-                    "cannot resolve new workspace member `{}`: {error}",
-                    destination.display()
-                ),
-            ));
-        }
-    };
-    if !verified_members
-        .iter()
-        .any(|member| member.name == name && member.root == canonical_destination)
-    {
-        return Err(rollback_added_member(
-            &destination,
-            &manifest_path,
-            &original,
-            covered_by_pattern,
-            format!("workspace member `{relative}` is excluded by workspace configuration"),
-        ));
-    }
-    Ok(())
-}
-
-fn rollback_added_member(
-    destination: &Path,
-    manifest_path: &Path,
-    original_manifest: &str,
-    manifest_was_unchanged: bool,
-    primary_error: String,
-) -> String {
-    let mut rollback_errors = Vec::new();
-    if !manifest_was_unchanged
-        && let Err(error) = write_atomic(manifest_path, original_manifest.as_bytes())
-    {
-        rollback_errors.push(format!("cannot restore workspace manifest: {error}"));
-    }
-    if destination_exists(destination)
-        && let Err(error) = fs::remove_dir_all(destination)
-    {
-        rollback_errors.push(format!(
-            "cannot remove incomplete workspace member `{}`: {error}",
-            destination.display()
-        ));
-    }
-    if rollback_errors.is_empty() {
-        primary_error
-    } else {
-        format!(
-            "{primary_error}; rollback incomplete: {}",
-            rollback_errors.join("; ")
-        )
-    }
-}
-
 fn dependency_item(source: DependencySpec) -> Result<Item, String> {
     let mut table = InlineTable::new();
     match source {
@@ -538,6 +400,325 @@ fn dependency_item(source: DependencySpec) -> Result<Item, String> {
     Ok(Item::Value(Value::InlineTable(table)))
 }
 
+struct WorkspaceTarget {
+    root: PathBuf,
+    relative: String,
+}
+
+impl WorkspaceTarget {
+    fn lock_state(&self) -> Result<nia_package_metadata::PackageStateLock, String> {
+        nia_package_metadata::BuildLayout::for_package(&self.root)
+            .map_err(|error| format!("cannot resolve workspace state: {error}"))?
+            .lock_state()
+            .map_err(|error| format!("cannot lock workspace state: {error}"))
+    }
+
+    fn package_fields(&self, name: &str) -> Result<WorkspacePackageFields, String> {
+        let workspace = WorkspaceManifest::read(&self.root)
+            .map_err(|error| format!("cannot read workspace: {error}"))?;
+        let members = workspace
+            .member_packages()
+            .map_err(|error| format!("cannot read workspace members: {error}"))?;
+        if members.iter().any(|member| member.name == name) {
+            return Err(format!(
+                "workspace already contains a package named `{name}`"
+            ));
+        }
+        if workspace.package.namespace.is_none()
+            || workspace.package.version.is_none()
+            || workspace.package.protocol_epoch.is_none()
+        {
+            return Err(
+                "workspace package identity is incomplete; define namespace, version, and protocol-epoch before creating a member"
+                    .to_owned(),
+            );
+        }
+        Ok(workspace.package)
+    }
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf, String> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| format!("cannot determine current directory: {error}"))?
+            .join(path)
+    };
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            std::path::Component::RootDir => normalized.push(component.as_os_str()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err(format!("path `{}` escapes its root", path.display()));
+                }
+            }
+            std::path::Component::Normal(segment) => normalized.push(segment),
+        }
+    }
+    Ok(normalized)
+}
+
+fn workspace_target(path: &Path) -> Result<Option<WorkspaceTarget>, String> {
+    let absolute = absolute_path(path)?;
+    let mut existing = absolute.as_path();
+    while !existing.exists() {
+        existing = existing.parent().ok_or_else(|| {
+            format!(
+                "cannot find an existing parent for `{}`",
+                absolute.display()
+            )
+        })?;
+    }
+    let existing_metadata = fs::symlink_metadata(existing)
+        .map_err(|error| format!("cannot inspect `{}`: {error}", existing.display()))?;
+    if nia_compat::is_link_or_reparse_point(&existing_metadata) || !existing_metadata.is_dir() {
+        return Err(format!(
+            "project parent `{}` is not a real directory",
+            existing.display()
+        ));
+    }
+    let canonical_existing = fs::canonicalize(existing)
+        .map_err(|error| format!("cannot resolve `{}`: {error}", existing.display()))?;
+    let unresolved = absolute
+        .strip_prefix(existing)
+        .map_err(|_| format!("cannot resolve project path `{}`", absolute.display()))?;
+    let candidate = canonical_existing.join(unresolved);
+    let Some(workspace) = WorkspaceManifest::discover(&canonical_existing)
+        .map_err(|error| format!("cannot discover workspace: {error}"))?
+    else {
+        return Ok(None);
+    };
+    let relative_path = candidate.strip_prefix(&workspace.root).map_err(|_| {
+        format!(
+            "project path `{}` is outside its workspace",
+            candidate.display()
+        )
+    })?;
+    let relative = relative_path
+        .to_str()
+        .ok_or_else(|| {
+            format!(
+                "workspace package path `{}` is not UTF-8",
+                candidate.display()
+            )
+        })?
+        .replace('\\', "/");
+    if relative.is_empty() || relative == "." {
+        return Ok(None);
+    }
+    if workspace.is_excluded_path(&relative) {
+        return Ok(None);
+    }
+    Ok(Some(WorkspaceTarget {
+        root: workspace.root,
+        relative,
+    }))
+}
+
+fn add_explicit_workspace_member(manifest: &mut DocumentMut, relative: &str) -> Result<(), String> {
+    let workspace = manifest
+        .get_mut("workspace")
+        .and_then(Item::as_table_mut)
+        .ok_or_else(|| "workspace manifest has no `[workspace]` table".to_owned())?;
+    let members = workspace
+        .entry("members")
+        .or_insert_with(|| value_item(Array::new()))
+        .as_array_mut()
+        .ok_or_else(|| "workspace `[workspace].members` must be an array".to_owned())?;
+    members.push(relative);
+    Ok(())
+}
+
+fn ensure_workspace_member(root: &Path, relative: &str) -> Result<Option<String>, String> {
+    let workspace =
+        WorkspaceManifest::read(root).map_err(|error| format!("cannot read workspace: {error}"))?;
+    if workspace
+        .member_pattern_matches_path(relative)
+        .map_err(|error| format!("cannot resolve workspace member pattern: {error}"))?
+    {
+        return Ok(None);
+    }
+    let manifest_path = root.join("nia.toml");
+    let original = fs::read_to_string(&manifest_path)
+        .map_err(|error| format!("cannot read `{}`: {error}", manifest_path.display()))?;
+    let mut manifest = original
+        .parse::<DocumentMut>()
+        .map_err(|error| format!("cannot parse `{}`: {error}", manifest_path.display()))?;
+    add_explicit_workspace_member(&mut manifest, relative)?;
+    write_atomic(&manifest_path, manifest.to_string().as_bytes())
+        .map_err(|error| format!("cannot update workspace manifest: {error}"))?;
+    Ok(Some(original))
+}
+
+fn create_workspace_package(
+    name: &str,
+    artifacts: Artifacts,
+    target: WorkspaceTarget,
+) -> Result<(), String> {
+    let _lock = target.lock_state()?;
+    let shared_package = target.package_fields(name)?;
+    let destination = target.root.join(&target.relative);
+    if destination_exists(&destination) {
+        return Err(format!(
+            "destination `{}` already exists",
+            destination.display()
+        ));
+    }
+    let parent = destination
+        .parent()
+        .ok_or_else(|| format!("project path `{}` has no parent", destination.display()))?;
+    let staging_parent = target.root.parent().unwrap_or(&target.root);
+    let staging = create_temporary_directory(staging_parent, "nia-new-member")?;
+    if let Err(error) = populate_package(&staging, name, artifacts, Some(&shared_package), false) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    let mut created_dirs = Vec::new();
+    let mut created_files = Vec::new();
+    if let Err(error) = create_real_directories_recording(parent, &target.root, &mut created_dirs) {
+        let _ = fs::remove_dir_all(&staging);
+        rollback_created(&[], &created_dirs);
+        return Err(format!("cannot create `{}`: {error}", parent.display()));
+    }
+    if let Err(error) = fs::create_dir(&destination) {
+        let _ = fs::remove_dir_all(&staging);
+        rollback_created(&[], &created_dirs);
+        return Err(format!(
+            "cannot create project directory `{}`: {error}",
+            destination.display()
+        ));
+    }
+    created_dirs.push(destination.clone());
+    let mut files = match collect_regular_files(&staging) {
+        Ok(files) => files,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&staging);
+            rollback_created(&created_files, &created_dirs);
+            return Err(error);
+        }
+    };
+    files.sort_by_key(|path| path == Path::new("nia.toml"));
+    for relative in files {
+        let source = staging.join(&relative);
+        let target_file = destination.join(&relative);
+        if let Some(parent) = target_file.parent()
+            && let Err(error) =
+                create_real_directories_recording(parent, &target.root, &mut created_dirs)
+        {
+            rollback_created(&created_files, &created_dirs);
+            let _ = fs::remove_dir_all(&staging);
+            return Err(format!("cannot create `{}`: {error}", parent.display()));
+        }
+        match copy_file_new(&source, &target_file) {
+            Ok(()) => created_files.push(target_file),
+            Err(error) => {
+                rollback_created(&created_files, &created_dirs);
+                let _ = fs::remove_dir_all(&staging);
+                return Err(format!(
+                    "cannot create `{}`: {error}",
+                    target_file.display()
+                ));
+            }
+        }
+    }
+    let _ = fs::remove_dir_all(&staging);
+    let destination_root = match fs::canonicalize(&destination) {
+        Ok(root) => root,
+        Err(error) => {
+            rollback_created(&created_files, &created_dirs);
+            return Err(format!(
+                "cannot resolve generated package `{}`: {error}",
+                target.relative
+            ));
+        }
+    };
+    if let Err(error) = register_workspace_member(&destination_root, name, &target) {
+        if !error.preserve_package {
+            rollback_created(&created_files, &created_dirs);
+        }
+        return Err(if error.preserve_package {
+            format!(
+                "{}; generated package files remain at `{}`",
+                error.message,
+                destination.display()
+            )
+        } else {
+            error.message
+        });
+    }
+    Ok(())
+}
+
+struct WorkspaceMemberRegistrationError {
+    message: String,
+    preserve_package: bool,
+}
+
+impl WorkspaceMemberRegistrationError {
+    fn rollback(message: String) -> Self {
+        Self {
+            message,
+            preserve_package: false,
+        }
+    }
+}
+
+/// Registers a complete package while the caller holds the workspace lock.
+fn register_workspace_member(
+    package_root: &Path,
+    name: &str,
+    target: &WorkspaceTarget,
+) -> Result<(), WorkspaceMemberRegistrationError> {
+    let manifest_path = target.root.join("nia.toml");
+    let original = ensure_workspace_member(&target.root, &target.relative)
+        .map_err(WorkspaceMemberRegistrationError::rollback)?;
+    let verified = WorkspaceManifest::read(&target.root)
+        .and_then(|workspace| workspace.member_packages())
+        .map_err(|error| format!("updated workspace is invalid: {error}"));
+    match verified {
+        Ok(members)
+            if members
+                .iter()
+                .any(|member| member.name == name && member.root == package_root) =>
+        {
+            Ok(())
+        }
+        Ok(_) => {
+            let message = format!("workspace member `{}` was not registered", target.relative);
+            Err(restore_registration_failure(
+                message,
+                &manifest_path,
+                original.as_deref(),
+            ))
+        }
+        Err(error) => Err(restore_registration_failure(
+            error.to_string(),
+            &manifest_path,
+            original.as_deref(),
+        )),
+    }
+}
+
+fn restore_registration_failure(
+    message: String,
+    manifest_path: &Path,
+    original: Option<&str>,
+) -> WorkspaceMemberRegistrationError {
+    if let Some(original) = original
+        && let Err(error) = write_atomic(manifest_path, original.as_bytes())
+    {
+        return WorkspaceMemberRegistrationError {
+            message: format!("{message}; the workspace manifest could not be restored: {error}"),
+            preserve_package: true,
+        };
+    }
+    WorkspaceMemberRegistrationError::rollback(message)
+}
+
 fn populate_workspace(root: &Path, members: &[String], artifacts: Artifacts) -> Result<(), String> {
     let mut document = DocumentMut::new();
     let mut workspace = Table::new();
@@ -550,12 +731,23 @@ fn populate_workspace(root: &Path, members: &[String], artifacts: Artifacts) -> 
     workspace_package["version"] = value_item("0.1.0");
     workspace_package["protocol-epoch"] = value_item(nia_package_metadata::PROTOCOL_EPOCH as i64);
     document["workspace"]["package"] = Item::Table(workspace_package);
+    let workspace_fields = WorkspacePackageFields {
+        namespace: Some("local".to_owned()),
+        version: Some("0.1.0".to_owned()),
+        protocol_epoch: Some(nia_package_metadata::PROTOCOL_EPOCH),
+    };
     create_real_directory(root)?;
     write_new_file(&root.join("nia.toml"), document.to_string().as_bytes())?;
     for member in members {
         let member_root = root.join("packages").join(member);
         create_real_directory(&member_root)?;
-        populate_package(&member_root, member, artifacts, true, false)?;
+        populate_package(
+            &member_root,
+            member,
+            artifacts,
+            Some(&workspace_fields),
+            false,
+        )?;
     }
     WorkspaceManifest::read(root)
         .map_err(|error| format!("generated workspace is invalid: {error}"))?;
@@ -566,7 +758,7 @@ fn populate_package(
     root: &Path,
     name: &str,
     artifacts: Artifacts,
-    inherit_workspace: bool,
+    workspace: Option<&WorkspacePackageFields>,
     validate: bool,
 ) -> Result<(), String> {
     validate_project_name(name)?;
@@ -574,7 +766,7 @@ fn populate_package(
     let mut document = DocumentMut::new();
     let mut package = Table::new();
     package["name"] = value_item(name);
-    if inherit_workspace {
+    if workspace.is_some() {
         package["namespace"] = inheritable_workspace_item();
         package["version"] = inheritable_workspace_item();
         package["protocol-epoch"] = inheritable_workspace_item();
@@ -596,17 +788,27 @@ fn populate_package(
         entries.push(executable);
         document["executable"] = Item::ArrayOfTables(entries);
     }
+    let mut test = Table::new();
+    test["name"] = value_item("unit");
+    test["path"] = value_item("tests/unit.nia");
+    let mut tests = toml_edit::ArrayOfTables::new();
+    tests.push(test);
+    document["test"] = Item::ArrayOfTables(tests);
 
     write_new_file(&root.join("nia.toml"), document.to_string().as_bytes())?;
     if artifacts.library {
-        write_new_file(
-            &root.join("lib/root.nia"),
-            b"// Public library entry point. Add exported modules and functions here.\n",
-        )?;
+        write_new_file(&root.join("lib/root.nia"), library_source().as_bytes())?;
     }
     if artifacts.executable {
-        write_new_file(&root.join("src/main.nia"), executable_source().as_bytes())?;
+        write_new_file(
+            &root.join("src/main.nia"),
+            executable_source(name, artifacts.library).as_bytes(),
+        )?;
     }
+    write_new_file(
+        &root.join("tests/unit.nia"),
+        test_source(name, artifacts.library).as_bytes(),
+    )?;
     if validate {
         PackageManifest::read_standalone(root)
             .map_err(|error| format!("generated package `{name}` is invalid: {error}"))?;
@@ -614,8 +816,54 @@ fn populate_package(
     Ok(())
 }
 
-fn executable_source() -> String {
-    "using std::io;\nusing std::process;\n\npub fun main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    io::debugPrint(\"hello from nia\\n\", []).?;\n    !()\n}\n".to_owned()
+fn executable_source(package_name: &str, uses_library: bool) -> String {
+    let package_import = if uses_library {
+        format!("using {package_name};\n")
+    } else {
+        String::new()
+    };
+    let library_check = if uses_library {
+        format!(
+            "    if {package_name}::greeting()[0] != 'h' {{\n        return process::ExitCode(1)!;\n    }}\n"
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "using std::io;\nusing std::process;\n{package_import}\npub fun main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n{library_check}    io::debugPrint(\"hello from nia\\n\", []).?;\n    !()\n}}\n"
+    )
+}
+
+fn library_source() -> String {
+    "// A public API shared by the executable and the test suite.\npub fun greeting() &[char] {\n    \"hello from nia\"\n}\n".to_owned()
+}
+
+fn test_source(package_name: &str, tests_library: bool) -> String {
+    let package_import = if tests_library {
+        format!("using {package_name};\n")
+    } else {
+        String::new()
+    };
+    let test_function = if tests_library {
+        format!(
+            "fun libraryReturnsGreeting() test::Error!() {{\n    test::expect({package_name}::greeting()[0] == 'h').?;\n    !()\n}}\n"
+        )
+    } else {
+        "fun smoke() test::Error!() {\n    test::expect(true).?;\n    !()\n}\n".to_owned()
+    };
+    let test_name = if tests_library {
+        "library greeting"
+    } else {
+        "smoke"
+    };
+    let callback = if tests_library {
+        "libraryReturnsGreeting"
+    } else {
+        "smoke"
+    };
+    format!(
+        "{package_import}using std::process;\nusing std::test;\n\n{test_function}\npub fun main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n    let cases = [test::Case::init(\"{test_name}\", &{callback})];\n    if not test::Runner::init(cases).run().isSuccessful() {{\n        return process::ExitCode(1)!;\n    }}\n    !()\n}}\n"
+    )
 }
 
 fn value_item(value: impl Into<Value>) -> Item {
@@ -818,16 +1066,20 @@ fn inferred_project_name(
 }
 
 fn validate_project_name(name: &str) -> Result<(), String> {
-    let mut bytes = name.bytes();
-    let valid_first = bytes
-        .next()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_');
-    if !valid_first
-        || name.len() > 128
-        || !bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-    {
+    let tokens = (name.len() <= 128).then(|| nia_lexer::tokenize(name));
+    let valid_identifier = tokens.as_ref().is_some_and(|tokens| {
+        matches!(
+            tokens.as_slice(),
+            [identifier, eof]
+                if identifier.kind == nia_lexer::TokenKind::Ident
+                    && identifier.span.start == 0
+                    && identifier.span.end == name.len()
+                    && eof.kind == nia_lexer::TokenKind::Eof
+        )
+    });
+    if !valid_identifier {
         return Err(format!(
-            "invalid package name `{name}`; use an ASCII letter or `_` followed by letters, digits, `_`, or `-`"
+            "invalid package name `{name}`; use a Nia identifier no longer than 128 bytes"
         ));
     }
     Ok(())
@@ -854,16 +1106,6 @@ fn discover_package_root(root: Option<&Path>) -> Result<PathBuf, String> {
     nia_package_metadata::BuildLayout::discover(&start)
         .map(|layout| layout.package_root().to_path_buf())
         .map_err(|error| format!("cannot find package from `{}`: {error}", start.display()))
-}
-
-fn discover_workspace_root(root: Option<&Path>) -> Result<PathBuf, String> {
-    let start = root
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    WorkspaceManifest::discover(&start)
-        .map_err(|error| format!("cannot find workspace from `{}`: {error}", start.display()))?
-        .map(|workspace| workspace.root)
-        .ok_or_else(|| format!("no workspace found from `{}`", start.display()))
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -919,34 +1161,57 @@ mod tests {
 
     #[test]
     fn package_templates_validate_as_native_package_manifests() {
-        for artifacts in [
-            Artifacts {
-                executable: true,
-                library: false,
-            },
-            Artifacts {
-                executable: false,
-                library: true,
-            },
-            Artifacts {
-                executable: true,
-                library: true,
-            },
+        for (artifacts, executable, library) in [
+            (
+                Artifacts {
+                    executable: false,
+                    library: false,
+                },
+                true,
+                true,
+            ),
+            (
+                Artifacts {
+                    executable: true,
+                    library: false,
+                },
+                true,
+                false,
+            ),
+            (
+                Artifacts {
+                    executable: false,
+                    library: true,
+                },
+                false,
+                true,
+            ),
+            (
+                Artifacts {
+                    executable: true,
+                    library: true,
+                },
+                true,
+                true,
+            ),
         ] {
             let root = temporary_root("package").join("demo");
             new_project(&root, Some("demo"), artifacts, false, &[]).unwrap();
             let manifest = PackageManifest::read_standalone(&root).unwrap();
-            assert_eq!(manifest.library_path.is_some(), artifacts.library);
+            assert_eq!(manifest.library_path.is_some(), library);
             assert_eq!(
                 manifest.artifacts.iter().any(|artifact| artifact.kind == nia_package_metadata::ArtifactKind::Executable),
-                artifacts.executable
+                executable
             );
+            assert!(root.join("tests/unit.nia").is_file());
+            assert_eq!(root.join("lib/root.nia").is_file(), library);
+            assert_eq!(root.join("src/main.nia").is_file(), executable);
             let _ = fs::remove_dir_all(root.parent().unwrap());
         }
     }
 
     #[test]
-    fn workspace_template_has_a_real_initial_member_and_shared_identity() {
+    fn workspace_template_has_real_members_and_shared_identity() {
         let parent = temporary_root("workspace");
         let root = parent.join("mono");
         new_project(
@@ -954,7 +1219,7 @@ mod tests {
             None,
             Artifacts {
                 executable: true,
-                library: false,
+                library: true,
             },
             true,
             &["app".to_owned(), "core".to_owned()],
@@ -963,47 +1228,100 @@ mod tests {
         let workspace = WorkspaceManifest::read(&root).unwrap();
         assert_eq!(workspace.members, ["packages/app", "packages/core"]);
         assert_eq!(workspace.member_packages().unwrap().len(), 2);
-        add_workspace_member(
-            Some(&root),
-            "tools",
-            Artifacts {
-                executable: false,
-                library: true,
-            },
-        )
-        .unwrap();
-        let updated = WorkspaceManifest::read(&root).unwrap();
-        assert_eq!(
-            updated.members,
-            ["packages/app", "packages/core", "packages/tools"]
-        );
-        assert_eq!(updated.member_packages().unwrap().len(), 3);
-        let manifest = PackageManifest::read(&root.join("packages/tools")).unwrap();
-        assert_eq!(manifest.library_path.as_deref(), Some("lib/root.nia"));
-        assert!(
-            add_workspace_member(
-                Some(&root),
-                "tools",
-                Artifacts {
-                    executable: false,
-                    library: true,
-                },
-            )
-            .is_err()
-        );
+        assert!(root.join("packages/app/lib/root.nia").is_file());
+        assert!(root.join("packages/app/src/main.nia").is_file());
+        assert!(root.join("packages/app/tests/unit.nia").is_file());
         let _ = fs::remove_dir_all(parent);
     }
 
     #[test]
-    fn workspace_member_updates_explicit_paths_and_supports_both_artifacts() {
-        let parent = temporary_root("workspace-explicit");
+    fn new_inside_workspace_registers_the_member_and_inherits_identity() {
+        let parent = temporary_root("workspace-new");
         let root = parent.join("mono");
         new_project(
             &root,
             None,
             Artifacts {
                 executable: true,
-                library: false,
+                library: true,
+            },
+            true,
+            &["app".to_owned()],
+        )
+        .unwrap();
+        let member = root.join("packages/core");
+        new_project(
+            &member,
+            None,
+            Artifacts {
+                executable: false,
+                library: true,
+            },
+            false,
+            &[],
+        )
+        .unwrap();
+        let workspace = WorkspaceManifest::read(&root).unwrap();
+        assert!(workspace.members.contains(&"packages/core".to_owned()));
+        let package = PackageManifest::read(&member).unwrap();
+        assert_eq!(package.package.name, "core");
+        assert!(package.library_path.is_some());
+        assert!(member.join("tests/unit.nia").is_file());
+        let _ = fs::remove_dir_all(parent);
+    }
+
+    #[test]
+    fn new_inside_workspace_appends_nested_paths_not_covered_by_member_globs() {
+        let parent = temporary_root("workspace-nested-member");
+        let root = parent.join("mono");
+        new_project(
+            &root,
+            None,
+            Artifacts {
+                executable: true,
+                library: true,
+            },
+            true,
+            &["app".to_owned()],
+        )
+        .unwrap();
+        let member = root.join("packages/tools/core");
+        new_project(
+            &member,
+            None,
+            Artifacts {
+                executable: false,
+                library: true,
+            },
+            false,
+            &[],
+        )
+        .unwrap();
+
+        let workspace = WorkspaceManifest::read(&root).unwrap();
+        assert!(
+            workspace
+                .members
+                .contains(&"packages/tools/core".to_owned())
+        );
+        assert!(workspace.member_packages().unwrap().iter().any(|package| {
+            package.name == "core" && package.root == member.canonicalize().unwrap()
+        }));
+        let manifest = fs::read_to_string(root.join("nia.toml")).unwrap();
+        assert!(manifest.contains("\"packages/tools/core\""));
+        let _ = fs::remove_dir_all(parent);
+    }
+
+    #[test]
+    fn new_respects_normalized_workspace_member_patterns() {
+        let parent = temporary_root("workspace-normalized-pattern");
+        let root = parent.join("mono");
+        new_project(
+            &root,
+            None,
+            Artifacts {
+                executable: true,
+                library: true,
             },
             true,
             &["app".to_owned()],
@@ -1013,40 +1331,39 @@ mod tests {
         let manifest = fs::read_to_string(&manifest_path).unwrap();
         fs::write(
             &manifest_path,
-            manifest.replace("members = [\"packages/*\"]", "members = [\"packages/app\"]"),
+            manifest.replace("packages/*", "./packages/*/"),
         )
         .unwrap();
 
-        add_workspace_member(
-            Some(&root),
-            "core",
+        new_project(
+            &root.join("packages/core"),
+            None,
             Artifacts {
-                executable: true,
+                executable: false,
                 library: true,
             },
+            false,
+            &[],
         )
         .unwrap();
 
         let workspace = WorkspaceManifest::read(&root).unwrap();
         assert_eq!(workspace.members, ["packages/app", "packages/core"]);
-        let member = PackageManifest::read(&root.join("packages/core")).unwrap();
-        assert!(member.library_path.is_some());
-        assert_eq!(member.artifacts.len(), 1);
-        assert!(root.join("packages/core/lib/root.nia").is_file());
-        assert!(root.join("packages/core/src/main.nia").is_file());
+        let manifest = fs::read_to_string(&manifest_path).unwrap();
+        assert!(!manifest.contains("\"packages/core\""));
         let _ = fs::remove_dir_all(parent);
     }
 
     #[test]
-    fn concurrent_workspace_member_additions_are_serialized_without_lost_updates() {
-        let parent = temporary_root("workspace-concurrent");
+    fn concurrent_workspace_package_creations_keep_every_member() {
+        let parent = temporary_root("workspace-concurrent-new");
         let root = parent.join("mono");
         new_project(
             &root,
             None,
             Artifacts {
                 executable: true,
-                library: false,
+                library: true,
             },
             true,
             &["app".to_owned()],
@@ -1054,26 +1371,30 @@ mod tests {
         .unwrap();
 
         std::thread::scope(|scope| {
-            let first_root = root.clone();
-            let second_root = root.clone();
+            let first_path = root.join("packages/first");
+            let second_path = root.join("packages/second");
             let first = scope.spawn(move || {
-                add_workspace_member(
-                    Some(&first_root),
-                    "first",
-                    Artifacts {
-                        executable: true,
-                        library: false,
-                    },
-                )
-            });
-            let second = scope.spawn(move || {
-                add_workspace_member(
-                    Some(&second_root),
-                    "second",
+                new_project(
+                    &first_path,
+                    None,
                     Artifacts {
                         executable: false,
                         library: true,
                     },
+                    false,
+                    &[],
+                )
+            });
+            let second = scope.spawn(move || {
+                new_project(
+                    &second_path,
+                    None,
+                    Artifacts {
+                        executable: true,
+                        library: false,
+                    },
+                    false,
+                    &[],
                 )
             });
             first.join().unwrap().unwrap();
@@ -1089,15 +1410,54 @@ mod tests {
     }
 
     #[test]
-    fn excluded_workspace_member_creation_rolls_back_its_directory() {
-        let parent = temporary_root("workspace-excluded");
+    fn init_inside_workspace_registers_the_package_and_inherits_identity() {
+        let parent = temporary_root("workspace-init");
         let root = parent.join("mono");
         new_project(
             &root,
             None,
             Artifacts {
                 executable: true,
-                library: false,
+                library: true,
+            },
+            true,
+            &["app".to_owned()],
+        )
+        .unwrap();
+        let member = root.join("packages/core");
+        fs::create_dir_all(&member).unwrap();
+        init_project(
+            &member,
+            None,
+            Artifacts {
+                executable: false,
+                library: true,
+            },
+            false,
+            &[],
+        )
+        .unwrap();
+
+        let workspace = WorkspaceManifest::read(&root).unwrap();
+        assert!(workspace.members.contains(&"packages/core".to_owned()));
+        let package = PackageManifest::read(&member).unwrap();
+        assert_eq!(package.package.name, "core");
+        assert_eq!(package.package.namespace, "local");
+        assert!(package.library_path.is_some());
+        assert!(member.join("tests/unit.nia").is_file());
+        let _ = fs::remove_dir_all(parent);
+    }
+
+    #[test]
+    fn new_under_a_workspace_exclusion_creates_an_independent_package() {
+        let parent = temporary_root("workspace-excluded-package");
+        let root = parent.join("mono");
+        new_project(
+            &root,
+            None,
+            Artifacts {
+                executable: true,
+                library: true,
             },
             true,
             &["app".to_owned()],
@@ -1105,25 +1465,91 @@ mod tests {
         .unwrap();
         let manifest_path = root.join("nia.toml");
         let manifest = fs::read_to_string(&manifest_path).unwrap();
-        let manifest = manifest.replace(
-            "members = [\"packages/*\"]",
-            "members = [\"packages/*\"]\nexclude = [\"packages/core\"]",
+        fs::write(
+            &manifest_path,
+            manifest.replace(
+                "members = [\"packages/*\"]",
+                "members = [\"packages/*\"]\nexclude = [\"packages/vendor\"]",
+            ),
+        )
+        .unwrap();
+        let independent = root.join("packages/vendor/helper");
+        new_project(
+            &independent,
+            None,
+            Artifacts {
+                executable: false,
+                library: true,
+            },
+            false,
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(
+            PackageManifest::read_standalone(&independent)
+                .unwrap()
+                .package
+                .name,
+            "helper"
         );
-        fs::write(&manifest_path, &manifest).unwrap();
+        assert!(
+            !fs::read_to_string(&manifest_path)
+                .unwrap()
+                .contains("packages/vendor/helper")
+        );
+        assert_eq!(
+            WorkspaceManifest::read(&root)
+                .unwrap()
+                .member_packages()
+                .unwrap()
+                .len(),
+            1
+        );
+        let _ = fs::remove_dir_all(parent);
+    }
+
+    #[test]
+    fn failed_workspace_init_rolls_back_files_and_member_registration() {
+        let parent = temporary_root("workspace-init-rollback");
+        let root = parent.join("mono");
+        new_project(
+            &root,
+            None,
+            Artifacts {
+                executable: true,
+                library: true,
+            },
+            true,
+            &["app".to_owned()],
+        )
+        .unwrap();
+        let existing = root.join("packages/nested/app");
+        fs::create_dir_all(&existing).unwrap();
+        let manifest_path = root.join("nia.toml");
+        let original_manifest = fs::read_to_string(&manifest_path).unwrap();
+
+        let error = init_project(
+            &existing,
+            None,
+            Artifacts {
+                executable: true,
+                library: false,
+            },
+            false,
+            &[],
+        )
+        .unwrap_err();
 
         assert!(
-            add_workspace_member(
-                Some(&root),
-                "core",
-                Artifacts {
-                    executable: true,
-                    library: false,
-                },
-            )
-            .is_err()
+            error.contains("workspace already contains a package named `app`"),
+            "unexpected rollback error: {error}"
         );
-        assert!(!root.join("packages/core").exists());
-        assert_eq!(fs::read_to_string(&manifest_path).unwrap(), manifest);
+        assert!(!existing.join("nia.toml").exists());
+        assert_eq!(
+            fs::read_to_string(&manifest_path).unwrap(),
+            original_manifest
+        );
         let _ = fs::remove_dir_all(parent);
     }
 
@@ -1201,11 +1627,30 @@ mod tests {
         .unwrap();
         let package = PackageManifest::read_standalone(&root).unwrap();
         assert_eq!(package.package.name, "hello");
-        assert_eq!(package.artifacts.len(), 1);
+        assert_eq!(package.artifacts.len(), 2);
         assert_eq!(package.artifacts[0].name, "hello");
         assert!(root.join("src/main.nia").is_file());
-        assert!(!root.join("lib/root.nia").exists());
+        assert!(root.join("lib/root.nia").is_file());
+        assert!(root.join("tests/unit.nia").is_file());
         let _ = fs::remove_dir_all(parent);
+    }
+
+    #[test]
+    fn generated_package_names_follow_the_language_identifier_grammar() {
+        for name in [
+            "",
+            "fun",
+            "Self",
+            "bad-name",
+            "contains space",
+            " leading",
+            "trailing ",
+        ] {
+            assert!(validate_project_name(name).is_err(), "accepted `{name}`");
+        }
+        for name in ["hello", "_core", "library2", "var"] {
+            validate_project_name(name).unwrap();
+        }
     }
 
     #[test]

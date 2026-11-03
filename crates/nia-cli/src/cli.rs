@@ -24,7 +24,6 @@ pub(crate) enum HelpTopic {
     New,
     Init,
     Add,
-    Workspace,
     Build,
     Update,
     Clean,
@@ -40,7 +39,6 @@ impl HelpTopic {
             Self::New => Scope::NEW,
             Self::Init => Scope::INIT,
             Self::Add => Scope::ADD,
-            Self::Workspace => Scope::WORKSPACE,
             Self::Build => Scope::BUILD,
             Self::Update => Scope::UPDATE,
             Self::Clean => Scope::CLEAN,
@@ -193,11 +191,6 @@ pub(crate) enum ProjectAction {
     New(ProjectCreate),
     Init(ProjectCreate),
     Add(ProjectAdd),
-    AddWorkspaceMember {
-        root: Option<PathBuf>,
-        name: String,
-        artifacts: crate::project::Artifacts,
-    },
 }
 
 #[derive(Debug)]
@@ -276,7 +269,7 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
     }
     let command = args[command_index].as_str();
     let rest = &args[command_index + 1..];
-    if matches!(command, "new" | "init" | "add" | "workspace") {
+    if matches!(command, "new" | "init" | "add") {
         return parse_project_command(command, rest, prefix);
     }
     let topic = match command {
@@ -321,7 +314,7 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
             ));
         }
         HelpTopic::EmitKind(kind) => parse_emit(&scanned, kind)?,
-        HelpTopic::New | HelpTopic::Init | HelpTopic::Add | HelpTopic::Workspace => {
+        HelpTopic::New | HelpTopic::Init | HelpTopic::Add => {
             unreachable!("project commands are parsed before compiler command scanning")
         }
         HelpTopic::Main => unreachable!("the main topic is not a command"),
@@ -392,7 +385,6 @@ fn topic_name(topic: HelpTopic) -> String {
         HelpTopic::New => "`nia new`".to_string(),
         HelpTopic::Init => "`nia init`".to_string(),
         HelpTopic::Add => "`nia add`".to_string(),
-        HelpTopic::Workspace => "`nia workspace`".to_string(),
     }
 }
 
@@ -463,7 +455,6 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
         ["new"] => Ok(HelpTopic::New),
         ["init"] => Ok(HelpTopic::Init),
         ["add"] => Ok(HelpTopic::Add),
-        ["workspace"] => Ok(HelpTopic::Workspace),
         ["update"] => Ok(HelpTopic::Update),
         ["clean"] => Ok(HelpTopic::Clean),
         ["check"] => Ok(HelpTopic::Check),
@@ -485,7 +476,7 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
             },
         },
         [
-            command @ ("build" | "check" | "clean" | "new" | "init" | "add" | "workspace"),
+            command @ ("build" | "check" | "clean" | "new" | "init" | "add"),
             extra,
             ..,
         ] => {
@@ -502,7 +493,6 @@ fn parse_project_command(command: &str, args: &[String], prefix: Scanned) -> Cli
         "new" => HelpTopic::New,
         "init" => HelpTopic::Init,
         "add" => HelpTopic::Add,
-        "workspace" => HelpTopic::Workspace,
         _ => unreachable!(),
     };
     let scanned =
@@ -517,7 +507,6 @@ fn parse_project_command(command: &str, args: &[String], prefix: Scanned) -> Cli
     let action = match command {
         "new" | "init" => parse_project_create(command, &scanned)?,
         "add" => ProjectAction::Add(parse_project_add(&scanned)?),
-        "workspace" => parse_workspace_command(&scanned)?,
         _ => unreachable!(),
     };
     Ok(CliAction::Project {
@@ -548,7 +537,7 @@ fn parse_project_create(command: &str, scanned: &Scanned) -> CliResult<ProjectAc
             ));
         }
     };
-    let workspace = scanned.has(OptionId::WorkspaceTemplate);
+    let workspace = scanned.has(OptionId::Workspace);
     let members = scanned
         .all(OptionId::Member)
         .map(|item| item.value.clone().expect("member option takes a value"))
@@ -700,40 +689,6 @@ fn parse_project_add(scanned: &Scanned) -> CliResult<ProjectAdd> {
     })
 }
 
-fn parse_workspace_command(scanned: &Scanned) -> CliResult<ProjectAction> {
-    let topic = HelpTopic::Workspace;
-    let (subcommand, rest) = scanned
-        .positionals
-        .split_first()
-        .ok_or_else(|| CliError::new("expected `nia workspace add-member <name>`", topic))?;
-    if subcommand != "add-member" {
-        return Err(CliError::new(
-            format!("unknown `nia workspace` command `{subcommand}`"),
-            topic,
-        ));
-    }
-    let name = match rest {
-        [name] => name.clone(),
-        [] => return Err(CliError::new("missing workspace member name", topic)),
-        [_, extra, ..] => {
-            return Err(CliError::new(
-                format!("unexpected argument `{extra}` for `nia workspace add-member`"),
-                topic,
-            ));
-        }
-    };
-    Ok(ProjectAction::AddWorkspaceMember {
-        root: scanned
-            .last(OptionId::Root)
-            .map(|item| PathBuf::from(item.value.as_deref().expect("root takes a value"))),
-        name,
-        artifacts: crate::project::Artifacts {
-            executable: scanned.has(OptionId::ExeTemplate),
-            library: scanned.has(OptionId::LibTemplate),
-        },
-    })
-}
-
 struct GlobalOptions {
     resource_root: Option<PathBuf>,
     target: Option<nia_target::TargetConfig>,
@@ -853,7 +808,7 @@ fn value(occurrence: &Occurrence) -> &str {
 
 fn parse_package_options(scanned: &Scanned, topic: HelpTopic) -> CliResult<PackageOptions> {
     let err = |message: String| CliError::new(message, topic);
-    if scanned.has(OptionId::WorkspaceSelection) && scanned.has(OptionId::Package) {
+    if scanned.has(OptionId::Workspace) && scanned.has(OptionId::Package) {
         return Err(err(
             "`--workspace` cannot be combined with `--package`".to_string()
         ));
@@ -889,7 +844,7 @@ fn parse_package_options(scanned: &Scanned, topic: HelpTopic) -> CliResult<Packa
             .all(OptionId::Package)
             .map(|occurrence| value(occurrence).to_owned())
             .collect(),
-        workspace_all: scanned.has(OptionId::WorkspaceSelection),
+        workspace_all: scanned.has(OptionId::Workspace),
         locked: scanned.has(OptionId::Locked),
         offline: scanned.has(OptionId::Offline),
         jobs,
@@ -1555,16 +1510,29 @@ mod tests {
 
     #[test]
     fn project_commands_parse_package_artifacts_workspace_and_dependency_scope() {
-        let action = project(&["new", "app", "--lib", "--exe"]);
+        let action = project(&["new", "app"]);
         assert!(matches!(
             action,
             ProjectAction::New(ProjectCreate {
                 root,
-                artifacts: crate::project::Artifacts { executable: true, library: true },
+                artifacts: crate::project::Artifacts { executable: false, library: false },
                 workspace: false,
                 ..
             }) if root == std::path::Path::new("app")
         ));
+
+        for (arguments, executable, library) in [
+            (&["new", "tool", "--exe"][..], true, false),
+            (&["new", "core", "--lib"][..], false, true),
+            (&["new", "complete", "--exe", "--lib"][..], true, true),
+        ] {
+            let action = project(arguments);
+            assert!(matches!(
+                action,
+                ProjectAction::New(ProjectCreate { artifacts, .. })
+                    if artifacts.executable == executable && artifacts.library == library
+            ));
+        }
 
         let action = project(&[
             "new",
@@ -1649,10 +1617,6 @@ mod tests {
                     "https://example.test/json",
                 ],
                 "choose exactly one",
-            ),
-            (
-                &["workspace", "add-member"],
-                "missing workspace member name",
             ),
         ]);
     }

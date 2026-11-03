@@ -52,7 +52,6 @@ impl Scope {
     pub(crate) const NEW: Self = Self(1 << 11);
     pub(crate) const INIT: Self = Self(1 << 12);
     pub(crate) const ADD: Self = Self(1 << 13);
-    pub(crate) const WORKSPACE: Self = Self(1 << 14);
     /// Every emit kind, used before the kind is known.
     pub(crate) const EMIT_ANY: Self = Self::EMIT_INSPECT
         .or(Self::EMIT_CHECKED)
@@ -146,8 +145,7 @@ pub(crate) enum OptionId {
     Target,
     Root,
     Package,
-    WorkspaceSelection,
-    WorkspaceTemplate,
+    Workspace,
     Locked,
     Offline,
     Jobs,
@@ -279,8 +277,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         scope: Scope::BUILD
             .or(Scope::UPDATE)
             .or(Scope::CLEAN)
-            .or(Scope::ADD)
-            .or(Scope::WORKSPACE),
+            .or(Scope::ADD),
         usage: "--root <dir>",
         about: "start package or workspace discovery here instead of the current directory",
     },
@@ -293,7 +290,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         about: "select a workspace member; may be repeated",
     },
     OptionSpec {
-        id: OptionId::WorkspaceSelection,
+        id: OptionId::Workspace,
         names: &["--workspace"],
         arity: Arity::Flag,
         scope: Scope::BUILD,
@@ -301,7 +298,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         about: "select every workspace member",
     },
     OptionSpec {
-        id: OptionId::WorkspaceTemplate,
+        id: OptionId::Workspace,
         names: &["--workspace"],
         arity: Arity::Flag,
         scope: Scope::NEW.or(Scope::INIT),
@@ -320,17 +317,17 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::ExeTemplate,
         names: &["--exe"],
         arity: Arity::Flag,
-        scope: Scope::NEW.or(Scope::INIT).or(Scope::WORKSPACE),
+        scope: Scope::NEW.or(Scope::INIT),
         usage: "--exe",
-        about: "include an executable artifact in the package template",
+        about: "select an executable package (tests included)",
     },
     OptionSpec {
         id: OptionId::LibTemplate,
         names: &["--lib"],
         arity: Arity::Flag,
-        scope: Scope::NEW.or(Scope::INIT).or(Scope::WORKSPACE),
+        scope: Scope::NEW.or(Scope::INIT),
         usage: "--lib",
-        about: "include a library artifact in the package template",
+        about: "select a library package (tests included)",
     },
     OptionSpec {
         id: OptionId::Member,
