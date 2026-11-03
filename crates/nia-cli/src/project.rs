@@ -16,6 +16,7 @@ use nia_package_metadata::{PackageManifest, WorkspaceManifest, WorkspacePackageF
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, Value};
 
 static TEMPORARY_ID: AtomicU64 = AtomicU64::new(0);
+const GITIGNORE_TEMPLATE: &str = "/build/\n";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Artifacts {
@@ -219,6 +220,11 @@ pub(crate) fn init_project(
         }
     };
     files.sort_by_key(|path| path == Path::new("nia.toml"));
+    // `init` adds Nia's ignore rule when no ignore file exists, while leaving
+    // repository-specific ignore policy entirely under the user's control.
+    files.retain(|relative| {
+        relative != Path::new(".gitignore") || !destination_exists(&root.join(relative))
+    });
     let mut created_files = Vec::new();
     let mut created_dirs = Vec::new();
     for relative in &files {
@@ -738,6 +744,7 @@ fn populate_workspace(root: &Path, members: &[String], artifacts: Artifacts) -> 
     };
     create_real_directory(root)?;
     write_new_file(&root.join("nia.toml"), document.to_string().as_bytes())?;
+    write_new_file(&root.join(".gitignore"), GITIGNORE_TEMPLATE.as_bytes())?;
     for member in members {
         let member_root = root.join("packages").join(member);
         create_real_directory(&member_root)?;
@@ -796,6 +803,9 @@ fn populate_package(
     document["test"] = Item::ArrayOfTables(tests);
 
     write_new_file(&root.join("nia.toml"), document.to_string().as_bytes())?;
+    if workspace.is_none() {
+        write_new_file(&root.join(".gitignore"), GITIGNORE_TEMPLATE.as_bytes())?;
+    }
     if artifacts.library {
         write_new_file(&root.join("lib/root.nia"), library_source().as_bytes())?;
     }
@@ -1206,6 +1216,10 @@ mod tests {
             assert!(root.join("tests/unit.nia").is_file());
             assert_eq!(root.join("lib/root.nia").is_file(), library);
             assert_eq!(root.join("src/main.nia").is_file(), executable);
+            assert_eq!(
+                fs::read_to_string(root.join(".gitignore")).unwrap(),
+                GITIGNORE_TEMPLATE
+            );
             let _ = fs::remove_dir_all(root.parent().unwrap());
         }
     }
@@ -1231,6 +1245,11 @@ mod tests {
         assert!(root.join("packages/app/lib/root.nia").is_file());
         assert!(root.join("packages/app/src/main.nia").is_file());
         assert!(root.join("packages/app/tests/unit.nia").is_file());
+        assert_eq!(
+            fs::read_to_string(root.join(".gitignore")).unwrap(),
+            GITIGNORE_TEMPLATE
+        );
+        assert!(!root.join("packages/app/.gitignore").exists());
         let _ = fs::remove_dir_all(parent);
     }
 
@@ -1557,6 +1576,11 @@ mod tests {
     fn init_preserves_existing_files_and_refuses_template_collisions() {
         let root = temporary_root("init");
         fs::write(root.join("notes.txt"), "keep me").unwrap();
+        fs::write(
+            root.join(".gitignore"),
+            "# existing repository rules\nlocal-output/\n",
+        )
+        .unwrap();
         init_project(
             &root,
             Some("demo"),
@@ -1571,6 +1595,10 @@ mod tests {
         assert_eq!(
             fs::read_to_string(root.join("notes.txt")).unwrap(),
             "keep me"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join(".gitignore")).unwrap(),
+            "# existing repository rules\nlocal-output/\n"
         );
         assert!(
             init_project(

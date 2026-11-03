@@ -22,6 +22,10 @@ fn new_generates_a_checkable_executable_package() {
     assert!(root.join("lib/root.nia").is_file());
     assert!(root.join("src/main.nia").is_file());
     assert!(root.join("tests/unit.nia").is_file());
+    assert_eq!(
+        std::fs::read_to_string(root.join(".gitignore")).unwrap(),
+        "/build/\n"
+    );
 
     let check = support::nia_command()
         .args(["build", "test", "--root"])
@@ -51,6 +55,10 @@ fn init_dot_and_workspace_new_commands_create_native_layouts() {
     assert!(initialized.join("lib/root.nia").is_file());
     assert!(initialized.join("src/main.nia").is_file());
     assert!(initialized.join("tests/unit.nia").is_file());
+    assert_eq!(
+        std::fs::read_to_string(initialized.join(".gitignore")).unwrap(),
+        "/build/\n"
+    );
 
     let workspace = parent.join("mono");
     let create = support::nia_command()
@@ -75,6 +83,11 @@ fn init_dot_and_workspace_new_commands_create_native_layouts() {
     assert!(workspace.join("packages/core/lib/root.nia").is_file());
     assert!(workspace.join("packages/core/tests/unit.nia").is_file());
     assert!(!workspace.join("packages/core/src/main.nia").exists());
+    assert_eq!(
+        std::fs::read_to_string(workspace.join(".gitignore")).unwrap(),
+        "/build/\n"
+    );
+    assert!(!workspace.join("packages/app/.gitignore").exists());
     let manifest = std::fs::read_to_string(workspace.join("nia.toml")).unwrap();
     assert!(manifest.contains("members = [\"packages/*\"]"));
 

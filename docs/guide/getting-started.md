@@ -143,7 +143,8 @@ nia new core --lib
 nia new tool --exe
 ```
 
-The default is a complete application (`lib/`, `src/`, and `tests/`). `--lib`
+The default is a complete application (`lib/`, `src/`, and `tests/`). The
+generated root `.gitignore` excludes Nia's `/build/` directory. `--lib`
 selects a library plus tests, `--exe` selects an executable plus tests, and the
 flags can be combined for the complete application explicitly. The generated
 entry points are `src/main.nia`, `lib/root.nia`, and `tests/unit.nia`.

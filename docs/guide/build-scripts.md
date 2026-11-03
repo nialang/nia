@@ -214,9 +214,12 @@ CI builds should pass `--locked`.
 
 ## Build directory
 
-Nia writes everything except `nia.lock` to one `build/` directory beside the
-root `nia.toml`, the workspace root in a workspace, so a single `build/` line in
-`.gitignore` covers it:
+Build outputs, reusable build caches, transient files, fetched dependencies,
+registry data, and package-state locks live under one `build/` directory beside
+the root `nia.toml` (the workspace root in a workspace). Standalone package
+templates and new workspace templates put `/build/` in their root `.gitignore`;
+workspace members use the workspace-root ignore rule. `nia init` preserves an
+existing `.gitignore`.
 
 | Path | Contents |
 | --- | --- |
