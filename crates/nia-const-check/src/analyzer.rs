@@ -584,11 +584,7 @@ impl Analyzer<'_> {
                 source_text: input.source_text,
                 program: input.program,
             },
-            values: input
-                .typed_values
-                .iter()
-                .map(|(key, typed)| (*key, typed.value.clone()))
-                .collect(),
+            values: HashMap::new(),
             typed_values: HashMap::new(),
             external_typed_values: Some(input.typed_values),
             call_locals: input
@@ -794,6 +790,13 @@ impl Analyzer<'_> {
 
     fn eval_key(&mut self, key: ConstKey, span: Span) -> Option<ConstValue> {
         if let Some(value) = self.values.get(&key).cloned() {
+            return Some(value);
+        }
+        if let Some(value) = self
+            .typed_value_for_key(key)
+            .map(|typed| typed.value.clone())
+        {
+            self.values.insert(key, value.clone());
             return Some(value);
         }
         if !self.active.insert(key) {
