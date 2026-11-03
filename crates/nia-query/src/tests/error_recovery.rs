@@ -1,12 +1,139 @@
 use super::*;
+use std::time::{Duration, Instant};
 
 fn assert_wait_graph_released(nodes: impl IntoIterator<Item = QueryNodeId>) {
     let wait_graph = query_wait_graph().lock();
     for node in nodes {
-        assert!(!wait_graph.edges.contains_key(&node));
-        assert!(!wait_graph.edges.values().any(|target| *target == node));
+        assert!(
+            wait_graph
+                .edges
+                .get(&node)
+                .is_none_or(|targets| targets.is_empty())
+        );
+        assert!(
+            !wait_graph
+                .edges
+                .values()
+                .any(|targets| targets.contains_key(&node))
+        );
+        assert!(!wait_graph.incoming.contains_key(&node));
         assert!(!wait_graph.frames.contains_key(&node));
     }
+}
+
+#[test]
+fn wait_graph_tracks_parallel_waits_and_detects_cycles_through_any_branch() {
+    let query_node = |index| QueryNodeId {
+        db_id: QueryDbId(1),
+        index,
+    };
+    let query_frame = |name| QueryFrame {
+        name,
+        stats_category: None,
+        key: Arc::from(name),
+        description: Arc::from(name),
+    };
+    let first = query_node(1);
+    let second = query_node(2);
+    let third = query_node(3);
+    let fourth = query_node(4);
+    let mut graph = QueryWaitGraph::default();
+
+    assert_eq!(
+        graph
+            .begin(first, query_frame("first"), second, query_frame("second"))
+            .expect("first edge"),
+        None
+    );
+    assert_eq!(
+        graph
+            .begin(first, query_frame("first"), third, query_frame("third"))
+            .expect("second concurrent edge"),
+        None
+    );
+    assert_eq!(
+        graph
+            .begin(third, query_frame("third"), fourth, query_frame("fourth"))
+            .expect("third edge"),
+        None
+    );
+
+    let cycle = graph
+        .begin(fourth, query_frame("fourth"), first, query_frame("first"))
+        .expect("cycle check")
+        .expect("branch should close a cycle");
+    assert_eq!(
+        cycle.iter().map(|frame| frame.name).collect::<Vec<_>>(),
+        vec!["fourth", "first", "third", "fourth"]
+    );
+
+    graph.end(first, second).expect("release first edge");
+    graph.end(first, third).expect("release second edge");
+    graph.end(third, fourth).expect("release third edge");
+    assert!(graph.edges.is_empty());
+    assert!(graph.frames.is_empty());
+}
+
+#[test]
+fn wait_graph_reference_counts_repeated_parallel_edges() {
+    let first = QueryNodeId {
+        db_id: QueryDbId(1),
+        index: 1,
+    };
+    let second = QueryNodeId {
+        db_id: QueryDbId(1),
+        index: 2,
+    };
+    let frame = |name| QueryFrame {
+        name,
+        stats_category: None,
+        key: Arc::from(name),
+        description: Arc::from(name),
+    };
+    let mut graph = QueryWaitGraph::default();
+
+    graph
+        .begin(first, frame("first"), second, frame("second"))
+        .expect("first waiter");
+    graph
+        .begin(first, frame("first"), second, frame("second"))
+        .expect("second waiter on same slot");
+    graph.end(first, second).expect("release one waiter");
+    assert_eq!(graph.edges[&first].get(&second).copied(), Some(1));
+    assert!(
+        graph
+            .begin(second, frame("second"), first, frame("first"))
+            .expect("detect repeated-edge cycle")
+            .is_some()
+    );
+    graph.end(first, second).expect("release final waiter");
+    assert!(graph.edges.is_empty());
+    assert!(graph.incoming.is_empty());
+    assert!(graph.frames.is_empty());
+}
+
+#[test]
+fn wait_graph_detects_a_single_node_cycle() {
+    let node = QueryNodeId {
+        db_id: QueryDbId(1),
+        index: 1,
+    };
+    let frame = QueryFrame {
+        name: "self_wait",
+        stats_category: None,
+        key: Arc::from("self_wait"),
+        description: Arc::from("self_wait"),
+    };
+    let mut graph = QueryWaitGraph::default();
+
+    let cycle = graph
+        .begin(node, frame.clone(), node, frame)
+        .expect("self-cycle check")
+        .expect("self-cycle should be rejected");
+    assert_eq!(cycle.len(), 2);
+    assert_eq!(cycle[0].name, "self_wait");
+    assert_eq!(cycle[1].name, "self_wait");
+    assert!(graph.edges.is_empty());
 }
 
 #[test]
@@ -24,6 +151,157 @@ fn reports_same_thread_query_cycles() {
     };
     assert_eq!(cycle.len(), 2);
     assert!(cycle.iter().all(|frame| frame.name == "recursive"));
+}
+
+struct ParallelBatchWaitContext {
+    started: Arc<(Mutex<usize>, Condvar)>,
+    release: Arc<(Mutex<bool>, Condvar)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ParallelBatchWaitChild(usize);
+
+impl QueryKey<ParallelBatchWaitContext> for ParallelBatchWaitChild {
+    type Value = usize;
+
+    fn name() -> &'static str {
+        "parallel_batch_wait_child"
+    }
+
+    fn description(&self) -> String {
+        format!("parallel_batch_wait_child({})", self.0)
+    }
+
+    fn execute_result(&self, db: &QueryDb<ParallelBatchWaitContext>) -> QueryResult<Self::Value> {
+        let (started, started_changed) = &*db.context().started;
+        *started.lock() += 1;
+        started_changed.notify_all();
+
+        let (released, release_changed) = &*db.context().release;
+        let mut released = released.lock();
+        while !*released {
+            release_changed.wait(&mut released);
+        }
+        Ok(self.0 * 10)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ParallelBatchWaitParent;
+
+impl QueryKey<ParallelBatchWaitContext> for ParallelBatchWaitParent {
+    type Value = usize;
+
+    fn name() -> &'static str {
+        "parallel_batch_wait_parent"
+    }
+
+    fn execute_result(&self, db: &QueryDb<ParallelBatchWaitContext>) -> QueryResult<Self::Value> {
+        Ok(db
+            .get_many([ParallelBatchWaitChild(1), ParallelBatchWaitChild(2)])?
+            .into_iter()
+            .map(|value| *value)
+            .sum())
+    }
+}
+
+#[test]
+fn concurrent_batch_waits_from_one_parent_are_supported() {
+    let db = QueryDb::new_with_timings_in_session(
+        ParallelBatchWaitContext {
+            started: Arc::new((Mutex::new(0), Condvar::new())),
+            release: Arc::new((Mutex::new(false), Condvar::new())),
+        },
+        nia_timing::TimingMode::Off,
+        QuerySession::with_parallelism(4),
+    )
+    .expect("create parallel-wait database");
+    let child_nodes = [
+        db.slot_for(&ParallelBatchWaitChild(1))
+            .expect("create first child slot")
+            .node_id,
+        db.slot_for(&ParallelBatchWaitChild(2))
+            .expect("create second child slot")
+            .node_id,
+    ];
+    let parent_node = db
+        .slot_for(&ParallelBatchWaitParent)
+        .expect("create parent slot")
+        .node_id;
+    let parent_db = db.clone();
+
+    let (parent_result, observed_parallel_edges) = std::thread::scope(|scope| {
+        let first_db = db.clone();
+        let first_child = scope.spawn(move || first_db.get(ParallelBatchWaitChild(1)));
+        let second_db = db.clone();
+        let second_child = scope.spawn(move || second_db.get(ParallelBatchWaitChild(2)));
+
+        let (started, started_changed) = &*db.context().started;
+        let started_deadline = Instant::now() + Duration::from_secs(2);
+        let mut started = started.lock();
+        while *started < 2 {
+            let remaining = started_deadline.saturating_duration_since(Instant::now());
+            assert!(!remaining.is_zero(), "both child providers should start");
+            assert!(
+                !started_changed
+                    .wait_for(&mut started, remaining)
+                    .timed_out(),
+                "both child providers should start"
+            );
+        }
+        drop(started);
+
+        let parent = scope.spawn(move || parent_db.get(ParallelBatchWaitParent));
+        let wait_deadline = Instant::now() + Duration::from_secs(2);
+        let observed_parallel_edges = loop {
+            let count = query_wait_graph()
+                .lock()
+                .edges
+                .get(&parent_node)
+                .map_or(0, |targets| targets.len());
+            if count >= 2 {
+                break true;
+            }
+            if Instant::now() >= wait_deadline {
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        };
+
+        let (released, release_changed) = &*db.context().release;
+        *released.lock() = true;
+        release_changed.notify_all();
+        first_child
+            .join()
+            .expect("first child waiter")
+            .expect("first child query should succeed");
+        second_child
+            .join()
+            .expect("second child waiter")
+            .expect("second child query should succeed");
+        let parent_result = parent.join().expect("parent batch waiter");
+        (parent_result, observed_parallel_edges)
+    });
+
+    assert!(observed_parallel_edges, "parent should wait on both slots");
+    assert_eq!(*parent_result.expect("parallel batch should succeed"), 30);
+    db.session()
+        .inner
+        .ensure_healthy()
+        .expect("wait graph should leave session reusable");
+    assert_wait_graph_released([parent_node, child_nodes[0], child_nodes[1]]);
+    let dependencies = db.query_trace().expect("query trace").dependencies;
+    assert_eq!(
+        dependencies
+            .iter()
+            .filter(|dependency| {
+                dependency.from.name == "parallel_batch_wait_parent"
+                    && dependency.to.name == "parallel_batch_wait_child"
+            })
+            .count(),
+        2,
+        "both batched query dependencies should be merged into the parent"
+    );
 }
 
 #[test]

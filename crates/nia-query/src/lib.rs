@@ -138,7 +138,8 @@ struct QueryActivityGuard<'a> {
 /// separate from the persistent dependency graph used for invalidation.
 #[derive(Debug, Default)]
 struct QueryWaitGraph {
-    edges: FastHashMap<QueryNodeId, QueryNodeId>,
+    edges: FastHashMap<QueryNodeId, FastHashMap<QueryNodeId, usize>>,
+    incoming: FastHashMap<QueryNodeId, usize>,
     frames: FastHashMap<QueryNodeId, QueryFrame>,
 }
 
@@ -150,49 +151,150 @@ impl QueryWaitGraph {
         to: QueryNodeId,
         to_frame: QueryFrame,
     ) -> QueryResult<Option<Vec<QueryFrame>>> {
-        let mut path = vec![from];
-        let mut current = to;
-        let mut seen = FastHashSet::default();
-        while seen.insert(current) {
-            path.push(current);
-            if current == from {
-                let mut frames = Vec::with_capacity(path.len());
-                for node_id in path {
-                    let frame = self.frames.get(&node_id).cloned().ok_or_else(|| {
-                        QueryError::internal("active query wait node has no retained frame")
-                    })?;
-                    frames.push(frame);
-                }
-                return Ok(Some(frames));
-            }
-            let Some(next) = self.edges.get(&current).copied() else {
-                break;
-            };
-            current = next;
+        if (from == to || self.edges.contains_key(&to))
+            && let Some(path) = self.path(to, from)
+        {
+            let mut cycle = Vec::with_capacity(path.len() + 1);
+            cycle.push(from);
+            cycle.extend(path);
+            let frames = cycle
+                .into_iter()
+                .map(|node_id| {
+                    self.frames
+                        .get(&node_id)
+                        .cloned()
+                        .or_else(|| (node_id == from).then(|| from_frame.clone()))
+                        .or_else(|| (node_id == to).then(|| to_frame.clone()))
+                        .ok_or_else(|| {
+                            QueryError::internal("active query wait node has no retained frame")
+                        })
+                })
+                .collect::<QueryResult<Vec<_>>>()?;
+            return Ok(Some(frames));
         }
-        if self.edges.contains_key(&from) {
-            return Err(QueryError::internal(
-                "query cannot wait on multiple slots simultaneously",
-            ));
-        }
+        let incoming_count = self
+            .incoming
+            .get(&to)
+            .copied()
+            .unwrap_or_default()
+            .checked_add(1)
+            .ok_or_else(|| QueryError::internal("query wait incoming edge count exhausted"))?;
+        let edge_count = self
+            .edges
+            .get(&from)
+            .and_then(|targets| targets.get(&to))
+            .copied()
+            .unwrap_or_default()
+            .checked_add(1)
+            .ok_or_else(|| QueryError::internal("query wait edge count exhausted"))?;
+        self.edges.entry(from).or_default().insert(to, edge_count);
+        self.incoming.insert(to, incoming_count);
         self.frames.entry(from).or_insert(from_frame);
         self.frames.entry(to).or_insert(to_frame);
-        self.edges.insert(from, to);
         Ok(None)
     }
 
+    fn path(&self, from: QueryNodeId, to: QueryNodeId) -> Option<Vec<QueryNodeId>> {
+        if from == to {
+            return Some(vec![from]);
+        }
+        let mut current = from;
+        for index in 0..self.edges.len() {
+            let targets = self.edges.get(&current)?;
+            let Some(next) = (targets.len() == 1)
+                .then(|| targets.keys().next().copied())
+                .flatten()
+            else {
+                break;
+            };
+            current = next;
+            if current == to {
+                let mut path = vec![from];
+                let mut current = from;
+                while current != to {
+                    current = *self.edges.get(&current)?.keys().next()?;
+                    path.push(current);
+                }
+                return Some(path);
+            }
+            if index + 1 == self.edges.len() {
+                return None;
+            }
+        }
+        let mut pending = VecDeque::from([from]);
+        let mut previous = FastHashMap::default();
+        previous.insert(from, from);
+        while let Some(current) = pending.pop_front() {
+            let Some(edges) = self.edges.get(&current) else {
+                continue;
+            };
+            let mut targets = edges.keys().copied().collect::<Vec<_>>();
+            targets.sort_by_key(|node| (node.db_id.0, node.index));
+            for target in targets {
+                if target == to {
+                    let mut path = vec![to, current];
+                    let mut ancestor = current;
+                    while ancestor != from {
+                        ancestor = *previous.get(&ancestor)?;
+                        path.push(ancestor);
+                    }
+                    path.reverse();
+                    return Some(path);
+                }
+                if let std::collections::hash_map::Entry::Vacant(entry) = previous.entry(target) {
+                    entry.insert(current);
+                    pending.push_back(target);
+                }
+            }
+        }
+        None
+    }
+
     fn end(&mut self, from: QueryNodeId, to: QueryNodeId) -> QueryResult<()> {
-        let target = self.edges.remove(&from);
-        if target != Some(to) {
+        let Some(edge_count) = self
+            .edges
+            .get(&from)
+            .and_then(|targets| targets.get(&to))
+            .copied()
+        else {
             return Err(QueryError::internal(
                 "query wait-for edge was released out of order",
             ));
+        };
+        let Some(incoming_count) = self.incoming.get(&to).copied() else {
+            return Err(QueryError::internal(
+                "query wait-for edge has no incoming reference count",
+            ));
+        };
+        if incoming_count == 0 || edge_count == 0 {
+            return Err(QueryError::internal(
+                "query wait-for edge has an empty reference count",
+            ));
         }
-        if !self.edges.contains_key(&from) && !self.edges.values().any(|target| *target == from) {
-            self.frames.remove(&from);
+
+        let remove_source = {
+            let targets = self.edges.get_mut(&from).expect("validated source edge");
+            if edge_count == 1 {
+                targets.remove(&to);
+            } else {
+                targets.insert(to, edge_count - 1);
+            }
+            targets.is_empty()
+        };
+        if remove_source {
+            self.edges.remove(&from);
         }
-        if !self.edges.contains_key(&to) && !self.edges.values().any(|target| *target == to) {
-            self.frames.remove(&to);
+
+        if incoming_count == 1 {
+            self.incoming.remove(&to);
+        } else {
+            self.incoming.insert(to, incoming_count - 1);
+        }
+
+        for node in [from, to] {
+            if !self.edges.contains_key(&node) && !self.incoming.contains_key(&node) {
+                self.frames.remove(&node);
+            }
         }
         Ok(())
     }
