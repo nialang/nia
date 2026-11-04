@@ -416,14 +416,14 @@ pub struct ModuleGraph {
     module_ids: ModuleIdAllocator,
     sources: SourceTable,
     entry: ModuleId,
-    modules: Vec<ModuleNode>,
-    by_source_id: nia_hash::FastHashMap<SourceId, ModuleId>,
-    by_stable_key: nia_hash::FastHashMap<StableModuleKey, ModuleId>,
-    by_module_path: nia_hash::FastHashMap<ModulePath, ModuleId>,
-    package_roots: SymbolMap<ModuleId>,
-    module_package_aliases: nia_hash::FastHashMap<ModuleId, SymbolMap<ModuleId>>,
-    active_package_facades: SymbolMap<ModuleId>,
-    executable_root_subtrees: Vec<ModuleId>,
+    modules: Arc<Vec<Arc<ModuleNode>>>,
+    by_source_id: Arc<nia_hash::FastHashMap<SourceId, ModuleId>>,
+    by_stable_key: Arc<nia_hash::FastHashMap<StableModuleKey, ModuleId>>,
+    by_module_path: Arc<nia_hash::FastHashMap<ModulePath, ModuleId>>,
+    package_roots: Arc<SymbolMap<ModuleId>>,
+    module_package_aliases: Arc<nia_hash::FastHashMap<ModuleId, SymbolMap<ModuleId>>>,
+    active_package_facades: Arc<SymbolMap<ModuleId>>,
+    executable_root_subtrees: Arc<Vec<ModuleId>>,
     symbols: Arc<dyn SymbolText + Send + Sync>,
 }
 
@@ -541,7 +541,7 @@ impl ModuleGraph {
             module_ids,
             sources,
             entry,
-            modules: vec![ModuleNode {
+            modules: Arc::new(vec![Arc::new(ModuleNode {
                 id: entry,
                 stable_key: entry_stable_key,
                 source_id: entry_source_id,
@@ -555,14 +555,14 @@ impl ModuleGraph {
                 semantic_selected: true,
                 process_used_paths: true,
                 process_declared_children: true,
-            }],
-            by_source_id,
-            by_stable_key,
-            by_module_path,
-            package_roots,
-            module_package_aliases: Default::default(),
-            active_package_facades: SymbolMap::default(),
-            executable_root_subtrees: Vec::new(),
+            })]),
+            by_source_id: Arc::new(by_source_id),
+            by_stable_key: Arc::new(by_stable_key),
+            by_module_path: Arc::new(by_module_path),
+            package_roots: Arc::new(package_roots),
+            module_package_aliases: Arc::new(Default::default()),
+            active_package_facades: Arc::new(SymbolMap::default()),
+            executable_root_subtrees: Arc::new(Vec::new()),
             symbols,
         })
     }
@@ -585,7 +585,7 @@ impl ModuleGraph {
     /// Marks a module and all descendants as executable roots.
     pub fn mark_executable_root_subtree(&mut self, module_id: ModuleId) {
         if self.get(module_id).is_some() && !self.executable_root_subtrees.contains(&module_id) {
-            self.executable_root_subtrees.push(module_id);
+            Arc::make_mut(&mut self.executable_root_subtrees).push(module_id);
         }
     }
 
@@ -606,12 +606,14 @@ impl ModuleGraph {
     pub fn get(&self, id: ModuleId) -> Option<&ModuleNode> {
         self.modules
             .get(usize::try_from(id.local_index()).ok()?)
+            .map(Arc::as_ref)
             .filter(|module| module.id == id)
     }
 
     fn get_mut(&mut self, id: ModuleId) -> Option<&mut ModuleNode> {
-        self.modules
+        Arc::make_mut(&mut self.modules)
             .get_mut(usize::try_from(id.local_index()).ok()?)
+            .map(Arc::make_mut)
             .filter(|module| module.id == id)
     }
 
@@ -685,7 +687,7 @@ impl ModuleGraph {
     /// Marks an interned package facade active and returns its root.
     pub fn mark_package_facade_active(&mut self, package: &SymbolId) -> Option<ModuleId> {
         let module_id = self.package_root(package)?;
-        self.active_package_facades
+        Arc::make_mut(&mut self.active_package_facades)
             .entry(*package)
             .or_insert(module_id);
         Some(module_id)
@@ -739,12 +741,14 @@ impl ModuleGraph {
 
     /// Isolates a module's named package roots from the global package-instance registry.
     pub fn isolate_package_roots(&mut self, module: ModuleId) {
-        self.module_package_aliases.entry(module).or_default();
+        Arc::make_mut(&mut self.module_package_aliases)
+            .entry(module)
+            .or_default();
     }
 
     /// Binds one source-local alias to an interned package instance.
     pub fn bind_package_alias(&mut self, module: ModuleId, alias: SymbolId, target: ModuleId) {
-        self.module_package_aliases
+        Arc::make_mut(&mut self.module_package_aliases)
             .entry(module)
             .or_default()
             .insert(alias, target);
@@ -752,7 +756,7 @@ impl ModuleGraph {
 
     /// Iterates all module nodes in allocation order.
     pub fn modules(&self) -> impl Iterator<Item = &ModuleNode> {
-        self.modules.iter()
+        self.modules.iter().map(Arc::as_ref)
     }
 
     /// Enables used-path processing and reports whether it changed state.
@@ -843,7 +847,7 @@ impl ModuleGraph {
         // A stable source path can be shared by package aliases. Keep every
         // requested package identity resolvable even when interning reuses the
         // existing module node.
-        self.package_roots.insert(*name, id);
+        Arc::make_mut(&mut self.package_roots).insert(*name, id);
         Ok(id)
     }
 
@@ -1022,7 +1026,7 @@ impl ModuleGraph {
         }
         let stable_key = StableModuleKey::from_source_identity(path.identity());
         if let Some(id) = self.by_stable_key.get(&stable_key).copied() {
-            self.by_module_path.insert(module_path, id);
+            Arc::make_mut(&mut self.by_module_path).insert(module_path, id);
             if process_used_paths {
                 self.mark_process_used_paths(id);
             }
@@ -1038,12 +1042,12 @@ impl ModuleGraph {
             ));
         }
         if module_path.is_package_root() {
-            self.package_roots.insert(module_path.package, id);
+            Arc::make_mut(&mut self.package_roots).insert(module_path.package, id);
         }
-        self.by_stable_key.insert(stable_key.clone(), id);
-        self.by_source_id.insert(source_id, id);
-        self.by_module_path.insert(module_path.clone(), id);
-        self.modules.push(ModuleNode {
+        Arc::make_mut(&mut self.by_stable_key).insert(stable_key.clone(), id);
+        Arc::make_mut(&mut self.by_source_id).insert(source_id, id);
+        Arc::make_mut(&mut self.by_module_path).insert(module_path.clone(), id);
+        Arc::make_mut(&mut self.modules).push(Arc::new(ModuleNode {
             id,
             stable_key,
             source_id,
@@ -1057,7 +1061,7 @@ impl ModuleGraph {
             semantic_selected: process_used_paths,
             process_used_paths,
             process_declared_children,
-        });
+        }));
         Ok(id)
     }
 
@@ -1778,6 +1782,42 @@ mod tests {
                 .as_str(),
             "vendor/math/src/start.nia"
         );
+    }
+
+    #[test]
+    fn cloned_graph_branches_share_storage_until_mutated() {
+        let original = ModuleGraph::new(SourcePath::new("src/main.nia")).expect("module graph");
+        let entry = original.entry();
+        let mut branch = original.clone();
+        assert!(Arc::ptr_eq(&original.modules, &branch.modules));
+        assert!(Arc::ptr_eq(
+            &original.by_module_path,
+            &branch.by_module_path
+        ));
+
+        let child = branch
+            .intern_declared_child(entry, &known::START, Visibility::Public, Span::default())
+            .expect("branch child");
+        branch.mark_executable_root_subtree(child);
+
+        assert!(!Arc::ptr_eq(&original.modules, &branch.modules));
+        assert!(!Arc::ptr_eq(
+            &original.by_module_path,
+            &branch.by_module_path
+        ));
+        assert!(Arc::ptr_eq(&original.package_roots, &branch.package_roots));
+        assert_eq!(original.modules().count(), 1);
+        assert_eq!(branch.modules().count(), 2);
+        assert!(original.get(entry).unwrap().children.is_empty());
+        assert!(
+            branch
+                .get(entry)
+                .unwrap()
+                .children
+                .contains_key(&known::START)
+        );
+        assert!(!original.is_executable_root_module(child));
+        assert!(branch.is_executable_root_module(child));
     }
 
     #[test]
