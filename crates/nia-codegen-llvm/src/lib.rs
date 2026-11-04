@@ -41,6 +41,7 @@ mod orchestration;
 mod output;
 mod program_index;
 mod readiness;
+mod target_machine_cache;
 mod work_product;
 
 use std::{collections::HashMap, sync::Arc};
@@ -57,8 +58,7 @@ pub use nia_backend_ir::{
 use nia_backend_lower::BackendLowering;
 use nia_ids::ModuleId;
 use nia_llvm::{
-    Context, OptimizationLevel as LlvmOptimizationLevel,
-    target::{TargetMachine, TargetMachineIdentity},
+    Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachineIdentity,
 };
 use nia_opt::NiaOptimizationLevel;
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder, QuerySession};
@@ -72,6 +72,7 @@ use program_index::ProgramIndex;
 use readiness::{
     CodegenPartitionPreparation, CodegenReadinessCoordinator, PreparedCodegenPartition,
 };
+use target_machine_cache::with_target_machine;
 pub use work_product::{
     CodegenUnitFingerprintComponents, CodegenUnitFingerprintSet, CodegenWorkProductInvalidation,
     CodegenWorkProductLookup, LtoModuleWorkProductCache, ObjectWorkProductCache,
@@ -1250,32 +1251,35 @@ fn emit_lto_partition(
     let memory_permit = nia_query::acquire_llvm_memory_permit()
         .map_err(|ice| vec![nia_diagnostic::Diagnostic::from(ice)])?;
     record_memory_permit(options.timings, memory_permit.waited());
-    let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
-        TargetMachine::for_identity(
-            target_identity,
-            llvm_optimization_level(options.optimization.level),
-        )
-    })
-    .map_err(|error| vec![error.diagnostic()])?;
-    let context =
-        time_codegen_module_stage(options.timings, "context", &module.name, Context::create)
-            .map_err(|error| vec![error.diagnostic()])?;
-    let mut codegen =
-        time_codegen_module_stage(options.timings, "new_module", &module.name, || {
-            ModuleCodegen::new(&context, module, &partition, &declarations, &index, options)
-        })
-        .map_err(|diagnostic| vec![diagnostic])?;
-    target
-        .configure_module(&codegen.module)
-        .map_err(|error| vec![error.diagnostic()])?;
-    let bitcode = codegen
-        .emit_lto_bitcode(
-            &target,
-            &module_identifier,
-            llvm_optimization_level(options.optimization.level),
-            pre_link,
-        )
-        .map_err(|diagnostic| vec![diagnostic])?;
+    let bitcode = with_target_machine(
+        target_identity,
+        llvm_optimization_level(options.optimization.level),
+        options.timings,
+        |target| {
+            let context = time_codegen_module_stage(
+                options.timings,
+                "context",
+                &module.name,
+                Context::create,
+            )
+            .map_err(|error| error.diagnostic())?;
+            let mut codegen =
+                time_codegen_module_stage(options.timings, "new_module", &module.name, || {
+                    ModuleCodegen::new(&context, module, &partition, &declarations, &index, options)
+                })?;
+            target
+                .configure_module(&codegen.module)
+                .map_err(|error| error.diagnostic())?;
+            codegen.emit_lto_bitcode(
+                target,
+                &module_identifier,
+                llvm_optimization_level(options.optimization.level),
+                pre_link,
+            )
+        },
+    )
+    .map_err(|error| vec![error.diagnostic()])?
+    .map_err(|diagnostic| vec![diagnostic])?;
     let write_error =
         publish_lto_work_product(cache, pre_link.mode, &partition.key, fingerprints, &bitcode);
     Ok((
@@ -1369,27 +1373,30 @@ fn emit_native_object_partition(
     let memory_permit = nia_query::acquire_llvm_memory_permit()
         .map_err(|ice| vec![nia_diagnostic::Diagnostic::from(ice)])?;
     record_memory_permit(options.timings, memory_permit.waited());
-    let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
-        TargetMachine::for_identity(
-            &target_identity,
-            llvm_optimization_level(options.optimization.level),
-        )
-    })
-    .map_err(|error| vec![error.diagnostic()])?;
-    let context =
-        time_codegen_module_stage(options.timings, "context", &module.name, Context::create)
-            .map_err(|error| vec![error.diagnostic()])?;
-    let mut codegen =
-        time_codegen_module_stage(options.timings, "new_module", &module.name, || {
-            ModuleCodegen::new(&context, module, &partition, &declarations, &index, options)
-        })
-        .map_err(|diagnostic| vec![diagnostic])?;
-    target
-        .configure_module(&codegen.module)
-        .map_err(|error| vec![error.diagnostic()])?;
-    let bytes = codegen
-        .emit_object(&target)
-        .map_err(|diagnostic| vec![diagnostic])?;
+    let bytes = with_target_machine(
+        &target_identity,
+        llvm_optimization_level(options.optimization.level),
+        options.timings,
+        |target| {
+            let context = time_codegen_module_stage(
+                options.timings,
+                "context",
+                &module.name,
+                Context::create,
+            )
+            .map_err(|error| error.diagnostic())?;
+            let mut codegen =
+                time_codegen_module_stage(options.timings, "new_module", &module.name, || {
+                    ModuleCodegen::new(&context, module, &partition, &declarations, &index, options)
+                })?;
+            target
+                .configure_module(&codegen.module)
+                .map_err(|error| error.diagnostic())?;
+            codegen.emit_object(target)
+        },
+    )
+    .map_err(|error| vec![error.diagnostic()])?
+    .map_err(|diagnostic| vec![diagnostic])?;
     let write_error = publish_object_work_product(cache, &partition.key, fingerprints, &bytes);
     Ok((
         IncrementalLinkInput {
@@ -1445,20 +1452,21 @@ fn emit_compiler_builtins_lto_module(
     let memory_permit =
         nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
     record_memory_permit(options.timings, memory_permit.waited());
-    let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
-        TargetMachine::for_identity(
-            target_identity,
-            llvm_optimization_level(options.optimization.level),
-        )
-    })
-    .map_err(|error| error.diagnostic())?;
-    let bitcode = compiler_builtins::emit_lto_bitcode(
-        &target,
-        options.target,
-        symbols,
+    let bitcode = with_target_machine(
+        target_identity,
         llvm_optimization_level(options.optimization.level),
-        pre_link,
-    )?;
+        options.timings,
+        |target| {
+            compiler_builtins::emit_lto_bitcode(
+                target,
+                options.target,
+                symbols,
+                llvm_optimization_level(options.optimization.level),
+                pre_link,
+            )
+        },
+    )
+    .map_err(|error| error.diagnostic())??;
     let write_error = publish_lto_work_product(
         cache,
         pre_link.mode,
@@ -1515,14 +1523,13 @@ fn emit_compiler_builtins_object(
     let memory_permit =
         nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
     record_memory_permit(options.timings, memory_permit.waited());
-    let target = time_codegen_stage(options.timings, "llvm_codegen.native_target", || {
-        TargetMachine::for_identity(
-            &target_identity,
-            llvm_optimization_level(options.optimization.level),
-        )
-    })
-    .map_err(|error| error.diagnostic())?;
-    let bytes = compiler_builtins::emit_object(&target, options.target, symbols)?;
+    let bytes = with_target_machine(
+        &target_identity,
+        llvm_optimization_level(options.optimization.level),
+        options.timings,
+        |target| compiler_builtins::emit_object(target, options.target, symbols),
+    )
+    .map_err(|error| error.diagnostic())??;
     let write_error = publish_object_work_product(
         cache,
         &CodegenUnitKey::CompilerBuiltins,
