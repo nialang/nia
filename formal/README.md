@@ -16,6 +16,7 @@ toolchain is pinned in [`lean-toolchain`](lean-toolchain).
 | --- | --- | --- |
 | [`NiaFormal/ValueInference.lean`](NiaFormal/ValueInference.lean) | Contextual typing of value construction | [`value_inference_matrix.rs`](../crates/nia-driver/src/tests/value_inference_matrix.rs) |
 | [`NiaFormal/ModuleVisibility.lean`](NiaFormal/ModuleVisibility.lean) | Explicit extension visibility and separate trait-witness closure | [`imports.rs`](../crates/nia-driver/src/tests/imports.rs) |
+| [`NiaFormal/ReachabilityRetraction.lean`](NiaFormal/ReachabilityRetraction.lean) | Exactness of over-delete/rederive after dependency-edge changes | Pending reachability integration tests |
 
 ### Value construction inference
 
@@ -74,6 +75,23 @@ inventory; the driver tests read the same JSON and check that their cases match
 the manifest. This still does not prove
 the Rust loader and query implementation correct, so the end-to-end cases are
 required alongside the model.
+
+### Incremental reachability retraction
+
+`ReachabilityRetraction.lean` models an edge graph whose changed outgoing
+dependencies are owned by a known set of source nodes. It defines the affected
+region as every node reachable from a changed source through either the old or
+new graph, retains old reachable nodes outside that region, and rederives the
+region from roots and edges crossing from retained nodes. The theorem proves
+this result equals clean reachability in the new graph. Using the union graph
+for the affected region covers both removed and added edges, including cycles
+and nodes with multiple paths of support.
+
+The theorem is an algorithm contract, not a proof that compiler reachability
+facts currently retain complete edge provenance. The executable closure also
+contains trait, vtable, generic-instance, and module-owner facts. Rust
+integration must establish their source ownership before using localized
+retraction; until then the compiler keeps its conservative full reset.
 
 ## Building
 
