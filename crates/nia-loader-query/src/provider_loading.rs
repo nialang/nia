@@ -365,9 +365,11 @@ fn resolve_child_source_path(
             continue;
         }
 
-        let (mut source_id, mut path) = graph.intern_declared_child_source_path(node, *segment)?;
+        // Provider discovery probes absent suffixes without claiming source IDs;
+        // only a selected path is interned when it is added to the graph.
+        let mut path = graph.declared_child_source_path(node, *segment);
         for descendant in &segments[index + 1..] {
-            (source_id, path) = graph.intern_nested_child_source_path(source_id, *descendant)?;
+            path = path.derived_child_file(&graph.module_symbol_text(*descendant), false);
         }
         return Ok(Some(path));
     }
@@ -405,7 +407,7 @@ mod tests {
     use super::*;
     use nia_imports::Visibility;
     use nia_span::Span;
-    use nia_symbol::known;
+    use nia_symbol::{KnownSymbolText, known};
 
     #[test]
     fn provider_source_resolution_preserves_existing_paths_before_deriving_suffixes() {
@@ -447,5 +449,31 @@ mod tests {
                 .expect("derived path");
 
         assert_eq!(resolved.as_str(), "src/start/main.nia");
+    }
+
+    #[test]
+    fn provider_source_resolution_preserves_relocated_identity_without_interning_paths() {
+        let source_table = nia_source::SourceTable::new();
+        let entry_path =
+            SourcePath::with_identity("/opt/nia/runtime/start.nia", "toolchain:/runtime/start.nia");
+        let graph = ModuleGraph::with_source_table(
+            entry_path,
+            std::sync::Arc::new(KnownSymbolText),
+            source_table.clone(),
+        )
+        .expect("module graph");
+        let before = source_table.stats();
+
+        let resolved =
+            resolve_child_source_path(&graph, graph.entry(), &[known::START, known::MAIN])
+                .expect("resolve path")
+                .expect("derived path");
+
+        assert_eq!(resolved.as_str(), "/opt/nia/runtime/start/main.nia");
+        assert_eq!(
+            resolved.identity_ref().normalized_path(),
+            "toolchain:/runtime/start/main.nia"
+        );
+        assert_eq!(source_table.stats(), before);
     }
 }
