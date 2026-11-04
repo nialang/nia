@@ -724,8 +724,8 @@ pub(super) fn stale_executable_fact_modules(
         .copied()
         .filter(|module_id| reachability.modules().contains(module_id))
     {
-        if executable_reachability_has_pending_body_items(db, reachability_by_module, module_id)?
-            && executable_fact_module_is_stale(module_id, reachability_by_module, fact_by_id)
+        if executable_fact_module_is_stale(module_id, reachability_by_module, fact_by_id)
+            && executable_reachability_has_pending_body_items(db, reachability_by_module, module_id)?
         {
             stale.push_back(module_id);
         }
