@@ -7,12 +7,14 @@ pub(crate) struct ModuleGraphRevisionQuery(pub(crate) nia_loader_contract::Provi
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ModuleSourceIdQuery(pub(crate) nia_imports::ModuleId);
 
+use crate::facade_facts::ModuleFacadeFacts;
 use crate::provider_facts::{ProviderDemandsQuery, ProviderFactEvent};
 use crate::provider_loading::{
     add_public_reexport_source_module, module_defines_extensions, process_provider_request,
     process_reexport_provider_request,
 };
 use crate::queries::module_declarations_query;
+use crate::queries::{ModuleDeclarationsValue, module_facade_facts_query, provider_summary_query};
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use crate::{LoaderContext, RuntimeSpec, runtime_package_root_path};
 use nia_diagnostic::Diagnostic;
@@ -25,6 +27,82 @@ use nia_query::{QueryDb, QueryError, QueryFingerprintPolicy, QueryKey, QueryResu
 use nia_source::{SourceId, SourcePath};
 use nia_symbol::SymbolId;
 use std::collections::HashSet;
+
+/// Query-local memoization for facts repeatedly consulted while one module
+/// graph revision is being assembled. The first lookup still goes through the
+/// query database and records the dependency; later lookups in the same graph
+/// transaction reuse that exact immutable result without repeating slot and
+/// source-version lookup work.
+pub(crate) struct ModuleGraphFactMemo<'a> {
+    db: &'a QueryDb<LoaderContext>,
+    module_declarations: std::collections::HashMap<
+        nia_source::SourceIdentity,
+        std::sync::Arc<ModuleDeclarationsValue>,
+    >,
+    provider_summaries: std::collections::HashMap<
+        nia_source::SourceIdentity,
+        std::sync::Arc<nia_provider_summary::ProviderSummary>,
+    >,
+    module_facade_facts:
+        std::collections::HashMap<nia_source::SourceIdentity, std::sync::Arc<ModuleFacadeFacts>>,
+}
+
+impl<'a> ModuleGraphFactMemo<'a> {
+    fn new(db: &'a QueryDb<LoaderContext>) -> Self {
+        Self {
+            db,
+            module_declarations: std::collections::HashMap::new(),
+            provider_summaries: std::collections::HashMap::new(),
+            module_facade_facts: std::collections::HashMap::new(),
+        }
+    }
+
+    pub(crate) fn db(&self) -> &'a QueryDb<LoaderContext> {
+        self.db
+    }
+
+    pub(crate) fn module_declarations(
+        &mut self,
+        path: &SourcePath,
+    ) -> QueryResult<std::sync::Arc<ModuleDeclarationsValue>> {
+        let identity = path.identity();
+        if let Some(value) = self.module_declarations.get(&identity) {
+            return Ok(std::sync::Arc::clone(value));
+        }
+        let value = self.db.get(module_declarations_query(self.db, path)?)?;
+        self.module_declarations
+            .insert(identity, std::sync::Arc::clone(&value));
+        Ok(value)
+    }
+
+    pub(crate) fn provider_summary(
+        &mut self,
+        path: &SourcePath,
+    ) -> QueryResult<std::sync::Arc<nia_provider_summary::ProviderSummary>> {
+        let identity = path.identity();
+        if let Some(value) = self.provider_summaries.get(&identity) {
+            return Ok(std::sync::Arc::clone(value));
+        }
+        let value = self.db.get(provider_summary_query(self.db, path)?)?;
+        self.provider_summaries
+            .insert(identity, std::sync::Arc::clone(&value));
+        Ok(value)
+    }
+
+    pub(crate) fn module_facade_facts(
+        &mut self,
+        path: &SourcePath,
+    ) -> QueryResult<std::sync::Arc<ModuleFacadeFacts>> {
+        let identity = path.identity();
+        if let Some(value) = self.module_facade_facts.get(&identity) {
+            return Ok(std::sync::Arc::clone(value));
+        }
+        let value = self.db.get(module_facade_facts_query(self.db, path)?)?;
+        self.module_facade_facts
+            .insert(identity, std::sync::Arc::clone(&value));
+        Ok(value)
+    }
+}
 
 #[derive(Debug)]
 pub(crate) enum TraversalError {
@@ -144,6 +222,7 @@ fn build_module_graph(
         .map_err(|error| db.invalid_input(&ModuleGraphQuery, error.to_string()))?;
     let mut fresh_diagnostics = Vec::new();
     let mut pending_trait_provider_imports = Vec::new();
+    let mut fact_memo = ModuleGraphFactMemo::new(db);
     let (mut graph, prior_diagnostics, mut index) = match seed {
         Some(value) => {
             let mut graph = (*value.semantic).clone();
@@ -152,7 +231,12 @@ fn build_module_graph(
                 match &demand.request {
                     nia_loader_contract::ProviderRequest::ModuleSemantic { module_path } => {
                         record_traversal_diagnostic(
-                            activate_semantic_provider_module(db, &mut graph, module_path),
+                            activate_semantic_provider_module(
+                                db,
+                                &mut graph,
+                                module_path,
+                                &mut fact_memo,
+                            ),
                             &mut fresh_diagnostics,
                             module_path,
                         )?;
@@ -162,7 +246,12 @@ fn build_module_graph(
                             graph.module_id_for_source_identity(&module_path.identity())
                         {
                             record_traversal_diagnostic(
-                                mark_process_used_paths_and_process(db, &mut graph, module_id),
+                                mark_process_used_paths_and_process(
+                                    db,
+                                    &mut graph,
+                                    module_id,
+                                    &mut fact_memo,
+                                ),
                                 &mut fresh_diagnostics,
                                 module_path,
                             )?;
@@ -178,15 +267,15 @@ fn build_module_graph(
                 .cloned()
                 .collect::<Vec<_>>();
             for node in existing_nodes {
-                let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+                let declarations = fact_memo.module_declarations(&node.path)?;
                 apply_provider_demands(
-                    db,
                     &mut graph,
                     &node,
                     &declarations.semantic.explicit_imports,
                     new_provider_demands,
                     &mut fresh_diagnostics,
                     &mut pending_trait_provider_imports,
+                    &mut fact_memo,
                 )?;
             }
             process_pending_trait_provider_imports(
@@ -194,6 +283,7 @@ fn build_module_graph(
                 &mut graph,
                 &mut pending_trait_provider_imports,
                 &mut fresh_diagnostics,
+                &mut fact_memo,
             )?;
             (graph, value.diagnostics.clone(), existing_modules)
         }
@@ -220,11 +310,11 @@ fn build_module_graph(
         let Some(node) = node else {
             break;
         };
-        let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+        let declarations = fact_memo.module_declarations(&node.path)?;
         mount_module_packages(db, &mut graph, &node, &declarations.semantic.package_roots)?;
         if should_eager_add_declarations(db.context(), &node) {
             record_traversal_diagnostic(
-                add_declared_module_children(db, &mut graph, node.id),
+                add_declared_module_children(db, &mut graph, node.id, &mut fact_memo),
                 &mut fresh_diagnostics,
                 &node.path,
             )?;
@@ -232,26 +322,27 @@ fn build_module_graph(
         if should_process_used_module_paths(db.context(), &node) {
             for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
                 record_traversal_diagnostic(
-                    add_used_module_path(db, &mut graph, node.id, &path),
+                    add_used_module_path(db, &mut graph, node.id, &path, &mut fact_memo),
                     &mut fresh_diagnostics,
                     &node.path,
                 )?;
             }
         }
         apply_provider_demands(
-            db,
             &mut graph,
             &node,
             &declarations.semantic.explicit_imports,
             new_provider_demands,
             &mut fresh_diagnostics,
             &mut pending_trait_provider_imports,
+            &mut fact_memo,
         )?;
         process_pending_trait_provider_imports(
             db,
             &mut graph,
             &mut pending_trait_provider_imports,
             &mut fresh_diagnostics,
+            &mut fact_memo,
         )?;
         index += 1;
     }
@@ -296,11 +387,12 @@ fn process_pending_trait_provider_imports(
     graph: &mut ModuleGraph,
     pending: &mut Vec<nia_imports::ModuleId>,
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> QueryResult<()> {
     for provider in pending.drain(..) {
         if let Some(provider_node) = graph.get(provider).cloned() {
             record_traversal_diagnostic(
-                process_trait_provider_imports(db, graph, provider),
+                process_trait_provider_imports(db, graph, provider, fact_memo),
                 diagnostics,
                 &provider_node.path,
             )?;
@@ -316,6 +408,7 @@ fn process_trait_provider_imports(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
     if !graph.mark_semantic_selected(module_id) {
         return Ok(());
@@ -323,7 +416,7 @@ fn process_trait_provider_imports(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
-    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+    let declarations = fact_memo.module_declarations(&node.path)?;
     mount_module_packages(db, graph, &node, &declarations.semantic.package_roots)?;
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
         if matches!(
@@ -338,7 +431,7 @@ fn process_trait_provider_imports(
             continue;
         };
         if let Some(package) = path.activates_package_facade() {
-            activate_package_facade(db, graph, module_id, package)?;
+            activate_package_facade(db, graph, module_id, package, fact_memo)?;
         }
         let shallow_path = path.with_appended_segments_with_processing_mode(
             &[],
@@ -346,18 +439,18 @@ fn process_trait_provider_imports(
             UsedModulePathProcessing::Never,
         );
         let Some(imported) = add_visible_declared_module_path(
-            db,
             graph,
             module_id,
             start,
             shallow_path.segments(),
             shallow_path.processing(),
+            fact_memo,
         )?
         else {
             continue;
         };
         if shallow_path.include_declared_children() {
-            add_declared_module_children(db, graph, imported)?;
+            add_declared_module_children(db, graph, imported, fact_memo)?;
         }
     }
     Ok(())
@@ -382,17 +475,19 @@ fn activate_semantic_provider_module(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     module_path: &SourcePath,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
     let Some(module_id) = graph.module_id_for_source_identity(&module_path.identity()) else {
         return Ok(());
     };
-    mark_semantic_used_paths_and_process(db, graph, module_id)
+    mark_semantic_used_paths_and_process(db, graph, module_id, fact_memo)
 }
 
 fn mark_semantic_used_paths_and_process(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
     if !graph.mark_semantic_selected(module_id) {
         return Ok(());
@@ -400,7 +495,7 @@ fn mark_semantic_used_paths_and_process(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
-    process_semantic_module_dependencies(db, graph, &node)
+    process_semantic_module_dependencies(db, graph, &node, fact_memo)
 }
 
 /// Processes a selected module's semantic dependencies without promoting it
@@ -410,11 +505,12 @@ fn process_semantic_module_dependencies(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     node: &ModuleNode,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
-    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+    let declarations = fact_memo.module_declarations(&node.path)?;
     mount_module_packages(db, graph, node, &declarations.semantic.package_roots)?;
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
-        add_semantic_used_module_path(db, graph, node.id, &path)?;
+        add_semantic_used_module_path(db, graph, node.id, &path, fact_memo)?;
     }
     Ok(())
 }
@@ -424,13 +520,14 @@ fn add_semantic_used_module_path(
     graph: &mut ModuleGraph,
     current_module: nia_imports::ModuleId,
     path: &UsedModulePath,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
     if matches!(
         path.processing(),
         UsedModulePathProcessing::IfProvidesExtensions
             | UsedModulePathProcessing::IfProvidesTraitMethod { .. }
     ) {
-        return add_used_module_path(db, graph, current_module, path);
+        return add_used_module_path(db, graph, current_module, path, fact_memo);
     }
     if path.processing() == UsedModulePathProcessing::Never {
         return Ok(());
@@ -439,7 +536,7 @@ fn add_semantic_used_module_path(
         return Ok(());
     };
     if let Some(package) = path.activates_package_facade() {
-        activate_package_facade(db, graph, current_module, package)?;
+        activate_package_facade(db, graph, current_module, package, fact_memo)?;
     }
     let shallow_path = path.with_appended_segments_with_processing_mode(
         &[],
@@ -447,31 +544,32 @@ fn add_semantic_used_module_path(
         UsedModulePathProcessing::Never,
     );
     let Some(module_id) = add_visible_declared_module_path(
-        db,
         graph,
         current_module,
         start,
         shallow_path.segments(),
         shallow_path.processing(),
+        fact_memo,
     )?
     else {
         return Ok(());
     };
     if shallow_path.include_declared_children() {
-        add_declared_module_children(db, graph, module_id)?;
+        add_declared_module_children(db, graph, module_id, fact_memo)?;
     }
-    mark_semantic_used_paths_and_process(db, graph, module_id)
+    mark_semantic_used_paths_and_process(db, graph, module_id, fact_memo)
 }
 
 fn apply_provider_demands(
-    db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     node: &ModuleNode,
     imports: &[crate::used_paths::ExplicitUsingImport],
     provider_demands: &std::collections::HashSet<nia_loader_contract::ProviderDemand>,
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
     pending_trait_provider_imports: &mut Vec<nia_imports::ModuleId>,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> QueryResult<()> {
+    let db = fact_memo.db();
     let mut demands = provider_demands
         .iter()
         .filter(|demand| demand.source_path.identity() == node.path.identity())
@@ -501,7 +599,7 @@ fn apply_provider_demands(
         if let nia_loader_contract::ProviderRequest::ModuleSemantic { module_path } = demand.request
         {
             record_traversal_diagnostic(
-                activate_semantic_provider_module(db, graph, &module_path),
+                activate_semantic_provider_module(db, graph, &module_path, fact_memo),
                 diagnostics,
                 &module_path,
             )?;
@@ -518,6 +616,7 @@ fn apply_provider_demands(
             &demand.request,
             diagnostics,
             pending_trait_provider_imports,
+            fact_memo,
         )?;
         if let nia_loader_contract::ProviderRequest::TraitImpl { .. } = &demand.request {
             continue;
@@ -541,7 +640,7 @@ fn apply_provider_demands(
                     .path
                     .with_appended_segments_with_processing_mode(&[], false, processing);
             record_traversal_diagnostic(
-                add_used_module_path(db, graph, node.id, &path),
+                add_used_module_path(db, graph, node.id, &path, fact_memo),
                 diagnostics,
                 &node.path,
             )?;
@@ -560,6 +659,7 @@ fn apply_trait_demand(
     request: &nia_loader_contract::ProviderRequest,
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
     pending_trait_provider_imports: &mut Vec<nia_imports::ModuleId>,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> QueryResult<()> {
     let (target_type_name, target_module_segments, packages, wanted) = match request {
         nia_loader_contract::ProviderRequest::TraitImpl {
@@ -621,7 +721,6 @@ fn apply_trait_demand(
         };
         let package = root.module_path.package;
         TraitProviderSearch {
-            db,
             graph,
             package,
             target_type_name,
@@ -630,7 +729,7 @@ fn apply_trait_demand(
             visited: &mut visited,
             providers: &mut providers,
         }
-        .collect(&root.path, &root.module_path, &[])?;
+        .collect(&root.path, &root.module_path, &[], fact_memo)?;
     }
     for (package, segments) in providers {
         record_traversal_diagnostic(
@@ -641,6 +740,7 @@ fn apply_trait_demand(
                 package,
                 &segments,
                 pending_trait_provider_imports,
+                fact_memo,
             ),
             diagnostics,
             &requesting_node.path,
@@ -656,6 +756,7 @@ fn add_package_trait_provider(
     package: SymbolId,
     segments: &[SymbolId],
     pending_trait_provider_imports: &mut Vec<nia_imports::ModuleId>,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
     let Some(mut current) = graph.package_root(&package) else {
         return Ok(());
@@ -664,7 +765,7 @@ fn add_package_trait_provider(
         // Implementation discovery follows ownership, not the caller's name
         // visibility. Each declaration is accessed from its own parent.
         let Some(next) = add_visible_declared_module_child_if_present(
-            db, graph, current, current, segment, false,
+            db, graph, current, current, segment, false, fact_memo,
         )?
         else {
             return Ok(());
@@ -691,7 +792,6 @@ enum TraitProviderMatch<'a> {
 }
 
 struct TraitProviderSearch<'a> {
-    db: &'a QueryDb<LoaderContext>,
     graph: &'a ModuleGraph,
     package: SymbolId,
     target_type_name: Option<SymbolId>,
@@ -707,6 +807,7 @@ impl TraitProviderSearch<'_> {
         parent_path: &SourcePath,
         parent_module_path: &ModulePath,
         segments: &[SymbolId],
+        fact_memo: &mut ModuleGraphFactMemo<'_>,
     ) -> QueryResult<()> {
         // Package-owned discovery can walk a large standard or dependency
         // package. Keep the traversal worklist based so module depth cannot
@@ -717,9 +818,7 @@ impl TraitProviderSearch<'_> {
             segments.to_vec(),
         )];
         while let Some((path, module_path, path_segments)) = pending.pop() {
-            let summary = self
-                .db
-                .get(crate::queries::provider_summary_query(self.db, &path)?)?;
+            let summary = fact_memo.provider_summary(&path)?;
             let matches = match &self.wanted {
                 TraitProviderMatch::Trait {
                     trait_name,
@@ -743,7 +842,7 @@ impl TraitProviderSearch<'_> {
             if matches {
                 self.providers.push((self.package, path_segments.clone()));
             }
-            let declarations = self.db.get(module_declarations_query(self.db, &path)?)?;
+            let declarations = fact_memo.module_declarations(&path)?;
             for declaration in declarations.semantic.declarations.iter().rev() {
                 let child_path = self.graph.declared_child_source_path_for(
                     &path,
@@ -785,26 +884,27 @@ fn add_used_module_path(
     graph: &mut ModuleGraph,
     current_module: nia_imports::ModuleId,
     path: &UsedModulePath,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
     let Some(start) = used_path_start(graph, current_module, path) else {
         return Ok(());
     };
     if let Some(package) = path.activates_package_facade() {
-        activate_package_facade(db, graph, current_module, package)?;
+        activate_package_facade(db, graph, current_module, package, fact_memo)?;
     }
     let Some(module_id) = add_visible_declared_module_path(
-        db,
         graph,
         current_module,
         start,
         path.segments(),
         path.processing(),
+        fact_memo,
     )?
     else {
         return Ok(());
     };
     if path.include_declared_children() {
-        add_declared_module_children(db, graph, module_id)?;
+        add_declared_module_children(db, graph, module_id, fact_memo)?;
     }
     Ok(())
 }
@@ -814,6 +914,7 @@ fn activate_package_facade(
     graph: &mut ModuleGraph,
     current_module: nia_imports::ModuleId,
     package: SymbolId,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
     let Some(package) = graph
         .root_module_for_name(current_module, package)
@@ -831,10 +932,10 @@ fn activate_package_facade(
     let Some(node) = graph.get(root).cloned() else {
         return Ok(());
     };
-    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+    let declarations = fact_memo.module_declarations(&node.path)?;
     mount_module_packages(db, graph, &node, &declarations.semantic.package_roots)?;
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
-        add_used_module_path(db, graph, root, &path)?;
+        add_used_module_path(db, graph, root, &path, fact_memo)?;
     }
     Ok(())
 }
@@ -860,6 +961,7 @@ pub(crate) fn mark_process_used_paths_and_process(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
     if !graph.mark_process_used_paths(module_id) {
         return Ok(());
@@ -867,10 +969,10 @@ pub(crate) fn mark_process_used_paths_and_process(
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
-    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+    let declarations = fact_memo.module_declarations(&node.path)?;
     mount_module_packages(db, graph, &node, &declarations.semantic.package_roots)?;
     for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
-        add_used_module_path(db, graph, module_id, &path)?;
+        add_used_module_path(db, graph, module_id, &path, fact_memo)?;
     }
     Ok(())
 }
@@ -887,21 +989,21 @@ fn ordered_used_module_paths(paths: &[UsedModulePath]) -> Vec<UsedModulePath> {
 }
 
 pub(crate) fn add_visible_declared_module_path(
-    db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     accessing_module: nia_imports::ModuleId,
     start: nia_imports::ModuleId,
     segments: &[SymbolId],
     processing: UsedModulePathProcessing,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<Option<nia_imports::ModuleId>> {
     add_visible_declared_module_path_following(
-        db,
         graph,
         accessing_module,
         start,
         segments,
         processing,
         &mut Vec::new(),
+        fact_memo,
     )
 }
 
@@ -915,33 +1017,34 @@ pub(crate) fn add_visible_declared_module_path(
 pub(crate) type ReexportStack = Vec<(nia_imports::ModuleId, SymbolId)>;
 
 pub(crate) fn add_visible_declared_module_path_following(
-    db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     accessing_module: nia_imports::ModuleId,
     start: nia_imports::ModuleId,
     segments: &[SymbolId],
     processing: UsedModulePathProcessing,
     reexports: &mut ReexportStack,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<Option<nia_imports::ModuleId>> {
+    let db = fact_memo.db();
     let mut current = start;
     if processing == UsedModulePathProcessing::Always && segments.is_empty() {
-        mark_process_used_paths_and_process(db, graph, current)?;
+        mark_process_used_paths_and_process(db, graph, current, fact_memo)?;
     }
     if segments.is_empty() {
         match processing {
             UsedModulePathProcessing::IfSelectedItem => {
-                mark_process_used_paths_and_process(db, graph, current)?;
+                mark_process_used_paths_and_process(db, graph, current, fact_memo)?;
             }
             UsedModulePathProcessing::IfProvidesExtensions
-                if module_defines_extensions(db, graph, current)? =>
+                if module_defines_extensions(graph, current, fact_memo)? =>
             {
-                mark_process_used_paths_and_process(db, graph, current)?;
+                mark_process_used_paths_and_process(db, graph, current, fact_memo)?;
             }
             _ => {}
         }
     }
     if segments.is_empty() {
-        process_provider_request(db, graph, accessing_module, current, &processing)?;
+        process_provider_request(graph, accessing_module, current, &processing, fact_memo)?;
     }
     for (index, segment) in segments.iter().enumerate() {
         let is_terminal = index + 1 == segments.len();
@@ -954,41 +1057,42 @@ pub(crate) fn add_visible_declared_module_path_following(
             current,
             segment,
             process_segment_used_paths,
+            fact_memo,
         )?
         else {
             let reexport_facade = current;
             let source_processing = (processing == UsedModulePathProcessing::Never)
                 .then_some(UsedModulePathProcessing::Never);
             let Some(reexport_source) = add_public_reexport_source_module(
-                db,
                 graph,
                 current,
                 segment,
                 source_processing,
                 reexports,
+                fact_memo,
             )?
             else {
                 match processing {
                     UsedModulePathProcessing::Always => {
-                        mark_process_used_paths_and_process(db, graph, current)?;
+                        mark_process_used_paths_and_process(db, graph, current, fact_memo)?;
                     }
                     UsedModulePathProcessing::IfSelectedItem => {
-                        mark_semantic_used_paths_and_process(db, graph, current)?;
+                        mark_semantic_used_paths_and_process(db, graph, current, fact_memo)?;
                     }
                     _ => {}
                 }
                 return Ok(Some(current));
             };
             if processing == UsedModulePathProcessing::Always && !is_terminal {
-                mark_process_used_paths_and_process(db, graph, current)?;
+                mark_process_used_paths_and_process(db, graph, current, fact_memo)?;
             }
             process_reexport_provider_request(
-                db,
                 graph,
                 accessing_module,
                 reexport_facade,
                 segment,
                 &processing,
+                fact_memo,
             )?;
             current = reexport_source;
             if matches!(
@@ -996,31 +1100,31 @@ pub(crate) fn add_visible_declared_module_path_following(
                 UsedModulePathProcessing::Always | UsedModulePathProcessing::IfSelectedItem
             ) && is_terminal
             {
-                mark_process_used_paths_and_process(db, graph, current)?;
+                mark_process_used_paths_and_process(db, graph, current, fact_memo)?;
             }
             if is_terminal {
-                process_provider_request(db, graph, accessing_module, current, &processing)?;
+                process_provider_request(graph, accessing_module, current, &processing, fact_memo)?;
             }
             continue;
         };
         current = next;
         if processing.is_provider_demand() {
-            process_provider_request(db, graph, accessing_module, current, &processing)?;
+            process_provider_request(graph, accessing_module, current, &processing, fact_memo)?;
         }
         if processing == UsedModulePathProcessing::IfSelectedItem
             && is_terminal
-            && module_defines_extensions(db, graph, current)?
+            && module_defines_extensions(graph, current, fact_memo)?
         {
-            mark_process_used_paths_and_process(db, graph, current)?;
+            mark_process_used_paths_and_process(db, graph, current, fact_memo)?;
         }
         if processing == UsedModulePathProcessing::IfProvidesExtensions
             && is_terminal
-            && module_defines_extensions(db, graph, current)?
+            && module_defines_extensions(graph, current, fact_memo)?
         {
-            mark_process_used_paths_and_process(db, graph, current)?;
+            mark_process_used_paths_and_process(db, graph, current, fact_memo)?;
         }
         if is_terminal && !processing.is_provider_demand() {
-            process_provider_request(db, graph, accessing_module, current, &processing)?;
+            process_provider_request(graph, accessing_module, current, &processing, fact_memo)?;
         }
     }
     Ok(Some(current))
@@ -1030,13 +1134,14 @@ fn add_declared_module_children(
     db: &QueryDb<LoaderContext>,
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(());
     };
-    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+    let declarations = fact_memo.module_declarations(&node.path)?;
     for declaration in declarations.semantic.declarations.iter().cloned() {
-        add_declared_module_child(db, graph, module_id, declaration)?;
+        add_declared_module_child(db, graph, module_id, declaration, fact_memo)?;
     }
     Ok(())
 }
@@ -1048,20 +1153,21 @@ pub(crate) fn add_visible_declared_module_child_if_present(
     module_id: nia_imports::ModuleId,
     name: &SymbolId,
     process_used_paths: bool,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<Option<nia_imports::ModuleId>> {
     if let Some(existing) = graph
         .get(module_id)
         .and_then(|node| node.children.get(name).copied())
     {
         if process_used_paths {
-            mark_process_used_paths_and_process(db, graph, existing)?;
+            mark_process_used_paths_and_process(db, graph, existing, fact_memo)?;
         }
         return Ok(Some(existing));
     }
     let Some(node) = graph.get(module_id).cloned() else {
         return Ok(None);
     };
-    let declarations = db.get(module_declarations_query(db, &node.path)?)?;
+    let declarations = fact_memo.module_declarations(&node.path)?;
     let Some(declaration) = declarations
         .semantic
         .declarations
@@ -1086,6 +1192,7 @@ pub(crate) fn add_visible_declared_module_child_if_present(
         declaration,
         process_used_paths,
         false,
+        fact_memo,
     )
     .map(Some)
 }
@@ -1095,8 +1202,17 @@ fn add_declared_module_child(
     graph: &mut ModuleGraph,
     module_id: nia_imports::ModuleId,
     declaration: ResolvedModuleDeclaration,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<nia_imports::ModuleId> {
-    add_declared_module_child_with_processing(db, graph, module_id, declaration, true, true)
+    add_declared_module_child_with_processing(
+        db,
+        graph,
+        module_id,
+        declaration,
+        true,
+        true,
+        fact_memo,
+    )
 }
 
 fn add_declared_module_child_with_processing(
@@ -1106,13 +1222,14 @@ fn add_declared_module_child_with_processing(
     declaration: ResolvedModuleDeclaration,
     process_used_paths: bool,
     process_declared_children: bool,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<nia_imports::ModuleId> {
     if let Some(existing) = graph
         .get(module_id)
         .and_then(|node| node.children.get(&declaration.name).copied())
     {
         if process_used_paths {
-            mark_process_used_paths_and_process(db, graph, existing)?;
+            mark_process_used_paths_and_process(db, graph, existing, fact_memo)?;
         }
         if process_declared_children {
             graph.mark_process_declared_children(existing);

@@ -250,6 +250,21 @@ pub(super) fn emit_compilation_counters(
         "query.max_dependency_fanout",
         dependency_fanout.values().copied().max().unwrap_or(0),
     );
+    let mut query_kind_stats = std::collections::BTreeMap::<&str, (u64, u64, u64)>::new();
+    for query in traces.iter().flat_map(|trace| trace.queries.iter()) {
+        let stats = query_kind_stats.entry(query.frame.name).or_default();
+        stats.0 += query.stats.executions as u64;
+        stats.1 += query.stats.cache_hits as u64;
+        stats.2 += query.stats.validations as u64;
+    }
+    for (query_name, (executions, cache_hits, validations)) in query_kind_stats {
+        nia_timing::emit_counter(format!("query.executions.by_kind.{query_name}"), executions);
+        nia_timing::emit_counter(format!("query.cache_hits.by_kind.{query_name}"), cache_hits);
+        nia_timing::emit_counter(
+            format!("query.validations.by_kind.{query_name}"),
+            validations,
+        );
+    }
     for (counter, query_name) in [
         ("query.executions.parsed_module", "parsed_module"),
         (
