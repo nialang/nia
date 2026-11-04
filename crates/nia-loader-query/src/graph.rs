@@ -24,9 +24,9 @@ use nia_imports::{
 };
 use nia_loader_contract::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_query::{QueryDb, QueryError, QueryFingerprintPolicy, QueryKey, QueryResult};
-use nia_source::{SourceId, SourcePath};
+use nia_source::{SourceId, SourceIdentity, SourcePath};
 use nia_symbol::SymbolId;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Query-local memoization for facts repeatedly consulted while one module
 /// graph revision is being assembled. The first lookup still goes through the
@@ -223,6 +223,16 @@ fn build_module_graph(
     let mut fresh_diagnostics = Vec::new();
     let mut pending_trait_provider_imports = Vec::new();
     let mut fact_memo = ModuleGraphFactMemo::new(db);
+    let mut provider_demands_by_source = HashMap::<SourceIdentity, Vec<&_>>::new();
+    for demand in new_provider_demands {
+        provider_demands_by_source
+            .entry(demand.source_path.identity())
+            .or_default()
+            .push(demand);
+    }
+    for demands in provider_demands_by_source.values_mut() {
+        demands.sort_unstable_by_key(|demand| provider_demand_order(demand));
+    }
     let (mut graph, prior_diagnostics, mut index) = match seed {
         Some(value) => {
             let mut graph = (*value.semantic).clone();
@@ -267,12 +277,31 @@ fn build_module_graph(
                 .cloned()
                 .collect::<Vec<_>>();
             for node in existing_nodes {
-                let declarations = fact_memo.module_declarations(&node.path)?;
+                let Some(demands) = provider_demands_by_source
+                    .get(&node.path.identity())
+                    .map(Vec::as_slice)
+                else {
+                    continue;
+                };
+                let declarations = demands
+                    .iter()
+                    .any(|demand| {
+                        matches!(
+                            &demand.request,
+                            nia_loader_contract::ProviderRequest::Method { .. }
+                        )
+                    })
+                    .then(|| fact_memo.module_declarations(&node.path))
+                    .transpose()?;
+                let imports = declarations
+                    .as_ref()
+                    .map(|declarations| declarations.semantic.explicit_imports.as_slice())
+                    .unwrap_or_default();
                 apply_provider_demands(
                     &mut graph,
                     &node,
-                    &declarations.semantic.explicit_imports,
-                    new_provider_demands,
+                    imports,
+                    demands,
                     &mut fresh_diagnostics,
                     &mut pending_trait_provider_imports,
                     &mut fact_memo,
@@ -332,7 +361,10 @@ fn build_module_graph(
             &mut graph,
             &node,
             &declarations.semantic.explicit_imports,
-            new_provider_demands,
+            provider_demands_by_source
+                .get(&node.path.identity())
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
             &mut fresh_diagnostics,
             &mut pending_trait_provider_imports,
             &mut fact_memo,
@@ -564,18 +596,72 @@ fn apply_provider_demands(
     graph: &mut ModuleGraph,
     node: &ModuleNode,
     imports: &[crate::used_paths::ExplicitUsingImport],
-    provider_demands: &std::collections::HashSet<nia_loader_contract::ProviderDemand>,
+    demands: &[&nia_loader_contract::ProviderDemand],
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
     pending_trait_provider_imports: &mut Vec<nia_imports::ModuleId>,
     fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> QueryResult<()> {
     let db = fact_memo.db();
-    let mut demands = provider_demands
-        .iter()
-        .filter(|demand| demand.source_path.identity() == node.path.identity())
-        .cloned()
-        .collect::<Vec<_>>();
-    demands.sort_unstable_by_key(|demand| match &demand.request {
+    for demand in demands {
+        if let nia_loader_contract::ProviderRequest::ModuleSemantic { module_path } =
+            &demand.request
+        {
+            record_traversal_diagnostic(
+                activate_semantic_provider_module(db, graph, module_path, fact_memo),
+                diagnostics,
+                module_path,
+            )?;
+            continue;
+        }
+        // Trait implementations are package-owned facts: the owner packages
+        // are searched, and `using` paths never add a third package to the
+        // candidate set. A method demand also searches the importing module's
+        // scope below, which is where inherent extension methods come from.
+        apply_trait_demand(
+            db,
+            graph,
+            node,
+            &demand.request,
+            diagnostics,
+            pending_trait_provider_imports,
+            fact_memo,
+        )?;
+        if matches!(
+            &demand.request,
+            nia_loader_contract::ProviderRequest::TraitImpl { .. }
+        ) {
+            continue;
+        }
+        for import in imports {
+            let processing = match &demand.request {
+                nia_loader_contract::ProviderRequest::Method {
+                    target_type_name,
+                    method_name,
+                    ..
+                } => UsedModulePathProcessing::IfProvidesTraitMethod {
+                    target_type_name: *target_type_name,
+                    associated_name: *method_name,
+                },
+                nia_loader_contract::ProviderRequest::ModuleSemantic { .. } => continue,
+                nia_loader_contract::ProviderRequest::ModuleBody { .. } => continue,
+                nia_loader_contract::ProviderRequest::TraitImpl { .. } => continue,
+            };
+            let path =
+                import
+                    .path
+                    .with_appended_segments_with_processing_mode(&[], false, processing);
+            record_traversal_diagnostic(
+                add_used_module_path(db, graph, node.id, &path, fact_memo),
+                diagnostics,
+                &node.path,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn provider_demand_order(demand: &nia_loader_contract::ProviderDemand) -> u8 {
+    match &demand.request {
         nia_loader_contract::ProviderRequest::ModuleSemantic { .. }
         | nia_loader_contract::ProviderRequest::ModuleBody { .. } => 0,
         nia_loader_contract::ProviderRequest::Method {
@@ -594,59 +680,7 @@ fn apply_provider_demands(
             target_type_name: None,
             ..
         } => 2,
-    });
-    for demand in demands {
-        if let nia_loader_contract::ProviderRequest::ModuleSemantic { module_path } = demand.request
-        {
-            record_traversal_diagnostic(
-                activate_semantic_provider_module(db, graph, &module_path, fact_memo),
-                diagnostics,
-                &module_path,
-            )?;
-            continue;
-        }
-        // Trait implementations are package-owned facts: the owner packages
-        // are searched, and `using` paths never add a third package to the
-        // candidate set. A method demand also searches the importing module's
-        // scope below, which is where inherent extension methods come from.
-        apply_trait_demand(
-            db,
-            graph,
-            node,
-            &demand.request,
-            diagnostics,
-            pending_trait_provider_imports,
-            fact_memo,
-        )?;
-        if let nia_loader_contract::ProviderRequest::TraitImpl { .. } = &demand.request {
-            continue;
-        }
-        for import in imports {
-            let processing = match demand.request {
-                nia_loader_contract::ProviderRequest::Method {
-                    target_type_name,
-                    method_name,
-                    ..
-                } => UsedModulePathProcessing::IfProvidesTraitMethod {
-                    target_type_name,
-                    associated_name: method_name,
-                },
-                nia_loader_contract::ProviderRequest::ModuleSemantic { .. } => continue,
-                nia_loader_contract::ProviderRequest::ModuleBody { .. } => continue,
-                nia_loader_contract::ProviderRequest::TraitImpl { .. } => continue,
-            };
-            let path =
-                import
-                    .path
-                    .with_appended_segments_with_processing_mode(&[], false, processing);
-            record_traversal_diagnostic(
-                add_used_module_path(db, graph, node.id, &path, fact_memo),
-                diagnostics,
-                &node.path,
-            )?;
-        }
     }
-    Ok(())
 }
 
 /// Searches the packages that own a demanded implementation and adds an
