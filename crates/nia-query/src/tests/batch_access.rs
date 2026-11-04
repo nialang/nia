@@ -143,6 +143,26 @@ fn get_many_owned_records_dependencies_from_parent_query() {
 }
 
 #[test]
+fn map_tasks_records_dependencies_from_parent_query() {
+    let db = QueryDb::new_for_test(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+
+    assert_eq!(*db.expect_get(QueryTaskBatchParent), 14);
+    let invalidation = db
+        .invalidate(Double(5))
+        .expect("invalidate a task query dependency");
+
+    assert!(
+        invalidation
+            .invalidated
+            .iter()
+            .any(|frame| frame.name == "query_task_batch_parent"),
+        "task query dependencies must invalidate their parent"
+    );
+}
+
+#[test]
 fn get_many_owned_uses_the_session_executor_budget() {
     let session = QuerySession::with_parallelism(2);
     let db = QueryDb::new_with_timings_in_session(

@@ -68,10 +68,10 @@ fn additive_provider_graph_growth_reuses_existing_executable_facts() {
             session
                 .caches
                 .body_resolution_inputs
-                .borrow()
+                .lock()
                 .contains_key(&entry_id)
         );
-        assert!(session.caches.fact_layouts.borrow().contains_key(&entry_id));
+        assert!(session.caches.fact_layouts.lock().contains_key(&entry_id));
     }
 
     fixture.add_child(
@@ -87,10 +87,10 @@ fn additive_provider_graph_growth_reuses_existing_executable_facts() {
         session
             .caches
             .body_resolution_inputs
-            .borrow()
+            .lock()
             .contains_key(&entry_id)
     );
-    assert!(session.caches.fact_layouts.borrow().contains_key(&entry_id));
+    assert!(session.caches.fact_layouts.lock().contains_key(&entry_id));
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn additive_module_growth_discards_diagnostic_executable_facts() {
     assert_eq!(stats.discarded_functions, discarded_functions);
     assert!(stats.reset_reachability);
     assert!(!session.modules.contains_key(&entry_id));
-    assert!(!session.caches.fact_layouts.borrow().contains_key(&entry_id));
+    assert!(!session.caches.fact_layouts.lock().contains_key(&entry_id));
 }
 
 #[test]
@@ -243,10 +243,10 @@ fn provider_changes_discard_affected_executable_fact_caches() {
         !session
             .caches
             .body_resolution_inputs
-            .borrow()
+            .lock()
             .contains_key(&entry_id)
     );
-    assert!(!session.caches.fact_layouts.borrow().contains_key(&entry_id));
+    assert!(!session.caches.fact_layouts.lock().contains_key(&entry_id));
     assert_eq!(
         session.applied_provider_fact_revision,
         Some(next_revision(revision))

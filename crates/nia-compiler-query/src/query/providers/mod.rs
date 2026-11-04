@@ -44,7 +44,8 @@ pub(in crate::query) use self::body_check_flow::{
 };
 use self::body_executable::*;
 pub(in crate::query) use self::body_executable::{
-    ExecutableFactLayoutCacheEntry, ExecutableValueRefEdges, provide_executable_function_body,
+    ExecutableArrayLengthCacheKey, ExecutableFactLayoutCacheEntry,
+    ExecutableGlobalInitializerCacheKey, ExecutableValueRefEdges, provide_executable_function_body,
     provide_executable_static_init, provide_executable_value_ref_edges,
 };
 use self::body_signature_lookup::*;

@@ -111,8 +111,6 @@ impl QueryKey<TestContext> for ParallelRecursive {
         Ok(db
             .get_many_with([ParallelRecursiveChild], QueryDb::get)?
             .into_iter()
-            .collect::<QueryResult<Vec<_>>>()?
-            .into_iter()
             .map(|value| *value)
             .sum())
     }

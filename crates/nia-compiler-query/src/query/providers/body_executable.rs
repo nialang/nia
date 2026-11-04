@@ -21,11 +21,24 @@ pub(in crate::query) struct ExecutableFactLayoutCacheEntry {
     layouts: ModuleLayouts,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(in crate::query) struct ExecutableArrayLengthCacheKey {
+    pub(in crate::query) module_id: ModuleId,
+    pub(in crate::query) uses_body_facts: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(in crate::query) struct ExecutableGlobalInitializerCacheKey {
+    pub(in crate::query) global_id: GlobalDefId,
+    pub(in crate::query) uses_signature_facts: bool,
+}
+
 #[derive(Clone, Copy, Default)]
 pub(super) struct ExecutableLayoutCaches<'a> {
-    pub(super) array_lengths:
-        Option<&'a RefCell<HashMap<ModuleId, nia_const_check::ConstArrayLengths>>>,
-    pub(super) fact_layouts: Option<&'a RefCell<HashMap<ModuleId, ExecutableFactLayoutCacheEntry>>>,
+    pub(super) array_lengths: Option<
+        &'a Mutex<HashMap<ExecutableArrayLengthCacheKey, nia_const_check::ConstArrayLengths>>,
+    >,
+    pub(super) fact_layouts: Option<&'a Mutex<HashMap<ModuleId, ExecutableFactLayoutCacheEntry>>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -414,9 +427,11 @@ fn const_inputs_for_body_check(
     module: ConstBodyModuleInput<'_>,
     fact_mode: ExecutableFactMode<'_>,
     global_initializer_cache: Option<
-        &RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
+        &Mutex<
+            HashMap<ExecutableGlobalInitializerCacheKey, Option<nia_const_ir::ResolvedConstExpr>>,
+        >,
     >,
-    const_module_cache: Option<&RefCell<HashMap<ModuleId, ConstModuleLowering>>>,
+    const_module_cache: Option<&Mutex<HashMap<ModuleId, ConstModuleLowering>>>,
 ) -> QueryResult<BodyCheckConstInputs> {
     let ConstBodyModuleInput {
         module_id,
@@ -471,12 +486,12 @@ fn const_inputs_for_body_check(
         )
     };
     let module = if let Some(cache) = const_module_cache {
-        let cached = cache.borrow().get(&module_id).cloned();
+        let cached = cache.lock().get(&module_id).cloned();
         if let Some(module) = cached {
             module
         } else {
             let module = lower_module();
-            cache.borrow_mut().insert(module_id, module.clone());
+            cache.lock().insert(module_id, module.clone());
             module
         }
     } else {
@@ -613,15 +628,19 @@ fn const_inputs_for_body_check(
     };
     let program_global_initializer = |global_id| {
         if let Some(cache) = global_initializer_cache {
-            if !cache.borrow().contains_key(&global_id) {
+            let key = ExecutableGlobalInitializerCacheKey {
+                global_id,
+                uses_signature_facts: fact_mode.signature_facts_for(global_id.module_id),
+            };
+            if !cache.lock().contains_key(&key) {
                 let initializer = capture_query_failure(
                     &query_failure,
                     executable_program_global_initializer(db, global_id, fact_mode),
                 )
                 .flatten();
-                cache.borrow_mut().insert(global_id, initializer);
+                cache.lock().insert(key, initializer);
             }
-            return cache.borrow().get(&global_id).cloned().flatten();
+            return cache.lock().get(&key).cloned().flatten();
         }
         capture_query_failure(
             &query_failure,
@@ -804,12 +823,15 @@ pub(super) struct ExecutableBodyCheckInput<'a> {
     pub fact_mode: ExecutableFactMode<'a>,
     pub resolution_inputs: Option<BodyCheckResolutionInputs>,
     pub seed: Option<nia_body_check::BodyCheckSeed<'a>>,
-    pub global_initializer_cache:
-        Option<&'a RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>>,
-    pub const_module_cache: Option<&'a RefCell<HashMap<ModuleId, ConstModuleLowering>>>,
+    pub global_initializer_cache: Option<
+        &'a Mutex<
+            HashMap<ExecutableGlobalInitializerCacheKey, Option<nia_const_ir::ResolvedConstExpr>>,
+        >,
+    >,
+    pub const_module_cache: Option<&'a Mutex<HashMap<ModuleId, ConstModuleLowering>>>,
     pub const_inputs: Option<(&'a ConstCheck, &'a nia_const_ir::ResolvedConstModule)>,
     pub program_function_signature_cache:
-        Option<&'a RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>>,
+        Option<&'a Mutex<HashMap<GlobalDefId, ProgramFunctionSignature>>>,
     pub product: nia_body_check::BodyCheckProduct,
     pub prechecked: Option<nia_body_check::PrecheckedBodyCheck>,
 }
@@ -1017,9 +1039,9 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         RefCell::new(HashMap::<GlobalDefId, ProgramFunctionSignature>::new());
     let program_function_signature = |def_id: GlobalDefId| {
         if let Some(cache) = program_function_signature_cache
-            && let Some(signature) = cache.borrow().get(&def_id)
+            && let Some(signature) = cache.lock().get(&def_id).cloned()
         {
-            return Some(signature.clone());
+            return Some(signature);
         }
         if let Some(signature) = local_program_function_signature_cache.borrow().get(&def_id) {
             return Some(signature.clone());
@@ -1057,7 +1079,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             signature,
         };
         if let Some(cache) = program_function_signature_cache {
-            cache.borrow_mut().insert(def_id, signature.clone());
+            cache.lock().insert(def_id, signature.clone());
         } else {
             local_program_function_signature_cache
                 .borrow_mut()
@@ -1610,24 +1632,28 @@ pub(super) fn executable_layouts_for_reachable_items(
         if let Some(error) = query_failure.borrow_mut().take() {
             return Err(error);
         }
-        let load_filtered_array_lengths = |target_module_id| {
-            let has_reachable_body_items = time_provider(
-                db.context().timings(),
-                "executable_layouts.local_array_lengths.reachability",
-                || {
-                    reachable_body_modules_override
-                        .map(|modules| modules.contains(target_module_id))
-                        .map(Ok)
-                        .unwrap_or_else(|| {
-                            has_reachable_executable_body_items(
-                                db,
-                                target_module_id,
-                                reachable_functions,
-                                reachable_globals,
-                            )
-                        })
-                },
-            )?;
+        let has_reachable_body_items = time_provider(
+            db.context().timings(),
+            "executable_layouts.local_array_lengths.reachability",
+            || {
+                reachable_body_modules_override
+                    .map(|modules| modules.contains(module_id))
+                    .map(Ok)
+                    .unwrap_or_else(|| {
+                        has_reachable_executable_body_items(
+                            db,
+                            module_id,
+                            reachable_functions,
+                            reachable_globals,
+                        )
+                    })
+            },
+        )?;
+        let array_lengths_cache_key = ExecutableArrayLengthCacheKey {
+            module_id,
+            uses_body_facts: has_reachable_body_items,
+        };
+        let load_filtered_array_lengths = |target_module_id, has_reachable_body_items| {
             if has_reachable_body_items {
                 time_provider(
                     db.context().timings(),
@@ -1690,7 +1716,12 @@ pub(super) fn executable_layouts_for_reachable_items(
                     let cached = time_provider(
                         db.context().timings(),
                         "executable_layouts.local_array_lengths.lookup",
-                        || array_length_cache.borrow().get(&module_id).cloned(),
+                        || {
+                            array_length_cache
+                                .lock()
+                                .get(&array_lengths_cache_key)
+                                .cloned()
+                        },
                     );
                     if let Some(array_lengths) = cached {
                         return Ok(array_lengths);
@@ -1698,17 +1729,17 @@ pub(super) fn executable_layouts_for_reachable_items(
                     let array_lengths = time_provider(
                         db.context().timings(),
                         "executable_layouts.local_array_lengths.compute",
-                        || load_filtered_array_lengths(module_id),
+                        || load_filtered_array_lengths(module_id, has_reachable_body_items),
                     )?;
                     array_length_cache
-                        .borrow_mut()
-                        .insert(module_id, array_lengths.clone());
+                        .lock()
+                        .insert(array_lengths_cache_key, array_lengths.clone());
                     Ok(array_lengths)
                 } else {
                     time_provider(
                         db.context().timings(),
                         "executable_layouts.local_array_lengths.compute",
-                        || load_filtered_array_lengths(module_id),
+                        || load_filtered_array_lengths(module_id, has_reachable_body_items),
                     )
                 }
             },
@@ -1716,7 +1747,7 @@ pub(super) fn executable_layouts_for_reachable_items(
         let layout_inputs = ExecutableFactLayoutInputs::new(&roots, &local_array_lengths);
         if let Some(cache) = caches.fact_layouts {
             let cached = cache
-                .borrow()
+                .lock()
                 .get(&module_id)
                 .filter(|entry| entry.inputs == layout_inputs)
                 .map(|entry| entry.layouts.clone());
@@ -1802,7 +1833,7 @@ pub(super) fn executable_layouts_for_reachable_items(
         }
         let layouts = store_module_layouts(db.context(), layouts)?;
         if let Some(cache) = caches.fact_layouts {
-            cache.borrow_mut().insert(
+            cache.lock().insert(
                 module_id,
                 ExecutableFactLayoutCacheEntry {
                     inputs: layout_inputs,
@@ -1819,7 +1850,9 @@ pub(super) fn executable_program_layouts<'a>(
     cache_and_failure: ExecutableProgramLayoutCache<'a>,
     reachable_functions: &'a HashSet<GlobalDefId>,
     reachable_globals: &'a HashSet<GlobalDefId>,
-    array_length_cache: Option<&'a RefCell<HashMap<ModuleId, nia_const_check::ConstArrayLengths>>>,
+    array_length_cache: Option<
+        &'a Mutex<HashMap<ExecutableArrayLengthCacheKey, nia_const_check::ConstArrayLengths>>,
+    >,
     non_function_signatures_override: Option<&'a ProgramExecutableNonFunctionSignatures>,
     reachable_body_modules_override: Option<ReachableBodyModules<'a>>,
 ) -> impl Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>> + 'a {

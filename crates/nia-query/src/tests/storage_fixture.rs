@@ -78,6 +78,26 @@ impl QueryKey<TestContext> for OwnedValueBatchParent {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct QueryTaskBatchParent;
+
+impl QueryKey<TestContext> for QueryTaskBatchParent {
+    type Value = usize;
+
+    fn name() -> &'static str {
+        "query_task_batch_parent"
+    }
+
+    fn execute_result(&self, db: &QueryDb<TestContext>) -> QueryResult<Self::Value> {
+        Ok(db
+            .map_tasks([2, 5].into_iter().map(|value| {
+                move |db: QueryDb<TestContext>| db.get(Double(value)).map(|result| *result)
+            }))?
+            .into_iter()
+            .sum())
+    }
+}
+
 struct PublishedOwnedValue {
     value: usize,
     drops: Arc<AtomicUsize>,

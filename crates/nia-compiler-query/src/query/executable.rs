@@ -7,15 +7,19 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 pub(super) struct ExecutableCheckCaches {
-    pub(super) array_lengths: RefCell<HashMap<ModuleId, nia_const_check::ConstArrayLengths>>,
-    pub(super) body_resolution_inputs: RefCell<HashMap<ModuleId, BodyCheckResolutionInputs>>,
+    pub(super) array_lengths:
+        Arc<Mutex<HashMap<ExecutableArrayLengthCacheKey, nia_const_check::ConstArrayLengths>>>,
+    pub(super) body_resolution_inputs: Arc<Mutex<HashMap<ModuleId, BodyCheckResolutionInputs>>>,
     pub(super) reachability_function_signatures:
-        RefCell<HashMap<GlobalDefId, std::sync::Arc<ProgramFunctionSignature>>>,
-    pub(super) body_function_signatures: RefCell<HashMap<GlobalDefId, ProgramFunctionSignature>>,
-    pub(super) global_initializers:
-        RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
-    pub(super) const_modules: RefCell<HashMap<ModuleId, ConstModuleLowering>>,
-    pub(super) fact_layouts: RefCell<HashMap<ModuleId, ExecutableFactLayoutCacheEntry>>,
+        Arc<Mutex<HashMap<GlobalDefId, std::sync::Arc<ProgramFunctionSignature>>>>,
+    pub(super) body_function_signatures: Arc<Mutex<HashMap<GlobalDefId, ProgramFunctionSignature>>>,
+    pub(super) global_initializers: Arc<
+        Mutex<
+            HashMap<ExecutableGlobalInitializerCacheKey, Option<nia_const_ir::ResolvedConstExpr>>,
+        >,
+    >,
+    pub(super) const_modules: Arc<Mutex<HashMap<ModuleId, ConstModuleLowering>>>,
+    pub(super) fact_layouts: Arc<Mutex<HashMap<ModuleId, ExecutableFactLayoutCacheEntry>>>,
     pub(super) observed_value_ref_functions: RefCell<HashSet<GlobalDefId>>,
     pub(super) observed_value_ref_globals: RefCell<HashSet<GlobalDefId>>,
 }
@@ -23,13 +27,13 @@ pub(super) struct ExecutableCheckCaches {
 impl Default for ExecutableCheckCaches {
     fn default() -> Self {
         Self {
-            array_lengths: RefCell::new(HashMap::new()),
-            body_resolution_inputs: RefCell::new(HashMap::new()),
-            reachability_function_signatures: RefCell::new(HashMap::new()),
-            body_function_signatures: RefCell::new(HashMap::new()),
-            global_initializers: RefCell::new(HashMap::new()),
-            const_modules: RefCell::new(HashMap::new()),
-            fact_layouts: RefCell::new(HashMap::new()),
+            array_lengths: Arc::new(Mutex::new(HashMap::new())),
+            body_resolution_inputs: Arc::new(Mutex::new(HashMap::new())),
+            reachability_function_signatures: Arc::new(Mutex::new(HashMap::new())),
+            body_function_signatures: Arc::new(Mutex::new(HashMap::new())),
+            global_initializers: Arc::new(Mutex::new(HashMap::new())),
+            const_modules: Arc::new(Mutex::new(HashMap::new())),
+            fact_layouts: Arc::new(Mutex::new(HashMap::new())),
             observed_value_ref_functions: RefCell::new(HashSet::new()),
             observed_value_ref_globals: RefCell::new(HashSet::new()),
         }
@@ -39,25 +43,25 @@ impl Default for ExecutableCheckCaches {
 impl ExecutableCheckCaches {
     fn retain_modules(&mut self, modules: &HashSet<ModuleId>) {
         self.array_lengths
-            .get_mut()
-            .retain(|module_id, _| modules.contains(module_id));
+            .lock()
+            .retain(|key, _| modules.contains(&key.module_id));
         self.body_resolution_inputs
-            .get_mut()
+            .lock()
             .retain(|module_id, _| modules.contains(module_id));
         self.reachability_function_signatures
-            .get_mut()
+            .lock()
             .retain(|def_id, _| modules.contains(&def_id.module_id));
         self.body_function_signatures
-            .get_mut()
+            .lock()
             .retain(|def_id, _| modules.contains(&def_id.module_id));
         self.global_initializers
-            .get_mut()
-            .retain(|def_id, _| modules.contains(&def_id.module_id));
+            .lock()
+            .retain(|key, _| modules.contains(&key.global_id.module_id));
         self.const_modules
-            .get_mut()
+            .lock()
             .retain(|module_id, _| modules.contains(module_id));
         self.fact_layouts
-            .get_mut()
+            .lock()
             .retain(|module_id, _| modules.contains(module_id));
         self.observed_value_ref_functions
             .get_mut()
@@ -301,7 +305,7 @@ impl ExecutableFactSession {
                 invalidates_reachability |=
                     !retained || checked_functions != state.checked_functions.len();
                 if !retained || checked_functions != state.checked_functions.len() {
-                    self.caches.fact_layouts.get_mut().remove(module_id);
+                    self.caches.fact_layouts.lock().remove(module_id);
                 }
                 retained
             });
@@ -725,7 +729,11 @@ pub(super) fn stale_executable_fact_modules(
         .filter(|module_id| reachability.modules().contains(module_id))
     {
         if executable_fact_module_is_stale(module_id, reachability_by_module, fact_by_id)
-            && executable_reachability_has_pending_body_items(db, reachability_by_module, module_id)?
+            && executable_reachability_has_pending_body_items(
+                db,
+                reachability_by_module,
+                module_id,
+            )?
         {
             stale.push_back(module_id);
         }

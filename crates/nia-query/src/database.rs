@@ -840,9 +840,7 @@ impl<C> QueryDb<C> {
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
-        self.get_many_with(keys, Self::get::<K>)?
-            .into_iter()
-            .collect()
+        self.get_many_with(keys, Self::get::<K>)
     }
 
     /// Evaluates owned queries in parallel and returns consumed values in input order.
@@ -851,9 +849,56 @@ impl<C> QueryDb<C> {
         C: Send + Sync + 'static,
         K: QueryKey<C>,
     {
-        self.get_many_with(keys, Self::get_owned::<K>)?
-            .into_iter()
-            .collect()
+        self.get_many_with(keys, Self::get_owned::<K>)
+    }
+
+    /// Runs independent database tasks in parallel and records their query dependencies.
+    ///
+    /// Each task receives a cloned database handle and may issue arbitrary queries. All
+    /// task dependencies are merged into the calling query before the ordered results
+    /// are returned.
+    pub fn map_tasks<T, O>(&self, tasks: impl IntoIterator<Item = T>) -> QueryResult<Vec<O>>
+    where
+        C: Send + Sync + 'static,
+        T: FnOnce(QueryDb<C>) -> QueryResult<O> + Send + 'static,
+        O: Send + 'static,
+    {
+        let _activity = self.inner.session.enter_activity();
+        let parent_stack = query_stack_task_snapshot();
+        let records_fingerprints = parent_stack
+            .last()
+            .is_some_and(|entry| entry.dependency_fingerprints.is_some());
+        let tasks = tasks.into_iter().map(|task| {
+            let db = self.clone();
+            let parent_stack = parent_stack.clone();
+            move || -> nia_ice::IceResult<_> {
+                let _stack_guard = install_query_stack(parent_stack);
+                let value = task(db);
+                Ok((value, take_current_stack_dependencies()))
+            }
+        });
+        let outcomes: Vec<(QueryResult<O>, RecordedDependencies)> = self
+            .inner
+            .session
+            .run_tasks_inner(tasks)
+            .map_err(QueryError::from)?;
+        let mut values = Vec::with_capacity(outcomes.len());
+        let mut dependencies = RecordedDependencies {
+            nodes: FastHashSet::default(),
+            fingerprints: records_fingerprints.then(DependencyFingerprints::default),
+        };
+        for (value, task_dependencies) in outcomes {
+            values.push(value);
+            dependencies.nodes.extend(task_dependencies.nodes);
+            if let (Some(dependencies), Some(task_dependencies)) = (
+                dependencies.fingerprints.as_mut(),
+                task_dependencies.fingerprints,
+            ) {
+                dependencies.extend(task_dependencies);
+            }
+        }
+        merge_dependencies_into_current_stack(dependencies);
+        values.into_iter().collect()
     }
 
     /// Consumes owned query results as they complete, exposing submission indices.
@@ -929,52 +974,14 @@ impl<C> QueryDb<C> {
     pub(super) fn get_many_with<K, O>(
         &self,
         keys: impl IntoIterator<Item = K>,
-        get: fn(&Self, K) -> O,
+        get: fn(&Self, K) -> QueryResult<O>,
     ) -> QueryResult<Vec<O>>
     where
         C: Send + Sync + 'static,
         K: QueryKey<C>,
         O: Send + 'static,
     {
-        let _activity = self.inner.session.enter_activity();
-        let parent_stack = query_stack_task_snapshot();
-        let records_fingerprints = parent_stack
-            .last()
-            .is_some_and(|entry| entry.dependency_fingerprints.is_some());
-        let tasks: Vec<_> = keys
-            .into_iter()
-            .map(|key| {
-                let db = self.clone();
-                let parent_stack = parent_stack.clone();
-                move || -> nia_ice::IceResult<_> {
-                    let _stack_guard = install_query_stack(parent_stack);
-                    let value = get(&db, key);
-                    Ok((value, take_current_stack_dependencies()))
-                }
-            })
-            .collect();
-        let outcomes: Vec<(O, RecordedDependencies)> = self
-            .inner
-            .session
-            .run_tasks_inner(tasks)
-            .map_err(QueryError::from)?;
-        let mut values = Vec::with_capacity(outcomes.len());
-        let mut dependencies = RecordedDependencies {
-            nodes: FastHashSet::default(),
-            fingerprints: records_fingerprints.then(DependencyFingerprints::default),
-        };
-        for (value, task_dependencies) in outcomes {
-            values.push(value);
-            dependencies.nodes.extend(task_dependencies.nodes);
-            if let (Some(dependencies), Some(task_dependencies)) = (
-                dependencies.fingerprints.as_mut(),
-                task_dependencies.fingerprints,
-            ) {
-                dependencies.extend(task_dependencies);
-            }
-        }
-        merge_dependencies_into_current_stack(dependencies);
-        Ok(values)
+        self.map_tasks(keys.into_iter().map(|key| move |db| get(&db, key)))
     }
 
     /// Returns persistent dependency edges and slot statistics for this database.
