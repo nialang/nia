@@ -95,6 +95,11 @@ pub(super) struct ExecutableFactSession {
     pub(super) applied_provider_fact_revision: Option<crate::ProviderFactRevision>,
     pub(super) applied_provider_changes: HashSet<ProviderDemand>,
     pub(super) applied_body_activations: HashSet<nia_imports::StableModuleKey>,
+    /// Value-reference edges already derived from unchanged checked items.
+    /// These are session state because executable provider discovery can invoke
+    /// the same reachability query repeatedly while settling one worklist.
+    pub(super) value_ref_scanned_functions: HashSet<GlobalDefId>,
+    pub(super) value_ref_scanned_globals: HashSet<GlobalDefId>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -184,6 +189,10 @@ impl ExecutableFactSession {
         }
         retained_modules.retain(|module_id| self.modules.contains_key(module_id));
         self.caches.retain_modules(&retained_modules);
+        self.value_ref_scanned_functions
+            .retain(|def_id| retained_modules.contains(&def_id.module_id));
+        self.value_ref_scanned_globals
+            .retain(|def_id| retained_modules.contains(&def_id.module_id));
         self.module_versions = module_versions.clone();
         stats
     }
@@ -301,6 +310,16 @@ impl ExecutableFactSession {
                 stats.reset_reachability = true;
             }
             self.caches.retain_modules(&retained_modules);
+            self.value_ref_scanned_functions.retain(|def_id| {
+                self.modules
+                    .get(&def_id.module_id)
+                    .is_some_and(|state| state.checked_functions.contains(def_id))
+            });
+            self.value_ref_scanned_globals.retain(|def_id| {
+                self.modules
+                    .get(&def_id.module_id)
+                    .is_some_and(|state| state.checked_globals.contains(def_id))
+            });
             self.applied_provider_changes.extend(pending_changes);
         }
         self.applied_provider_fact_revision = Some(worklist.revision());

@@ -450,9 +450,14 @@ fn executable_check_in_session(
         applied_provider_fact_revision,
         applied_provider_changes,
         applied_body_activations,
+        value_ref_scanned_functions,
+        value_ref_scanned_globals,
     } = session;
     let query_failure = RefCell::new(None);
-    let mut value_ref_scan_progress = ValueRefScanProgress::default();
+    let mut value_ref_scan_progress = ValueRefScanProgress {
+        functions: value_ref_scanned_functions,
+        globals: value_ref_scanned_globals,
+    };
     let function_signature = |def_id: GlobalDefId| {
         if let Some(signature) = caches
             .reachability_function_signatures
@@ -604,6 +609,8 @@ fn executable_check_in_session(
                     applied_provider_fact_revision,
                     applied_provider_changes,
                     applied_body_activations,
+                    value_ref_scanned_functions: value_ref_scan_progress.functions,
+                    value_ref_scanned_globals: value_ref_scan_progress.globals,
                 },
             )
         };
@@ -1018,6 +1025,8 @@ fn executable_check_in_session(
                 applied_provider_fact_revision,
                 applied_provider_changes,
                 applied_body_activations,
+                value_ref_scanned_functions: value_ref_scan_progress.functions,
+                value_ref_scanned_globals: value_ref_scan_progress.globals,
             },
         );
     }
@@ -1301,6 +1310,8 @@ fn executable_check_in_session(
             applied_provider_fact_revision,
             applied_provider_changes,
             applied_body_activations,
+            value_ref_scanned_functions: value_ref_scan_progress.functions,
+            value_ref_scanned_globals: value_ref_scan_progress.globals,
         },
     )
 }
