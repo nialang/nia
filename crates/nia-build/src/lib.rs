@@ -1124,40 +1124,25 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                 let (runner_executable, runner_cache_key, runner_cache_status) = runner?;
                 let configured = time_summary_stage(timings, "build_configure_plan", || {
                     progress_phase(progress_guard.session(), ProgressPhase::Configure, || {
-                        let mut configure_candidate = match configure_cache_candidate(
-                            &invocation,
-                            &runner_cache_key,
-                            progress_guard.session(),
-                        ) {
-                            Ok(ConfigureCacheCandidate::Present) => {
-                                nia_timing::emit_counter("build.configure_cache_candidates", 1);
-                                ConfigureCacheCandidate::Present
-                            }
-                            Ok(ConfigureCacheCandidate::None) => ConfigureCacheCandidate::None,
-                            Ok(candidate @ ConfigureCacheCandidate::Miss(_)) => candidate,
-                            Err(_) => ConfigureCacheCandidate::None,
-                        };
-                        let reusable = ConfigureCache::new(&invocation)
+                        let (reusable, configure_candidate) = ConfigureCache::new(&invocation)
                             .with_lock_observer(progress_guard.session().map(|progress| {
                                 progress.phase_lock_observer(ProgressPhase::Configure)
                             }))
-                            .lookup_reusable(
+                            .lookup_reusable_with_candidate(
                                 &runner_cache_key,
                                 &invocation_identity(&invocation),
                                 &invocation.package_root,
                             )
-                            .inspect(|lookup| {
-                                if let ConfigureCacheLookup::Miss(reason) = lookup
-                                    && !matches!(reason, ConfigureCacheMissReason::NotFound)
-                                {
-                                    configure_candidate =
-                                        ConfigureCacheCandidate::Miss(reason.clone());
-                                }
-                            })
-                            .ok();
+                            .unwrap_or((
+                                ConfigureCacheLookup::Miss(ConfigureCacheMissReason::NotFound),
+                                ConfigureCacheCandidate::None,
+                            ));
+                        if matches!(configure_candidate, ConfigureCacheCandidate::Present) {
+                            nia_timing::emit_counter("build.configure_cache_candidates", 1);
+                        }
                         let mut configure_reused = false;
                         let draft = match reusable {
-                            Some(ConfigureCacheLookup::Hit(record)) => {
+                            ConfigureCacheLookup::Hit(record) => {
                                 let manifest = record.manifest.encode().ok();
                                 match (ConfigureCache::decode_plan(&record).ok(), manifest) {
                                     (Some(plan), Some(observations)) => {
@@ -1192,7 +1177,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                                     }
                                 }
                             }
-                            _ => {
+                            ConfigureCacheLookup::Miss(_) => {
                                 nia_timing::emit_counter("build.configure_cache_misses", 1);
                                 nia_timing::emit_counter("build.runner_executions", 1);
                                 run_and_cleanup_build_runner_draft(
@@ -1399,18 +1384,6 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
     );
     progress_guard.finish(result.is_ok());
     result
-}
-
-fn configure_cache_candidate(
-    invocation: &BuildInvocation,
-    runner_cache_key: &str,
-    progress: Option<&ProgressSession>,
-) -> io::Result<ConfigureCacheCandidate> {
-    ConfigureCache::new(invocation)
-        .with_lock_observer(
-            progress.map(|progress| progress.phase_lock_observer(ProgressPhase::Configure)),
-        )
-        .candidate_status(runner_cache_key, &invocation_identity(invocation))
 }
 
 fn progress_phase<T, E>(

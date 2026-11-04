@@ -480,6 +480,19 @@ impl ConfigureCache {
         invocation: &str,
         root: &std::path::Path,
     ) -> io::Result<ConfigureCacheLookup> {
+        self.lookup_reusable_with_candidate(runner, invocation, root)
+            .map(|(lookup, _)| lookup)
+    }
+
+    /// Looks up a reusable plan and reports its cache candidate in the same
+    /// bounded namespace scan. Keeping these decisions together avoids
+    /// decoding and validating every record twice for one build invocation.
+    pub(crate) fn lookup_reusable_with_candidate(
+        &self,
+        runner: &str,
+        invocation: &str,
+        root: &std::path::Path,
+    ) -> io::Result<(ConfigureCacheLookup, ConfigureCacheCandidate)> {
         let namespace_root = self
             .root
             .join(formats::CONFIGURE_MANIFEST.protocol_epoch.to_string());
@@ -489,8 +502,9 @@ impl ConfigureCache {
             .ok_or_else(|| io::Error::other("configure cache has no invocation root"))?;
         if let Err(error) = validate_cache_namespace(cache_root, &namespace_root) {
             if error.kind() == io::ErrorKind::NotFound {
-                return Ok(ConfigureCacheLookup::Miss(
-                    ConfigureCacheMissReason::NotFound,
+                return Ok((
+                    ConfigureCacheLookup::Miss(ConfigureCacheMissReason::NotFound),
+                    ConfigureCacheCandidate::None,
                 ));
             }
             return Err(error);
@@ -498,17 +512,20 @@ impl ConfigureCache {
         let entries = match record_paths(&namespace_root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(ConfigureCacheLookup::Miss(
-                    ConfigureCacheMissReason::NotFound,
+                return Ok((
+                    ConfigureCacheLookup::Miss(ConfigureCacheMissReason::NotFound),
+                    ConfigureCacheCandidate::None,
                 ));
             }
             Err(error) if error.kind() == io::ErrorKind::InvalidData => {
-                return Ok(ConfigureCacheLookup::Miss(
-                    ConfigureCacheMissReason::NotFound,
+                return Ok((
+                    ConfigureCacheLookup::Miss(ConfigureCacheMissReason::NotFound),
+                    ConfigureCacheCandidate::None,
                 ));
             }
             Err(error) => return Err(error),
         };
+        let mut candidate_present = false;
         let mut poisoned = false;
         let mut changed = None;
         let mut missing = None;
@@ -527,6 +544,7 @@ impl ConfigureCache {
             {
                 continue;
             }
+            candidate_present = true;
             if record.manifest.policy() == crate::ObservationPolicy::Poison
                 || record.manifest.observations().is_empty()
             {
@@ -535,7 +553,10 @@ impl ConfigureCache {
             }
             match record.manifest.validate(root) {
                 crate::ObservationValidation::Match => {
-                    return Ok(ConfigureCacheLookup::Hit(record));
+                    return Ok((
+                        ConfigureCacheLookup::Hit(record),
+                        ConfigureCacheCandidate::Present,
+                    ));
                 }
                 crate::ObservationValidation::Changed { path, .. } => {
                     changed.get_or_insert(path);
@@ -545,7 +566,7 @@ impl ConfigureCache {
                 }
             }
         }
-        Ok(ConfigureCacheLookup::Miss(if let Some(path) = changed {
+        let reason = if let Some(path) = changed {
             ConfigureCacheMissReason::ObservationChanged { path }
         } else if let Some(path) = missing {
             ConfigureCacheMissReason::ObservationMissing { path }
@@ -553,7 +574,13 @@ impl ConfigureCache {
             ConfigureCacheMissReason::Poisoned
         } else {
             ConfigureCacheMissReason::NotFound
-        }))
+        };
+        let candidate = if candidate_present {
+            ConfigureCacheCandidate::Miss(reason.clone())
+        } else {
+            ConfigureCacheCandidate::None
+        };
+        Ok((ConfigureCacheLookup::Miss(reason), candidate))
     }
 
     /// Finds whether any valid record belongs to the same runner and
