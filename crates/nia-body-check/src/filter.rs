@@ -137,7 +137,7 @@ impl<'a> ActiveBodyCheckFilter<'a> {
         !matches!(self, Self::ConstDeclarations)
     }
 
-    pub(super) fn skips_const_initializers(&self) -> bool {
+    pub(super) fn is_global_type_inference(&self) -> bool {
         matches!(self, Self::GlobalTypes)
     }
 

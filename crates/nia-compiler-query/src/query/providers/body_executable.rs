@@ -16,6 +16,24 @@ pub(in crate::query) use value_refs::{
     ExecutableValueRefEdges, provide_executable_value_ref_edges,
 };
 
+fn type_contains_error_recovery(type_store: &nia_ty::TypeStore, root: InternedTyId) -> bool {
+    let mut pending = vec![root];
+    let mut seen = HashSet::new();
+    while let Some(ty) = pending.pop() {
+        if !seen.insert(ty) {
+            continue;
+        }
+        let Some(kind) = type_store.get(ty) else {
+            continue;
+        };
+        if matches!(kind, TyKind::Error) {
+            return true;
+        }
+        kind.visit_referenced_types(|referenced| pending.push(referenced));
+    }
+    false
+}
+
 pub(in crate::query) struct ExecutableFactLayoutCacheEntry {
     inputs: ExecutableFactLayoutInputs,
     layouts: ModuleLayouts,
@@ -749,6 +767,7 @@ pub(super) fn body_check_with_filter_and_layouts(
     layouts: Option<Arc<nia_layout::Layouts>>,
     program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>>>,
     non_function_signatures_override: Option<&ProgramExecutableNonFunctionSignatures>,
+    seed: Option<nia_body_check::BodyCheckSeed<'_>>,
 ) -> QueryResult<nia_body_check::BodyCheck> {
     Ok(body_check_with_filter_and_layouts_with_inputs(
         db,
@@ -765,7 +784,7 @@ pub(super) fn body_check_with_filter_and_layouts(
                 None => ExecutableFactMode::full(),
             },
             resolution_inputs: None,
-            seed: None,
+            seed,
             global_initializer_cache: None,
             const_module_cache: None,
             const_inputs: None,
@@ -807,27 +826,82 @@ pub(in crate::query) fn provide_inferred_global_types(
     module_id: ModuleId,
 ) -> QueryResult<InferredGlobalTypes> {
     time_module_provider(db, "inferred_global_types", module_id, || {
-        let checked = body_check_with_filter_and_layouts_with_inputs(
-            db,
-            ExecutableBodyCheckInput {
-                module_id,
-                filter: nia_body_check::BodyCheckFilter::GlobalTypes,
-                layouts: None,
-                program_layouts_override: None,
-                fact_mode: ExecutableFactMode::full(),
-                resolution_inputs: None,
-                seed: None,
-                global_initializer_cache: None,
-                const_module_cache: None,
-                const_inputs: None,
-                program_function_signature_cache: None,
-                product: nia_body_check::BodyCheckProduct::FactsOnly,
-                prechecked: None,
-            },
-        )?;
+        let defs = full_module_defs_semantic(db, module_id)?;
+        let global_count = defs
+            .defs
+            .iter()
+            .filter(|(_, def)| def.kind == DefKind::Global)
+            .count();
+        let mut seed_facts = nia_sema_ir::SemanticFacts::default();
+        let mut final_check = None;
+        let mut reached_fixed_point = false;
+
+        for _ in 0..=global_count {
+            let seed = nia_body_check::BodyCheckSeed {
+                facts: &seed_facts,
+                global_type_issues: None,
+            };
+            let checked = body_check_with_filter_and_layouts_with_inputs(
+                db,
+                ExecutableBodyCheckInput {
+                    module_id,
+                    filter: nia_body_check::BodyCheckFilter::GlobalTypes,
+                    layouts: None,
+                    program_layouts_override: None,
+                    fact_mode: ExecutableFactMode::full(),
+                    resolution_inputs: None,
+                    seed: Some(seed),
+                    global_initializer_cache: None,
+                    const_module_cache: None,
+                    const_inputs: None,
+                    program_function_signature_cache: None,
+                    product: nia_body_check::BodyCheckProduct::FactsOnly,
+                    prechecked: None,
+                },
+            )?;
+            let mut changed = false;
+            for (global_id, ty) in &checked.body_check.facts.global_types {
+                if type_contains_error_recovery(&db.context().type_store, *ty) {
+                    continue;
+                }
+                match seed_facts.global_types.get(global_id) {
+                    Some(previous) if previous != ty => {
+                        if !type_contains_error_recovery(&db.context().type_store, *previous) {
+                            return Err(QueryError::internal(format!(
+                                "global type inference changed an established type for {global_id:?}"
+                            )));
+                        }
+                        seed_facts.global_types.insert(*global_id, *ty);
+                        changed = true;
+                    }
+                    Some(_) => {}
+                    None => {
+                        seed_facts.global_types.insert(*global_id, *ty);
+                        changed = true;
+                    }
+                }
+            }
+            final_check = Some(checked.body_check);
+            if !changed {
+                reached_fixed_point = true;
+                break;
+            }
+        }
+
+        if !reached_fixed_point {
+            return Err(QueryError::internal(format!(
+                "global type inference exceeded its declaration bound of {global_count}"
+            )));
+        }
+
+        let checked = final_check.ok_or_else(|| {
+            QueryError::internal("global type inference did not execute a body-check pass")
+        })?;
+        let mut type_issues = checked.global_type_issues.clone();
+        type_issues.retain(|global_id, _| !seed_facts.global_types.contains_key(global_id));
         Ok(InferredGlobalTypes {
-            types: checked.body_check.facts.global_types.clone(),
-            type_issues: checked.body_check.global_type_issues.clone(),
+            types: seed_facts.global_types,
+            type_issues,
         })
     })
 }
@@ -2035,6 +2109,7 @@ fn checked_module_with_body_and_flow_check(
         body_ir: Arc::clone(&body_check.semantic.ir),
         semantic_uses: db.get(SemanticUseTableQuery(module_id))?,
         semantic_facts: Arc::clone(&body_check.semantic.facts),
+        global_type_issues: Arc::new(body_check.semantic.global_type_issues.clone()),
         provider_demands,
         executable_reachable_globals: None,
         executable_reachable_structs: None,
@@ -2141,6 +2216,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         body_ir: body_check.ir,
         semantic_uses: body_inputs.semantic_uses,
         semantic_facts: body_check.facts,
+        global_type_issues: Arc::new(body_check.global_type_issues.clone()),
         provider_demands,
         executable_reachable_globals: None,
         executable_reachable_structs: None,
@@ -2245,6 +2321,7 @@ pub(super) fn executable_signature_checked_module(
         }),
         semantic_uses: Arc::new(nia_sema_ir::SemanticUseTable::default()),
         semantic_facts: Arc::new(nia_sema_ir::SemanticFacts::default()),
+        global_type_issues: Arc::new(HashMap::new()),
         provider_demands,
         executable_reachable_globals: Some(HashSet::new()),
         executable_reachable_structs: None,

@@ -84,6 +84,7 @@ pub(in crate::query) fn provide_executable_function_body(
                     global_inits: HashMap::new(),
                 },
                 facts: semantic_facts,
+                global_type_issues: module.global_type_issues.as_ref().clone(),
                 checked_functions: functions.clone(),
                 diagnostic_owners: Vec::new(),
                 diagnostics: Vec::new(),

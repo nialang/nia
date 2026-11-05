@@ -134,8 +134,19 @@ pub(super) fn provide_body_check(
     module_id: ModuleId,
 ) -> QueryResult<ModuleBodyCheck> {
     time_module_provider(db, "body_check", module_id, || {
-        let mut body_check =
-            body_check_with_filter(db, module_id, nia_body_check::BodyCheckFilter::All)?;
+        let inferred = db.get(InferredGlobalTypesQuery(module_id))?;
+        let mut facts = nia_sema_ir::SemanticFacts::default();
+        facts.global_types.clone_from(&inferred.types);
+        let seed = nia_body_check::BodyCheckSeed {
+            facts: &facts,
+            global_type_issues: Some(&inferred.type_issues),
+        };
+        let mut body_check = body_check_with_filter(
+            db,
+            module_id,
+            nia_body_check::BodyCheckFilter::All,
+            Some(seed),
+        )?;
         if let Some(error) = body_check.internal_error.take() {
             return Err(error.into());
         }
@@ -151,8 +162,9 @@ fn body_check_with_filter(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     filter: nia_body_check::BodyCheckFilter<'_>,
+    seed: Option<nia_body_check::BodyCheckSeed<'_>>,
 ) -> QueryResult<nia_body_check::BodyCheck> {
-    body_check_with_filter_and_layouts(db, module_id, filter, None, None, None)
+    body_check_with_filter_and_layouts(db, module_id, filter, None, None, None, seed)
 }
 
 pub(super) fn body_check_resolution_inputs_for_filter(

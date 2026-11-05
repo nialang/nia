@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 138);
+    assert_eq!(descriptors.len(), 139);
     assert!(
         !descriptors
             .iter()
@@ -18,6 +18,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         "body_activation_worklist",
         "current_module_id",
         "executable_fact_epoch",
+        "inferred_global_types",
         "module_graph_entry",
         "module_graph_path",
         "module_graph_parent",
@@ -911,6 +912,10 @@ fn missing_loaded_module_id_propagates_query_failure() {
             .db
             .get(BodyCheckQuery(missing_module))
             .expect_err("body checking should propagate a missing module input"),
+        database
+            .db
+            .get(InferredGlobalTypesQuery(missing_module))
+            .expect_err("global type inference should propagate a missing module input"),
         full_body_check_resolution_inputs(&database.db, missing_module)
             .err()
             .expect("body resolution inputs should propagate a missing module input"),

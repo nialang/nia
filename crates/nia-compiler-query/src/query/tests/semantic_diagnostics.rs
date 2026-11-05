@@ -65,6 +65,87 @@ fn inferred_global_types_follow_cross_module_initializer_dependencies() {
 }
 
 #[test]
+fn inferred_global_types_follow_forward_dependencies_in_one_module() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "static pointer = &value; static value = 2; fun main() i32 { pointer.* }",
+    );
+
+    let checked = fixture.database().check_program();
+
+    assert!(
+        checked.diagnostics.is_empty(),
+        "an earlier pointer global may infer its pointee from a later global: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn inferred_global_type_facts_invalidate_when_a_forward_target_changes_type() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "static pointer = &value; static value = 2; fun main() i32 { pointer.* }",
+    );
+    let module_id = fixture.entry_id();
+    let database = fixture.database();
+
+    let first = database.check_program();
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+    fixture.update_module_source(
+        module_id,
+        "static pointer = &value; static value = true; fun main() bool { pointer.* }",
+        SourceRevision(1),
+    );
+    database.update(CompileRequest::new(fixture.program()));
+
+    let second = database.check_program();
+    assert!(
+        second.diagnostics.is_empty(),
+        "the inferred pointer type must follow the changed forward target: {:?}",
+        second.diagnostics
+    );
+}
+
+#[test]
+fn recursive_inferred_global_pointer_types_are_source_diagnostics() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "static a = &b; static b = &a; fun main() i32 { 0 }",
+    );
+
+    let database = fixture.database();
+    let inferred = database
+        .db
+        .expect_get(InferredGlobalTypesQuery(fixture.entry_id()));
+    assert!(
+        !inferred.type_issues.is_empty(),
+        "the recursive type cycle should retain a source issue: {:?}",
+        inferred.type_issues
+    );
+    let checked = database.check_program();
+
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| {
+            diagnostic.diagnostic.code.def().category
+                != nia_diagnostic::DiagnosticCategory::Internal
+        }),
+        "recursive inferred pointer types must not escape as query failures: {:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("cyclic initializer dependency")
+        }),
+        "an ungrounded recursive inferred type should explain the source-level cycle: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn cyclic_inferred_global_types_are_not_query_engine_failures() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
@@ -74,8 +155,7 @@ fn cyclic_inferred_global_types_are_not_query_engine_failures() {
     fixture.add_child(entry, "a", "a.nia", "using super::b; pub static x = b::y;");
     fixture.add_child(entry, "b", "b.nia", "using super::a; pub static y = a::x;");
 
-    let database = fixture.database();
-    let checked = database.check_program();
+    let checked = fixture.database().check_program();
 
     assert!(
         checked.diagnostics.iter().all(|diagnostic| {

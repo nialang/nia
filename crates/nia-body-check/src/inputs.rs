@@ -260,6 +260,9 @@ pub struct BodyCheckInput<'a> {
 pub struct BodyCheckSeed<'a> {
     /// Previously collected semantic facts.
     pub facts: &'a SemanticFacts,
+    /// Source-level issues from global type inference.
+    pub global_type_issues:
+        Option<&'a HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>>,
 }
 
 #[derive(Debug, Clone, Copy)]

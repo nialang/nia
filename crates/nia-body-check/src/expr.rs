@@ -2417,11 +2417,35 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             DefKind::Global => self.global_types.get(&def_id).copied().unwrap_or_else(|| {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    span,
-                    "global type is not available during body check",
-                ));
+                let global_id = self.global_def_id(def_id);
+                let issue = self
+                    .global_type_issues
+                    .get(&global_id)
+                    .copied()
+                    .or_else(|| {
+                        (self.body_filter.is_global_type_inference()
+                            && self.current_global_def_id.is_some())
+                        .then_some(nia_item_signatures::ProgramGlobalTypeIssue::CyclicInference)
+                    });
+                if let Some(issue) = issue {
+                    if self.body_filter.is_global_type_inference() {
+                        self.global_type_issues.insert(global_id, issue);
+                    }
+                    if let Some(current_global) = self.current_global_def_id {
+                        self.global_type_issues.insert(current_global, issue);
+                    }
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        global_type_issue_message(issue),
+                    ));
+                } else {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        "global type is not available during body check",
+                    ));
+                }
                 self.error()
             }),
             DefKind::Const => self.const_types.get(&def_id).copied().unwrap_or_else(|| {
@@ -2449,13 +2473,11 @@ impl<'a> BodyChecker<'a> {
             if let Some(current_global) = self.current_global_def_id {
                 self.global_type_issues.insert(current_global, issue);
             }
-            let message = match issue {
-                nia_item_signatures::ProgramGlobalTypeIssue::CyclicInference => {
-                    "cannot infer global type from a cyclic initializer dependency; add an explicit type annotation"
-                }
-            };
-            self.diagnostics
-                .push(Diagnostic::user_error_at(codes::TYPE_CHECK, span, message));
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                global_type_issue_message(issue),
+            ));
             return self.error();
         }
         signature
@@ -2469,6 +2491,14 @@ impl<'a> BodyChecker<'a> {
                 ));
                 self.error()
             })
+    }
+}
+
+fn global_type_issue_message(issue: nia_item_signatures::ProgramGlobalTypeIssue) -> &'static str {
+    match issue {
+        nia_item_signatures::ProgramGlobalTypeIssue::CyclicInference => {
+            "cannot infer global type from a cyclic initializer dependency; add an explicit type annotation"
+        }
     }
 }
 

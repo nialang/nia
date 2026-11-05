@@ -318,6 +318,10 @@ pub struct CheckedModule {
     pub semantic_uses: std::sync::Arc<SemanticUseTable>,
     /// Executable semantic facts.
     pub semantic_facts: std::sync::Arc<SemanticFacts>,
+    /// Source-level issues from global type inference.
+    pub global_type_issues: std::sync::Arc<
+        std::collections::HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
+    >,
     /// Provider demands discovered by this module.
     pub provider_demands: std::sync::Arc<std::collections::HashSet<ProviderDemand>>,
     /// Reachable global definitions for executable generation.

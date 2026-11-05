@@ -46,6 +46,8 @@ pub struct PrecheckedBodyCheck {
     pub ir: BodyIr,
     /// Previously collected semantic facts.
     pub facts: SemanticFacts,
+    /// Source-level issues from global type inference.
+    pub global_type_issues: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
     /// Previously checked function identities.
     pub checked_functions: HashSet<GlobalDefId>,
     /// Diagnostic ownership for retained diagnostics.

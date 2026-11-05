@@ -359,6 +359,7 @@ struct PreparedExecutableBodyCheck {
     already_checked_functions: Option<HashSet<GlobalDefId>>,
     already_checked_globals: Option<HashSet<GlobalDefId>>,
     seed_facts: Option<nia_sema_ir::SemanticFacts>,
+    seed_global_type_issues: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
     reachable_functions: HashSet<GlobalDefId>,
     reachable_globals: HashSet<GlobalDefId>,
     reachable_body_modules: Arc<HashSet<ModuleId>>,
@@ -399,6 +400,7 @@ fn executable_body_check_for_prepared_module(
         already_checked_functions,
         already_checked_globals,
         seed_facts,
+        seed_global_type_issues,
         reachable_functions,
         reachable_globals,
         reachable_body_modules,
@@ -418,7 +420,10 @@ fn executable_body_check_for_prepared_module(
     };
     let seed = seed_facts
         .as_ref()
-        .map(|facts| nia_body_check::BodyCheckSeed { facts });
+        .map(|facts| nia_body_check::BodyCheckSeed {
+            facts,
+            global_type_issues: Some(&seed_global_type_issues),
+        });
     let layouts = time_provider(
         db.context().timings(),
         "executable_checked_modules.module_layouts",
@@ -941,6 +946,10 @@ fn executable_check_in_session(
             let seed_facts = fact_by_id
                 .get(&module_id)
                 .map(|state| state.semantic_facts.clone());
+            let seed_global_type_issues = fact_by_id
+                .get(&module_id)
+                .map(|state| state.global_type_issues.clone())
+                .unwrap_or_default();
             let reachability = reachability_state.reachability();
             prepared_checks.push(PreparedExecutableBodyCheck {
                 module_id,
@@ -949,6 +958,7 @@ fn executable_check_in_session(
                 already_checked_functions,
                 already_checked_globals,
                 seed_facts,
+                seed_global_type_issues,
                 reachable_functions: reachability.functions().clone(),
                 reachable_globals: reachability.globals().clone(),
                 reachable_body_modules: Arc::clone(&round_reachable_body_modules),
@@ -1956,6 +1966,7 @@ fn final_executable_checked_modules(
                         Some(nia_body_check::PrecheckedBodyCheck {
                             ir: state.body_ir,
                             facts: state.semantic_facts,
+                            global_type_issues: state.global_type_issues,
                             checked_functions: state.checked_functions,
                             diagnostic_owners: state.diagnostic_owners,
                             diagnostics: state.diagnostics,

@@ -79,6 +79,8 @@ pub(super) struct ExecutableFactModuleState {
     pub(super) body_ir: nia_body_ir::BodyIr,
     pub(super) static_init_refs: HashMap<GlobalDefId, nia_function_ir::FunctionBodyRefs>,
     pub(super) semantic_facts: nia_sema_ir::SemanticFacts,
+    pub(super) global_type_issues:
+        HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
     pub(super) provider_demands: HashSet<ProviderDemand>,
     pub(super) provider_demands_by_function: HashMap<GlobalDefId, HashSet<ProviderDemand>>,
     pub(super) unowned_provider_demands: HashSet<ProviderDemand>,
@@ -424,7 +426,7 @@ impl ExecutableFactModuleState {
             internal_error: _,
             ir,
             facts,
-            global_type_issues: _,
+            global_type_issues,
             static_init_refs,
             provider_demands,
             provider_demands_by_function,
@@ -451,6 +453,7 @@ impl ExecutableFactModuleState {
             body_ir: Arc::unwrap_or_clone(ir),
             static_init_refs,
             semantic_facts: Arc::unwrap_or_clone(facts),
+            global_type_issues,
             provider_demands,
             provider_demands_by_function,
             unowned_provider_demands,
@@ -494,7 +497,7 @@ impl ExecutableFactModuleState {
             internal_error: _,
             ir,
             facts,
-            global_type_issues: _,
+            global_type_issues,
             static_init_refs,
             provider_demands,
             provider_demands_by_function,
@@ -522,6 +525,7 @@ impl ExecutableFactModuleState {
         }
         self.static_init_refs.extend(static_init_refs);
         self.semantic_facts.extend(facts);
+        self.global_type_issues.extend(global_type_issues);
         let owned_provider_demands = provider_demands_by_function
             .values()
             .flat_map(|demands| demands.iter().cloned())

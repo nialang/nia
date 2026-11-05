@@ -79,15 +79,17 @@ impl<'a> BodyChecker<'a> {
         let PrecheckedBodyCheck {
             ir,
             facts,
+            global_type_issues,
             checked_functions,
             diagnostic_owners,
             diagnostics,
         } = prechecked;
         self.global_inits = ir.global_inits;
+        self.global_type_issues = global_type_issues;
         self.checked_functions = checked_functions;
         self.diagnostic_owners = diagnostic_owners;
         self.diagnostics = diagnostics;
-        self.load_type_facts(module_id, &facts);
+        self.load_type_facts(module_id, &facts, None);
         let facts = facts.into_builder();
         self.generic_instantiations = facts.generic_instantiations;
         self.function_facts = facts
@@ -106,7 +108,14 @@ impl<'a> BodyChecker<'a> {
         self.node_function_references = facts.node_function_references;
     }
 
-    pub(super) fn load_type_facts(&mut self, module_id: ModuleId, facts: &SemanticFacts) {
+    pub(super) fn load_type_facts(
+        &mut self,
+        module_id: ModuleId,
+        facts: &SemanticFacts,
+        global_type_issues: Option<
+            &HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
+        >,
+    ) {
         self.global_types
             .extend(facts.global_types.iter().filter_map(|(def_id, ty)| {
                 (def_id.module_id == module_id).then_some((def_id.def_id, *ty))
@@ -115,6 +124,12 @@ impl<'a> BodyChecker<'a> {
             .extend(facts.const_types.iter().filter_map(|(def_id, ty)| {
                 (def_id.module_id == module_id).then_some((def_id.def_id, *ty))
             }));
+        if let Some(global_type_issues) = global_type_issues {
+            self.global_type_issues
+                .extend(global_type_issues.iter().filter_map(|(def_id, issue)| {
+                    (def_id.module_id == module_id).then_some((*def_id, *issue))
+                }));
+        }
     }
 
     pub(super) fn lower_checked_module(
@@ -290,7 +305,7 @@ impl<'a> BodyChecker<'a> {
                 for item in active_item_tree.items.iter() {
                     if let ItemTreeNodeKind::Binding(binding) = &item.kind {
                         if binding.is_const() {
-                            if !self.body_filter.skips_const_initializers() {
+                            if !self.body_filter.is_global_type_inference() {
                                 self.check_const_binding(item.span, binding);
                             }
                         } else {
@@ -527,7 +542,7 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
-        if self.body_filter.skips_const_initializers()
+        if self.body_filter.is_global_type_inference()
             || !self.body_filter.includes_global(self.global_def_id(def_id))
         {
             return;

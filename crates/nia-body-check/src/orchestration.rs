@@ -228,7 +228,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         time_body_stage(timing, "body_check.seed_global_types", module_id, || {
             checker.seed_global_types();
             if let Some(seed) = seed {
-                checker.load_type_facts(module_id, seed.facts);
+                checker.load_type_facts(module_id, seed.facts, seed.global_type_issues);
             }
         });
         time_body_stage(timing, "body_check.check_module", module_id, || {
