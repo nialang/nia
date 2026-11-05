@@ -7,6 +7,79 @@ mod support;
 
 use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
+#[cfg(windows)]
+const TRACKED_TEST_REPORTER_SOURCE: &str = r#"using std::{io, process, test};
+
+fun failingCase() test::Error!() {
+    test::fail()
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let cases = [test::Case::init("failure", failingCase)];
+    let mut report = \result: test::CaseResult -> {
+        if result.error() is ?failure {
+            _ = io::debugPrint("FAIL {}: {}\n", [result.name(), failure]);
+        }
+    };
+    let summary = test::Runner::init(cases).runWith(report);
+    _ = io::debugPrint("{} passed, {} failed\n", [summary.passed(), summary.failed()]);
+    if not summary.isSuccessful() {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#;
+
+#[cfg(windows)]
+#[test]
+fn tracked_test_reporter_links_with_emit_and_manifest_build() {
+    let root = temp_dir("tracked_test_reporter_windows_linkage");
+    let source = root.join("main.nia");
+    let emitted = root.join(format!("emit-reporter{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(&source, TRACKED_TEST_REPORTER_SOURCE).expect("write reporter source");
+
+    let emit = support::nia_command()
+        .args(["emit", "--exe"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&emitted)
+        .output_timeout_for_build("link a tracked test reporter with nia emit --exe");
+    assert!(
+        emit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+    let run = Command::new(&emitted).output_timeout_for_runtime("run emitted test reporter");
+    assert_eq!(run.status.code(), Some(1));
+    let report = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(report.contains("FAIL failure:"), "{report}");
+
+    let package = root.join("package");
+    std::fs::create_dir_all(package.join("src")).expect("create package source directory");
+    std::fs::write(
+        package.join("nia.toml"),
+        "[package]\nname = \"reporter\"\nversion = \"1.0.0\"\n\
+         [[executable]]\nname = \"reporter\"\npath = \"src/main.nia\"\n",
+    )
+    .expect("write package manifest");
+    std::fs::write(package.join("src/main.nia"), TRACKED_TEST_REPORTER_SOURCE)
+        .expect("write package reporter source");
+    let build = support::nia_command()
+        .args(["build", "reporter", "--root"])
+        .arg(&package)
+        .output_timeout_for_build("link a tracked test reporter through nia build");
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+}
+
 #[test]
 fn emit_exe_can_write_stdout_through_std_io() {
     let root = temp_dir("emit_exe_can_write_stdout_through_std_io");
@@ -840,6 +913,17 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
     if (io::DebugPrintError::Flush(fs::Error::BadFd).intoError().0) != 9 {
         return process::ExitCode(6)!;
+    }
+    if (std::TextFormatError::InvalidUtf8(
+        std::unicode::Utf8DecodeError::InvalidLeadingByte,
+    ).intoError().0) != 22 {
+        return process::ExitCode(7)!;
+    }
+    if (std::TextFormatError::Allocation(std::mem::Error::OutOfMemory).intoError().0) != 12 {
+        return process::ExitCode(8)!;
+    }
+    if (std::TextFormatError::Format(fmt::Error::InvalidTemplate).intoError().0) != 22 {
+        return process::ExitCode(9)!;
     }
 
     !()

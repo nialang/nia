@@ -581,9 +581,17 @@ pub(root) fun staticArchiveOutputName(options: StaticArchiveOptions) &[char] {
 }
 
 pub(root) fun isValidStableName(name: &[char]) bool {
-    if name.len() == 0 {
+    if name.len() == 0 or name.startsWith(&"nia-internal-test-compile.") {
         return false;
     }
+    isStableNameAlphabet(name)
+}
+
+pub(root) fun isValidInternalStepName(name: &[char]) bool {
+    name.startsWith(&"nia-internal-test-compile.") and isStableNameAlphabet(name)
+}
+
+fun isStableNameAlphabet(name: &[char]) bool {
     for &ch in name.iter() {
         let code = ch as u32;
         let valid = (code >= 48 and code <= 57)

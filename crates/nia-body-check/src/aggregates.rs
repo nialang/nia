@@ -729,8 +729,8 @@ impl<'a> BodyChecker<'a> {
         }
         let program_signature = self.program_signature_scope.global(def_id)?;
         let ty = program_signature
-            .signature
-            .explicit_type
+            .value_type
+            .or(program_signature.signature.explicit_type)
             .unwrap_or_else(|| self.error());
         Some(ty)
     }

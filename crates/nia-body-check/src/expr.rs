@@ -9,7 +9,7 @@ use nia_ids::{BuiltinAssociatedConst, GlobalDefId, InternedTyId};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::{
     AssociatedConstProjection, BracketSuffixResolution, BuiltinAssociatedValue, BuiltinOperatorOp,
-    BuiltinValue, ResolvedCall,
+    BuiltinValue, ResolvedCall, SemanticValueUse,
 };
 use nia_span::Span;
 use nia_symbol::{SymbolId, known};
@@ -2324,7 +2324,7 @@ impl<'a> BodyChecker<'a> {
             Some(LocalUse::Static(global_id)) if global_id.module_id == self.defs.module_id => {
                 self.module_value_type(global_id.def_id, span)
             }
-            Some(LocalUse::Static(_)) => self.error(),
+            Some(LocalUse::Static(global_id)) => self.program_global_type(global_id, span),
             Some(LocalUse::ModuleValue) => {
                 if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
                     self.diagnostics
@@ -2348,7 +2348,21 @@ impl<'a> BodyChecker<'a> {
                         .unwrap_or_else(|| self.error());
                 }
                 match self.value_name(expr) {
-                    Some(ValueNameResolution::Def(def_id)) => self.module_value_type(def_id, span),
+                    Some(ValueNameResolution::Def(def_id)) => {
+                        if let Some(SemanticValueUse::Global(global_id)) =
+                            self.semantic_uses.node_value_use(&expr.node_key)
+                            && global_id.module_id != self.defs.module_id
+                            && self
+                                .defs
+                                .defs
+                                .get(def_id)
+                                .is_some_and(|def| def.kind == DefKind::Global)
+                        {
+                            self.program_global_type(global_id, span)
+                        } else {
+                            self.module_value_type(def_id, span)
+                        }
+                    }
                     _ => self.error(),
                 }
             }
@@ -2420,6 +2434,28 @@ impl<'a> BodyChecker<'a> {
             }),
             _ => self.error(),
         }
+    }
+
+    fn program_global_type(&mut self, global_id: GlobalDefId, span: Span) -> InternedTyId {
+        let Some(signature) = self.program_signature_scope.global(global_id) else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                "global type is not available during body check",
+            ));
+            return self.error();
+        };
+        signature
+            .value_type
+            .or(signature.signature.explicit_type)
+            .unwrap_or_else(|| {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    "global type is not available during body check",
+                ));
+                self.error()
+            })
     }
 }
 

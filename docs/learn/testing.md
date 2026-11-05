@@ -140,7 +140,7 @@ When a case fails, its line names the test and the assertion. If
 `ignoresExtraSpaces` expected `3`, running the suite in a package prints:
 
 ```text
-FAIL ignores extra spaces: build-package:root:/tests/unit.nia:25:5: values are not equal
+FAIL ignores extra spaces: tests/unit.nia:25:5: values are not equal
 1 passed, 1 failed
 ```
 

@@ -86,10 +86,11 @@ Each entry declares one artifact:
 | `runtime` | no | `freestanding` (default) for the standard process entry, or `bare` for none. |
 
 An executable produces the steps `<name>` and `run-<name>`; a test suite
-produces the steps `<name>`, which builds and runs it, and `<name>.compile`,
-which only builds it, and joins `test`. Names use letters, digits, `-`, `_`,
-and `.`, must be unique across both tables, and cannot be `all`, `test`, start
-with `run-`, or equal a suite's `<name>.compile`.
+produces the step `<name>`, which builds and runs it, and joins `test`. Suite
+compilation is an internal prerequisite of that step. Names use letters,
+digits, `-`, `_`, and `.`, must be unique across both tables, and cannot be
+`all`, `test`, start with `run-`, or use the reserved
+`nia-internal-test-compile.` prefix.
 
 ## Dependency Tables
 

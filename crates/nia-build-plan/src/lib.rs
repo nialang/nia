@@ -787,11 +787,22 @@ pub struct CommandAction {
     pub outputs: Vec<LogicalPath>,
 }
 
+/// Whether a dependency-graph step is addressable by the build-script user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum StepVisibility {
+    /// Publicly selectable and shown in user-facing step listings.
+    Public,
+    /// Internal prerequisite used only by another plan node.
+    Internal,
+}
+
 /// Dependency-graph step selecting one action.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PlanStep {
     /// Stable step identity.
     pub key: StepKey,
+    /// Whether callers may select this step directly.
+    pub visibility: StepVisibility,
     /// Action executed by this step.
     pub action: ActionKey,
     /// Steps that must complete before this one is ready.
@@ -908,6 +919,8 @@ pub enum PlanError {
         /// Missing step identity.
         step: StepKey,
     },
+    /// A default or explicit selection targets an internal prerequisite.
+    InternalStepSelected(StepKey),
     /// Step dependencies contain a cycle in traversal order.
     StepCycle(Vec<StepKey>),
     /// An action declares an output outside the permitted build roots.
@@ -1049,6 +1062,11 @@ impl fmt::Display for PlanError {
             Self::MissingStep { owner, step } => write!(
                 f,
                 "{owner} references missing step `{}`",
+                display_node_key(step)
+            ),
+            Self::InternalStepSelected(step) => write!(
+                f,
+                "internal build prerequisite `{}` cannot be selected directly",
                 display_node_key(step)
             ),
             Self::StepCycle(steps) => write!(
@@ -1661,6 +1679,7 @@ mod tests {
                         })
                         .collect();
                     PlanStep {
+                        visibility: StepVisibility::Public,
                         key: keys[from].clone(),
                         action: action_key("model-action"),
                         dependencies,
@@ -1690,6 +1709,7 @@ mod tests {
     #[test]
     fn dependency_closure_reports_a_missing_step_without_panicking() {
         let root = PlanStep {
+            visibility: StepVisibility::Public,
             key: step_key("root-step"),
             action: action_key("root-action"),
             dependencies: vec![step_key("missing-step")],
@@ -1707,6 +1727,23 @@ mod tests {
         let mut value = draft(false);
         value.selected_step = value.default_step.take();
         assert!(BuildPlan::freeze(value).is_ok());
+    }
+
+    #[test]
+    fn internal_steps_round_trip_without_becoming_user_selectable() {
+        let mut value = draft(false);
+        let internal = value.steps[0].key.clone();
+        value.steps[0].visibility = StepVisibility::Internal;
+        let plan = BuildPlan::freeze(value.clone()).unwrap();
+        let decoded = BuildPlan::decode(&plan.encode().unwrap()).unwrap();
+        assert_eq!(decoded, plan);
+        assert_eq!(decoded.steps()[0].visibility, StepVisibility::Internal);
+
+        value.default_step = Some(internal);
+        assert!(matches!(
+            BuildPlan::freeze(value),
+            Err(PlanError::InternalStepSelected(step)) if step.name() == "check"
+        ));
     }
 
     // A listing plan selects nothing; the runner reports a missing default
@@ -1776,6 +1813,7 @@ mod tests {
             },
         });
         value.steps.push(PlanStep {
+            visibility: StepVisibility::Public,
             key: install_step.clone(),
             action: install_action,
             dependencies,
@@ -2273,11 +2311,13 @@ mod tests {
         ]);
         value.steps.extend([
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step_key("generate"),
                 action: action_key("generate"),
                 dependencies: Vec::new(),
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step_key("consume"),
                 action: action_key("consume"),
                 dependencies: command_dependencies.into_iter().map(step_key).collect(),
@@ -2426,6 +2466,7 @@ mod tests {
             }),
         });
         value.steps.push(PlanStep {
+            visibility: StepVisibility::Public,
             key: step_key("consume"),
             action: action_key("consume"),
             dependencies: command_dependencies.into_iter().map(step_key).collect(),
@@ -2511,6 +2552,7 @@ mod tests {
             }),
         });
         value.steps.push(PlanStep {
+            visibility: StepVisibility::Public,
             key: run_step.clone(),
             action: run_action,
             dependencies: Vec::new(),
@@ -2562,6 +2604,7 @@ mod tests {
             }),
         });
         value.steps.push(PlanStep {
+            visibility: StepVisibility::Public,
             key: tool_step.clone(),
             action: tool_action,
             dependencies: Vec::new(),
@@ -2645,6 +2688,7 @@ mod tests {
             }),
         });
         value.steps.push(PlanStep {
+            visibility: StepVisibility::Public,
             key: step_key("consume"),
             action: action_key("consume"),
             dependencies: Vec::new(),
@@ -2759,6 +2803,7 @@ mod tests {
             }),
         });
         value.steps.push(PlanStep {
+            visibility: StepVisibility::Public,
             key: step_key("inspect"),
             action: action_key("inspect"),
             dependencies: dependencies.into_iter().map(step_key).collect(),

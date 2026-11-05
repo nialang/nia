@@ -129,7 +129,6 @@ hello         compiler-emit
 run-hello     external-command
 test          aggregate
 unit          test-executable
-unit.compile  compiler-emit
 ```
 
 | Command | What it does |
@@ -139,7 +138,6 @@ unit.compile  compiler-emit
 | `nia build run-hello` | builds `hello`, then runs it |
 | `nia build test` | builds and runs every test suite |
 | `nia build unit` | builds and runs the `unit` suite only |
-| `nia build unit.compile` | builds the `unit` suite without running it |
 | `nia build --release` | builds with optimizations (`-O2`) |
 | `nia clean` | removes build outputs and caches |
 
@@ -155,9 +153,9 @@ in a [build script](build-scripts.md#steps).
 
 Names in `[[executable]]` and `[[test]]` must be unique across both tables, and
 cannot be `all`, `test`, or start with `run-`, because those names belong to
-the derived steps. Each suite also owns the step `<name>.compile`, so no
-executable may take that name either. An artifact may set `runtime = "bare"`
-to build without the standard process entry; see
+the derived steps. Suite compilation is an internal prerequisite of the suite
+step, so executable names do not reserve a `<suite>.compile` spelling. An
+artifact may set `runtime = "bare"` to build without the standard process entry; see
 [Targets And Runtimes](targets.md).
 
 ## Adding Dependencies

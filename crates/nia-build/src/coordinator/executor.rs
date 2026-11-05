@@ -20,6 +20,45 @@ use std::io::{Seek as _, SeekFrom};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt as _;
 
+fn package_source_display_path(source: &PlanPackageSource, path: &str) -> String {
+    let root = match source {
+        PlanPackageSource::Local(root) => root,
+        PlanPackageSource::Dependency(alias) => alias,
+    };
+    match (root.is_empty(), path.is_empty()) {
+        (true, _) => path.to_owned(),
+        (_, true) => root.to_owned(),
+        (false, false) => format!("{root}/{path}"),
+    }
+}
+
+#[cfg(test)]
+mod source_display_path_tests {
+    use super::*;
+
+    #[test]
+    fn package_display_paths_use_manifest_roots_and_aliases() {
+        assert_eq!(
+            package_source_display_path(&PlanPackageSource::Local(String::new()), "tests/unit.nia"),
+            "tests/unit.nia"
+        );
+        assert_eq!(
+            package_source_display_path(
+                &PlanPackageSource::Local("workspace/app".to_owned()),
+                "src/main.nia"
+            ),
+            "workspace/app/src/main.nia"
+        );
+        assert_eq!(
+            package_source_display_path(
+                &PlanPackageSource::Dependency("json".to_owned()),
+                "src/root.nia"
+            ),
+            "json/src/root.nia"
+        );
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct DriverActionExecutor {
     plan: Arc<BuildPlan>,
@@ -989,7 +1028,7 @@ impl DriverActionExecutor {
                 link_time_optimization,
             })
         });
-        let miss_reason = match precheck_identity.as_ref() {
+        let mut miss_reason = match precheck_identity.as_ref() {
             None => ActionCacheMissReason::Uncacheable,
             Some(identity) => match cache.lookup(identity) {
                 Ok(CompilerEmitCacheLookup::Hit(reference)) => {
@@ -1022,6 +1061,70 @@ impl DriverActionExecutor {
                 Err(_) => ActionCacheMissReason::ReadError,
             },
         };
+        if action_cache_source_closure_miss(&miss_reason) {
+            if self.dry_run {
+                self.observe_cache_decision(action, ActionCacheOutcome::Unavailable);
+                return Ok(Some(ActionCacheOutcome::Unavailable));
+            }
+            let checked = driver
+                .check_entry_with_source_manifest(request.clone())
+                .result
+                .map_err(|error| CoordinatorError::Driver {
+                    action: action.key.clone(),
+                    error: Box::new(error),
+                })?;
+            if !checked.program.diagnostics.is_empty() {
+                return Ok(Some(ActionCacheOutcome::Miss(
+                    ActionCacheMissReason::Uncacheable,
+                )));
+            }
+            let exact_identity = link_environment.and_then(|environment| {
+                CompilerEmitCacheIdentity::new(CompilerEmitCacheIdentityInput {
+                    action: &action.key,
+                    artifact,
+                    module,
+                    packages: self.plan.packages(),
+                    target,
+                    profile: self.invocation.profile,
+                    compilation_mode: artifact.mode,
+                    runtime: artifact.runtime,
+                    configuration: &artifact.configuration,
+                    manifest: &checked.source_manifest,
+                    toolchain: self.invocation.toolchain.identity(),
+                    link_environment: environment,
+                    link_inputs: &cache_link_inputs,
+                    link_time_optimization,
+                })
+            });
+            if let Some(identity) = exact_identity {
+                miss_reason = match cache.lookup(&identity) {
+                    Ok(CompilerEmitCacheLookup::Hit(reference)) => {
+                        let reason = match driver.restore_executable_cache(reference, &output) {
+                            ExecutableCacheRestore::Hit => {
+                                self.observe_cache_decision(action, ActionCacheOutcome::Hit);
+                                return Ok(Some(ActionCacheOutcome::Hit));
+                            }
+                            ExecutableCacheRestore::NotFound => ActionCacheMissReason::NotFound,
+                            ExecutableCacheRestore::Invalidated => {
+                                ActionCacheMissReason::Invalidated(vec![
+                                    crate::ActionCacheInvalidation::Linker,
+                                ])
+                            }
+                            ExecutableCacheRestore::Corrupt => ActionCacheMissReason::Corrupt,
+                            ExecutableCacheRestore::ReadError => ActionCacheMissReason::ReadError,
+                            ExecutableCacheRestore::Disabled => ActionCacheMissReason::Uncacheable,
+                        };
+                        if cache.retire(&identity, reference).is_err() {
+                            ActionCacheMissReason::ReadError
+                        } else {
+                            reason
+                        }
+                    }
+                    Ok(CompilerEmitCacheLookup::Miss(reason)) => reason,
+                    Err(_) => ActionCacheMissReason::ReadError,
+                };
+            }
+        }
         self.observe_cache_decision(action, ActionCacheOutcome::Miss(miss_reason.clone()));
         if self.dry_run {
             return Ok(Some(ActionCacheOutcome::Miss(miss_reason)));
@@ -1539,7 +1642,7 @@ impl DriverActionExecutor {
             path: path.clone(),
         })?;
         let protocol_path = logical.protocol_path();
-        let identity = match logical.root() {
+        let (identity, display_path) = match logical.root() {
             LogicalPathRoot::Package(package) => {
                 let package_plan = self
                     .plan
@@ -1566,24 +1669,45 @@ impl DriverActionExecutor {
                             .and_then(|edge| edge.resolved_root.as_deref())
                     })
                     .unwrap_or(package.as_str());
-                format!("build-package:{logical_root}:/{protocol_path}")
+                let identity = format!("build-package:{logical_root}:/{protocol_path}");
+                let display_path = package_plan.map_or_else(
+                    || protocol_path.clone(),
+                    |package| package_source_display_path(&package.source, &protocol_path),
+                );
+                (identity, display_path)
             }
-            LogicalPathRoot::Build => format!(
-                "build-output:{}:/{protocol_path}",
-                self.plan.root_package().as_str()
-            ),
-            LogicalPathRoot::Cache => format!(
-                "build-cache:{}:/{protocol_path}",
-                self.plan.root_package().as_str()
-            ),
-            LogicalPathRoot::Toolchain => format!("toolchain:/{protocol_path}"),
-            LogicalPathRoot::Artifact(artifact) => format!(
-                "build-artifact:{}:{}:/{protocol_path}",
-                artifact.package().as_str(),
-                artifact.name()
-            ),
+            LogicalPathRoot::Build => {
+                let identity = format!(
+                    "build-output:{}:/{protocol_path}",
+                    self.plan.root_package().as_str()
+                );
+                (identity.clone(), identity)
+            }
+            LogicalPathRoot::Cache => {
+                let identity = format!(
+                    "build-cache:{}:/{protocol_path}",
+                    self.plan.root_package().as_str()
+                );
+                (identity.clone(), identity)
+            }
+            LogicalPathRoot::Toolchain => {
+                let identity = format!("toolchain:/{protocol_path}");
+                (identity.clone(), identity)
+            }
+            LogicalPathRoot::Artifact(artifact) => {
+                let identity = format!(
+                    "build-artifact:{}:{}:/{protocol_path}",
+                    artifact.package().as_str(),
+                    artifact.name()
+                );
+                (identity.clone(), identity)
+            }
         };
-        Ok(SourcePath::with_identity(text, identity))
+        Ok(SourcePath::with_identity_and_display_path(
+            text,
+            identity,
+            display_path,
+        ))
     }
 
     fn resolve_path(
@@ -1622,6 +1746,14 @@ impl DriverActionExecutor {
         }
         Ok(path)
     }
+}
+
+fn action_cache_source_closure_miss(reason: &ActionCacheMissReason) -> bool {
+    matches!(
+        reason,
+        ActionCacheMissReason::Invalidated(reasons)
+            if reasons.contains(&crate::ActionCacheInvalidation::Sources)
+    )
 }
 
 #[cfg(test)]

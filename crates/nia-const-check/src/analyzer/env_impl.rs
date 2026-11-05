@@ -2173,7 +2173,7 @@ impl Analyzer<'_> {
                 message: "source text is unavailable while evaluating `callerLocation`".to_string(),
             })?;
         Ok(nia_source::SourceLocation::at(
-            &source_path.identity(),
+            &source_path,
             &source_text,
             span.start,
         ))

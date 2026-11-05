@@ -76,11 +76,13 @@ pub(crate) fn draft(reverse: bool) -> BuildPlanDraft {
     ];
     let mut steps = vec![
         PlanStep {
+            visibility: StepVisibility::Public,
             key: check_step.clone(),
             action: check,
             dependencies: vec![],
         },
         PlanStep {
+            visibility: StepVisibility::Public,
             key: emit_step.clone(),
             action: emit,
             dependencies: vec![check_step],
@@ -143,6 +145,7 @@ pub(crate) fn static_archive_link_draft() -> BuildPlanDraft {
             },
         });
         value.steps.push(PlanStep {
+            visibility: StepVisibility::Public,
             key: step_key(&format!("emit-{}", artifact.name())),
             action: action_key(&format!("emit-{}", artifact.name())),
             dependencies: Vec::new(),
@@ -215,11 +218,13 @@ pub(crate) fn generated_source_draft(
         ],
         steps: vec![
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: generate_step,
                 action: action_key("generate"),
                 dependencies: Vec::new(),
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: check_step.clone(),
                 action: check,
                 dependencies: consumer_dependencies.into_iter().map(step_key).collect(),

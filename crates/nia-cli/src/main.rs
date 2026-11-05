@@ -26,7 +26,8 @@ use std::{
     sync::Arc,
 };
 
-use nia_driver::{NiaOptimizationLevel, RuntimeSpec};
+use nia_driver::{NiaOptimizationLevel, RuntimeSpec, SourcePath};
+use nia_source::SourceIdentity;
 use nia_timing::TimingFormat;
 
 mod args;
@@ -402,6 +403,13 @@ struct CompileSettings {
 struct SourceEntry {
     path: String,
     source: String,
+    own_library: Option<OwnLibraryMapping>,
+}
+
+struct OwnLibraryMapping {
+    root: PathBuf,
+    name: String,
+    path: PathBuf,
 }
 
 impl SourceEntry {
@@ -409,13 +417,42 @@ impl SourceEntry {
         &self,
         settings: &CompileSettings,
         runtime: RuntimeSpec,
-    ) -> nia_driver::CheckRequest {
-        nia_driver::CheckRequest::new(&self.path)
-            .with_module_map(settings.module_map.clone())
+    ) -> Result<nia_driver::CheckRequest, String> {
+        let mut module_map = settings.module_map.clone();
+        if let Some(own_library) = &self.own_library
+            && module_map.get(&own_library.name).is_none()
+        {
+            let scope = SourceIdentity::new(own_library.root.to_string_lossy());
+            module_map.add_scope(&scope);
+            module_map
+                .insert_scoped(
+                    &scope,
+                    &own_library.name,
+                    SourcePath::new(own_library.path.to_string_lossy()),
+                )
+                .map_err(|error| format!("cannot map the package's own library: {error}"))?;
+        }
+        Ok(nia_driver::CheckRequest::new(&self.path)
+            .with_module_map(module_map)
             .with_optimization(settings.optimization)
             .with_profile(settings.profile)
             .with_timings(settings.timings)
-            .with_runtime(runtime)
+            .with_runtime(runtime))
+    }
+
+    fn request_or_report(
+        &self,
+        settings: &CompileSettings,
+        runtime: RuntimeSpec,
+        format: DiagnosticsFormat,
+    ) -> Option<nia_driver::CheckRequest> {
+        match self.request(settings, runtime) {
+            Ok(request) => Some(request),
+            Err(error) => {
+                report_boundary_error(nia_diagnostic::codes::LOAD, &error, format);
+                None
+            }
+        }
     }
 
     fn report_driver_error(&self, error: &nia_driver::DriverError, format: DiagnosticsFormat) {
@@ -448,7 +485,12 @@ impl SourceEntry {
 fn load_entry(path: &str, format: DiagnosticsFormat) -> Option<SourceEntry> {
     let loaded = resolve_source_entry(path).and_then(|path| {
         let source = read_source(&path)?;
-        Ok(SourceEntry { path, source })
+        let own_library = own_library_mapping(&path)?;
+        Ok(SourceEntry {
+            path,
+            source,
+            own_library,
+        })
     });
     match loaded {
         Ok(entry) => Some(entry),
@@ -457,6 +499,28 @@ fn load_entry(path: &str, format: DiagnosticsFormat) -> Option<SourceEntry> {
             None
         }
     }
+}
+
+fn own_library_mapping(entry: &str) -> Result<Option<OwnLibraryMapping>, String> {
+    let mut directory = Path::new(entry).parent();
+    while let Some(candidate) = directory {
+        if candidate.join("nia.toml").is_file() {
+            let manifest =
+                nia_package_metadata::PackageManifest::read(candidate).map_err(|error| {
+                    format!(
+                        "cannot read `{}`: {error}",
+                        candidate.join("nia.toml").display()
+                    )
+                })?;
+            return Ok(manifest.library_path.map(|library_path| OwnLibraryMapping {
+                root: candidate.to_path_buf(),
+                name: manifest.package.name,
+                path: candidate.join(library_path),
+            }));
+        }
+        directory = candidate.parent();
+    }
+    Ok(None)
 }
 
 fn report_boundary_error(
@@ -831,19 +895,22 @@ fn run_check(
     let Some(runtime) = entry.resolve_runtime(options.runtime, &toolchain, format) else {
         return ExitCode::FAILURE;
     };
+    let Some(request) = entry.request_or_report(&options.settings, runtime.clone(), format) else {
+        return ExitCode::FAILURE;
+    };
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir,
         ..nia_driver::DriverConfig::new(toolchain)
     });
     let output = time_summary_stage(options.settings.timings, "check", || {
-        driver.check_entry(entry.request(&options.settings, runtime.clone()))
+        driver.check_entry(request.clone())
     });
     if checked_program_from_output(output, entry, format).is_none() {
         return ExitCode::FAILURE;
     }
     if options.opt_report {
         let output = time_summary_stage(options.settings.timings, "codegen", || {
-            driver.codegen(entry.request(&options.settings, runtime))
+            driver.codegen(request)
         });
         let Some(codegen) = codegen_program_from_output(output, entry, format) else {
             return ExitCode::FAILURE;
@@ -900,9 +967,12 @@ fn run_emit_checked(entry: &SourceEntry, runtime: RuntimeMode, context: EmitCont
     let Some(runtime) = entry.resolve_runtime(runtime, &context.toolchain, format) else {
         return ExitCode::FAILURE;
     };
+    let Some(request) = entry.request_or_report(&context.settings, runtime, format) else {
+        return ExitCode::FAILURE;
+    };
     let driver = nia_driver::Driver::new(context.toolchain);
     let output = time_summary_stage(context.settings.timings, "check", || {
-        driver.check_entry(entry.request(&context.settings, runtime))
+        driver.check_entry(request)
     });
     match checked_program_from_output(output, entry, format) {
         Some(program) => write_stdout(format_args!("{program:#?}\n")),
@@ -915,9 +985,12 @@ fn run_emit_backend(entry: &SourceEntry, runtime: RuntimeMode, context: EmitCont
     let Some(runtime) = entry.resolve_runtime(runtime, &context.toolchain, format) else {
         return ExitCode::FAILURE;
     };
+    let Some(request) = entry.request_or_report(&context.settings, runtime, format) else {
+        return ExitCode::FAILURE;
+    };
     let driver = nia_driver::Driver::new(context.toolchain);
     let output = time_summary_stage(context.settings.timings, "codegen", || {
-        driver.codegen(entry.request(&context.settings, runtime))
+        driver.codegen(request)
     });
     let Some(program) = codegen_program_from_output(output, entry, format) else {
         return ExitCode::FAILURE;
@@ -933,11 +1006,12 @@ fn run_emit_llvm(entry: &SourceEntry, runtime: RuntimeMode, context: EmitContext
     let Some(runtime) = entry.resolve_runtime(runtime, &context.toolchain, format) else {
         return ExitCode::FAILURE;
     };
+    let Some(request) = entry.request_or_report(&context.settings, runtime, format) else {
+        return ExitCode::FAILURE;
+    };
     let driver = nia_driver::Driver::new(context.toolchain);
     let output = time_summary_stage(context.settings.timings, "emit_llvm_ir", || {
-        driver.emit_llvm_ir(nia_driver::EmitLlvmRequest::new(
-            entry.request(&context.settings, runtime),
-        ))
+        driver.emit_llvm_ir(nia_driver::EmitLlvmRequest::new(request))
     });
     let artifact = match output.result {
         Ok(artifact) => artifact,
@@ -968,14 +1042,15 @@ fn run_emit_obj(entry: &SourceEntry, options: EmitObjOptions, context: EmitConte
     let Some(runtime) = entry.resolve_runtime(options.runtime, &context.toolchain, format) else {
         return ExitCode::FAILURE;
     };
+    let Some(request) = entry.request_or_report(&context.settings, runtime, format) else {
+        return ExitCode::FAILURE;
+    };
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir,
         ..nia_driver::DriverConfig::new(context.toolchain)
     });
     let output = time_summary_stage(context.settings.timings, "emit_native_objects", || {
-        driver.emit_native_objects(nia_driver::EmitObjectRequest::new(
-            entry.request(&context.settings, runtime),
-        ))
+        driver.emit_native_objects(nia_driver::EmitObjectRequest::new(request))
     });
     let objects = match output.result {
         Ok(objects) => objects,
@@ -1017,6 +1092,9 @@ fn run_emit_exe(entry: &SourceEntry, options: EmitExeOptions, context: EmitConte
     else {
         return ExitCode::FAILURE;
     };
+    let Some(request) = entry.request_or_report(&context.settings, runtime, format) else {
+        return ExitCode::FAILURE;
+    };
     let output_path = options.output.unwrap_or_else(|| {
         default_output_path(
             &entry.path,
@@ -1029,7 +1107,7 @@ fn run_emit_exe(entry: &SourceEntry, options: EmitExeOptions, context: EmitConte
     });
     let output = time_summary_stage(context.settings.timings, "link_executable", || {
         driver.link_executable(nia_driver::LinkExecutableRequest {
-            check: entry.request(&context.settings, runtime),
+            check: request,
             output: output_path,
             link_options: options.link_options,
             link_time_optimization: options.link_time_optimization,

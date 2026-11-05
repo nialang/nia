@@ -1093,7 +1093,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         Some(signature)
     };
     let program_global_signature = |def_id: GlobalDefId| {
-        capture_query_failure(
+        let signature = capture_query_failure(
             &query_failure,
             db.get(SignatureItemSignaturesQuery(
                 def_id.module_id,
@@ -1103,8 +1103,21 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .semantic
         .globals
         .get(&def_id.def_id)
-        .cloned()
-        .map(|signature| ProgramGlobalSignature { signature })
+        .cloned()?;
+        let value_type = if let Some(explicit) = signature.explicit_type {
+            Some(explicit)
+        } else {
+            capture_query_failure(&query_failure, db.get(BodyCheckQuery(def_id.module_id)))?
+                .semantic
+                .facts
+                .global_types
+                .get(&def_id)
+                .copied()
+        };
+        Some(ProgramGlobalSignature {
+            signature,
+            value_type,
+        })
     };
     let program_const_signature = |def_id: GlobalDefId| {
         capture_query_failure(

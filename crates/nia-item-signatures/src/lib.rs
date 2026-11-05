@@ -260,6 +260,8 @@ pub struct ProgramFunctionSignature {
 pub struct ProgramGlobalSignature {
     /// Module-local signature payload.
     pub signature: GlobalSignature,
+    /// Resolved type of the global, including inference from its initializer.
+    pub value_type: Option<InternedTyId>,
 }
 
 /// Program-qualified const signature payload.

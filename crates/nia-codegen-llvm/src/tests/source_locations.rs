@@ -45,6 +45,16 @@ fun main() u32 {
     let source_file = canonical_symbol(&ir, '@', "source_file", MangleSymbolKind::Global);
     assert!(ir.contains(&source_location), "{ir}");
     assert!(ir.contains(&source_file), "{ir}");
+    for symbol in [&source_location, &source_file] {
+        let declaration = ir
+            .lines()
+            .find(|line| line.contains(symbol) && line.contains(" = "))
+            .unwrap_or_else(|| panic!("missing caller-location global {symbol}: {ir}"));
+        assert!(
+            declaration.contains(" = internal ") && declaration.contains(" constant "),
+            "caller-location data must have module-local linkage: {declaration}"
+        );
+    }
     let source_path = main.to_string_lossy().replace('\\', "/");
     assert!(ir.contains(&source_path), "{ir}");
 

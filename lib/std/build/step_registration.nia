@@ -17,6 +17,7 @@ using root::build::paths::isValidBuildPath;
 using root::build::steps;
 using root::string;
 using root::build::targets::isValidStableName;
+using root::build::targets::isValidInternalStepName;
 using root::build::types;
 using root::build::validation::{
     validateExecutableHandle as validateExecutableHandleValue,
@@ -89,6 +90,19 @@ extend Build {
     }
 
     pub fun addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
+        self.addEmitExecutableStepWithVisibility(name, target, .Public)
+    }
+
+    pub(root) fun addInternalEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
+        self.addEmitExecutableStepWithVisibility(name, target, .Internal)
+    }
+
+    fun addEmitExecutableStepWithVisibility(
+        &mut self,
+        name: &[char],
+        target: ExecutableHandle,
+        visibility: types::StepVisibility,
+    ) Error!StepHandle {
         validateExecutableHandleValue(self.ownerId, self.executables.len(), target).?;
         let archiveCount = self.executables.asSlice()[target.index()].staticArchives.len();
         self.dependencies.reserve(
@@ -107,10 +121,11 @@ extend Build {
             }
             archiveIndex += 1;
         }
-        let result = self.addStepRecord(
+        let result = self.addStepRecordWithVisibility(
             name,
             .EmitExecutable,
             .{ executable: .init(target) },
+            visibility,
         ).?;
         let dependencyStart = self.dependencies.len();
         if self.addExecutableArchiveDependencies(result, target) is primary! {
@@ -206,7 +221,9 @@ extend Build {
         rootModule: ModuleHandle,
         runtime: types::Runtime,
     ) Error!StepHandle {
-        let mut compileName = string::String::fromSlice(self.allocator, name)
+        let mut compileName = string::String::fromSlice(self.allocator, "nia-internal-test-compile.")
+            .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
+        compileName.append(self.allocator, name)
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
         let result = self.addOwnedTestSuite(name, rootModule, runtime, &mut compileName);
         let cleanup = compileName.deinit(self.allocator)
@@ -227,7 +244,7 @@ extend Build {
             ExecutableOptions::init(name, rootModule).forTarget(self.hostTarget()).withRuntime(runtime),
         ).?;
         self.executables.asMutSlice()[executable.index()].test = true;
-        _ = self.addEmitExecutableStep(compileName.text(), executable).?;
+        _ = self.addInternalEmitExecutableStep(compileName.text(), executable).?;
         let suite = self.addTestExecutableStep(name, .init(executable)).?;
         let all = if self.testStep is ?step {
             step
@@ -533,8 +550,18 @@ extend Build {
     }
 
     fun addStepRecord(&mut self, name: &[char], kind: StepKind, payload: StepPayload) Error!StepHandle {
-        self.prepareStepSlot(name).?;
-        self.pendingStep = .initSimple(self.steps.len(), kind, payload);
+        self.addStepRecordWithVisibility(name, kind, payload, .Public)
+    }
+
+    fun addStepRecordWithVisibility(
+        &mut self,
+        name: &[char],
+        kind: StepKind,
+        payload: StepPayload,
+        visibility: types::StepVisibility,
+    ) Error!StepHandle {
+        self.prepareStepSlotWithVisibility(name, visibility).?;
+        self.pendingStep = .initSimple(self.steps.len(), kind, payload, visibility);
         self.hasPendingStep = true;
         match self.pendingStep.initializeName(self.allocator, name) {
             !ok => _ = ok,
@@ -603,8 +630,21 @@ extend Build {
     }
 
     fun prepareStepSlot(&mut self, name: &[char]) Error!() {
+        self.prepareStepSlotWithVisibility(name, .Public)
+    }
+
+    fun prepareStepSlotWithVisibility(
+        &mut self,
+        name: &[char],
+        visibility: types::StepVisibility,
+    ) Error!() {
         self.cleanupPendingStep().?;
-        if not isValidStableName(name) {
+        let validName = match visibility {
+            .Public => isValidStableName(name),
+            .Internal => isValidInternalStepName(name),
+            _ => false,
+        };
+        if not validName {
             return .Invalid {
                 operation: Operation::Validate,
                 subject: Subject::Step(self.steps.len()),

@@ -1403,11 +1403,15 @@ fn render_step_list(plan: &BuildPlan) -> String {
     let width = plan
         .steps()
         .iter()
+        .filter(|step| step.visibility == StepVisibility::Public)
         .map(|step| step.key.name().len())
         .max()
         .unwrap_or(0);
     let mut output = String::new();
     for step in plan.steps() {
+        if step.visibility == StepVisibility::Internal {
+            continue;
+        }
         let _ = write!(
             output,
             "{:width$}  {}",
@@ -1426,6 +1430,7 @@ fn render_step_list_json(plan: &BuildPlan) -> String {
     let steps = plan
         .steps()
         .iter()
+        .filter(|step| step.visibility == StepVisibility::Public)
         .map(|step| {
             serde_json::json!({
                 "name": step.key.name(),
@@ -2198,6 +2203,10 @@ fn build_plan_json_value(plan: &BuildPlan) -> serde_json::Value {
                 "key": format!("{}::{}", step.key.package().as_str(), step.key.name()),
                 "package": step.key.package().as_str(),
                 "name": step.key.name(),
+                "visibility": match step.visibility {
+                    StepVisibility::Public => "public",
+                    StepVisibility::Internal => "internal",
+                },
                 "action": format!("{}::{}", step.action.package().as_str(), step.action.name()),
                 "dependencies": step.dependencies.iter().map(|dependency| format!("{}::{}", dependency.package().as_str(), dependency.name())).collect::<Vec<_>>(),
             })
@@ -3469,9 +3478,10 @@ fn build_runner_module_map(
 /// `build.nia`, or, when the package has none, the toolchain's empty script.
 fn build_script_source_path(invocation: &BuildInvocation) -> SourcePath {
     if invocation.build_script.is_file() {
-        SourcePath::with_identity(
+        SourcePath::with_identity_and_display_path(
             invocation.build_script.to_string_lossy().into_owned(),
             "build-package:root:/build.nia",
+            "build.nia",
         )
     } else {
         SourcePath::with_identity(EMPTY_BUILD_SCRIPT_PATH, EMPTY_BUILD_SCRIPT_PATH)
@@ -3522,9 +3532,10 @@ pub(crate) fn manifest_module_roots(
         imports.push((
             edge.owner_root.clone(),
             edge.dependency.name.clone(),
-            SourcePath::with_identity(
+            SourcePath::with_identity_and_display_path(
                 path.to_string_lossy().into_owned(),
                 format!("build-package:{logical_root}:/{library_path}"),
+                format!("{}/{library_path}", edge.dependency.name),
             ),
         ));
     }
@@ -3586,12 +3597,13 @@ pub(crate) fn add_own_library_module_root(
             ),
         ));
     }
-    let path = SourcePath::with_identity(
+    let path = SourcePath::with_identity_and_display_path(
         package_root
             .join(&library_path)
             .to_string_lossy()
             .into_owned(),
         format!("build-package:root:/{library_path}"),
+        library_path,
     );
     module_map
         .insert_scoped(&package_module_scope(""), name, path)
@@ -5701,6 +5713,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
                 },
             }],
             steps: vec![PlanStep {
+                visibility: StepVisibility::Public,
                 key: check_step.clone(),
                 action: check_action.clone(),
                 dependencies: Vec::new(),

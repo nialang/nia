@@ -159,6 +159,7 @@ pub fn collect_program_globals(
                     def_id: *def_id,
                 },
                 ProgramGlobalSignature {
+                    value_type: signature.explicit_type,
                     signature: signature.clone(),
                 },
             );

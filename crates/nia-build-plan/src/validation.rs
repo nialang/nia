@@ -265,18 +265,21 @@ pub(super) fn canonicalize_steps(
 }
 
 pub(super) fn validate_step_selection(draft: &BuildPlanDraft) -> Result<(), PlanError> {
-    let keys: BTreeSet<_> = draft.steps.iter().map(|step| &step.key).collect();
+    let steps: BTreeMap<_, _> = draft.steps.iter().map(|step| (&step.key, step)).collect();
     for (owner, selected) in [
         ("default", &draft.default_step),
         ("selected", &draft.selected_step),
     ] {
-        if let Some(step) = selected
-            && !keys.contains(step)
-        {
-            return Err(PlanError::MissingStep {
-                owner: owner.to_string(),
-                step: step.clone(),
-            });
+        if let Some(key) = selected {
+            let Some(step) = steps.get(key) else {
+                return Err(PlanError::MissingStep {
+                    owner: owner.to_string(),
+                    step: (*key).clone(),
+                });
+            };
+            if step.visibility == StepVisibility::Internal {
+                return Err(PlanError::InternalStepSelected((*key).clone()));
+            }
         }
     }
     Ok(())

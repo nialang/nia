@@ -171,13 +171,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(listed.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&listed.stdout),
-        "fail                 test-executable\n\
-         fail-second          test-executable\n\
-         fail-second.compile  compiler-emit\n\
-         fail.compile         compiler-emit\n\
-         pass                 test-executable\n\
-         pass.compile         compiler-emit\n\
-         test                 aggregate\n"
+        "fail         test-executable\n\
+         fail-second  test-executable\n\
+         pass         test-executable\n\
+         test         aggregate\n"
     );
 
     let passing = build_command(&workspace)
@@ -250,6 +247,52 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(fail_fast.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&fail_fast.stderr);
     assert!(stderr.contains("1 test suite(s) failed"), "{stderr}");
+}
+
+#[test]
+fn test_failure_locations_hide_internal_root_package_identity() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let workspace = nia_test_support::test_dir("test-failure-source-display");
+    fs::create_dir_all(workspace.join("tests")).expect("create test directory");
+    fs::write(
+        workspace.join("nia.toml"),
+        "[package]\nname = \"root\"\nversion = \"1.0.0\"\n\
+         [[test]]\nname = \"unit\"\npath = \"tests/unit.nia\"\n",
+    )
+    .expect("write manifest");
+    fs::write(
+        workspace.join("tests/unit.nia"),
+        r#"using std::{io, process, test};
+
+fun failingCase() test::Error!() {
+    test::fail()
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let cases = [test::Case::init("failure", failingCase)];
+    let mut reporter = \result: test::CaseResult -> {
+        if result.error() is ?failure {
+            _ = io::debugPrint("{}\n", [failure]);
+        }
+    };
+    let summary = test::Runner::init(cases).runWith(reporter);
+    if not summary.isSuccessful() {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write failing test suite");
+
+    let output = build_command(&workspace)
+        .arg("unit")
+        .output_timeout_in_session("report a test failure with a user-facing source path");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("tests/unit.nia:"), "{stderr}");
+    assert!(!stderr.contains("build-package:root:/"), "{stderr}");
 }
 
 #[test]
@@ -363,6 +406,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
     _ = b.addTestSuite(&"unit", appModule).?;
     b.setDefaultStep(emit)
 }
+
 "#,
     )
     .expect("write build script");
@@ -427,6 +471,7 @@ fn manifest_artifacts_build_without_a_build_script() {
         workspace.join("nia.toml"),
         "[package]\nversion = \"1.0.0\"\nname = \"root\"\n\
          [[executable]]\nname = \"app\"\npath = \"src/main.nia\"\n\
+         [[executable]]\nname = \"unit.compile\"\npath = \"src/compile.nia\"\n\
          [[test]]\nname = \"unit\"\npath = \"tests/unit.nia\"\n",
     )
     .expect("write manifest");
@@ -436,6 +481,7 @@ fn manifest_artifacts_build_without_a_build_script() {
         )
     };
     fs::write(workspace.join("src/main.nia"), program(4)).expect("write app");
+    fs::write(workspace.join("src/compile.nia"), program(0)).expect("write dotted executable");
     fs::write(workspace.join("tests/unit.nia"), program(0)).expect("write suite");
 
     let listed = build_command(&workspace)
@@ -448,12 +494,13 @@ fn manifest_artifacts_build_without_a_build_script() {
     );
     assert_eq!(
         String::from_utf8_lossy(&listed.stdout),
-        "all           aggregate (default)\n\
-         app           compiler-emit\n\
-         run-app       external-command\n\
-         test          aggregate\n\
-         unit          test-executable\n\
-         unit.compile  compiler-emit\n"
+        "all               aggregate (default)\n\
+         app               compiler-emit\n\
+         run-app           external-command\n\
+         run-unit.compile  external-command\n\
+         test              aggregate\n\
+         unit              test-executable\n\
+         unit.compile      compiler-emit\n"
     );
 
     let all = build_command(&workspace).output_timeout_in_session("build every manifest artifact");
@@ -604,6 +651,109 @@ pub fun main(init: process::Init) process::ExitCode!() {{
         assert!(stdout.contains("alpha-failed"), "{stdout}");
         assert!(!stdout.contains("beta-ran"), "{stdout}");
     }
+}
+
+#[test]
+fn successful_test_suite_compilation_reuses_the_compiler_emit_cache() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let workspace = nia_test_support::test_dir("test-suite-compiler-emit-cache");
+    fs::create_dir_all(workspace.join("tests")).expect("create test directory");
+    fs::write(
+        workspace.join("build.nia"),
+        r#"using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let unitModule = b.addModule(build::ModuleOptions::init(
+        &"unit-module", fs::PathView::init(&"tests/unit.nia"),
+    )).?;
+    _ = b.addTestSuite(&"unit", unitModule).?;
+    !()
+}
+"#,
+    )
+    .expect("write build script");
+    fs::write(
+        workspace.join("tests/unit.nia"),
+        r#"using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    !()
+}
+"#,
+    )
+    .expect("write test suite");
+
+    let run = || {
+        build_command(&workspace)
+            .args(["test", "--print-cache", "--diagnostics-format=json"])
+            .output_timeout_in_session("inspect test suite compilation action caching")
+    };
+    let cold = run();
+    assert!(
+        cold.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cold.stderr)
+    );
+    let warm = run();
+    assert!(
+        warm.status.success(),
+        "{}",
+        String::from_utf8_lossy(&warm.stderr)
+    );
+    let cache = String::from_utf8_lossy(&warm.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|value| value["kind"] == "action-cache")
+        .expect("test build action-cache report");
+    let entries = cache["entries"].as_array().expect("cache entries");
+    let compilation = entries
+        .iter()
+        .find(|entry| {
+            entry["action"]
+                .as_str()
+                .is_some_and(|action| action.contains("nia-internal-test-compile."))
+        })
+        .unwrap_or_else(|| panic!("suite compiler action missing from cache report: {cache}"));
+    assert_eq!(
+        compilation["decision"]["status"], "hit",
+        "suite compilation was not restored from its compiler emit cache: {cache}"
+    );
+
+    let dry_run = build_command(&workspace)
+        .args([
+            "test",
+            "--dry-run",
+            "--print-cache",
+            "--diagnostics-format=json",
+        ])
+        .output_timeout_in_session("predict test suite compiler cache without executing it");
+    assert!(
+        dry_run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dry_run.stderr)
+    );
+    let dry_cache = String::from_utf8_lossy(&dry_run.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|value| value["kind"] == "action-cache")
+        .expect("dry-run action-cache report");
+    let dry_entries = dry_cache["entries"].as_array().expect("dry-run entries");
+    let dry_compilation = dry_entries
+        .iter()
+        .find(|entry| {
+            entry["action"]
+                .as_str()
+                .is_some_and(|action| action.contains("nia-internal-test-compile."))
+        })
+        .unwrap_or_else(|| {
+            panic!("suite compiler action missing from dry-run report: {dry_cache}")
+        });
+    assert_eq!(
+        dry_compilation["decision"]["status"], "unavailable",
+        "dry-run must not compile to discover a semantic source closure: {dry_cache}"
+    );
 }
 
 #[test]

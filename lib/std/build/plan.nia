@@ -610,6 +610,11 @@ extend PlanEncoder {
         // step, so the step and action identities intentionally share a key.
         self.writeRootNodeKey(step.name.text()).?;
         self.writeRootNodeKey(step.name.text()).?;
+        self.writeU8(match step.visibility {
+            .Public => 0,
+            .Internal => 1,
+            _ => return invalidPlan(),
+        }).?;
         let mut dependencyCount: usize = 0;
         for &edge in build.dependencies.iter() {
             if edge.step.index == step.index {
@@ -637,7 +642,7 @@ extend PlanEncoder {
     }
 
     fun writeBuild(&mut self, build: &Build) Error!() {
-        self.writeBytes(&b"NIA-PLN\x01"[..]).?;
+        self.writeBytes(&b"NIA-PLN\x02"[..]).?;
         self.writeU32(build.protocolEpoch).?;
         self.writeRootPackage().?;
         let packageCount = PlanEncoder::addCount(build.packages.len(), 1).?;

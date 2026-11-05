@@ -207,6 +207,64 @@ fn call_mismatches_name_the_callee_declaration() {
 }
 
 #[test]
+fn check_and_test_build_can_import_the_package_library_by_its_name() {
+    let root = temp_dir("check_own_package_library");
+    std::fs::create_dir_all(root.join("lib")).expect("create library directory");
+    std::fs::create_dir_all(root.join("src")).expect("create source directory");
+    std::fs::create_dir_all(root.join("tests")).expect("create test directory");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"self_library\"\nversion = \"1.0.0\"\n\
+         [library]\npath = \"lib/root.nia\"\n\
+         [[test]]\nname = \"unit\"\npath = \"tests/unit.nia\"\n",
+    )
+    .expect("write package manifest");
+    std::fs::write(
+        root.join("lib/root.nia"),
+        "pub static greeting = \"hello\";\n",
+    )
+    .expect("write inferred static library value");
+    std::fs::write(
+        root.join("src/main.nia"),
+        "using self_library;\n\npub fun value() [char; 5] { self_library::greeting }\n",
+    )
+    .expect("write executable source");
+    std::fs::write(
+        root.join("tests/unit.nia"),
+        r#"using std::process;
+using self_library;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    _ = self_library::greeting;
+    !()
+}
+"#,
+    )
+    .expect("write suite source");
+
+    let checked = support::nia_command()
+        .arg("check")
+        .arg(root.join("src/main.nia"))
+        .output_timeout_for_compiler("check source importing its own package library");
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+
+    let tested = support::nia_command()
+        .args(["build", "unit", "--root"])
+        .arg(&root)
+        .output_timeout_for_build("build a test suite that imports its own package library");
+    assert!(
+        tested.status.success(),
+        "{}",
+        String::from_utf8_lossy(&tested.stderr)
+    );
+}
+
+#[test]
 fn repository_nia_uses_the_exit_conversion_boundary() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

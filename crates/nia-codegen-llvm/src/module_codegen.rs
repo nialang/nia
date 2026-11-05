@@ -251,7 +251,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .module
                     .add_global(file_ty, None, &symbol)
                     .map_err(Self::diagnostic_from_llvm_error)?;
-                global.set_linkage(Linkage::LinkOnceOdr);
+                // Caller-location constants are owned by this LLVM module.
+                // The value is passed across function boundaries as an
+                // ordinary pointer; it does not need a link-time identity.
+                // Giving each object a private definition also avoids COFF's
+                // duplicate weak-data symbol behavior when several modules
+                // contain the same logical source path.
+                global.set_linkage(Linkage::Internal);
                 declarations::hide_compiler_symbol(global);
                 global.set_constant(true);
                 global
@@ -302,7 +308,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .module
             .add_global(location_ty.into(), None, &symbol)
             .map_err(Self::diagnostic_from_llvm_error)?;
-        global.set_linkage(Linkage::LinkOnceOdr);
+        // Each module owns its caller-location records. Their addresses are
+        // runtime values, not symbols that should be coalesced by the linker.
+        global.set_linkage(Linkage::Internal);
         declarations::hide_compiler_symbol(global);
         global.set_constant(true);
         global

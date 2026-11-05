@@ -80,7 +80,6 @@ greet-all     external-command
 run-greet     external-command
 test          aggregate
 unit          test-executable
-unit.compile  compiler-emit
 ```
 
 ```sh

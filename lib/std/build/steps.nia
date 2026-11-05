@@ -31,6 +31,7 @@ using types::{
     StaticArchiveStep,
     Step,
     StepKind,
+    StepVisibility,
     StepPayload,
     UncacheableStep,
 };
@@ -186,20 +187,25 @@ extend RunExecutableStep {
 }
 
 extend Step {
-    pub(root) fun initSimple(index: usize, kind: StepKind, payload: StepPayload) Step {
-        .{ index, name: .init(), kind, payload }
+    pub(root) fun initSimple(
+        index: usize,
+        kind: StepKind,
+        payload: StepPayload,
+        visibility: StepVisibility,
+    ) Step {
+        .{ index, name: .init(), kind, payload, visibility }
     }
 
     pub(root) fun initAggregate(index: usize) Step {
-        .{ index, name: .init(), kind: .Aggregate, payload: .{ aggregate: .init() } }
+        .{ index, name: .init(), kind: .Aggregate, payload: .{ aggregate: .init() }, visibility: .Public }
     }
 
     pub(root) fun initGeneratedFile(index: usize) Step {
-        .{ index, name: .init(), kind: .GeneratedFile, payload: .{ generatedFile: .init() } }
+        .{ index, name: .init(), kind: .GeneratedFile, payload: .{ generatedFile: .init() }, visibility: .Public }
     }
 
     pub(root) fun initUncacheable(index: usize) Step {
-        .{ index, name: .init(), kind: .Uncacheable, payload: .{ uncacheable: .init() } }
+        .{ index, name: .init(), kind: .Uncacheable, payload: .{ uncacheable: .init() }, visibility: .Public }
     }
 
     pub(root) fun initRunExecutable(
@@ -207,19 +213,19 @@ extend Step {
         kind: StepKind,
         target: ExecutableHandle,
     ) Step {
-        .{ index, name: .init(), kind, payload: .{ runExecutable: .init(target) } }
+        .{ index, name: .init(), kind, payload: .{ runExecutable: .init(target) }, visibility: .Public }
     }
 
     pub(root) fun initInstallExecutable(index: usize, target: ExecutableHandle) Step {
-        .{ index, name: .init(), kind: .InstallExecutable, payload: .{ installExecutable: .init(target) } }
+        .{ index, name: .init(), kind: .InstallExecutable, payload: .{ installExecutable: .init(target) }, visibility: .Public }
     }
 
     pub(root) fun initInstallStaticArchive(index: usize, target: StaticArchiveHandle) Step {
-        .{ index, name: .init(), kind: .InstallStaticArchive, payload: .{ installStaticArchive: .init(target) } }
+        .{ index, name: .init(), kind: .InstallStaticArchive, payload: .{ installStaticArchive: .init(target) }, visibility: .Public }
     }
 
     pub(root) fun initExternalCommand(index: usize, options: ExternalCommandOptions) Step {
-        .{ index, name: .init(), kind: .ExternalCommand, payload: .{ externalCommand: .init(options) } }
+        .{ index, name: .init(), kind: .ExternalCommand, payload: .{ externalCommand: .init(options) }, visibility: .Public }
     }
 
     pub(root) fun initializeGeneratedFile(

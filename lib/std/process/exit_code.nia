@@ -4,6 +4,7 @@ using root::fmt;
 using root::fs;
 using root::io;
 using root::mem;
+using root::string::TextFormatError;
 using root::process::types;
 using root::test;
 
@@ -121,6 +122,16 @@ extend fmt::Error : builtin::IntoError[ExitCode] {
             .MissingArgument => ExitCode(22),
             .ExtraArgument => ExitCode(22),
             _ => ExitCode(255),
+        }
+    }
+}
+
+extend TextFormatError : builtin::IntoError[ExitCode] {
+    const fun intoError(self) ExitCode {
+        match self {
+            .InvalidUtf8(_) => ExitCode(22),
+            .Allocation(cause) => cause.intoError(),
+            .Format(cause) => cause.intoError(),
         }
     }
 }

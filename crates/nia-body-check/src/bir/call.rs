@@ -704,7 +704,7 @@ impl<'a> BodyChecker<'a> {
             TypedCallee::Tracked {
                 callee: Box::new(lowered),
                 location: nia_source::SourceLocation::at(
-                    &self.source_path.identity(),
+                    self.source_path,
                     self.source_text,
                     call.span.start,
                 ),

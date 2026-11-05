@@ -588,12 +588,12 @@ fn external_command_diagnostic(details: &ExternalCommandError) -> Diagnostic {
             }
             append_output_note(&mut diagnostic, "stdout", stdout);
             append_output_note(&mut diagnostic, "stderr", stderr);
+            diagnostic.help.push(
+                "declare all outputs in the command action, or use an uncacheable command policy"
+                    .to_string(),
+            );
         }
     }
-    diagnostic.help.push(
-        "declare all outputs in the command action, or use an uncacheable command policy"
-            .to_string(),
-    );
     diagnostic
 }
 
@@ -903,6 +903,48 @@ pub(crate) mod tests {
         assert!(displayed.contains("run `cc`"));
         assert!(displayed.contains("timed out after 7m"));
         assert!(!displayed.contains("420s"));
+    }
+
+    #[test]
+    fn external_command_cache_help_only_describes_undeclared_outputs() {
+        let action = crate::ActionKey::new(crate::PackageKey::root(), "run-tests").unwrap();
+        let make_error = |failure| ExternalCommandError {
+            action: action.clone(),
+            program: "test-runner".to_string(),
+            arguments: Vec::new(),
+            working_directory: std::path::PathBuf::from("/tmp/project"),
+            failure,
+        };
+
+        let exited = external_command_diagnostic(&make_error(ExternalCommandFailure::Exit {
+            status: {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::ExitStatusExt as _;
+                    std::process::ExitStatus::from_raw(7 << 8)
+                }
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::ExitStatusExt as _;
+                    std::process::ExitStatus::from_raw(7)
+                }
+            },
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        }));
+        assert!(exited.notes.iter().any(|note| note.contains("status 7")));
+        assert!(exited.help.is_empty(), "{exited:?}");
+
+        let undeclared =
+            external_command_diagnostic(&make_error(ExternalCommandFailure::UndeclaredOutputs {
+                paths: vec![std::path::PathBuf::from("generated.txt")],
+                count: 1,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            }));
+        assert!(undeclared.help.iter().any(|help| {
+            help.contains("declare all outputs") && help.contains("uncacheable command policy")
+        }));
     }
 
     #[test]

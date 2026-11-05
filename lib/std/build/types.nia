@@ -24,6 +24,12 @@ pub enum StepKind: i32 {
     _
 }
 
+pub enum StepVisibility: i32 {
+    Public = 0,
+    Internal = 1,
+    _
+}
+
 pub enum OptimizationMode: i32 {
     O0 = 0,
     O1 = 1,
@@ -327,6 +333,7 @@ pub struct Step {
     name: string::String,
     kind: StepKind,
     payload: StepPayload,
+    visibility: StepVisibility,
 }
 
 pub struct StepDependency {

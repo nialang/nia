@@ -3,7 +3,40 @@ use std::process::Command;
 
 mod support;
 
-use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
+use nia_test_support::{CommandExt, CommandStatusExt, TestWorkload, test_dir as temp_dir};
+
+#[test]
+fn manifest_executables_for_foreign_targets_do_not_register_run_steps() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = temp_dir("manifest_foreign_target_has_no_run_step");
+    std::fs::create_dir_all(root.join("src")).expect("create source directory");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"cross\"\nversion = \"1.0.0\"\n\
+         [[executable]]\nname = \"app\"\npath = \"src/main.nia\"\n",
+    )
+    .expect("write manifest");
+    std::fs::write(root.join("src/main.nia"), "pub fun main() () {}\n")
+        .expect("write executable source");
+    let target = if cfg!(windows) || std::env::consts::ARCH == "aarch64" {
+        "x86_64-unknown-linux"
+    } else {
+        "aarch64-unknown-linux"
+    };
+
+    let output = support::nia_command()
+        .args(["--target", target, "build", "--list", "--root"])
+        .arg(&root)
+        .output_timeout_for_build("list foreign-target manifest steps");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let listed = String::from_utf8_lossy(&output.stdout);
+    assert!(listed.contains("app"), "{listed}");
+    assert!(!listed.contains("run-app"), "{listed}");
+}
 
 #[test]
 fn build_separates_owned_host_and_artifact_targets() {

@@ -566,6 +566,10 @@ impl Writer {
     fn step(&mut self, step: &PlanStep) -> Result<(), PlanCodecError> {
         self.step_key(&step.key)?;
         self.action_key(&step.action)?;
+        self.u8(match step.visibility {
+            StepVisibility::Public => 0,
+            StepVisibility::Internal => 1,
+        });
         self.count(step.dependencies.len())?;
         for dependency in &step.dependencies {
             self.step_key(dependency)?;
@@ -1089,9 +1093,24 @@ impl<'a> Reader<'a> {
     }
 
     fn step(&mut self) -> Result<PlanStep, PlanCodecError> {
+        let key = self.step_key()?;
+        let action = self.action_key()?;
+        let offset = self.offset;
+        let visibility = match self.u8()? {
+            0 => StepVisibility::Public,
+            1 => StepVisibility::Internal,
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "step visibility",
+                    tag,
+                    offset,
+                });
+            }
+        };
         Ok(PlanStep {
-            key: self.step_key()?,
-            action: self.action_key()?,
+            key,
+            action,
+            visibility,
             dependencies: self.list(Reader::step_key)?,
         })
     }
@@ -1560,6 +1579,7 @@ mod tests {
             }),
         });
         value.steps.push(PlanStep {
+            visibility: StepVisibility::Public,
             key: step.clone(),
             action,
             dependencies: Vec::new(),

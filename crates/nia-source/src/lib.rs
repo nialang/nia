@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Stable source identities, versioned files, and concurrent source storage.
 //!
-//! Sources have two identities. [`SourceIdentity`] is the relocation-stable
-//! logical identity derived from normalized path text; [`SourcePath`] pairs it
-//! with a physical location but compares and hashes by the logical identity
-//! only, so relocated toolchain and package sources keep their compiler
-//! identities. [`SourceId`] is a compact session-local handle scoped to one
+//! [`SourcePath`] combines a physical path, relocation-stable logical
+//! identity, and user-facing display path. It compares and hashes by logical
+//! identity only, so relocated toolchain and package sources keep their
+//! compiler identities. [`SourceIdentity`] is the identity-only coordinate;
+//! [`SourceId`] is a compact session-local handle scoped to one
 //! source store, and a [`SourceVersion`] names one [`SourceRevision`] of it.
 //!
 //! [`SourceTable`] is a concurrent bijection between logical paths and ids,
@@ -177,9 +177,9 @@ pub struct SourceIdentity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-/// Stable logical source coordinate embedded in generated programs.
+/// User-facing source coordinate embedded in generated programs.
 pub struct SourceLocation {
-    /// Relocation-stable UTF-8 source identity.
+    /// User-facing UTF-8 source path.
     pub file: String,
     /// One-based source line.
     pub line: u32,
@@ -189,7 +189,7 @@ pub struct SourceLocation {
 
 impl SourceLocation {
     /// Resolves a byte offset using the same scalar-column convention as diagnostics.
-    pub fn at(identity: &SourceIdentity, source: &str, offset: usize) -> Self {
+    pub fn at(path: &SourcePath, source: &str, offset: usize) -> Self {
         let offset = clamp_to_char_boundary(source, offset.min(source.len()));
         let mut line = 1_u32;
         let mut line_start = 0;
@@ -204,7 +204,7 @@ impl SourceLocation {
         }
         let column = source[line_start..offset].chars().count().saturating_add(1);
         Self {
-            file: identity.normalized_path().to_owned(),
+            file: path.display_path().to_owned(),
             line,
             column: u32::try_from(column).unwrap_or(u32::MAX),
         }
@@ -221,9 +221,8 @@ fn clamp_to_char_boundary(source: &str, mut offset: usize) -> usize {
 impl SourceIdentity {
     /// Creates an identity after normalizing the supplied path text.
     pub fn new(path: impl AsRef<str>) -> Self {
-        Self {
-            normalized_path: normalize_path(path.as_ref()).into(),
-        }
+        let normalized_path: Arc<str> = normalize_path(path.as_ref()).into();
+        Self { normalized_path }
     }
 
     fn from_normalized(normalized_path: Arc<str>) -> Self {
@@ -249,6 +248,7 @@ impl SourceIdentity {
 pub struct SourcePath {
     physical_path: Arc<str>,
     identity: SourceIdentity,
+    display_path: Arc<str>,
 }
 
 impl PartialEq for SourcePath {
@@ -271,6 +271,7 @@ impl SourcePath {
         let physical_path: Arc<str> = normalize_path(&path.into()).into();
         Self {
             identity: SourceIdentity::from_normalized(physical_path.clone()),
+            display_path: Arc::clone(&physical_path),
             physical_path,
         }
     }
@@ -279,7 +280,8 @@ impl SourcePath {
     pub fn from_normalized_unchecked(path: impl Into<Arc<str>>) -> Self {
         let physical_path = path.into();
         Self {
-            identity: SourceIdentity::from_normalized(physical_path.clone()),
+            identity: SourceIdentity::from_normalized(Arc::clone(&physical_path)),
+            display_path: Arc::clone(&physical_path),
             physical_path,
         }
     }
@@ -298,9 +300,32 @@ impl SourcePath {
         } else {
             logical_identity
         };
+        Self::with_normalized_identity_and_display_unchecked(
+            physical_path,
+            normalized_path.clone(),
+            normalized_path,
+        )
+    }
+
+    /// Builds a source path with distinct physical, logical, and user-facing
+    /// coordinates. The caller must provide normalized text for all paths.
+    pub fn with_normalized_identity_and_display_unchecked(
+        physical_path: impl Into<Arc<str>>,
+        logical_identity: impl Into<Arc<str>>,
+        display_path: impl Into<Arc<str>>,
+    ) -> Self {
+        let physical_path = physical_path.into();
+        let logical_identity = logical_identity.into();
+        let display_path = display_path.into();
+        let normalized_path = if physical_path == logical_identity {
+            physical_path.clone()
+        } else {
+            logical_identity
+        };
         Self {
             physical_path,
             identity: SourceIdentity::from_normalized(normalized_path),
+            display_path,
         }
     }
 
@@ -309,9 +334,28 @@ impl SourcePath {
         physical_path: impl Into<String>,
         logical_identity: impl AsRef<str>,
     ) -> Self {
-        Self::with_normalized_identity_unchecked(
-            normalize_path(&physical_path.into()),
-            normalize_path(logical_identity.as_ref()),
+        let physical_path = normalize_path(&physical_path.into());
+        let logical_identity = normalize_path(logical_identity.as_ref());
+        Self::with_normalized_identity_and_display_unchecked(
+            physical_path,
+            logical_identity.clone(),
+            logical_identity,
+        )
+    }
+
+    /// Creates a path with distinct physical, logical, and user-facing paths.
+    pub fn with_identity_and_display_path(
+        physical_path: impl Into<String>,
+        logical_identity: impl AsRef<str>,
+        display_path: impl AsRef<str>,
+    ) -> Self {
+        let physical_path = normalize_path(&physical_path.into());
+        let logical_identity = normalize_path(logical_identity.as_ref());
+        let display_path = normalize_path(display_path.as_ref());
+        Self::with_normalized_identity_and_display_unchecked(
+            physical_path,
+            logical_identity,
+            display_path,
         )
     }
 
@@ -330,15 +374,22 @@ impl SourcePath {
         &self.identity
     }
 
+    /// Returns the normalized user-facing path associated with this source.
+    pub fn display_path(&self) -> &str {
+        &self.display_path
+    }
+
     /// Derives a normalized child file while preserving logical relocation.
     pub fn derived_child_file(&self, child: &str, sibling: bool) -> Self {
         let physical = derived_child_path_text(self.as_str(), child, sibling);
         let logical_parent = self.identity_ref().normalized_path();
-        if self.as_str() == logical_parent {
-            return Self::from_normalized_unchecked(physical);
-        }
-        let logical = derived_child_path_text(logical_parent, child, sibling);
-        Self::with_normalized_identity_unchecked(physical, logical)
+        let logical = if self.as_str() == logical_parent {
+            physical.clone()
+        } else {
+            derived_child_path_text(logical_parent, child, sibling)
+        };
+        let display = derived_child_path_text(self.display_path(), child, sibling);
+        Self::with_normalized_identity_and_display_unchecked(physical, logical, display)
     }
 }
 
@@ -833,20 +884,75 @@ mod tests {
 
     #[test]
     fn source_locations_use_one_based_unicode_scalar_columns() {
-        let identity = SourceIdentity::new("package:demo:/main.nia");
+        let path = SourcePath::with_identity_and_display_path(
+            "src/main.nia",
+            "package:demo:/main.nia",
+            "src/main.nia",
+        );
         let source = "first\n    let 文 = callerLocation();\n";
         let offset = source
             .find("callerLocation")
             .expect("caller location offset");
 
         assert_eq!(
-            SourceLocation::at(&identity, source, offset),
+            SourceLocation::at(&path, source, offset),
             SourceLocation {
-                file: "package:demo:/main.nia".to_string(),
+                file: "src/main.nia".to_string(),
                 line: 2,
                 column: 13,
             }
         );
+    }
+
+    #[test]
+    fn caller_locations_hide_build_loader_root_discriminators() {
+        let root = SourcePath::with_identity_and_display_path(
+            "C:/project/tests/unit.nia",
+            "build-package:root:/tests/unit.nia",
+            "tests/unit.nia",
+        );
+        let dependency = SourcePath::with_identity_and_display_path(
+            "C:/project/vendor/core/src/root.nia",
+            "build-package:core:/src/root.nia",
+            "core/src/root.nia",
+        );
+
+        assert_eq!(
+            root.identity_ref().normalized_path(),
+            "build-package:root:/tests/unit.nia"
+        );
+        assert_eq!(root.display_path(), "tests/unit.nia");
+        assert_eq!(dependency.display_path(), "core/src/root.nia");
+        assert_eq!(SourceLocation::at(&root, "test", 0).file, "tests/unit.nia");
+        assert_eq!(
+            root.identity(),
+            SourceIdentity::new(root.identity_ref().normalized_path())
+        );
+        let mut identities = std::collections::HashMap::new();
+        identities.insert(root.identity(), "root source");
+        assert_eq!(
+            identities.get(&SourceIdentity::new("build-package:root:/tests/unit.nia")),
+            Some(&"root source")
+        );
+        let ordinary = SourcePath::new("toolchain:/std/root.nia");
+        assert_eq!(ordinary.display_path(), "toolchain:/std/root.nia");
+
+        let source_table = SourceTable::new();
+        let id = source_table.id_for_path(&root).expect("intern root source");
+        assert_eq!(
+            source_table
+                .path_for_id(id)
+                .expect("root source path")
+                .display_path(),
+            "tests/unit.nia"
+        );
+
+        let child = root.derived_child_file("helper", true);
+        assert_eq!(
+            child.identity_ref().normalized_path(),
+            "build-package:root:/tests/helper.nia"
+        );
+        assert_eq!(child.display_path(), "tests/helper.nia");
     }
 
     #[test]

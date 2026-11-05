@@ -454,7 +454,7 @@ pub mod formats {
     use super::{PersistedFormat, PersistedNamespace};
 
     /// Immutable action graph handed from a build runner to the coordinator.
-    pub const BUILD_PLAN: PersistedFormat = PersistedFormat::new("build-plan", b"NIA-PLN\x01");
+    pub const BUILD_PLAN: PersistedFormat = PersistedFormat::new("build-plan", b"NIA-PLN\x02");
     /// Invocation-private configuration consumed by a compiled build runner.
     pub const RUNNER_CONFIG: PersistedFormat = PersistedFormat::new("runner-config", b"NIARUNCF");
     /// Bounded observations emitted by a host build runner.

@@ -236,7 +236,7 @@ extend Build {
         }
         self.selectedStep = null;
         if self.requestedStep() is ?step {
-            if findStepRecord(self.steps.asSlice(), step) is ?selected {
+            if isValidStableName(step) and findStepRecord(self.steps.asSlice(), step) is ?selected {
                 self.selectedStep = ?.init(self.ownerId, selected.index);
             } else {
                 reportUnknownBuildStep(step).?;
@@ -494,12 +494,14 @@ extend Build {
         let rootModule = self.addModule(ModuleOptions::init(name, rootSource)).?;
         let executable = self.addExecutable(ExecutableOptions::init(name, rootModule).withRuntime(runtime)).?;
         let emit = self.addEmitExecutableStep(name, executable).?;
-        let mut runName = string::String::fromSlice(self.allocator, "run-")
-            .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
-        let result = self.declareManifestRun(&mut runName, name, executable);
-        let cleanup = runName.deinit(self.allocator)
-            .withBuildContext(Operation::Release, Subject::Step(self.steps.len()));
-        result.cleanupAfter(cleanup).?;
+        if self.artifactTarget == self.hostTarget {
+            let mut runName = string::String::fromSlice(self.allocator, "run-")
+                .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
+            let result = self.declareManifestRun(&mut runName, name, executable);
+            let cleanup = runName.deinit(self.allocator)
+                .withBuildContext(Operation::Release, Subject::Step(self.steps.len()));
+            result.cleanupAfter(cleanup).?;
+        }
         self.addToAllStep(emit)
     }
 
@@ -551,7 +553,7 @@ extend Build {
 
     // The handle of a declared step, such as `test`, `all`, or `run-<name>`.
     pub fun step(&self, name: &[char]) Error!StepHandle {
-        if findStepRecord(self.steps.asSlice(), name) is ?step {
+        if isValidStableName(name) and findStepRecord(self.steps.asSlice(), name) is ?step {
             return !StepHandle::init(self.ownerId, step.index);
         }
         .Invalid { operation: Operation::Validate, subject: Subject::Steps }!

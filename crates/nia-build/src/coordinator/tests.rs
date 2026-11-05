@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     ArtifactConfiguration, BuildPlanDraft, CommandEnvironmentPolicy, ModuleImport, PlanAction,
-    PlanPackage, PlanStep,
+    PlanPackage, PlanStep, StepVisibility,
 };
 use std::sync::{Arc, Barrier, Mutex, OnceLock, atomic::AtomicBool};
 
@@ -105,6 +105,7 @@ fn aggregate_plan(
         steps: steps
             .into_iter()
             .map(|(name, action_name, dependencies)| PlanStep {
+                visibility: StepVisibility::Public,
                 key: step(name),
                 action: action(action_name),
                 dependencies: dependencies.into_iter().map(step).collect(),
@@ -171,31 +172,37 @@ fn registered_test_plan(selected: &str) -> BuildPlan {
         ],
         steps: vec![
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("shared"),
                 action: action("shared"),
                 dependencies: Vec::new(),
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("alpha"),
                 action: action("alpha"),
                 dependencies: vec![step("shared")],
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("beta"),
                 action: action("beta"),
                 dependencies: vec![step("shared")],
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("after-alpha"),
                 action: action("after-alpha"),
                 dependencies: vec![step("alpha")],
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("default"),
                 action: action("default"),
                 dependencies: Vec::new(),
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("test"),
                 action: action("test"),
                 dependencies: vec![step("after-alpha"), step("beta")],
@@ -257,11 +264,13 @@ fn compiler_requests_preserve_physical_paths_and_stable_build_identities() {
         ],
         steps: vec![
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: check_step.clone(),
                 action: check,
                 dependencies: vec![generate_step.clone()],
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: generate_step,
                 action: generate,
                 dependencies: Vec::new(),
@@ -863,12 +872,14 @@ fn bounded_wide_graph_stress_preserves_deterministic_report() {
     let mut steps = leaves
         .iter()
         .map(|name| PlanStep {
+            visibility: StepVisibility::Public,
             key: step(name),
             action: action(name),
             dependencies: Vec::new(),
         })
         .collect::<Vec<_>>();
     steps.push(PlanStep {
+        visibility: StepVisibility::Public,
         key: step("final"),
         action: action("final"),
         dependencies: leaves.iter().map(|name| step(name)).collect(),
@@ -1051,6 +1062,7 @@ fn explicit_uncacheable_action_has_no_legacy_execution_fallback() {
             },
         }],
         steps: vec![PlanStep {
+            visibility: StepVisibility::Public,
             key: step("opaque"),
             action: action("opaque"),
             dependencies: Vec::new(),
@@ -1104,6 +1116,7 @@ fn invocation_target_mismatch_is_rejected_before_actions() {
                     },
                 }],
                 steps: vec![PlanStep {
+                    visibility: StepVisibility::Public,
                     key: step("generate"),
                     action: action("generate"),
                     dependencies: Vec::new(),
@@ -1159,6 +1172,7 @@ fn generated_plan(invocation: &BuildInvocation, output: &str, contents: &[u8]) -
             },
         }],
         steps: vec![PlanStep {
+            visibility: StepVisibility::Public,
             key: step("generate"),
             action: action("generate"),
             dependencies: Vec::new(),
@@ -1300,6 +1314,7 @@ fn compiler_check_plan_with_runtime(
             },
         }],
         steps: vec![PlanStep {
+            visibility: StepVisibility::Public,
             key: step("check"),
             action: action("check"),
             dependencies: Vec::new(),
@@ -1393,6 +1408,7 @@ fn compiler_emit_plan_kind(
             },
         }],
         steps: vec![PlanStep {
+            visibility: StepVisibility::Public,
             key: step("emit"),
             action: action("emit"),
             dependencies: Vec::new(),
@@ -1455,11 +1471,13 @@ fn install_executable_plan(invocation: &BuildInvocation) -> BuildPlan {
         ],
         steps: vec![
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("emit"),
                 action: action("emit"),
                 dependencies: Vec::new(),
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("install"),
                 action: action("install"),
                 dependencies: vec![step("emit")],
@@ -1579,26 +1597,31 @@ fn mixed_generated_source_emit_plan(
         ],
         steps: vec![
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("all"),
                 action: action("all"),
                 dependencies: vec![step("emit-generated"), step("emit-stable")],
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("emit-generated"),
                 action: action("emit-generated"),
                 dependencies: vec![step("generate-root"), step("generate-helper")],
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("emit-stable"),
                 action: action("emit-stable"),
                 dependencies: Vec::new(),
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("generate-root"),
                 action: action("generate-root"),
                 dependencies: Vec::new(),
             },
             PlanStep {
+                visibility: StepVisibility::Public,
                 key: step("generate-helper"),
                 action: action("generate-helper"),
                 dependencies: Vec::new(),
@@ -2622,6 +2645,7 @@ fn staged_command_plan_outputs(
             }),
         }],
         steps: vec![PlanStep {
+            visibility: StepVisibility::Public,
             key: step("tool"),
             action: action("tool"),
             dependencies: Vec::new(),
@@ -2736,6 +2760,7 @@ fn cacheable_command_plan_with_input_and_stdin(
             }),
         }],
         steps: vec![PlanStep {
+            visibility: StepVisibility::Public,
             key: step("cached-tool"),
             action: action("cached-tool"),
             dependencies: Vec::new(),
@@ -2782,6 +2807,7 @@ fn cacheable_path_tool_plan(invocation: &BuildInvocation) -> BuildPlan {
             }),
         }],
         steps: vec![PlanStep {
+            visibility: StepVisibility::Public,
             key: step("path-tool"),
             action: action("path-tool"),
             dependencies: Vec::new(),
@@ -3880,6 +3906,7 @@ fn undeclared_side_effect_plan(
             }),
         }],
         steps: vec![PlanStep {
+            visibility: StepVisibility::Public,
             key: step("side-effect"),
             action: action("side-effect"),
             dependencies: Vec::new(),
@@ -3988,6 +4015,7 @@ fn cacheable_external_command_cannot_read_undeclared_working_directory_input() {
             }),
         }],
         steps: vec![PlanStep {
+            visibility: StepVisibility::Public,
             key: step("read-undeclared"),
             action: action("read-undeclared"),
             dependencies: Vec::new(),
