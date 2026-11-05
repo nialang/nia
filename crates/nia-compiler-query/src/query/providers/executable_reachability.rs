@@ -359,8 +359,6 @@ struct PreparedExecutableBodyCheck {
     already_checked_functions: Option<HashSet<GlobalDefId>>,
     already_checked_globals: Option<HashSet<GlobalDefId>>,
     seed_facts: Option<nia_sema_ir::SemanticFacts>,
-    layouts: ModuleLayouts,
-    resolution_inputs: BodyCheckResolutionInputs,
     reachable_functions: HashSet<GlobalDefId>,
     reachable_globals: HashSet<GlobalDefId>,
     reachable_body_modules: Arc<HashSet<ModuleId>>,
@@ -371,6 +369,8 @@ struct PreparedExecutableBodyCheck {
 struct ExecutableBodyCheckCacheHandles {
     array_lengths:
         Arc<Mutex<HashMap<ExecutableArrayLengthCacheKey, nia_const_check::ConstArrayLengths>>>,
+    fact_layouts: Arc<Mutex<HashMap<ModuleId, ExecutableFactLayoutCacheEntry>>>,
+    body_resolution_inputs: Arc<Mutex<HashMap<ModuleId, BodyCheckResolutionInputs>>>,
     global_initializers: Arc<
         Mutex<
             HashMap<ExecutableGlobalInitializerCacheKey, Option<nia_const_ir::ResolvedConstExpr>>,
@@ -399,8 +399,6 @@ fn executable_body_check_for_prepared_module(
         already_checked_functions,
         already_checked_globals,
         seed_facts,
-        layouts,
-        resolution_inputs,
         reachable_functions,
         reachable_globals,
         reachable_body_modules,
@@ -421,6 +419,47 @@ fn executable_body_check_for_prepared_module(
     let seed = seed_facts
         .as_ref()
         .map(|facts| nia_body_check::BodyCheckSeed { facts });
+    let layouts = time_provider(
+        db.context().timings(),
+        "executable_checked_modules.module_layouts",
+        || -> QueryResult<_> {
+            executable_layouts_for_reachable_items(
+                db,
+                module_id,
+                &reachable_functions,
+                &reachable_globals,
+                ExecutableLayoutCaches {
+                    array_lengths: Some(&caches.array_lengths),
+                    fact_layouts: Some(&caches.fact_layouts),
+                },
+                None,
+                Some(body_modules),
+            )
+        },
+    )?;
+    let resolution_inputs = {
+        let cached = caches
+            .body_resolution_inputs
+            .lock()
+            .get(&module_id)
+            .cloned();
+        match cached {
+            Some(inputs) => inputs,
+            None => {
+                let inputs = time_module_provider(
+                    db,
+                    "executable_checked_modules.full_body_inputs",
+                    module_id,
+                    || full_body_check_resolution_inputs(db, module_id),
+                )?;
+                caches
+                    .body_resolution_inputs
+                    .lock()
+                    .insert(module_id, inputs.clone());
+                inputs
+            }
+        }
+    };
     let program_layout_cache = RefCell::new(HashMap::from([(module_id, layouts.clone())]));
     let program_layout_failure = RefCell::new(None);
     let raw_program_layouts = executable_program_layouts(
@@ -899,63 +938,9 @@ fn executable_check_in_session(
                         .is_some_and(|def| def.kind == DefKind::Global)
                 });
             }
-            let reachable_body_modules = ReachableBodyModules::new(&round_reachable_body_modules);
-            let reachable_body_modules = if has_reachable_body_items {
-                reachable_body_modules.with_extra(module_id)
-            } else {
-                reachable_body_modules
-            };
-            let layouts = match time_provider(
-                db.context().timings(),
-                "executable_checked_modules.module_layouts",
-                || -> QueryResult<_> {
-                    let reachability = reachability_state.reachability();
-                    executable_layouts_for_reachable_items(
-                        db,
-                        module_id,
-                        reachability.functions(),
-                        reachability.globals(),
-                        ExecutableLayoutCaches {
-                            array_lengths: Some(&caches.array_lengths),
-                            fact_layouts: Some(&caches.fact_layouts),
-                        },
-                        None,
-                        Some(reachable_body_modules),
-                    )
-                },
-            ) {
-                Ok(layouts) => layouts,
-                Err(error) => return_session_error!(error),
-            };
             let seed_facts = fact_by_id
                 .get(&module_id)
                 .map(|state| state.semantic_facts.clone());
-            let resolution_inputs = {
-                let cached = caches
-                    .body_resolution_inputs
-                    .lock()
-                    .get(&module_id)
-                    .cloned();
-                match cached {
-                    Some(inputs) => inputs,
-                    None => {
-                        let inputs = match time_module_provider(
-                            db,
-                            "executable_checked_modules.full_body_inputs",
-                            module_id,
-                            || full_body_check_resolution_inputs(db, module_id),
-                        ) {
-                            Ok(inputs) => inputs,
-                            Err(error) => return_session_error!(error),
-                        };
-                        caches
-                            .body_resolution_inputs
-                            .lock()
-                            .insert(module_id, inputs.clone());
-                        inputs
-                    }
-                }
-            };
             let reachability = reachability_state.reachability();
             prepared_checks.push(PreparedExecutableBodyCheck {
                 module_id,
@@ -964,8 +949,6 @@ fn executable_check_in_session(
                 already_checked_functions,
                 already_checked_globals,
                 seed_facts,
-                layouts,
-                resolution_inputs,
                 reachable_functions: reachability.functions().clone(),
                 reachable_globals: reachability.globals().clone(),
                 reachable_body_modules: Arc::clone(&round_reachable_body_modules),
@@ -974,6 +957,8 @@ fn executable_check_in_session(
         }
         let cache_handles = ExecutableBodyCheckCacheHandles {
             array_lengths: Arc::clone(&caches.array_lengths),
+            fact_layouts: Arc::clone(&caches.fact_layouts),
+            body_resolution_inputs: Arc::clone(&caches.body_resolution_inputs),
             global_initializers: Arc::clone(&caches.global_initializers),
             const_modules: Arc::clone(&caches.const_modules),
             body_function_signatures: Arc::clone(&caches.body_function_signatures),
