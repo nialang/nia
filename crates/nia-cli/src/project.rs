@@ -832,47 +832,52 @@ fn executable_source(package_name: &str, uses_library: bool) -> String {
     } else {
         String::new()
     };
-    let library_check = if uses_library {
-        format!(
-            "    if {package_name}::greeting()[0] != 'h' {{\n        return process::ExitCode(1)!;\n    }}\n"
-        )
+    let print = if uses_library {
+        format!("io::debugPrint(\"{{}}\\n\", [{package_name}::greeting()])")
     } else {
-        String::new()
+        "io::debugPrint(\"hello from nia\\n\", [])".to_owned()
     };
     format!(
-        "using std::io;\nusing std::process;\n{package_import}\npub fun main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n{library_check}    io::debugPrint(\"hello from nia\\n\", []).?;\n    !()\n}}\n"
+        "using std::io;\nusing std::process;\n{package_import}\npub fun main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n    {print}.?;\n    !()\n}}\n"
     )
 }
 
 fn library_source() -> String {
-    "// A public API shared by the executable and the test suite.\npub fun greeting() &[char] {\n    \"hello from nia\"\n}\n".to_owned()
+    concat!(
+        "// A public API shared by the executable and the test suite.\n",
+        "\n",
+        "// The text lives in static storage, so the slice that `greeting` returns\n",
+        "// stays valid after the call. Returning the literal itself would point at a\n",
+        "// temporary that ends with the function.\n",
+        "static greetingText: [char; 14] = \"hello from nia\";\n",
+        "\n",
+        "pub fun greeting() &[char] {\n",
+        "    greetingText\n",
+        "}\n",
+    )
+    .to_owned()
 }
 
 fn test_source(package_name: &str, tests_library: bool) -> String {
-    let package_import = if tests_library {
-        format!("using {package_name};\n")
+    let imports = if tests_library {
+        format!("using {package_name};\nusing std::process;\nusing std::slice;\nusing std::test;\n")
     } else {
-        String::new()
+        "using std::process;\nusing std::test;\n".to_owned()
     };
     let test_function = if tests_library {
         format!(
-            "fun libraryReturnsGreeting() test::Error!() {{\n    test::expect({package_name}::greeting()[0] == 'h').?;\n    !()\n}}\n"
+            "fun greetingIsHello() test::Error!() {{\n    test::expect({package_name}::greeting().equals(\"hello from nia\")).?;\n    !()\n}}\n"
         )
     } else {
         "fun smoke() test::Error!() {\n    test::expect(true).?;\n    !()\n}\n".to_owned()
     };
-    let test_name = if tests_library {
-        "library greeting"
+    let (test_name, callback) = if tests_library {
+        ("greeting is hello", "greetingIsHello")
     } else {
-        "smoke"
-    };
-    let callback = if tests_library {
-        "libraryReturnsGreeting"
-    } else {
-        "smoke"
+        ("smoke", "smoke")
     };
     format!(
-        "{package_import}using std::process;\nusing std::test;\n\n{test_function}\npub fun main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n    let cases = [test::Case::init(\"{test_name}\", &{callback})];\n    if not test::Runner::init(cases).run().isSuccessful() {{\n        return process::ExitCode(1)!;\n    }}\n    !()\n}}\n"
+        "{imports}\n{test_function}\npub fun main(init: process::Init) process::ExitCode!() {{\n    _ = init;\n    let cases = [test::Case::init(\"{test_name}\", {callback})];\n    if not test::Runner::init(cases).run().isSuccessful() {{\n        return process::ExitCode(1)!;\n    }}\n    !()\n}}\n"
     )
 }
 
