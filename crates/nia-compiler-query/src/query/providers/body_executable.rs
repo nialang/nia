@@ -632,15 +632,20 @@ fn const_inputs_for_body_check(
                 global_id,
                 uses_signature_facts: fact_mode.signature_facts_for(global_id.module_id),
             };
-            if !cache.lock().contains_key(&key) {
+            // Keep query evaluation outside the lock; it may recursively access
+            // other executable facts that share this cache.
+            let cached_initializer = { cache.lock().get(&key).cloned() };
+            let initializer = if let Some(initializer) = cached_initializer {
+                initializer
+            } else {
                 let initializer = capture_query_failure(
                     &query_failure,
                     executable_program_global_initializer(db, global_id, fact_mode),
                 )
                 .flatten();
-                cache.lock().insert(key, initializer);
-            }
-            return cache.lock().get(&key).cloned().flatten();
+                cache.lock().entry(key).or_insert(initializer).clone()
+            };
+            return initializer;
         }
         capture_query_failure(
             &query_failure,
