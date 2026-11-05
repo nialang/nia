@@ -52,7 +52,9 @@ Start a change at the owner of the contract it modifies:
 | Language syntax or semantics | [Language reference](../reference/language.md) | The owning compiler phase ([architecture](architecture.md)) |
 | Compiler phase or crate boundary | [Architecture](architecture.md) | The affected crate |
 | ABI, layout, or runtime representation | [ABI reference](../reference/abi.md), [ABI internals](abi-internals.md) | Layout and backend crates |
-| Build API or build execution | [`crates/nia-build/README.md`](../../crates/nia-build/README.md) | `lib/std/build/`, `crates/nia-build/`, `crates/nia-build-plan/` |
+| Build API or build execution | [`crates/nia-build/README.md`](../../crates/nia-build/README.md), [Custom builds](../guides/build-scripts.md) | `lib/std/build/`, `crates/nia-build/`, `crates/nia-build-plan/` |
+| Manifest keys or package commands | [Manifest reference](../reference/manifest.md), [Packages](../guides/packages.md) | `crates/nia-package-metadata/`, `crates/nia-cli/` |
+| Command-line options or output | [Command-line reference](../reference/cli.md) | `crates/nia-cli/` |
 | Standard-library API | [`lib/README.md`](../../lib/README.md) | The owning `lib/std` module |
 | Targets and platform support | [Platform support](../reference/platform-support.md) | `crates/nia-target-config/`, `lib/` startup resources |
 | Repository audit or performance baseline | [`maintain/README.md`](../../maintain/README.md), [`maintain/performance.md`](../../maintain/performance.md) | `maintain/` |
@@ -138,21 +140,32 @@ and inherited build tools; a worker count alone is not a memory policy.
 
 ## Where Documentation Lives
 
-User documentation (`docs/guide/`, `docs/reference/`, `lib/README.md`) describes
-the language and toolchain without compiler internals. Developer documentation
-(`docs/dev/`, crate READMEs, `maintain/`) owns contributor policy and
-subsystem contracts. Crate-level `//!` docs own a crate's internal invariants,
-and source comments explain local reasoning. Each rule has one owner document,
-updated in the same change that establishes it; other documents link to it.
-Dated measurements and completion notes belong in Git history, not in docs,
-and so do investigations, review checklists, and plans.
+User documentation describes the language and toolchain without compiler
+internals, in three kinds:
+
+| Kind | Location | Purpose |
+| --- | --- | --- |
+| Chapters | `docs/learn/` | Teach the language in order, with complete programs and the reasoning behind each rule. |
+| Guides | `docs/guides/` | Walk through one task, such as managing packages or calling C. |
+| Reference | `docs/reference/`, `lib/README.md` | State every rule exactly; the owner of each rule. |
+
+A chapter or guide may explain a rule in its own words and with examples, but
+the reference states it exactly and is updated first; chapters and guides link
+to it. Developer documentation (`docs/dev/`, crate READMEs, `maintain/`,
+`formal/`) owns contributor policy and subsystem contracts. Crate-level `//!`
+docs own a crate's internal invariants, and source comments explain local
+reasoning. Each rule has one owner document, updated in the same change that
+establishes it; other documents link to it. Dated measurements and completion
+notes belong in Git history, not in docs, and so do investigations, review
+checklists, and plans.
 
 Every `nia` code block in the documentation is type-checked by
 `crates/nia-cli/tests/documentation.rs`. Write a block as a complete source
 file where possible; mark statements with ` ```nia fragment `, a block that
 builds on the previous one with ` ```nia continued `, and a block that cannot
 stand alone, such as one file of a multi-file layout, with ` ```nia ignore `.
-Each example program lists its expected output in
+A complete program that shows its output should be built and run before the
+output is written down. Each example program lists its expected output in
 `crates/nia-cli/tests/examples_run.rs`. Write examples in the standard
 library's current style.
 
