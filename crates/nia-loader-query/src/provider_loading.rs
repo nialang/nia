@@ -286,24 +286,19 @@ fn add_reexport_provider_modules_matching_inner(
             continue;
         }
         let direct_match = matches_provider(fact_memo, candidate_path.clone())?;
-        let nested_paths = if direct_match {
-            Vec::new()
+        let nested_facts = if direct_match {
+            None
         } else {
-            fact_memo
-                .module_facade_facts(&candidate_path)?
-                .provider_source_paths()
-                .to_vec()
+            Some(fact_memo.module_facade_facts(&candidate_path)?)
         };
+        let nested_paths = nested_facts
+            .as_ref()
+            .map_or(&[][..], |facts| facts.provider_source_paths());
         if !direct_match && nested_paths.is_empty() {
             continue;
         }
         let existing_provider_module = if direct_match {
-            existing_processed_provider_module(
-                graph,
-                facade_module,
-                source_path,
-                &candidate_path,
-            )
+            existing_processed_provider_module(graph, facade_module, source_path, &candidate_path)
         } else {
             None
         };
@@ -343,7 +338,7 @@ fn add_reexport_provider_modules_matching_inner(
                 &mut branch_graph,
                 requesting_module,
                 provider_module,
-                &nested_paths,
+                nested_paths,
                 matches_provider,
                 &mut branch_visited,
                 fact_memo,
