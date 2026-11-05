@@ -10,7 +10,7 @@ embed; those encoders are documented in the crate's `//!` docs.
 This README is the implementation contract for versions, resolution, the
 registry formats, the lockfile, and package source identity. The user-facing
 manifest syntax is in
-[Build scripts](../../docs/reference/manifest.md).
+[Manifest Reference](../../docs/reference/manifest.md).
 
 | Source | Owns |
 | --- | --- |

@@ -6,7 +6,7 @@ plan, and executes the selected dependency closure. Package registries, version
 solving, downloads, publication, and network trust are outside this crate.
 
 This README is the single owner of build-system internals. Writing build scripts
-is covered for users in [Build scripts](../../docs/guides/build-scripts.md); the
+is covered for users in [Custom Builds](../../docs/guides/build-scripts.md); the
 public `std::build` API and its ownership rules live with the Nia sources in
 [`lib/std/build.nia`](../../lib/std/build.nia) and
 [`lib/std/build/`](../../lib/std/build/). Language-visible build behavior is
@@ -130,7 +130,8 @@ Dependencies are fetched by Nia itself: Git sources through the Nia-owned
 `nia-git` transport (local repositories, the Git TCP protocol, HTTP(S), and
 SSH), and registry packages over HTTPS. The user-facing source,
 credential, proxy, and lockfile contract is in
-[Build scripts](../../docs/guides/packages.md#where-a-dependency-comes-from); the
+[Dependency sources](../../docs/guides/packages.md#where-a-dependency-comes-from) and
+[Git Sources](../../docs/reference/manifest.md#git-sources); the
 registry and lockfile formats are specified in
 [`nia-package-metadata`](../nia-package-metadata/README.md).
 Every selected source is recorded in `nia.lock`, and fetched trees are kept
@@ -143,7 +144,7 @@ manifest dependencies by declared alias and local source trees by relative
 path, so the host resolves each package instance without guessing from a path.
 
 The user-facing meaning of each scope table is in
-[Package manifest](../../docs/reference/manifest.md). A
+[Manifest Reference](../../docs/reference/manifest.md). A
 compiler request receives dependency roots through two filters, applied with
 the compilation mode of the artifact or check being compiled; a test suite's
 executable is compiled in test mode, every other artifact in normal mode:
@@ -320,7 +321,7 @@ before those final records.
 
 `nia_package_metadata::BuildLayout` is the only owner of state paths; the
 user-facing layout and `nia clean` contract are in
-[Build directory](../../docs/guides/packages.md#the-build-directory). The state
+[The Build Directory](../../docs/reference/cli.md#the-build-directory). The state
 root is the workspace root for a workspace member and the package root
 otherwise. `BuildLayout::out_dir` is `build/out/<member path>/` for a member;
 the cache, tmp, packages, and registry directories are shared by every package
@@ -444,7 +445,7 @@ the executable.
 
 External-command results are cached only under an explicit
 `CommandCachePolicy`; the builder methods and their user-facing requirements
-are in [External Commands](../../docs/guides/build-scripts.md#external-commands).
+are in [Running External Commands](../../docs/guides/build-scripts.md#running-external-commands).
 Every cacheable identity binds the typed command declaration (program,
 arguments, stdin, working directory, environment and cache policies, and
 resource class), the content of the resolved program, the content of every

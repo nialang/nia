@@ -48,6 +48,58 @@ options, so later arguments are taken literally.
 | `1` | a failed check, build, or test |
 | `2` | a malformed command line |
 
+## `nia new` And `nia init`
+
+```text
+nia new <path> [--lib | --exe] [--name <name>]
+nia new <path> --workspace [--member <name> ...]
+nia init [path] [same options]
+```
+
+`nia new` creates the directory and fails if it already exists. `nia init`
+fills an existing directory, the current one by default; it keeps an existing
+`.gitignore` and fails, without writing anything, when the directory already
+has a `nia.toml` or any other file the template would create.
+
+| Option | Effect |
+| --- | --- |
+| `--lib` | a library and its tests, without an executable |
+| `--exe` | an executable and its tests, without a library |
+| `--name <name>` | the package name, instead of the directory name; for a workspace, the name of its first member |
+| `--workspace` | a workspace root with members under `packages/` |
+| `--member <name>` | a workspace member; repeat it for several. Without it, one member named after the workspace |
+
+Run inside a workspace, either command creates a member: it inherits the
+workspace's `[workspace.package]` fields, and its path is added to `members`
+unless a member pattern already covers it.
+
+## `nia add`
+
+```text
+nia add <name> --path <dir>
+nia add <name> --git <url> [--rev <commit> | --tag <tag> | --branch <branch>]
+nia add <name> --registry <registry> --package <namespace/name> --version <requirement>
+```
+
+Adds one dependency to the manifest of the package found from the current
+directory. `--scope <runtime|dev|build|optional|lazy>` picks the dependency
+table, `[dependencies]` by default. At a virtual workspace root, `--root <dir>`
+selects the member whose manifest is edited. A path dependency must already be
+a valid package. The [manifest reference](manifest.md#dependency-tables)
+describes each source.
+
+## `nia update` And `nia clean`
+
+`nia update` re-resolves every Git selector and registry requirement and
+writes the results to `nia.lock`. With names, `nia update json regex`, only
+those dependencies are refreshed; each must be a locked Git or registry
+dependency. It reports Git revision changes and registry version changes
+separately.
+
+`nia clean` removes `build/out/`, `build/cache/`, and `build/tmp/`, keeping
+fetched dependencies. Run inside a workspace member, it removes that member's
+outputs and the workspace's shared caches. It fails outside a package.
+
 ## `nia check` And `nia emit`
 
 `nia check` and `nia emit` run the compiler on one module tree without a build
@@ -85,7 +137,7 @@ artifact with its dependencies.
 | --- | --- |
 | `--tokens`, `--ast`, `--checked`, `--backend`, `--llvm` | prints that form of the program |
 | `--obj` | writes native object files; `-o` for a single object, `--out-dir` when there are several |
-| `--exe` | writes a freestanding executable to `-o <file>` |
+| `--exe` | writes a freestanding executable to `-o <file>`, or without `-o` next to the source file, as `main` (`main.exe` on Windows) for `main.nia` |
 
 `--exe` also accepts the linking options: `-L <dir>` and `-l <name>` for native
 libraries, `--link-arg <arg>`, `--lto <off|thin|full>`, `--linker <program>`
@@ -103,7 +155,9 @@ nia build [step] [options]
 `nia build` runs the named step, or the package's default step, after every
 step it depends on. Steps come from the manifest and from `build.nia`;
 `nia build --list` prints them. Outputs go to `build/out/`, as described in
-[The Build Directory](../guides/packages.md#the-build-directory).
+[The Build Directory](#the-build-directory). A run step passes no arguments to
+the program, and when the program exits with a nonzero status, `nia build`
+reports the step as failed and exits with status 1.
 
 | Option | Effect |
 | --- | --- |
@@ -132,6 +186,21 @@ Text cache records show the outcome and reason, publication status, declared
 outputs, and any invalidated identity components. With
 `--diagnostics-format=json`, these products are JSON records with the same
 information.
+
+## The Build Directory
+
+Everything Nia writes lives in one `build/` directory beside the root
+`nia.toml`, the workspace root in a workspace:
+
+| Path | Contents |
+| --- | --- |
+| `build/out/` | build outputs; `build/out/<member path>/` for a workspace member |
+| `build/cache/` | reusable results: compiled build scripts, configurations, compiler products, command results |
+| `build/tmp/` | files of builds in progress |
+| `build/packages/` | fetched Git checkouts and registry packages |
+| `build/registry/` | downloaded registry indexes and archives |
+
+`nia clean` removes the first three and keeps fetched dependencies.
 
 ## Progress Output
 

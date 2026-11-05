@@ -52,7 +52,7 @@ Start a change at the owner of the contract it modifies:
 | Language syntax or semantics | [Language reference](../reference/language.md) | The owning compiler phase ([architecture](architecture.md)) |
 | Compiler phase or crate boundary | [Architecture](architecture.md) | The affected crate |
 | ABI, layout, or runtime representation | [ABI reference](../reference/abi.md), [ABI internals](abi-internals.md) | Layout and backend crates |
-| Build API or build execution | [`crates/nia-build/README.md`](../../crates/nia-build/README.md), [Custom builds](../guides/build-scripts.md) | `lib/std/build/`, `crates/nia-build/`, `crates/nia-build-plan/` |
+| Build API or build execution | [`crates/nia-build/README.md`](../../crates/nia-build/README.md), [Custom Builds](../guides/build-scripts.md) | `lib/std/build/`, `crates/nia-build/`, `crates/nia-build-plan/` |
 | Manifest keys or package commands | [Manifest reference](../reference/manifest.md), [Packages](../guides/packages.md) | `crates/nia-package-metadata/`, `crates/nia-cli/` |
 | Command-line options or output | [Command-line reference](../reference/cli.md) | `crates/nia-cli/` |
 | Standard-library API | [`lib/README.md`](../../lib/README.md) | The owning `lib/std` module |

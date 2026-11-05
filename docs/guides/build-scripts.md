@@ -1,11 +1,99 @@
-# Custom Builds With `build.nia`
+# Custom Builds
 
 Most packages build from their manifest alone: `nia.toml` declares the
 library, executables, and test suites, and `nia build` derives the steps; see
-[Packages and dependencies](packages.md). A package that needs more, such as
-generated source files, external tools, artifacts for other targets, native
-libraries, or extra steps, adds a `build.nia` file at its root. This guide
-covers that script and the `std::build` API it uses.
+[Packages and dependencies](packages.md). A package that needs more adds a
+`build.nia` file at its root. Typical reasons are:
+
+- a step that runs a program with fixed arguments, or after the tests pass;
+- source files generated during the build, such as a version module;
+- external tools, such as a code generator or an asset compressor;
+- artifacts for other targets, object files, static archives, or native
+  libraries to link;
+- reading the environment, such as an environment variable or a `VERSION`
+  file, to decide what to build.
+
+This guide starts with a small script that extends a manifest package, then
+covers each part of the `std::build` API that scripts use.
+
+## A First Script
+
+Start from the default package, created with `nia new greet`, and make its
+program greet each of its arguments:
+
+```nia ignore
+// src/main.nia
+using std::io;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    for arg in init.args().skipProgram() {
+        io::debugPrint("hello, {}\n", [arg]).?;
+    }
+    !()
+}
+```
+
+The manifest's `run-greet` step runs the program without arguments, so it
+prints nothing. A script can declare a step that passes some, and make that
+step wait until the tests have passed:
+
+```nia
+// build.nia
+using std::build;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let exe = b.executable("greet").?;
+    let arguments: [&[char]; 2] = ["Ada", "Grace"];
+    let options = build::RunOptions::init(exe).withArguments(arguments);
+    let greetAll = b.addRunExecutableStep("greet-all", options).?;
+    let test = b.step("test").?;
+    b.dependOn(greetAll, test).?;
+    !()
+}
+```
+
+The script is one public function, `build`, which receives the build being
+declared. Line by line:
+
+- `b.executable("greet")` returns a handle to the executable that `nia.toml`
+  already declares. The manifest's artifacts and steps exist before the script
+  runs, so the script can build on them.
+- `RunOptions::init(exe).withArguments(arguments)` describes how to run it.
+  Options are built with an `init` constructor followed by `with*` methods,
+  each of which returns an updated copy.
+- `addRunExecutableStep` adds a step named `greet-all`.
+- `b.step("test")` finds the manifest's `test` step, and `dependOn` makes
+  `greet-all` run after it.
+
+Every call returns an error union, and `.?` passes a failure back to `nia build`,
+which reports it. The new step appears beside the derived ones:
+
+```sh
+nia build --list
+```
+
+```text
+all           aggregate (default)
+greet         compiler-emit
+greet-all     external-command
+run-greet     external-command
+test          aggregate
+unit          test-executable
+unit.compile  compiler-emit
+```
+
+```sh
+nia build greet-all
+```
+
+```text
+hello, Ada
+hello, Grace
+```
+
+`nia build greet-all` builds the executable and the test suite, runs the
+suite, and only then runs the program.
 
 ## How A Build Runs
 
@@ -13,11 +101,6 @@ covers that script and the `std::build` API it uses.
 and runs it, and the script declares modules, artifacts, commands, generated
 files, tests, and named steps through `std::build`. These calls only record a
 build graph. Nothing is compiled, run, or written while the script executes.
-
-The manifest's artifacts are declared before the script runs, so the script
-can extend them: `b.executable(name)` returns an artifact's handle and
-`b.step(name)` a step's handle, such as `test` or `run-planner`.
-`setDefaultStep` replaces `all` as the default step.
 
 When the script returns, the graph is frozen and validated as a whole:
 duplicate names, unknown handles, dependency cycles, conflicting outputs, and
@@ -27,15 +110,18 @@ invalid paths are errors even in parts that the invocation does not select.
 A script cannot register callbacks, pass raw compiler arguments, or give a
 command interactive input. Its result depends only on the package, the host and
 artifact targets, and the facts it records through
-[configuration probes](#configuration-probes), so the same inputs always
+[configuration probes](#reading-the-environment), so the same inputs always
 produce the same graph. When none of those inputs change, the next invocation
 reuses the recorded graph without running the script again. Editing a source
 file of any package in the build, or selecting a different step, profile, or
 optimization level, runs the script again.
 
-## The Build Function
+## Declaring Artifacts In The Script
 
-The script defines one public function:
+A script can also declare artifacts that the manifest does not, which is
+needed when an artifact imports a generated file or another package's file by
+a custom name. A script that declares its own executable from scratch looks
+like this:
 
 ```nia
 using std::build;
@@ -52,14 +138,15 @@ pub fun build(b: &mut build::Build) build::Error!() {
 }
 ```
 
-Every `add*` call returns a handle (`ModuleHandle`, `ExecutableHandle`,
-`StepHandle`, and so on) or a `build::Error`, which `.?` passes back to the
-runner. Paths given as `fs::PathView` are relative to the package root. Names
-are plain identifiers such as `planner` or `run-tests`; they cannot contain
-path separators.
+The three calls build on each other: a module is a root source file, an
+executable links a module, and a step is what `nia build <step>` runs. Every
+`add*` call returns a handle (`ModuleHandle`, `ExecutableHandle`,
+`StepHandle`, and so on). Paths given as `fs::PathView` are relative to the
+package root. Names are plain identifiers such as `planner` or `run-tests`;
+they cannot contain path separators. `setDefaultStep` replaces `all` as the
+step that a plain `nia build` runs.
 
-Options are built with an `init` constructor followed by `with*` methods, each
-of which returns an updated copy:
+Options take further `with*` methods in a chain:
 
 ```nia ignore
 build::ExecutableOptions::init("planner", planner)
@@ -93,19 +180,21 @@ level selected on the command line (`-O2`, `--release`, and so on).
 The same import list can be passed to several modules, for example an
 application and its tests. Each module still declares its own imports.
 
-## Packages
+## Dependencies In A Script
 
-`b.rootPackage()` is the package that contains `build.nia`. A dependency with
-a `[library].path` needs nothing in the script; see
-[Adding Dependencies](packages.md#adding-dependencies). Use `addDependency` when the script
-needs a handle to a dependency package itself, for example to import a file
-other than its library entry or to pass one of its files to a command. It
-takes the dependency name from `[dependencies]`, `[dev-dependencies]`,
-`[optional-dependencies]`, or `[lazy-dependencies]`, so path, Git, and registry
-dependencies use the same API; this is the only way to import an optional
-dependency, and only test suites can compile a development dependency's
-sources. Build
-dependencies are rejected because `build.nia` already imports them directly:
+A dependency's library needs nothing in the script: code opens it with
+`using <name>;`, as [Adding Dependencies](packages.md#adding-dependencies)
+describes. The script needs a handle to a dependency only to do something
+else with it, such as importing a file other than its library entry, passing
+one of its files to a command, or importing an optional dependency at all.
+
+`b.addDependency(name)` returns that handle. It accepts any name from
+`[dependencies]`, `[dev-dependencies]`, `[optional-dependencies]`, or
+`[lazy-dependencies]`, whatever the source, path, Git, or registry. A
+development dependency's sources can still be compiled only into test suites.
+Names from `[build-dependencies]` are rejected, because `build.nia` imports
+those directly. `b.rootPackage()` is the handle of the package that contains
+`build.nia`.
 
 ```toml
 [dependencies]
@@ -216,13 +305,11 @@ Steps are the units that `nia build <step>` runs. Each step has a unique name.
 
 `RunOptions::init(exe).withArguments(args)` passes arguments to the program.
 A run step needs an emit step for the same executable, and depends on it
-automatically.
+automatically; manifest executables already have one.
 
 `b.dependOn(step, dependency)` makes `step` run after `dependency`.
 `b.setDefaultStep(step)` chooses what `nia build` runs without a step name; a
 script that has no default step can still be used with an explicit step name.
-`nia build --list` prints every step with the kind of work it does, marking
-the default, without running any.
 
 Paths written with `build::BuildPathView::init(path)` are relative to
 `build/out/`. Use slash-separated relative paths without `.` or `..` components,
@@ -315,7 +402,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 `nia build run` prints `hello world 49 1.0`, and `nia build` leaves
 `build/out/app` and `build/out/dist/app`.
 
-## External Commands
+## Running External Commands
 
 `ExternalCommandOptions::search(program)` runs a program found on the `PATH`
 of the command's environment, falling back to the host's when the command
@@ -414,9 +501,10 @@ status 0, runs with the package root as its working directory, and is not run
 again until its executable or inputs change. Writing the suite program itself
 is covered in [Testing](../learn/testing.md).
 
-## Configuration Probes
+## Reading The Environment
 
-A script that depends on the outside world reads it through a probe. Each probe
+A script that depends on the outside world reads it through a *configuration
+probe*. Each probe
 records what it observed, and returns what the table shows; the next `nia build` compares the recorded
 facts with the current ones and runs the script again when any of them
 differs, including a value that was missing and now exists. Reads that bypass
@@ -467,4 +555,20 @@ again; otherwise the recorded graph is reused.
 step named on the command line, or `null`) are also available. Errors from
 other `std` APIs inside the script convert to `build::Error` with
 `.withBuildContext(operation, subject)`.
+
+## Summary
+
+- `build.nia` defines `pub fun build(b: &mut build::Build) build::Error!()`,
+  which records a build graph; nothing runs while it executes.
+- The manifest's artifacts and steps exist first: `b.executable(name)` and
+  `b.step(name)` return their handles, so a script can extend them.
+- Modules, artifacts, and steps are declared with `add*` calls and connected
+  with `dependOn`; `setDefaultStep` picks what a plain `nia build` runs.
+- External commands take typed arguments so the build knows their inputs and
+  outputs, and rerun on every build unless they choose a cache policy.
+- Probes are the only tracked way to read the environment; the script reruns
+  when a recorded fact changes.
+
+The full API is documented in the source of
+[`std::build`](../../lib/std/build.nia).
 

@@ -1,4 +1,4 @@
-# Builtins Reference
+# Built-in Operations
 
 `std::builtin` declares the operations the compiler implements directly. They
 are ordinary declarations called with ordinary path, generic-argument, and call

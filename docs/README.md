@@ -29,7 +29,7 @@ Guides cover a task from start to finish.
 | Guide | Read it for |
 | --- | --- |
 | [Packages And Dependencies](guides/packages.md) | Creating packages, building and testing them, dependencies, the lockfile, workspaces |
-| [Custom Builds With `build.nia`](guides/build-scripts.md) | Generated files, external commands, extra artifacts and steps, configuration probes |
+| [Custom Builds](guides/build-scripts.md) | `build.nia`: extra steps, generated files, external commands, artifacts declared in code, reading the environment |
 | [Targets And Runtimes](guides/targets.md) | Cross-compiling, platform-specific code, build profiles, programs without an operating system |
 | [C Interop](guides/c-interop.md) | Calling C, linking native libraries, and exporting Nia functions |
 
@@ -39,13 +39,13 @@ References state the exact rules.
 
 | Reference | Covers |
 | --- | --- |
-| [Language](reference/language.md) | Syntax and semantics of the language |
-| [Built-in operations](reference/builtins.md) | `std::builtin` intrinsics, SIMD, atomics, and inline assembly |
-| [Standard library](../lib/README.md) | Library modules and their conventions |
-| [Manifest](reference/manifest.md) | Every `nia.toml` table and key |
-| [Command line](reference/cli.md) | `nia` commands, options, exit statuses, and build output formats |
-| [ABI](reference/abi.md) | Data representation, layout, and C boundary rules |
-| [Platform support](reference/platform-support.md) | Targets, target facts, runtime model, and current limits |
+| [Language Reference](reference/language.md) | Syntax and semantics of the language |
+| [Built-in Operations](reference/builtins.md) | `std::builtin` intrinsics, SIMD, atomics, and inline assembly |
+| [Standard Library](../lib/README.md) | Library modules and their conventions |
+| [Manifest Reference](reference/manifest.md) | Every `nia.toml` table and key |
+| [Command-Line Reference](reference/cli.md) | `nia` commands, options, exit statuses, and build output formats |
+| [ABI Reference](reference/abi.md) | Data representation, layout, and C boundary rules |
+| [Platform Support](reference/platform-support.md) | Targets, target facts, runtime model, and current limits |
 
 `nia help <command>` lists every option of a command.
 

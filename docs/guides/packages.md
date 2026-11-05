@@ -7,7 +7,7 @@ dependencies, locking their versions, and grouping packages into a workspace.
 
 Most projects need nothing beyond `nia.toml`. A package that generates files,
 runs external tools, or needs custom steps adds a `build.nia` script, described
-in [Build scripts](build-scripts.md). Every manifest key is listed in the
+in [Custom Builds](build-scripts.md). Every manifest key is listed in the
 [manifest reference](../reference/manifest.md), and every `nia` command option
 in the [command-line reference](../reference/cli.md).
 
@@ -40,11 +40,16 @@ The default template is a complete application with three parts:
 - `tests/unit.nia` is a test suite for the library.
 
 `nia new core --lib` creates only a library and its tests, and
-`nia new tool --exe` only an executable and its tests. `nia init` creates the
-same files in an existing directory without replacing any that already exist;
-it defaults to the current directory. Both take `--name` when the package name
-should differ from the directory name. A package name is a Nia identifier, so
-`my_app` is valid and `my-app` is not.
+`nia new tool --exe` only an executable and its tests. `nia new` refuses a
+destination that already exists.
+
+`nia init` turns an existing directory, by default the current one, into a
+package. It writes the same files and keeps an existing `.gitignore`. It never
+overwrites anything: it refuses to run if the directory already has a
+`nia.toml` or a file the template would write, such as `src/main.nia`. Both
+commands take `--name` when the package name should differ from the directory
+name. A package name is a Nia identifier, so `my_app` is valid and `my-app` is
+not.
 
 The generated manifest describes those three parts:
 
@@ -134,6 +139,7 @@ unit.compile  compiler-emit
 | `nia build run-hello` | builds `hello`, then runs it |
 | `nia build test` | builds and runs every test suite |
 | `nia build unit` | builds and runs the `unit` suite only |
+| `nia build unit.compile` | builds the `unit` suite without running it |
 | `nia build --release` | builds with optimizations (`-O2`) |
 | `nia clean` | removes build outputs and caches |
 
@@ -142,10 +148,17 @@ works from any subdirectory. Results are cached: a step whose inputs have not
 changed is not repeated, and a test suite that passed is not rerun until its
 code changes. Writing tests is covered in [Testing](../learn/testing.md).
 
+A run step starts the program without arguments; `nia build` does not forward
+any. To pass arguments, run the built program directly, as `build/out/hello`
+(`build\out\hello.exe` on Windows), or declare a run step with fixed arguments
+in a [build script](build-scripts.md#steps).
+
 Names in `[[executable]]` and `[[test]]` must be unique across both tables, and
 cannot be `all`, `test`, or start with `run-`, because those names belong to
-the derived steps. An artifact may set `runtime = "bare"` to build without the
-standard process entry; see [Targets And Runtimes](targets.md).
+the derived steps. Each suite also owns the step `<name>.compile`, so no
+executable may take that name either. An artifact may set `runtime = "bare"`
+to build without the standard process entry; see
+[Targets And Runtimes](targets.md).
 
 ## Adding Dependencies
 
@@ -163,8 +176,8 @@ core = { path = "../core" }
 The dependency's name is how the package's code imports it: `using core;`
 opens the dependency's `[library].path`. A dependency name is a Nia identifier
 and is local to the package that declares it, so two packages may use the same
-name for different dependencies. A package that others depend on must have a
-`[library]`.
+name for different dependencies. Importing a package that has no `[library]`
+is an error; declaring it as a dependency is not.
 
 ### Where A Dependency Comes From
 
@@ -192,56 +205,28 @@ The table a dependency appears in is its scope. `nia add --scope` selects it:
 | `[optional-dependencies]` | `optional` | only modules that a build script explicitly imports it into |
 | `[lazy-dependencies]` | `lazy` | the same as `[dependencies]` |
 
-A name must be unique across all of a package's dependency tables. No
-dependency is loaded eagerly: Nia reads a dependency's source only when a
-module being compiled imports it. An optional dependency is reached through
+A name must be unique across all of a package's dependency tables. Every
+declared dependency, whichever table it is in, is resolved and locked before a
+build starts, but its modules are read only when code being compiled imports
+it. An optional dependency is reached through
 `ModuleImport::fromPackage` in a build script; see
-[Packages](build-scripts.md#packages).
+[Dependencies In A Script](build-scripts.md#dependencies-in-a-script).
 
 ### Git Dependencies
 
 A Git dependency takes at most one selector: `rev` (a full 40-digit commit
-hash), `tag`, or `branch`. Without one, it follows the remote `HEAD`. Nia
-fetches Git sources itself, with a shallow fetch of the selected commit, and
-accepts `https://`, `http://`, `git://`, `ssh://`, SCP-style `git@host:path`,
-and `file:///` URLs. URLs cannot embed credentials. `http://` and `git://` are
-neither encrypted nor authenticated; prefer HTTPS or SSH.
+hash), `tag`, or `branch`. Without one, it follows the remote `HEAD`. The
+lockfile records the commit it resolved to, so a branch or `HEAD` dependency
+moves only when you run `nia update`.
 
-For HTTPS, Nia first requests the repository anonymously. When the server
-answers `401`, Nia asks `git credential fill` for a username and password
-matching the repository host and path and retries with HTTP Basic
-authentication; public repositories never reach the credential helper.
-Accepted credentials are reported back with `git credential approve`, and
-rejected ones with `git credential reject`, so the helper keeps only working
-credentials. This uses the configured Git credential helper (such as Git
-Credential Manager); the Git executable is needed only for this lookup, while
-Nia still performs the fetch itself. Credentials are held in memory for the
-request and are not written to the manifest, lockfile, or cache. Nia does not
-send credentials over plain HTTP.
-
-HTTP Git sources honor `HTTP_PROXY` and `http_proxy`; HTTPS sources honor
-`HTTPS_PROXY` and `https_proxy`. Both fall back to `ALL_PROXY` or `all_proxy`,
-and `NO_PROXY` or `no_proxy` can bypass the proxy for listed hosts or domains,
-optionally restricted to a port. Proxies must be unauthenticated `http://`
-URLs. HTTPS requests use CONNECT and validate TLS against the repository host;
-repository credentials are sent only inside that encrypted connection.
-
-SSH sources verify the server key against `~/.ssh/known_hosts` (or
-`%USERPROFILE%\.ssh\known_hosts` on Windows), accepting plain and hashed
-OpenSSH entries, and reject unknown or changed host keys. Nia offers the
-Ed25519, ECDSA P-256, and RSA (with RSA-SHA2-512 signatures) identities in the
-running SSH agent (`SSH_AUTH_SOCK` on Unix-like systems or the OpenSSH agent
-named pipe on Windows) in the order the agent lists them, as `ssh-add -l`
-shows, followed by an unencrypted `~/.ssh/id_ed25519`. Like OpenSSH, it asks
-the server whether it accepts each key before signing, and it offers at most
-five keys per connection to stay under the server's default attempt limit. A
-key the agent declines to sign, for example a declined `ssh-add -c`
-confirmation, is skipped for the next one. When authentication fails, the
-error lists each offered key's fingerprint as `ssh-keygen -l` prints it and
-what happened to it. Only public-key authentication is supported, so a server
-that also requires a password or other method fails after accepting the key.
-Other key types and encrypted key files are not read directly; load a supported
-key into the agent instead.
+Nia fetches Git sources itself, without running `git`, from `https://`,
+`ssh://`, SCP-style `git@host:path`, `git://`, `http://`, and `file:///` URLs.
+Private repositories use the setup Git already has: over HTTPS, the configured
+Git credential helper supplies a username and password; over SSH, the keys in
+the running SSH agent are offered, and the server is checked against
+`known_hosts`. URLs cannot embed credentials. The
+[manifest reference](../reference/manifest.md#git-sources) describes
+authentication, proxies, and the supported key types in detail.
 
 ### Registry Dependencies
 
@@ -281,10 +266,14 @@ sources and reject cached content that no longer matches its recorded hash.
 Entries that nothing in the package or workspace still uses are removed on the
 next build. Commit `nia.lock` so every checkout builds the same dependencies.
 
+Every `nia build` keeps the lockfile current, including `nia build --list` and
+`nia build --dry-run`, which run nothing else, so a new dependency is locked
+the first time any of them runs.
+
 | Command | Effect |
 | --- | --- |
 | `nia update` | refreshes every locked Git selector and registry version, and reports revision changes separately from version changes |
-| `nia update json regex` | refreshes only the named dependencies |
+| `nia update json regex` | refreshes only the named dependencies, which must be locked Git or registry dependencies |
 | `nia build --locked` | fails instead of adding, changing, or removing a lock entry; use it in CI |
 | `nia build --offline` | uses cached Git checkouts, registry indexes, and archives without fetching |
 
@@ -296,6 +285,10 @@ lockfile, a build directory, and common settings:
 ```sh
 nia new mono --workspace --member app --member core
 ```
+
+Each `--member` adds one package under `packages/`. Without `--member`, the
+workspace starts with one member named after the workspace, here
+`packages/mono`.
 
 ```text
 mono/
@@ -344,38 +337,39 @@ To add a member, create a package inside the workspace with `nia new` or
 appends its path to `members`. At a virtual workspace root, `nia add` needs
 `--root packages/app` to choose which member's manifest to edit.
 
-| Field | Meaning |
-| --- | --- |
-| `members` | member directories; glob patterns such as `packages/*` are allowed |
-| `default-members` | members built when `nia build` runs at the root; all members when omitted |
-| `exclude` | directories under the root that are independent packages, not members |
-
-Every package under the workspace directory must be a member or excluded, and
-a nested workspace cannot be a member of its parent. The root manifest may also
-declare a `[package]` of its own; one without it is a virtual workspace.
+`members` lists member directories and accepts glob patterns such as
+`packages/*`. `default-members`, in the same form, narrows what `nia build`
+builds at the root; without it, the root builds every member. `exclude` lists
+directories under the root that hold independent packages rather than members.
+A package under the workspace directory that is neither a member nor excluded
+cannot be built: `nia build` inside it fails with
+`package ... is not a member of workspace`. A nested workspace cannot be a
+member of its parent. The root manifest may also declare a `[package]` of its
+own; one without it is a virtual workspace. The
+[manifest reference](../reference/manifest.md#workspace) lists every key.
 
 `nia build` inside a member builds that member. At the root it builds
 `default-members`; `--workspace` selects every member, and
 `-p app` (repeatable) selects members by name. Members build in manifest
 order, and the first failure stops the build unless `--keep-going` is given.
 
+## Sharing A Package
+
+Nia has no publish command. A package is shared as a Git repository, which
+others add with `nia add <name> --git <url>`, or through a registry that
+serves it. To vendor a dependency, copy it into the repository and depend on
+it by path; `nia.lock` records its content hash, so an edit to the vendored
+copy shows up as a lockfile change.
+
 ## The Build Directory
 
 Everything Nia writes lives in one `build/` directory beside the root
-`nia.toml` (the workspace root in a workspace):
-
-| Path | Contents |
-| --- | --- |
-| `build/out/` | build outputs; `build/out/<member path>/` for a workspace member |
-| `build/cache/` | reusable results: compiled build scripts, configurations, compiler products, command results |
-| `build/tmp/` | files of builds in progress |
-| `build/packages/` | fetched Git checkouts and registry packages |
-| `build/registry/` | downloaded registry indexes and archives |
-
-`nia clean` removes `build/out/`, `build/cache/`, and `build/tmp/`, and keeps
-fetched dependencies. Run from a workspace member, it removes only that
-member's outputs but the whole workspace's shared caches. It refuses to run
-outside a package.
+`nia.toml`, the workspace root in a workspace. Executables land in
+`build/out/`, fetched dependencies in `build/packages/` and `build/registry/`,
+and reusable results in `build/cache/`. `nia clean` removes the outputs and
+caches but keeps fetched dependencies. The
+[command-line reference](../reference/cli.md#the-build-directory) lists each
+directory.
 
 A package's source files are its whole directory except `.git`, `nia.lock`, and
 the `build/`, `dist/`, and `target/` directories directly under its root. The

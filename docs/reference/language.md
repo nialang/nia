@@ -1,4 +1,4 @@
-# Nia Language Reference
+# Language Reference
 
 This document defines the syntax and meaning of Nia source code. It is a
 reference, not a tutorial; the [language tour](../learn/README.md) introduces the

@@ -1,4 +1,4 @@
-# Nia ABI Reference
+# ABI Reference
 
 This reference describes how Nia values are represented in memory, how
 functions and data are named in object files, and which values may cross the C

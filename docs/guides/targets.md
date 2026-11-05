@@ -21,14 +21,10 @@ nia build --target aarch64-apple-macos
 nia check src/main.nia --runtime freestanding --target x86-unknown-linux
 ```
 
-| Target | Platform |
-| --- | --- |
-| `x86_64-unknown-linux` | Linux x86_64 |
-| `x86-unknown-linux` | Linux i686 |
-| `aarch64-unknown-linux` | Linux AArch64 |
-| `x86_64-pc-windows-msvc` | Windows x64 |
-| `x86_64-apple-macos` | macOS Intel |
-| `aarch64-apple-macos` | macOS Apple silicon |
+The names cover Linux on x86_64, i686, and AArch64, Windows x64, and macOS on
+Intel and Apple silicon;
+[Platform support](../reference/platform-support.md#targets) lists each one
+with its facts.
 
 Without `--target`, Nia builds for the host. Generated code uses the target's
 baseline CPU, so an executable runs on every machine of its target.
@@ -37,7 +33,7 @@ With `nia build --target`, the package's artifacts are built for that target.
 Steps that run programs during the build, such as test suites and the
 programs that build steps invoke, are built for the host so they can run. A
 build script can also pick a target for each artifact with `forTarget`; see
-[Targets](build-scripts.md#targets) in the build-script guide.
+[Targets](build-scripts.md#targets) in Custom Builds.
 
 ## Platform-Specific Code
 
@@ -106,14 +102,16 @@ through `-O3`, `-Os`, and `-Oz` override.
 which is useful for extra checks or logging during development:
 
 ```nia
-using std::io;
-
 fun process(value: i32) i32 {
     @[debug]
-    _ = io::debugPrint("process({})\n", [value]);
+    _ = std::io::debugPrint("process({})\n", [value]);
     value * 2
 }
 ```
+
+The call names `std::io::debugPrint` in full instead of importing `std::io`.
+A release build drops the statement, and an import used only by it would then
+be reported as unused.
 
 Integer overflow and the other [traps](../reference/language.md#unchecked-operations-and-traps)
 behave the same in both profiles; the profile changes optimization, not
@@ -137,6 +135,7 @@ The runtime decides who starts the program:
 | `nia.toml` artifact | default | `runtime = "bare"` |
 | build script | default | `.withRuntime(build::Runtime::Bare)` |
 | `nia check`, `nia emit` | `--runtime freestanding` | default |
+| `nia emit --exe` | always | not supported |
 
 In a bare program `main` is an ordinary function, and nothing builds
 `process::Init`. The standard library's modules that call the operating
