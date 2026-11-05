@@ -297,23 +297,21 @@ fn add_reexport_provider_modules_matching_inner(
         if !direct_match && nested_paths.is_empty() {
             continue;
         }
-        if direct_match {
-            let Some(start) = used_path_start(graph, facade_module, source_path) else {
-                continue;
-            };
-            let Some(provider_module) = add_visible_declared_module_path(
+        let existing_provider_module = if direct_match {
+            existing_processed_provider_module(
                 graph,
                 facade_module,
-                start,
-                source_path.segments(),
-                UsedModulePathProcessing::Never,
-                fact_memo,
-            )?
-            else {
-                continue;
-            };
+                source_path,
+                &candidate_path,
+            )
+        } else {
+            None
+        };
+        if let Some(provider_module) = existing_provider_module {
+            // This route is already materialized and fully processed, so
+            // selecting it cannot discover a fallible branch or leak partial
+            // graph changes if traversal reports a diagnostic.
             visited.insert(candidate_path);
-            mark_process_used_paths_and_process(db, graph, provider_module, fact_memo)?;
             graph.add_provider_dependency(requesting_module, provider_module);
             graph.mark_semantic_selected(facade_module);
             any_match = true;
@@ -336,15 +334,21 @@ fn add_reexport_provider_modules_matching_inner(
         else {
             continue;
         };
-        let branch_matches = add_reexport_provider_modules_matching_inner(
-            &mut branch_graph,
-            requesting_module,
-            provider_module,
-            &nested_paths,
-            matches_provider,
-            &mut branch_visited,
-            fact_memo,
-        )?;
+        let branch_matches = if direct_match {
+            mark_process_used_paths_and_process(db, &mut branch_graph, provider_module, fact_memo)?;
+            branch_graph.add_provider_dependency(requesting_module, provider_module);
+            true
+        } else {
+            add_reexport_provider_modules_matching_inner(
+                &mut branch_graph,
+                requesting_module,
+                provider_module,
+                &nested_paths,
+                matches_provider,
+                &mut branch_visited,
+                fact_memo,
+            )?
+        };
         if branch_matches {
             branch_graph.mark_semantic_selected(facade_module);
             *graph = branch_graph;
@@ -364,6 +368,24 @@ fn resolve_used_module_path_source(
         return Ok(None);
     };
     resolve_child_source_path(graph, start, path.segments())
+}
+
+fn existing_processed_provider_module(
+    graph: &ModuleGraph,
+    current_module: nia_imports::ModuleId,
+    path: &UsedModulePath,
+    candidate_path: &SourcePath,
+) -> Option<nia_imports::ModuleId> {
+    let start = used_path_start(graph, current_module, path)?;
+    let module_id = path
+        .segments()
+        .iter()
+        .try_fold(start, |module_id, segment| {
+            graph.get(module_id)?.children.get(segment).copied()
+        })?;
+    let module = graph.get(module_id)?;
+    (module.path.identity() == candidate_path.identity() && module.process_used_paths)
+        .then_some(module_id)
 }
 
 fn resolve_child_source_path(
@@ -454,6 +476,55 @@ mod tests {
             "toolchain:/runtime/start/main.nia"
         );
         assert_eq!(graph.get(start).expect("start node").parent, Some(entry));
+    }
+
+    #[test]
+    fn existing_provider_fast_path_requires_a_fully_processed_declared_route() {
+        let mut graph = ModuleGraph::new(SourcePath::new("src/main.nia")).expect("module graph");
+        let entry = graph.entry();
+        let provider = graph
+            .intern_declared_child_with_processing(
+                entry,
+                &known::START,
+                Visibility::Public,
+                Span::default(),
+                false,
+                false,
+            )
+            .expect("provider module");
+        let path = UsedModulePath::Root {
+            segments: vec![known::START],
+            include_declared_children: false,
+            processing: UsedModulePathProcessing::Never,
+        };
+        let candidate = graph.get(provider).expect("provider node").path.clone();
+
+        assert_eq!(
+            existing_processed_provider_module(&graph, entry, &path, &candidate),
+            None,
+            "an unprocessed provider must use the transactional branch"
+        );
+        graph.mark_process_used_paths(provider);
+        assert_eq!(
+            existing_processed_provider_module(&graph, entry, &path, &candidate),
+            Some(provider)
+        );
+        let missing = UsedModulePath::Root {
+            segments: vec![known::MAIN],
+            include_declared_children: false,
+            processing: UsedModulePathProcessing::Never,
+        };
+        assert_eq!(
+            existing_processed_provider_module(&graph, entry, &missing, &candidate),
+            None,
+            "a derived or uninterned route must use the transactional branch"
+        );
+        let wrong_identity = SourcePath::new("src/other.nia");
+        assert_eq!(
+            existing_processed_provider_module(&graph, entry, &path, &wrong_identity),
+            None,
+            "a matching module path with a different source identity is not reusable"
+        );
     }
 
     #[test]
