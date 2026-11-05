@@ -235,6 +235,7 @@ arms that leave with `return`, `break`, or `continue`.
 | `.Variant`, `Enum::Variant(p)`, `.Variant { field, .. }` | an enum variant and its data |
 | `Point { x: 0, y }`, `Point { x, .. }` | a struct by its fields; `..` skips the rest |
 | `(a, _)` | a tuple element by element |
+| `&p` | a pointer, matching what it points to against `p`; `for &x in slice` uses this to copy each element |
 
 A bare name in a pattern always introduces a new binding. To compare against
 a constant, wrap it in parentheses or name it through a path:

@@ -122,7 +122,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
     };
     let summary = test::Runner::init(cases).runWith(report);
-    _ = io::debugPrint("{} passed, {} failed\n", [summary.passed(), summary.failed()]);
+    let passed = summary.passed();
+    let failed = summary.failed();
+    io::debugPrint("{} passed, {} failed\n", [passed, failed]).?;
     if not summary.isSuccessful() {
         return process::ExitCode(1)!;
     }
@@ -134,14 +136,20 @@ pub fun main(init: process::Init) process::ExitCode!() {
 2 passed, 0 failed
 ```
 
-When a case fails, its line names the test and the assertion:
+When a case fails, its line names the test and the assertion. If
+`ignoresExtraSpaces` expected `3`, running the suite in a package prints:
 
 ```text
-FAIL counts nothing: build-package:root:/tests/words.nia:15:5: values are not equal
+FAIL ignores extra spaces: build-package:root:/tests/unit.nia:25:5: values are not equal
 1 passed, 1 failed
 ```
 
-`nia build` then reports the suite as failed, with its exit status.
+The location names the package (`root` is the package being built), the file,
+and the line and column of the assertion that failed. `nia build` then reports
+the suite as failed, with its exit status.
+
+The reporter's parameter is annotated, `\result: test::CaseResult -> ...`,
+because the closure calls methods on it before any use gives it a type.
 
 ## Organizing Tests
 
@@ -233,6 +241,6 @@ in `[dev-dependencies]`, which only test suites can import; see
 - `@[test]` code and `[dev-dependencies]` exist only in test builds.
 
 Build scripts can declare suites programmatically with `addTestSuite`; see
-[Build scripts](../guides/build-scripts.md#tests). This is the last chapter of
+[Custom Builds](../guides/build-scripts.md#tests). This is the last chapter of
 [Learning Nia](README.md). The [guides](../README.md#guides) cover larger
 tasks, and the [reference](../reference/language.md) has every rule.

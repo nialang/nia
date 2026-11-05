@@ -137,7 +137,8 @@ using palette::Color::*;                // every variant of an enum
 
 Importing a module and naming items through it, `process::Init`, keeps it
 clear where a name comes from; the standard library and these chapters mostly
-do that. A `using` inside a block applies only within that block.
+do that. A `using` inside a block applies only within that block, and imports
+names only; extension methods need a `using` at the top of the file.
 
 ## Visibility
 
@@ -160,8 +161,9 @@ in the library stays inside the library.
 
 Methods come in two kinds, and they become visible differently.
 
-A *trait implementation*, `extend Type : Trait`, is visible wherever its trait
-is. `values.len()` and operators like `a + b` never need an import.
+A *trait implementation*, `extend Type : Trait`, needs no import: its methods,
+such as `values.len()`, and operators like `a + b` work wherever the value
+does.
 
 A plain `extend` block whose target is a type from somewhere else adds
 *extension methods*, like `countOf` on `[char]` above. These are visible only
@@ -182,6 +184,7 @@ it is worth knowing their modules:
 | optional helpers: `okOr`, `isPresent`, `isNull`, `map`, ... | `using std::option;` |
 | error-union helpers: `mapError`, `orElse`, `isError`, `map`, ... | `using std::result;` |
 | `cleanupAfter` | `using std::error;` |
+| text parsing: `parse[T]`, `parseRadix[T]` on `&[char]` | `using std::parse;` |
 | writer `print` | `using std::fmt::template;` |
 
 A module's own imports stay private: importing `std::io` does not bring in the

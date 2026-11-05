@@ -5,9 +5,10 @@ numbers and other simple values, functions, blocks, and loops. Nia is
 statically typed and expression-oriented: every value has a type known at
 compile time, and most constructs, including blocks and `if`, produce values.
 
-The programs here are complete. Save one as a file and run it with
+Programs that define `main` are complete: save one as a file and run it with
 `nia emit --exe file.nia -o program` followed by `./program`; the expected
-output is shown after it.
+output is shown after it. The shorter examples define functions to read, and
+compile on their own with `nia check file.nia`.
 
 ## Bindings
 
@@ -37,15 +38,17 @@ let text = text.len();   // a usize now
 _ = text;
 ```
 
-Nia never discards a value silently. A statement that computes something must
-use it, return it, or discard it explicitly with `_ =`:
+Nia never discards the result of an expression silently. A statement that
+computes something must use it, return it, or discard it explicitly with `_ =`:
 
 ```nia fragment
 _ = 1 + 2;
 ```
 
-The same rule applies to function results, which is why the first chapter
-needed `_ = init;` for the unused process context.
+This matters most for function results: a call that returns an error union and
+is used as a bare statement is an error, so a failure cannot be lost by
+accident. An unused `let` binding or parameter is allowed; `_ = init;` in the
+first chapter only made the intent explicit.
 
 ## Numbers
 
@@ -75,7 +78,8 @@ _ = e;
 _ = f;
 ```
 
-A literal must fit its type: `let x: u8 = 300;` is a compile error.
+A literal must fit its type: `let x: u8 = 300;` is a compile error. Every
+integer type has constants for its range, such as `i32::MIN` and `u8::MAX`.
 
 Nia never converts between numeric types implicitly, not even from a smaller
 integer to a larger one. Arithmetic needs both operands to have the same type,
@@ -158,14 +162,15 @@ fun clamp(value: i32, low: i32, high: i32) i32 {
     value
 }
 
-fun log(message: [char; 5]) {
-    _ = message;
+fun log(code: i32) {
+    _ = code;
 }
 ```
 
 The body is a block, and the block's last expression, written *without* a
 semicolon, is the result. `return` leaves early. A function without a return
-type, like `log`, returns `()`.
+type, like `log`, returns `()`; the standard library writes `()` explicitly
+instead, as in `fun reset(&mut self) ()`, and both mean the same.
 
 The semicolon matters. `x * x;` with a semicolon is a statement that produces
 nothing, so the function falls off its end without a value:
@@ -273,28 +278,29 @@ order, last registered first:
 using std::io;
 using std::process;
 
-fun record(log: &mut [i32], index: usize, value: i32) () {
-    log[index] = value;
-}
-
-fun steps(log: &mut [i32]) () {
-    defer record(log, 0, 1);    // runs last
-    defer record(log, 1, 2);    // runs second
-    record(log, 2, 3);          // runs first
+fun steps() i32 {
+    let mut order = 0;
+    {
+        defer order = order * 10 + 1;    // runs last
+        defer order = order * 10 + 2;    // runs second
+        order = order * 10 + 3;          // runs first
+    }
+    order
 }
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut log = [0; 3];
-    steps(log);
-    io::debugPrint("order: {} {} {}\n", [log[2], log[1], log[0]]).?;
+    io::debugPrint("order={}\n", [steps()]).?;
     !()
 }
 ```
 
 ```text
-order: 3 2 1
+order=321
 ```
+
+The inner block exits after its last statement, and its two deferred
+assignments run then, the later one first.
 
 `defer` is how Nia programs release resources: write the release right after
 acquiring the resource, and it happens on every path out of the block. The

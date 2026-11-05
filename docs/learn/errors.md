@@ -8,13 +8,16 @@ standard library uses, from propagating a failure to cleaning up after one.
 The [language reference](../reference/language.md#propagation) has the exact
 rules.
 
-Every program here is complete; build one with `nia emit --exe` and run it to
-see the output shown after it.
+Programs that define `main` are complete; build one with `nia emit --exe` and
+run it to see the output shown after it. The later sections use closures and
+allocators, which [Closures](closures.md) and [Memory](memory.md) explain
+fully; the examples here use them only in simple forms.
 
 ## Optional Values
 
 `?T` holds either a `T` or nothing. `?value` builds the present case and `null`
-the empty one; both need the full type from context:
+the empty one. `null` needs the optional type from context, such as an
+annotation; `?value` takes it from the value:
 
 ```nia fragment
 let found: ?i32 = ?42;
@@ -157,14 +160,14 @@ enum ConfigError {
 }
 
 extend ParseError : std::builtin::IntoError[ConfigError] {
-    const fun intoError(self) ConfigError {
+    fun intoError(self) ConfigError {
         ConfigError::Parse(self)
     }
 }
 
 // Lets `.?` in `main` turn a configuration error into an exit status.
 extend ConfigError : std::builtin::IntoError[process::ExitCode] {
-    const fun intoError(self) process::ExitCode {
+    fun intoError(self) process::ExitCode {
         match self {
             .Parse(_) => process::ExitCode(2),
             .PortOutOfRange(_) => process::ExitCode(3),
@@ -218,9 +221,16 @@ port=8080 failed=a digit=7 none=true
 ```
 
 `main` returns `process::ExitCode!()`, so `.?` in `main` needs the error to
-convert to an exit status. The standard library's error types already do; the
-second `IntoError` implementation above gives `ConfigError` the same ability,
-choosing a status for each cause.
+convert to an exit status. The standard library's input, output, file, and
+process errors already do, but not every library error: a number-parsing
+error, for example, must be handled or converted first. The second
+`IntoError` implementation above gives `ConfigError` the ability, choosing a
+status for each cause.
+
+`extend ParseError : std::builtin::IntoError[ConfigError]` implements a
+*trait*, a set of methods the compiler knows to call; here `.?` calls
+`intoError`. [Generics And Traits](generics-and-traits.md) covers traits; for
+now, this is the pattern to copy.
 
 ## Optional Values As Errors
 
@@ -260,7 +270,8 @@ small=12 overflow=true
 ## Transforming Results
 
 The helpers on optionals and error unions change one side of a result and
-pass the other side through:
+pass the other side through. Several take a closure, an inline function
+written `\value -> value * 2`:
 
 | Helper | On | Effect |
 | --- | --- | --- |
@@ -467,7 +478,8 @@ len=2 rejected=true
 ```
 
 The failed call pushed `3` before it found `-1`, and the `defer` removed it
-again.
+again. Rejecting a negative value reuses `mem::Error::Invalid` only to keep the
+example short; a real API would declare its own error type.
 
 ## Summary
 

@@ -96,8 +96,9 @@ Every line of this program says something about how Nia works:
 - `pub fun main(...)` declares the program's entry point. It must be public,
   because the toolchain's startup code calls it from outside this module.
 - `init: process::Init` is the process context: command-line arguments and
-  environment variables. This program does not need it, and Nia does not allow
-  a value to be silently ignored, so `_ = init;` discards it on purpose.
+  environment variables. This program does not need it; `_ = init;` says so
+  explicitly. The compiler does not require it, but the standard library and
+  these chapters write it to show the parameter is unused on purpose.
 - The return type `process::ExitCode!()` is an *error union*: the function
   either succeeds with the unit value `()` or fails with an `ExitCode`. Nia has
   no exceptions; failure is part of the return type.
@@ -106,11 +107,121 @@ Every line of this program says something about how Nia works:
   array that follows, here empty.
 - Writing to a stream can fail, so `debugPrint` returns an error union too.
   The postfix `.?` either unwraps a success or returns the error from `main`
-  right away. The standard library's errors convert to an exit status, so a
-  failed write ends the program with a failure status.
+  right away. The standard library's input and output errors convert to an
+  exit status, so a failed write ends the program with a failure status.
 - `!()` is the success value: `!` wraps a value as the success case of an
   error union, and `()` is the unit value. It is the last expression of the
   block without a semicolon, so it is the function's result.
+
+## Printing Values
+
+`debugPrint`'s `{}` placeholders take values from the array that follows, in
+order. A placeholder can carry a format specification after a colon:
+
+```nia
+using std::io;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let answer = 42;
+    let name = "nia";
+    io::debugPrint("answer={} padded={:>5} hex={:#x}\n", [answer, answer, answer]).?;
+    io::debugPrint("name={} short={:.2}\n", [name, name]).?;
+    !()
+}
+```
+
+```text
+answer=42 padded=   42 hex=0x2a
+name=nia short=ni
+```
+
+| Specification | Effect |
+| --- | --- |
+| `{:>5}`, `{:<5}`, `{:^5}` | pad to width 5, aligned right, left, or centered |
+| `{:_>5}` | pad with `_` instead of spaces |
+| `{:05}`, `{:+}` | pad with zeros; always show the sign |
+| `{:x}`, `{:X}`, `{:b}`, `{:o}`, `{:#x}` | hexadecimal, binary, octal; `#` adds the prefix |
+| `{:.2}` | at most 2 characters of text |
+
+Integers, `bool`, `char`, and text can be printed; floating-point numbers
+cannot yet. The values in the array are named variables or fields. An
+expression such as `answer + 1` or a literal such as `42` cannot be written
+there directly; bind it to a name first.
+
+`debugPrint` writes to standard error, which suits diagnostics and these
+chapters' examples. A program's real output goes to standard output through a
+buffered writer:
+
+```nia
+using std::fmt::template;
+using std::io;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut buffer: [u8; 256] = [0; 256];
+    let mut stdout = io::FileWriter::stdout(buffer);
+    let count = 3;
+    stdout.print("count={}\n", [count]).?;
+    stdout.flush().?;
+    !()
+}
+```
+
+```text
+count=3
+```
+
+The writer collects output in `buffer` and writes it out when the buffer fills
+or `flush` is called; always flush before the program ends. `print` takes the
+same templates as `debugPrint`, and comes from `std::fmt::template`, which the
+program imports.
+
+## Command-Line Arguments
+
+`init.args()` gives the program's arguments. `skipProgram()` leaves out the
+first one, the program's own name, and each argument can be parsed into a
+number:
+
+```nia
+using std::fmt::template;
+using std::io;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    let mut buffer: [u8; 256] = [0; 256];
+    let mut stdout = io::FileWriter::stdout(buffer);
+
+    let mut total: i64 = 0;
+    let mut skipped: usize = 0;
+    for arg in init.args().skipProgram() {
+        if arg.parse[i64]() is !value {
+            total += value;
+        } else {
+            skipped += 1;
+        }
+    }
+
+    stdout.print("total={} skipped={}\n", [total, skipped]).?;
+    stdout.flush().?;
+    !()
+}
+```
+
+```sh
+nia emit --exe sum.nia -o sum
+./sum 10 20 x 12
+```
+
+```text
+total=42 skipped=1
+```
+
+`arg.parse[i64]()` returns an error union, which `is !value` tests; the
+[errors chapter](errors.md) explains both. `init.args().get(1)` reads one
+argument as an optional, and `init.env()` gives the environment variables.
 
 ## Reading Compiler Errors
 
@@ -151,9 +262,13 @@ A string literal is an array of characters, not a pointer, so its type shows
 its length. Later chapters return to this.
 
 `--runtime freestanding` tells `nia check` to check `main` against the standard
-entry contract. Without it, `nia check` treats `main` as an ordinary function,
-which is what kernels and other programs without an operating system need.
-`nia emit --exe` always builds the standard entry.
+entry contract. In Nia, *freestanding* means the program starts through Nia's
+own startup code, which talks to the operating system directly without a C
+library; it is what ordinary programs use. Without the option, `nia check`
+treats `main` as an ordinary function, which is what kernels and other
+programs without an operating system need. `nia emit --exe` always builds the
+standard entry. [Targets And Runtimes](../guides/targets.md#runtimes) explains
+both runtimes.
 
 ## Your First Package
 

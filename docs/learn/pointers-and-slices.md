@@ -70,9 +70,10 @@ fun demo() i32 {
 The rules are the same for arguments, initializers, return values, and method
 receivers:
 
-- Where `&T` is expected, any value of type `T` works, including a temporary
-  such as `lengthSquared(Point { x: 1, y: 2 })`. A temporary lives until the
-  end of the enclosing block.
+- Where `&T` is expected, a value of type `T` works, including a temporary
+  such as `lengthSquared(Point { x: 1, y: 2 })`, a literal, or a call's result.
+  A temporary lives until the end of the enclosing block. The result of an
+  operator such as `a + b` is not addressed this way; bind it to a name first.
 - Where `&mut T` is expected, the value must be a writable place: a `let mut`
   variable, one of its fields or elements, or something reached through a
   writable pointer. Passing a `let` binding or a temporary is an error,
@@ -156,7 +157,8 @@ fun demo() i32 {
 - `&values[a..b]` takes a sub-slice; `a..`, `..b`, and `..` leave out an end.
   Here the `&` is required, because the range alone is not a value.
 - `values.len()` is the element count. Arrays have `len()` too.
-- `for &value in values` copies each element out. To change elements, index
+- Iterating a slice yields a `&T` for each element, and the pattern
+  `for &value in values` copies the element out of it. To change elements, index
   the slice. An array is not iterable itself; loop over `&array[..]`.
 
 Calling a slice method on an array also works directly: `numbers.len()` and

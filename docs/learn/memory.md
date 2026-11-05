@@ -13,8 +13,9 @@ see the output shown after it.
 ## Allocators And Owners
 
 An allocator implements the `mem::Allocator` trait. Functions that allocate
-take `&mut mem::Allocator`, a trait object, so any allocator can be passed; a
-`let mut` allocator is passed by name, and Nia takes its address.
+take `&mut mem::Allocator`, a pointer that accepts any allocator (a *trait
+object*, explained in [Generics And Traits](generics-and-traits.md#trait-objects));
+a `let mut` allocator is passed by name, and Nia takes its address.
 Containers such as `std::ArrayList`, `std::HashMap`, `std::TreeMap`, and
 `std::String` do not store the allocator; they take it on every call that may
 allocate, grow, or free, and the caller passes the same allocator each time.
@@ -231,6 +232,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
 exhausted=true remaining=16
 ```
 
+`allocSlice[u8](48)` asks for 48 uninitialized bytes; the brackets give the
+element type, as explained under
+[Single Values And Raw Storage](#single-values-and-raw-storage).
+
 ## Single Values And Raw Storage
 
 A container is not always needed. `mem::allocValue` stores one value and
@@ -321,8 +326,8 @@ write owners with the same behavior.
 
 ## Views Do Not Own
 
-A slice, a `PathView`, or a `CStringView` borrows storage that someone else
-owns. A view never extends that storage's life, and nothing checks it: a view
+A slice, or a view type such as `fs::PathView` for file paths, borrows storage
+that someone else owns. A view never extends that storage's life, and nothing checks it: a view
 into a list becomes invalid when the list grows and moves its elements, and a
 view into a released owner points at freed memory. Take views for the duration
 of an operation, and take them again after anything that may reallocate:

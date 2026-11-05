@@ -75,6 +75,6 @@ or Rust, these are the differences to expect:
 | Text | A string literal is an array of `char`, not a pointer, and has no NUL terminator. |
 | Conversions | No implicit numeric conversions; `as` converts explicitly. Overflow traps. |
 | Booleans | `and`, `or`, `not`. `!` belongs to error unions. |
-| Methods | Declared in `extend` blocks. Trait methods are always visible; other extension methods need a `using` of their module. |
+| Methods | Declared in `extend` blocks. Trait methods need no import; other extension methods need a `using` of their module. |
 | Closures | `\x -> x + 1`, with explicit captures such as `[name]` or `[&mut name]`. |
 | Runtime | No C runtime or libc. Startup is Nia's own; C libraries are ordinary dependencies. |

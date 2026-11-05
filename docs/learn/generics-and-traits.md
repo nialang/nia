@@ -11,9 +11,7 @@ wanted instead.
 Type parameters go in brackets after the name:
 
 ```nia
-fun first[T](values: &[T]) T
-where T: Sized
-{
+fun first[T](values: &[T]) T {
     values[0]
 }
 
@@ -56,9 +54,13 @@ where T: Ord[T] + Sized
 - `Ord[T]` provides `<`, `<=`, `>`, and `>=`; `Eq[T]` provides `==` and `!=`;
   `Add[T, Output = T]` provides `+` returning a `T`; and so on for the other
   operators.
-- `Sized` says the type has a size known at compile time. Copying a `T` out of
-  a slice, as `for &value in values` does, or asking for
-  `std::builtin::size[T]()` needs it.
+- `Sized` says the type has a size known at compile time. A `for` loop over a
+  `&[T]` and `std::builtin::size[T]()` need it. Without the bound, the loop's
+  error does not mention `Sized`, so it is worth recognizing:
+
+  ```text
+  error[E0301]: for-in expects an Iterable, found `&[T]`
+  ```
 
 The compiler checks the generic body once against its bounds, and each call
 against the bounds for its concrete types:
@@ -69,7 +71,8 @@ error[E0301]: trait bound not satisfied: Point: Ord[Point]
 
 ## Generic Types
 
-Structs, unions, type aliases, and traits take type parameters the same way.
+Structs, unions, type aliases, and traits take type parameters the same way;
+enums do not.
 Methods for a generic type declare the parameters after `extend`:
 
 ```nia
@@ -160,9 +163,8 @@ where S: Shape + Sized
 trait's members: every required method and nothing else. Other methods go in a
 plain `extend Type` block.
 
-Trait methods need no import: wherever the trait is visible, its
-implementations are, so `square.area()` works in any module that can see
-`Shape`. To keep this unambiguous, an implementation must live in the package
+Trait methods need no import: `square.area()` works in any module that can
+name the value, without importing `Shape`. To keep this unambiguous, an implementation must live in the package
 that defines the type or in the package that defines the trait.
 
 `trait Child : Parent` declares a supertrait: a `T: Child` bound also provides

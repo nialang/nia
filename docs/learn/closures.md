@@ -86,9 +86,11 @@ pub fun main(init: process::Init) process::ExitCode!() {
 a=11 b=10 c=12 calls=2
 ```
 
-Using a local without capturing it is an error that says so:
+Using a local without capturing it is an error. The first message only says
+the name is unknown inside the closure; the second explains why:
 
 ```text
+error[E0201]: unknown value `k`
 error[E0302]: local `k` is not captured by this closure; add it to the closure capture list
 ```
 
