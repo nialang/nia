@@ -728,6 +728,22 @@ impl<'a> BodyChecker<'a> {
             return Some(ty);
         }
         let program_signature = self.program_signature_scope.global(def_id)?;
+        if let Some(issue) = program_signature.type_issue {
+            if let Some(current_global) = self.current_global_def_id {
+                self.global_type_issues.insert(current_global, issue);
+            }
+            let message = match issue {
+                nia_item_signatures::ProgramGlobalTypeIssue::CyclicInference => {
+                    "cannot infer global type from a cyclic initializer dependency; add an explicit type annotation"
+                }
+            };
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                message,
+            ));
+            return Some(self.error());
+        }
         let ty = program_signature
             .value_type
             .or(program_signature.signature.explicit_type)

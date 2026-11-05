@@ -262,6 +262,16 @@ pub struct ProgramGlobalSignature {
     pub signature: GlobalSignature,
     /// Resolved type of the global, including inference from its initializer.
     pub value_type: Option<InternedTyId>,
+    /// Why the inferred type is unavailable, when inference reached a
+    /// source-level boundary rather than a complete type fact.
+    pub type_issue: Option<ProgramGlobalTypeIssue>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Source-level issue that prevented resolving a program global's type.
+pub enum ProgramGlobalTypeIssue {
+    /// The initializer's type depends on an unannotated global type cycle.
+    CyclicInference,
 }
 
 /// Program-qualified const signature payload.

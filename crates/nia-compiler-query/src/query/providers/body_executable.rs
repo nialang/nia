@@ -802,6 +802,36 @@ pub(super) fn body_check_const_declarations(
     .body_check)
 }
 
+pub(in crate::query) fn provide_inferred_global_types(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<InferredGlobalTypes> {
+    time_module_provider(db, "inferred_global_types", module_id, || {
+        let checked = body_check_with_filter_and_layouts_with_inputs(
+            db,
+            ExecutableBodyCheckInput {
+                module_id,
+                filter: nia_body_check::BodyCheckFilter::GlobalTypes,
+                layouts: None,
+                program_layouts_override: None,
+                fact_mode: ExecutableFactMode::full(),
+                resolution_inputs: None,
+                seed: None,
+                global_initializer_cache: None,
+                const_module_cache: None,
+                const_inputs: None,
+                program_function_signature_cache: None,
+                product: nia_body_check::BodyCheckProduct::FactsOnly,
+                prechecked: None,
+            },
+        )?;
+        Ok(InferredGlobalTypes {
+            types: checked.body_check.facts.global_types.clone(),
+            type_issues: checked.body_check.global_type_issues.clone(),
+        })
+    })
+}
+
 pub(super) fn module_has_const_declarations(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
@@ -938,7 +968,8 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     } else {
         match filter {
             nia_body_check::BodyCheckFilter::All
-            | nia_body_check::BodyCheckFilter::ConstDeclarations => {
+            | nia_body_check::BodyCheckFilter::ConstDeclarations
+            | nia_body_check::BodyCheckFilter::GlobalTypes => {
                 full_const_values = db.get(ConstValuesQuery(module_id))?;
                 full_const_array_lengths = db.get(ConstArrayLengthsQuery(module_id))?;
                 full_const_typed_facts = db.get(ConstTypedFactsQuery(module_id))?;
@@ -1104,19 +1135,34 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .globals
         .get(&def_id.def_id)
         .cloned()?;
-        let value_type = if let Some(explicit) = signature.explicit_type {
-            Some(explicit)
+        let (value_type, type_issue) = if let Some(explicit) = signature.explicit_type {
+            (Some(explicit), None)
         } else {
-            capture_query_failure(&query_failure, db.get(BodyCheckQuery(def_id.module_id)))?
-                .semantic
-                .facts
-                .global_types
-                .get(&def_id)
-                .copied()
+            match db.get(InferredGlobalTypesQuery(def_id.module_id)) {
+                Ok(inferred) => (
+                    inferred.types.get(&def_id).copied(),
+                    inferred.type_issues.get(&def_id).copied(),
+                ),
+                Err(QueryError::Cycle { cycle })
+                    if cycle
+                        .iter()
+                        .any(|frame| frame.name == InferredGlobalTypesQuery::name()) =>
+                {
+                    (
+                        None,
+                        Some(nia_item_signatures::ProgramGlobalTypeIssue::CyclicInference),
+                    )
+                }
+                Err(error) => {
+                    query_failure.borrow_mut().get_or_insert(error);
+                    (None, None)
+                }
+            }
         };
         Some(ProgramGlobalSignature {
             signature,
             value_type,
+            type_issue,
         })
     };
     let program_const_signature = |def_id: GlobalDefId| {
@@ -1535,7 +1581,8 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             nia_body_check::BodyCheckProduct::Full,
             nia_body_check::BodyCheckFilter::ReachableFunctions(_)
             | nia_body_check::BodyCheckFilter::All
-            | nia_body_check::BodyCheckFilter::ConstDeclarations,
+            | nia_body_check::BodyCheckFilter::ConstDeclarations
+            | nia_body_check::BodyCheckFilter::GlobalTypes,
         ) => filtered_inputs,
     };
     let output = BodyCheckWithResolutionInputs {

@@ -161,6 +161,7 @@ pub fn collect_program_globals(
                 ProgramGlobalSignature {
                     value_type: signature.explicit_type,
                     signature: signature.clone(),
+                    type_issue: None,
                 },
             );
         }

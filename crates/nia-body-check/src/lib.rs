@@ -257,6 +257,7 @@ struct BodyChecker<'a> {
     static_init_refs: HashMap<GlobalDefId, nia_function_ir::FunctionBodyRefs>,
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
+    global_type_issues: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
     const_types: HashMap<DefId, InternedTyId>,
     method_receiver_kinds: HashMap<GlobalDefId, Option<ReceiverKind>>,
     traits_by_method_name: SymbolMap<Vec<GlobalDefId>>,
@@ -271,6 +272,7 @@ struct BodyChecker<'a> {
     timing_module_id: ModuleId,
     current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
+    current_global_def_id: Option<GlobalDefId>,
     // A naked function's body is its inline assembly alone.
     current_naked: bool,
     closure_ordinals: FastHashMap<VersionedNodeKey, u32>,

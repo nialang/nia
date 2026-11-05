@@ -106,6 +106,7 @@ fn body_check_filter_includes_def(
     match filter {
         nia_body_check::BodyCheckFilter::All
         | nia_body_check::BodyCheckFilter::ConstDeclarations => true,
+        nia_body_check::BodyCheckFilter::GlobalTypes => !is_function,
         nia_body_check::BodyCheckFilter::ReachableFunctions(functions) => {
             !is_function || functions.contains(&global_def_id)
         }
@@ -162,7 +163,8 @@ pub(super) fn body_check_resolution_inputs_for_filter(
 ) -> QueryResult<BodyCheckResolutionInputs> {
     match filter {
         nia_body_check::BodyCheckFilter::All
-        | nia_body_check::BodyCheckFilter::ConstDeclarations => {
+        | nia_body_check::BodyCheckFilter::ConstDeclarations
+        | nia_body_check::BodyCheckFilter::GlobalTypes => {
             let values = db.get(ValueResolutionQuery(module_id))?;
             let locals = db.get(LocalResolutionQuery(module_id))?;
             Ok(BodyCheckResolutionInputs {

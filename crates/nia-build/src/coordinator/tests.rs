@@ -1933,7 +1933,6 @@ fn compiler_check_cache_reuses_relocated_sources() {
 }
 
 #[test]
-#[cfg_attr(windows, ignore = "requires the Linux freestanding runtime")]
 fn compiler_check_cache_restores_semantic_provider_source_closure() {
     let invocation = test_invocation();
     write_compiler_check_source(
@@ -1959,7 +1958,6 @@ fn compiler_check_cache_restores_semantic_provider_source_closure() {
 }
 
 #[test]
-#[cfg_attr(windows, ignore = "requires the Linux freestanding runtime")]
 fn compiler_check_cache_does_not_publish_warnings() {
     let invocation = test_invocation();
     write_compiler_check_source(&invocation, "using std::collections;\nfun main() () {}\n");

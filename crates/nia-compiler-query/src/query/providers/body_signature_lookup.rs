@@ -20,6 +20,7 @@ impl nia_program_signatures::ProgramSignatureLookup for BodyProgramSignatureLook
                 let resolved = (self.fallback.global)(def_id)?;
                 Some(ProgramGlobalSignature {
                     value_type: resolved.value_type,
+                    type_issue: resolved.type_issue.or(signature.type_issue),
                     ..signature
                 })
             }

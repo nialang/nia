@@ -290,7 +290,9 @@ impl<'a> BodyChecker<'a> {
                 for item in active_item_tree.items.iter() {
                     if let ItemTreeNodeKind::Binding(binding) = &item.kind {
                         if binding.is_const() {
-                            self.check_const_binding(item.span, binding);
+                            if !self.body_filter.skips_const_initializers() {
+                                self.check_const_binding(item.span, binding);
+                            }
                         } else {
                             self.check_global_binding(item.span, binding);
                         }
@@ -525,7 +527,9 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
-        if !self.body_filter.includes_global(self.global_def_id(def_id)) {
+        if self.body_filter.skips_const_initializers()
+            || !self.body_filter.includes_global(self.global_def_id(def_id))
+        {
             return;
         }
         self.check_const_binding(item_span, binding);
@@ -551,7 +555,21 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(super) fn check_global_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
+        let global_def_id = self
+            .def_id_for_node(&binding.node_key, item_span, DefKind::Global)
+            .map(|def_id| self.global_def_id(def_id));
+        let previous_global_def_id = self.current_global_def_id;
+        self.current_global_def_id = global_def_id;
+        let diagnostic_start = self.diagnostics.len();
         self.check_global_binding_inner(item_span, binding, true);
+        self.current_global_def_id = previous_global_def_id;
+        if let Some(global_def_id) = global_def_id {
+            let diagnostic_end = self.diagnostics.len();
+            if diagnostic_start != diagnostic_end {
+                self.diagnostic_owners.resize(diagnostic_end, None);
+                self.diagnostic_owners[diagnostic_start..diagnostic_end].fill(Some(global_def_id));
+            }
+        }
     }
 
     pub(super) fn check_global_binding_inner(

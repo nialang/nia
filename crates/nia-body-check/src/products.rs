@@ -10,6 +10,8 @@ pub struct BodyCheck {
     pub ir: Arc<BodyIr>,
     /// Semantic facts collected from checked expressions and calls.
     pub facts: Arc<SemanticFacts>,
+    /// Global type inference issues produced while checking initializers.
+    pub global_type_issues: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
     /// Complete executable references from static initializers by global identity.
     pub static_init_refs: HashMap<GlobalDefId, nia_function_ir::FunctionBodyRefs>,
     /// Function identities checked by this product.

@@ -2445,6 +2445,19 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         };
+        if let Some(issue) = signature.type_issue {
+            if let Some(current_global) = self.current_global_def_id {
+                self.global_type_issues.insert(current_global, issue);
+            }
+            let message = match issue {
+                nia_item_signatures::ProgramGlobalTypeIssue::CyclicInference => {
+                    "cannot infer global type from a cyclic initializer dependency; add an explicit type annotation"
+                }
+            };
+            self.diagnostics
+                .push(Diagnostic::user_error_at(codes::TYPE_CHECK, span, message));
+            return self.error();
+        }
         signature
             .value_type
             .or(signature.signature.explicit_type)

@@ -184,3 +184,24 @@ impl QueryKey<CompilerContext> for BodyCheckQuery {
         (db.context().providers.body_check)(db, self.0)
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct InferredGlobalTypesQuery(pub(super) ModuleId);
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct InferredGlobalTypes {
+    pub(super) types: HashMap<GlobalDefId, InternedTyId>,
+    pub(super) type_issues: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
+}
+
+impl QueryKey<CompilerContext> for InferredGlobalTypesQuery {
+    type Value = InferredGlobalTypes;
+
+    fn name() -> &'static str {
+        "inferred_global_types"
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        providers::provide_inferred_global_types(db, self.0)
+    }
+}

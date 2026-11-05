@@ -17,6 +17,87 @@ fn signature_type_resolution_separates_semantic_value_from_diagnostics() {
 }
 
 #[test]
+fn inferred_global_types_do_not_reenter_unrelated_module_bodies() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "module a; module b; using a; using b; fun main() i32 { a::fa() + b::fb() }",
+    );
+    let entry = fixture.entry_id();
+    fixture.add_child(
+        entry,
+        "a",
+        "a.nia",
+        "using super::b; pub static x = 1; pub fun fa() i32 { b::y }",
+    );
+    fixture.add_child(
+        entry,
+        "b",
+        "b.nia",
+        "using super::a; pub static y = 2; pub fun fb() i32 { a::x }",
+    );
+
+    let checked = fixture.database().check_program();
+
+    assert!(
+        checked.diagnostics.is_empty(),
+        "independent inferred globals must not make mutually importing module bodies recursive: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn inferred_global_types_follow_cross_module_initializer_dependencies() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "module a; module b; using a; fun main() i32 { a::x }",
+    );
+    let entry = fixture.entry_id();
+    fixture.add_child(entry, "a", "a.nia", "using super::b; pub static x = b::y;");
+    fixture.add_child(entry, "b", "b.nia", "pub static y = 2;");
+
+    let checked = fixture.database().check_program();
+
+    assert!(
+        checked.diagnostics.is_empty(),
+        "a one-way cross-module inferred global dependency is valid: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn cyclic_inferred_global_types_are_not_query_engine_failures() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "module a; module b; using a; using b; fun main() i32 { a::x + b::y }",
+    );
+    let entry = fixture.entry_id();
+    fixture.add_child(entry, "a", "a.nia", "using super::b; pub static x = b::y;");
+    fixture.add_child(entry, "b", "b.nia", "using super::a; pub static y = a::x;");
+
+    let database = fixture.database();
+    let checked = database.check_program();
+
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| {
+            diagnostic.diagnostic.code.def().category
+                != nia_diagnostic::DiagnosticCategory::Internal
+        }),
+        "an ungrounded inferred-global type dependency should be diagnosed as source-level input: {:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("cyclic initializer dependency")
+        }),
+        "the cycle should produce a source-level type diagnostic: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn type_resolution_separates_semantic_value_from_diagnostics() {
     let fixture = LoadedProgramFixture::new("main.nia", "fun main(value: Missing) {}");
     let module_id = fixture.entry_id();

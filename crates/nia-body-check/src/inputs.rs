@@ -72,13 +72,16 @@ fn no_program_const_module(_: ModuleId) -> Option<Arc<ResolvedConstModule>> {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-/// Selects body-check work by product and executable reachability.
+/// Selects body-check work by declaration kind and executable reachability.
 pub enum BodyCheckFilter<'a> {
     /// Checks all active items.
     #[default]
     All,
     /// Checks only const declarations.
     ConstDeclarations,
+    /// Infers types from global initializers without checking function bodies
+    /// or const declarations.
+    GlobalTypes,
     /// Checks reachable functions only.
     ReachableFunctions(&'a HashSet<GlobalDefId>),
     /// Checks selected functions/globals with prior-product reuse markers.

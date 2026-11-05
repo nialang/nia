@@ -35,6 +35,7 @@ fun identity[T](value: T) T {
 fun main() i32 {
     identity[i32](1)
 }
+
 "#,
     );
 
@@ -63,6 +64,21 @@ fun main() i32 {
             .values()
             .any(|facts| !facts.node_resolved_calls.is_empty())
     );
+}
+
+#[test]
+fn global_type_product_skips_function_bodies_and_const_initializers() {
+    let checked = pipeline_global_types(
+        r#"
+const invalid: i32 = false;
+static value = 42;
+fun invalid_function() i32 { false }
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.facts.global_types.len(), 1);
+    assert!(checked.facts.function_facts.is_empty());
 }
 
 #[test]
