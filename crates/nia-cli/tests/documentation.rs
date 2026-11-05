@@ -23,16 +23,24 @@ use nia_test_support::{CommandExt, test_dir as temp_dir};
 /// Each documentation file with `nia` blocks gets its own test, so files are
 /// checked in parallel. `every_documented_file_is_listed` keeps the list
 /// complete.
-const DOCUMENTS: [&str; 13] = [
+const DOCUMENTS: [&str; 21] = [
     "README.md",
     "lib/README.md",
     "crates/nia-body-check/README.md",
-    "docs/guide/build-scripts.md",
-    "docs/guide/c-interop.md",
-    "docs/guide/error-handling.md",
-    "docs/guide/getting-started.md",
-    "docs/guide/memory-management.md",
-    "docs/guide/tour.md",
+    "docs/learn/README.md",
+    "docs/learn/getting-started.md",
+    "docs/learn/basics.md",
+    "docs/learn/structs-and-enums.md",
+    "docs/learn/pointers-and-slices.md",
+    "docs/learn/errors.md",
+    "docs/learn/memory.md",
+    "docs/learn/generics-and-traits.md",
+    "docs/learn/closures.md",
+    "docs/learn/modules.md",
+    "docs/learn/testing.md",
+    "docs/guides/build-scripts.md",
+    "docs/guides/targets.md",
+    "docs/guides/c-interop.md",
     "docs/reference/abi.md",
     "docs/reference/builtins.md",
     "docs/reference/language.md",
@@ -154,13 +162,15 @@ fn every_documented_file_is_listed() {
             files.push(readme);
         }
     }
+    // A file whose `nia` blocks are all `ignore` has nothing to check.
     let mut documented = files
         .into_iter()
         .filter(|path| {
             std::fs::read_to_string(path)
                 .expect("read markdown")
                 .lines()
-                .any(|line| line.trim_end().starts_with("```nia"))
+                .map(str::trim_end)
+                .any(|line| line.starts_with("```nia") && line != "```nia ignore")
         })
         .map(|path| {
             path.strip_prefix(workspace)
@@ -190,14 +200,22 @@ document_tests! {
     readme_blocks_check => 0,
     std_overview_blocks_check => 1,
     closure_inference_blocks_check => 2,
-    build_scripts_guide_blocks_check => 3,
-    c_interop_guide_blocks_check => 4,
-    error_handling_guide_blocks_check => 5,
-    getting_started_guide_blocks_check => 6,
-    memory_management_guide_blocks_check => 7,
-    tour_blocks_check => 8,
-    abi_reference_blocks_check => 9,
-    builtins_reference_blocks_check => 10,
-    language_reference_blocks_check => 11,
-    platform_support_blocks_check => 12,
+    learn_index_blocks_check => 3,
+    learn_getting_started_blocks_check => 4,
+    learn_basics_blocks_check => 5,
+    learn_structs_and_enums_blocks_check => 6,
+    learn_pointers_and_slices_blocks_check => 7,
+    learn_errors_blocks_check => 8,
+    learn_memory_blocks_check => 9,
+    learn_generics_and_traits_blocks_check => 10,
+    learn_closures_blocks_check => 11,
+    learn_modules_blocks_check => 12,
+    learn_testing_blocks_check => 13,
+    build_scripts_guide_blocks_check => 14,
+    targets_guide_blocks_check => 15,
+    c_interop_guide_blocks_check => 16,
+    abi_reference_blocks_check => 17,
+    builtins_reference_blocks_check => 18,
+    language_reference_blocks_check => 19,
+    platform_support_reference_blocks_check => 20,
 }

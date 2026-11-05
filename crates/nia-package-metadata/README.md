@@ -10,7 +10,7 @@ embed; those encoders are documented in the crate's `//!` docs.
 This README is the implementation contract for versions, resolution, the
 registry formats, the lockfile, and package source identity. The user-facing
 manifest syntax is in
-[Build scripts](../../docs/guide/build-scripts.md#package-manifest).
+[Build scripts](../../docs/reference/manifest.md).
 
 | Source | Owns |
 | --- | --- |
@@ -27,8 +27,8 @@ Package release versions and source selectors are separate concepts. A package v
 
 The dependency source forms and SemVer requirement syntax are user-facing and
 are specified in
-[Dependency sources](../../docs/guide/build-scripts.md#dependency-sources) and
-[Registry dependencies](../../docs/guide/build-scripts.md#registry-dependencies).
+[Dependency sources](../../docs/guides/packages.md#where-a-dependency-comes-from) and
+[Registry dependencies](../../docs/guides/packages.md#registry-dependencies).
 The parser accepts exactly one source per dependency and never infers a
 compatibility operator for a bare version. Registry dependencies select
 immutable published package versions. No source fallback or implicit override
@@ -47,7 +47,7 @@ The initial resolver selects one version per `(namespace, name)` across that com
 
 Registries are named endpoints configured in the root manifest; the
 `[registries]` syntax and the workspace-member rule are in
-[Registry dependencies](../../docs/guide/build-scripts.md#registry-dependencies).
+[Registry dependencies](../../docs/guides/packages.md#registry-dependencies).
 There is no built-in registry: `nia` is only a conventional name, and fetching
 from an unconfigured name fails. `RegistryEndpoint::new` requires every
 endpoint base URL to be `https://` without credentials, a query, or a
@@ -108,7 +108,7 @@ migrated or rewritten; users regenerate the lockfile with the current resolver.
 
 The `nia build --locked` and `--offline` flags and `nia update` are described
 for users in
-[Registry dependencies](../../docs/guide/build-scripts.md#registry-dependencies).
+[Registry dependencies](../../docs/guides/packages.md#registry-dependencies).
 They map onto `LockPolicy` and `update_lock`. With `LockPolicy::locked`, the
 resolver fails instead of adding, changing, or removing a lock entry, and it
 never fetches: a locked Git or registry source must already be in the package

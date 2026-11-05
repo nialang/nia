@@ -9,7 +9,7 @@ repository that answers `401` fails. Package resolution, caching, and
 `nia.lock` belong to
 [`nia-package-metadata`](../nia-package-metadata/); the user-facing source,
 credential, and proxy contract is in
-[Build scripts](../../docs/guide/build-scripts.md#dependency-sources).
+[Build scripts](../../docs/guides/packages.md#git-dependencies).
 
 The public surface is `checkout_source(source, revision, destination)` for
 dependency checkouts and two credential-free HTTPS fetches:

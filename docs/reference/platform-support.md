@@ -86,7 +86,7 @@ platform keeps stable, and on nothing above it by default. The toolchain adds
 no C runtime: no CRT startup object, no C `main` convention for user code, and
 no implicit libc. A C library is an ordinary dependency that a package links
 explicitly, like any other native library, and Nia code uses it through
-`extern` declarations (see [C interop](../guide/c-interop.md)). System
+`extern` declarations (see [C interop](../guides/c-interop.md)). System
 functions follow the same rule: the toolchain describes only the functions its
 own sources call, and a program that declares any other links that library
 explicitly.

@@ -4,7 +4,7 @@ This reference describes how Nia values are represented in memory, how
 functions and data are named in object files, and which values may cross the C
 ABI boundary. The syntax of `extern` declarations is defined in the
 [language reference](language.md#declarations); a practical walkthrough is in
-[C interop](../guide/c-interop.md).
+[C interop](../guides/c-interop.md).
 
 ## ABI Domains
 
@@ -64,7 +64,7 @@ parameter and return passing, static data layout, and symbol names.
 Layout is computed from the target, never from the host. Nia has no C `long`
 type, so the difference between the LP64 (Linux, macOS) and LLP64 (Windows)
 C data models does not affect any Nia type; it only affects how C's `long`
-maps to Nia (see [C type mapping](../guide/c-interop.md#c-and-nia-type-mapping)).
+maps to Nia (see [C type mapping](../guides/c-interop.md#c-and-nia-type-mapping)).
 
 | Target | C data model | Pointer and `usize` | `i64`/`u64`/`f64` alignment |
 | --- | --- | --- | --- |

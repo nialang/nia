@@ -1,11 +1,11 @@
-# Memory Management
+# Memory And Allocators
 
 Nia never allocates behind the program's back. There is no garbage collector,
 no destructor, and no hidden allocator: memory comes from an allocator value
 that the program creates, passes to every operation that needs it, and tears
-down when it is done. This guide shows how the standard library's allocators
-and owning types fit together. The library conventions are summarized in the
-[standard library overview](../../lib/README.md#conventions).
+down when it is done. This chapter shows how the standard library's allocators,
+containers, and owning types fit together. The library conventions are
+summarized in the [standard library overview](../../lib/README.md#conventions).
 
 Every program here is complete; build one with `nia emit --exe` and run it to
 see the output shown after it.
@@ -69,6 +69,85 @@ returns an owner documents that the caller must release it; a function that
 only uses a value takes a pointer or a view and leaves responsibility where it
 was. These are conventions of the library: the compiler tracks neither owners
 nor lifetimes, so keeping a pointer valid is the program's job.
+
+## Working With Collections
+
+The standard library's containers all follow the allocator-argument pattern.
+`ArrayList[T]` is a growable array, `HashMap[K, V]` a hash table,
+`TreeMap[K, V]` an ordered map, and `String` growable text:
+
+```nia
+using std::io;
+using std::mem;
+using std::option;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut page: mem::PageAllocator = .init();
+    let mut allocator: mem::GeneralPurposeAllocator = .init(page);
+    defer allocator.deinit().?;
+
+    // A growable list.
+    let mut words: std::ArrayList[&[char]] = .init();
+    defer words.deinit(allocator).?;
+    words.push(allocator, "apple").?;
+    words.push(allocator, "pear").?;
+    words.push(allocator, "fig").?;
+    let removed = words.pop();            // ?&[char]: the last element, if any
+    let longest = {
+        let mut longest: usize = 0;
+        for &word in words {
+            if word.len() > longest {
+                longest = word.len();
+            }
+        }
+        longest
+    };
+
+    // Counting with a hash map.
+    let mut counts: std::HashMap[i32, i32] = .init();
+    defer counts.deinit(allocator).?;
+    for &n in &[3, 1, 3, 2, 3][..] {
+        let mut slot = counts.getOrInsert(allocator, n, 0).?;
+        slot.value().* += 1;
+    }
+    let threes = if counts.get(3) is ?count { count.* } else { 0 };
+    _ = counts.remove(1);
+
+    // Building text.
+    let mut text = std::String::init();
+    defer text.deinit(allocator).?;
+    text.append(allocator, "nia").?;
+    text.push(allocator, '!').?;
+
+    io::debugPrint("words={} longest={} popped={} threes={} keys={} text={}\n", [
+        words.len(), longest, removed.isPresent(), threes, counts.len(), text.text(),
+    ]).?;
+    !()
+}
+```
+
+```text
+words=2 longest=5 popped=true threes=3 keys=2 text=nia!
+```
+
+A few patterns repeat across all containers:
+
+- `.init()` creates an empty container without allocating, so it cannot fail.
+  The first insertion allocates.
+- Every call that may allocate takes the allocator and returns an error union,
+  because memory can run out.
+- Lookups return optional pointers into the container: `get` gives `?&V`, and
+  `getMut` gives `?&mut V`. Those pointers are valid only until the container
+  changes; see [Views Do Not Own](#views-do-not-own).
+- `pop` and `remove` return the removed value, as an optional, because the
+  container may have been empty or missing the key.
+- `for item in container` iterates in place; `TreeMap` iterates in key order.
+
+`isPresent` and the other optional helpers come from `std::option`, which the
+program imports; methods like these are available only where their module is
+imported, as [Modules](modules.md#extension-methods) explains.
 
 ## Choosing An Allocator
 
@@ -237,7 +316,7 @@ Every `deinit` and `close` in the standard library can fail, because releasing
 memory or a handle can fail. A failed `deinit` attempts every resource the
 value owns and keeps the ones it could not release; the value is then
 cleanup-only, and calling `deinit` again with the same allocator retries the
-rest. The [error handling guide](error-handling.md#cleaning-up) shows how to
+rest. [Optionals And Errors](errors.md#cleaning-up) shows how to
 write owners with the same behavior.
 
 ## Views Do Not Own
@@ -285,3 +364,17 @@ pub fun main(init: process::Init) process::ExitCode!() {
 ```text
 before=1 after=5050
 ```
+
+## Summary
+
+- Memory comes from an allocator that the program creates and passes to every
+  call that allocates or frees; containers never store it.
+- Register `deinit` with `defer` right after creating an owner, so owners are
+  released before the allocator they came from.
+- Choose the allocator by how memory is used: general-purpose, arena for work
+  with a clear end, fixed buffer without an operating system, pool for many
+  values of one type.
+- Cleanup can fail and is retried; `GeneralPurposeAllocator` reports leaks.
+- Pointers into a container are valid only until it changes.
+
+Next, [Generics And Traits](generics-and-traits.md).

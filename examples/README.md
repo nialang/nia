@@ -3,7 +3,7 @@
 Small, complete programs that use the language and the standard library
 together. Each one builds into an executable and prints a few lines that show
 what it computed. They are meant to be read in order; the
-[language tour](../docs/guide/tour.md) explains the same features in prose,
+[Learning Nia](../docs/learn/README.md) chapters explain the same features in prose,
 and the [language reference](../docs/reference/language.md) has the complete
 rules.
 

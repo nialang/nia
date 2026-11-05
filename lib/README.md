@@ -117,7 +117,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 A build script registers each suite with `Build::addTestSuite`. A suite is an
 ordinary host executable whose root module may import any number of test
 modules, using the same module imports as an application. See
-[Build scripts](../docs/guide/build-scripts.md).
+[Testing](../docs/learn/testing.md).
 
 ## Windows
 

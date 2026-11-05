@@ -57,7 +57,7 @@ pub fun main(init: Init) ExitCode!() {
 
 This small program demonstrates nominal structs, extension methods, slices,
 arrays, loops, fallible calls, and the standard freestanding entry contract.
-The [language tour](docs/guide/tour.md) and the [examples](examples/README.md)
+The [Learning Nia](docs/learn/README.md) chapters and the [examples](examples/README.md)
 develop these features through complete programs.
 
 ## Language At A Glance
@@ -100,7 +100,7 @@ cargo build --release -p nia-cli
 target/release/nia --resource-root "$PWD/lib" check examples/hello.nia --runtime freestanding
 ```
 
-[Getting started](docs/guide/getting-started.md) walks through a first package
+[Getting started](docs/learn/getting-started.md) walks through a first package
 and the `nia build`, `nia check`, and `nia emit` commands. Run
 `nia help <command>` for a command's options, or `nia help emit --exe` for one
 emit kind.
@@ -110,8 +110,8 @@ emit kind.
 The [documentation index](docs/README.md) lists everything by reader. The main
 entry points are:
 
-- [Language tour](docs/guide/tour.md) and [language reference](docs/reference/language.md)
-- [Build scripts](docs/guide/build-scripts.md) and [C interop](docs/guide/c-interop.md)
+- [Learning Nia](docs/learn/README.md), a chapter-by-chapter introduction, and the [language reference](docs/reference/language.md)
+- [Packages and dependencies](docs/guides/packages.md), [custom builds](docs/guides/build-scripts.md), and [C interop](docs/guides/c-interop.md)
 - [Standard library](lib/README.md) and [ABI reference](docs/reference/abi.md)
 - [Platform support](docs/reference/platform-support.md)
 - [Contributing](docs/dev/contributing.md) and [compiler architecture](docs/dev/architecture.md)

@@ -1,0 +1,470 @@
+# Custom Builds With `build.nia`
+
+Most packages build from their manifest alone: `nia.toml` declares the
+library, executables, and test suites, and `nia build` derives the steps; see
+[Packages and dependencies](packages.md). A package that needs more, such as
+generated source files, external tools, artifacts for other targets, native
+libraries, or extra steps, adds a `build.nia` file at its root. This guide
+covers that script and the `std::build` API it uses.
+
+## How A Build Runs
+
+`build.nia` is an ordinary Nia program. `nia build` compiles it for the host
+and runs it, and the script declares modules, artifacts, commands, generated
+files, tests, and named steps through `std::build`. These calls only record a
+build graph. Nothing is compiled, run, or written while the script executes.
+
+The manifest's artifacts are declared before the script runs, so the script
+can extend them: `b.executable(name)` returns an artifact's handle and
+`b.step(name)` a step's handle, such as `test` or `run-planner`.
+`setDefaultStep` replaces `all` as the default step.
+
+When the script returns, the graph is frozen and validated as a whole:
+duplicate names, unknown handles, dependency cycles, conflicting outputs, and
+invalid paths are errors even in parts that the invocation does not select.
+`nia build` then executes only the selected step and the steps it depends on.
+
+A script cannot register callbacks, pass raw compiler arguments, or give a
+command interactive input. Its result depends only on the package, the host and
+artifact targets, and the facts it records through
+[configuration probes](#configuration-probes), so the same inputs always
+produce the same graph. When none of those inputs change, the next invocation
+reuses the recorded graph without running the script again. Editing a source
+file of any package in the build, or selecting a different step, profile, or
+optimization level, runs the script again.
+
+## The Build Function
+
+The script defines one public function:
+
+```nia
+using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let planner = b.addModule(
+        build::ModuleOptions::init("planner", fs::PathView::init("src/main.nia")),
+    ).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init("planner", planner)).?;
+    let emit = b.addEmitExecutableStep("planner", exe).?;
+    b.setDefaultStep(emit).?;
+    !()
+}
+```
+
+Every `add*` call returns a handle (`ModuleHandle`, `ExecutableHandle`,
+`StepHandle`, and so on) or a `build::Error`, which `.?` passes back to the
+runner. Paths given as `fs::PathView` are relative to the package root. Names
+are plain identifiers such as `planner` or `run-tests`; they cannot contain
+path separators.
+
+Options are built with an `init` constructor followed by `with*` methods, each
+of which returns an updated copy:
+
+```nia ignore
+build::ExecutableOptions::init("planner", planner)
+    .withOutputName("planner-cli")
+    .forTarget(b.hostTarget())
+```
+
+## Modules
+
+A module is a root source file plus the names it can import.
+
+| Constructor | Root source |
+| --- | --- |
+| `ModuleOptions::init(name, path)` | a file in the root package |
+| `ModuleOptions::fromPackage(name, package, path)` | a file in another package selected with `addDependency` or declared with `addPackage` |
+| `ModuleOptions::fromBuild(name, buildPath)` | a generated file under `build/out/` |
+
+`withOptimization(build::OptimizationMode::O2)` fixes the optimization level
+for one module (`O0`, `O1`, `O2`, `O3`, `Os`, `Oz`). Other modules use the
+level selected on the command line (`-O2`, `--release`, and so on).
+
+`withImports` lists the extra names that the module's source can open with
+`using`. Each `ModuleImport` maps an import name to a root file:
+
+| Constructor | Imported file |
+| --- | --- |
+| `ModuleImport::init(name, path)` | a file in the root package |
+| `ModuleImport::fromPackage(name, package, path)` | a file in another package |
+| `ModuleImport::fromBuild(name, buildPath)` | a generated file under `build/out/` |
+
+The same import list can be passed to several modules, for example an
+application and its tests. Each module still declares its own imports.
+
+## Packages
+
+`b.rootPackage()` is the package that contains `build.nia`. A dependency with
+a `[library].path` needs nothing in the script; see
+[Adding Dependencies](packages.md#adding-dependencies). Use `addDependency` when the script
+needs a handle to a dependency package itself, for example to import a file
+other than its library entry or to pass one of its files to a command. It
+takes the dependency name from `[dependencies]`, `[dev-dependencies]`,
+`[optional-dependencies]`, or `[lazy-dependencies]`, so path, Git, and registry
+dependencies use the same API; this is the only way to import an optional
+dependency, and only test suites can compile a development dependency's
+sources. Build
+dependencies are rejected because `build.nia` already imports them directly:
+
+```toml
+[dependencies]
+mathlib = { path = "vendor/mathlib" }
+```
+
+```nia ignore
+let mathlib = b.addDependency("mathlib").?;
+let imports = [
+    build::ModuleImport::fromPackage("mathlib", mathlib, fs::PathView::init("root.nia")),
+];
+```
+
+A module with these imports can then write `using mathlib;`. Inside the
+imported package, `root::...` refers to that package's own modules.
+`addPackage(PackageOptions)` is reserved for temporary local source trees
+that are not declared or managed by `nia.toml`.
+
+## Artifacts
+
+| Call | Produces |
+| --- | --- |
+| `addExecutable(ExecutableOptions)` | a linked executable |
+| `addObject(ObjectOptions)` | native object files |
+| `addStaticArchive(StaticArchiveOptions)` | a static library archive |
+
+Each options type takes `init(name, rootModule)` and supports
+`withOutputName(fileName)` and `forTarget(target)`. The output name defaults to
+the artifact name and must be a plain file name. Executables also support:
+
+- `withStaticArchives([archive, ...])` to link static archives declared in the
+  same script;
+- `withRuntime(build::Runtime::Bare)` to link no startup code. Executables are
+  `build::Runtime::Freestanding` by default; see
+  [the runtime model](../reference/platform-support.md#runtime-model).
+
+Object files and static archives do not select a runtime.
+
+### Artifact Configuration
+
+All three artifact option types support the same output-changing configuration
+methods. Each method returns a new options value, so configuration is part of
+the artifact declaration and is frozen into the build plan:
+
+| Method | Meaning |
+| --- | --- |
+| `withLinkage(Linkage::Static)` / `StaticPie` / `Dynamic` | Selects the native linkage form. Executables default to `StaticPie`; objects and archives default to `Static`. |
+| `withDebugInfo(DebugInfo::None)` / `LineTables` / `Full` | Records the requested debug metadata in the plan. |
+| `withPanicStrategy(PanicStrategy::Abort)` / `Unwind` | Records the requested panic strategy in the plan. |
+| `withLto(LtoMode::Off)` / `Thin` / `Full` | Selects the final-link optimization policy. |
+| `withDefines(&[ArtifactDefine])` | Records ordered symbols in the plan. Use `ArtifactDefine::init(name)` for each symbol. |
+| `withSystemLibraries(&[SystemLibrary])` | Adds ordered native libraries for the linker. Use `SystemLibrary::init(name, mode)` with `Default`, `Static`, or `Dynamic` search mode. |
+
+For example:
+
+```nia ignore
+let app = b.addExecutable(
+    build::ExecutableOptions::init("app", app)
+        .withLinkage(build::Linkage::Dynamic)
+        .withDebugInfo(build::DebugInfo::LineTables)
+        .withPanicStrategy(build::PanicStrategy::Abort)
+        .withLto(build::LtoMode::Thin)
+        .withDefines([build::ArtifactDefine::init("APP_FEATURE")])
+        .withSystemLibraries([
+            build::SystemLibrary::init("m", build::SystemLibraryMode::Default),
+        ]),
+).?;
+```
+
+Linkage, LTO, and system libraries change how the artifact is linked; linkage
+applies to Linux executables. Debug information, the panic strategy, and
+defines are recorded in the plan and its cache identity, but the compiler does
+not act on them. Changing any configured field invalidates the affected check,
+emit, and link actions, and `--print-plan` shows the frozen values.
+
+### Targets
+
+An artifact without `forTarget` is built for the invocation's artifact target:
+the host, or the target given with `nia build --target <name>`.
+
+| Call | Returns |
+| --- | --- |
+| `b.hostTarget()` | the target the build runs on, for tools that run during the build |
+| `b.artifactTarget()` | the invocation's artifact target |
+| `b.target(name)` | a [supported target](../reference/platform-support.md#targets) by name, or an error |
+
+A `TargetView` exposes `name()`, `arch()`, `vendor()`, `os()`, `env()`,
+`endian()`, `pointerWidth()`, and `equals(other)`. The script can branch on
+them, for example `if b.hostTarget().os().equals("windows") { ... }`.
+
+## Steps
+
+Steps are the units that `nia build <step>` runs. Each step has a unique name.
+
+| Call | The step |
+| --- | --- |
+| `addEmitExecutableStep(name, exe)` | builds the executable into `build/out/` |
+| `addEmitObjectStep(name, object)` | writes the object files |
+| `addEmitStaticArchiveStep(name, archive)` | writes the static archive |
+| `addCheckExecutableStep(name, exe)` | type-checks the executable without producing it |
+| `addRunExecutableStep(name, RunOptions)` | builds and runs an executable |
+| `addInstallExecutableStep(name, exe, buildPath)` | copies the executable to a path under `build/out/` |
+| `addInstallStaticArchiveStep(name, archive, buildPath)` | copies the archive to a path under `build/out/` |
+| `addGeneratedFileStep(name, buildPath, bytes)` | writes a file with fixed contents under `build/out/` |
+| `addExternalCommandStep(name, ExternalCommandOptions)` | runs a program |
+| `addAggregateStep(name)` | does nothing itself; groups dependencies |
+| `addTestSuite(name, module)` | builds and runs a test executable; see [Tests](#tests) |
+
+`RunOptions::init(exe).withArguments(args)` passes arguments to the program.
+A run step needs an emit step for the same executable, and depends on it
+automatically.
+
+`b.dependOn(step, dependency)` makes `step` run after `dependency`.
+`b.setDefaultStep(step)` chooses what `nia build` runs without a step name; a
+script that has no default step can still be used with an explicit step name.
+`nia build --list` prints every step with the kind of work it does, marking
+the default, without running any.
+
+Paths written with `build::BuildPathView::init(path)` are relative to
+`build/out/`. Use slash-separated relative paths without `.` or `..` components,
+backslashes, colons, or NUL characters. Colons are excluded because Windows
+interprets them as drive-prefix or alternate-data-stream syntax. A module or
+import whose root is a generated file depends on the step that writes it, so it
+needs no explicit `dependOn`.
+
+This script combines a second package, a generated module, several steps, and
+an aggregate default:
+
+```nia
+using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let mathlib = b.addDependency("mathlib").?;
+    let imports = [
+        build::ModuleImport::init("greeting", fs::PathView::init("src/greeting.nia")),
+        build::ModuleImport::fromPackage("mathlib", mathlib, fs::PathView::init("root.nia")),
+        build::ModuleImport::fromBuild("version", build::BuildPathView::init("gen/version.nia")),
+    ];
+    let app = b.addModule(
+        build::ModuleOptions::init("app", fs::PathView::init("src/main.nia"))
+            .withImports(imports),
+    ).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init("app", app)).?;
+
+    _ = b.addGeneratedFileStep(
+        "generate-version",
+        build::BuildPathView::init("gen/version.nia"),
+        b"pub const text: [char; 3] = \"1.0\";\n",
+    ).?;
+    let emit = b.addEmitExecutableStep("app", exe).?;
+    _ = b.addCheckExecutableStep("check", exe).?;
+    let runArgs: [&[char]; 1] = ["world"];
+    _ = b.addRunExecutableStep("run", build::RunOptions::init(exe).withArguments(runArgs)).?;
+    let install = b.addInstallExecutableStep("install", exe, build::BuildPathView::init("dist/app")).?;
+
+    let all = b.addAggregateStep("all").?;
+    b.dependOn(all, emit).?;
+    b.dependOn(all, install).?;
+    b.setDefaultStep(all).?;
+
+    let tests = b.addModule(
+        build::ModuleOptions::init("tests", fs::PathView::init("tests/main.nia"))
+            .withImports(imports),
+    ).?;
+    _ = b.addTestSuite("unit", tests).?;
+    !()
+}
+```
+
+`src/greeting.nia` and `vendor/mathlib/root.nia` are ordinary modules:
+
+```nia
+// src/greeting.nia
+pub const prefix: [char; 6] = "hello ";
+```
+
+```nia
+// vendor/mathlib/root.nia
+pub fun square(value: i32) i32 {
+    value * value
+}
+```
+
+`src/main.nia` opens the three imports by name:
+
+```nia ignore
+using std::io;
+using std::process;
+using greeting;
+using mathlib;
+using version;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    let name = match init.args().get(1) {
+        ?argument => argument,
+        null => return process::ExitCode(2)!,
+    };
+    let prefix = greeting::prefix;
+    let squared = mathlib::square(7);
+    let text = version::text;
+    io::debugPrint("{}{} {} {}\n", [prefix, name, squared, text]).?;
+    !()
+}
+```
+
+`nia build run` prints `hello world 49 1.0`, and `nia build` leaves
+`build/out/app` and `build/out/dist/app`.
+
+## External Commands
+
+`ExternalCommandOptions::search(program)` runs a program found on the `PATH`
+of the command's environment, falling back to the host's when the command
+does not declare one. A name containing a separator is relative to the
+working directory instead. On Windows a name without an extension also tries
+each `PATHEXT` extension, so `search("cmd")` finds `cmd.exe`; probes and
+`std::process::Command` follow the same rules. The
+command runs in the package root unless `withPackageWorkingDirectory(path)`
+names a package-relative directory, and its standard input is closed.
+
+Arguments are typed so that the build knows which files a command reads and
+writes:
+
+| Argument | Passed as | Effect |
+| --- | --- | --- |
+| `CommandArgument::literal(text)` | the text | none |
+| `CommandArgument::packageInput(package, path)` | a file path | the file is an input |
+| `CommandArgument::buildInput(buildPath)` | a path under `build/out/` | the file is an input; its producer runs first |
+| `CommandArgument::buildOutput(buildPath)` | a path under `build/out/` | the command must write it |
+| `CommandArgument::artifactInput(exe)` | the executable's path | the executable is built first |
+| `CommandArgument::objectInput(object)` | the object output path | the objects are built first |
+| `CommandArgument::staticArchiveInput(archive)` | the archive's path | the archive is built first |
+
+The remaining options:
+
+- `withEnvironment([CommandEnvironmentInput::init(name, value), ...])` sets
+  variables; `withClearedEnvironment()` starts from an empty environment
+  instead of inheriting the caller's.
+- `withStdin(argument)` feeds a declared file to standard input.
+- `withResourceClass(build::ActionResourceClass::Cpu)` or `::Io` tells the
+  scheduler what the command mostly uses, so it can run next to other work.
+  The default, `Conservative`, runs the command alone.
+
+A command reruns on every build unless it selects a cache policy:
+
+| Option | Reused when |
+| --- | --- |
+| `withDeclaredInputCache()` | the declared inputs and the explicit environment are unchanged; needs `withClearedEnvironment()` and at least one `buildOutput` |
+| `withToolAndInputCache()` | the declared inputs are unchanged; clears the environment |
+| `withFullEnvironmentCache()` | the declared inputs and the whole inherited environment are unchanged; cannot be combined with `withEnvironment` |
+
+Every cache policy also compares the contents of the program itself. A cache
+policy is a promise that the typed arguments describe every file the command
+reads and writes. A cacheable command runs from a temporary working
+directory containing only its declared inputs, so a relative read of an
+undeclared file fails. Links and input trees beyond the depth, entry, or byte
+limits are rejected. Only the typed input arguments (`packageInput`,
+`buildInput`, `artifactInput`, `objectInput`, `staticArchiveInput`) and declared
+stdin are mapped into that view; literal arguments keep their exact text.
+Declared outputs still go to staged build paths, and a cacheable command that
+creates, changes, or deletes any other file in the view fails. Every external
+command is stopped after seven minutes. This is
+not an OS-level sandbox: absolute paths and paths outside that working view are
+not intercepted, so commands requiring them must remain uncacheable. This step
+upper-cases a package file into the build directory and reruns only when
+`input.txt` changes. It needs a POSIX `sh` and `tr` on the `PATH`:
+
+```nia
+using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let package = b.rootPackage();
+    let arguments = [
+        build::CommandArgument::literal("-c"),
+        build::CommandArgument::literal("tr a-z A-Z < \"$1\" > \"$2\""),
+        build::CommandArgument::literal("upper"),
+        build::CommandArgument::packageInput(package, fs::PathView::init("input.txt")),
+        build::CommandArgument::buildOutput(build::BuildPathView::init("upper.txt")),
+    ];
+    let upper = b.addExternalCommandStep(
+        "upper",
+        build::ExternalCommandOptions::search("sh")
+            .withArguments(arguments)
+            .withClearedEnvironment()
+            .withDeclaredInputCache(),
+    ).?;
+    b.setDefaultStep(upper).?;
+    !()
+}
+```
+
+## Tests
+
+Suites declared with `[[test]]` in `nia.toml` need nothing in the script.
+`addTestSuite(name, module)` declares one from the script instead, for
+example to give a suite its own module imports. It builds `module` as an
+executable for the host target and registers it as a test suite. The suite is
+a test compilation: `@[test]` items are kept and development dependencies are
+visible, in the suite's whole module tree. Other artifacts in the same build,
+including one built from the same module, are ordinary compilations.
+
+A suite is a step named after it, and the first suite also declares a `test`
+step that depends on every suite. A suite passes when its executable exits with
+status 0, runs with the package root as its working directory, and is not run
+again until its executable or inputs change. Writing the suite program itself
+is covered in [Testing](../learn/testing.md).
+
+## Configuration Probes
+
+A script that depends on the outside world reads it through a probe. Each probe
+records what it observed, and returns what the table shows; the next `nia build` compares the recorded
+facts with the current ones and runs the script again when any of them
+differs, including a value that was missing and now exists. Reads that bypass
+probes, such as opening files directly, are not tracked.
+
+| Call | Records |
+| --- | --- |
+| `b.probeEnv(name)` | an environment variable: `?&[u8]`, `null` when unset |
+| `b.probeFile(path, buffer)` | the contents of a package file that fits in `buffer` (at most 1 MiB) |
+| `b.probeFilePresence(path)` | whether a package-relative path is a regular file: `bool`; creating or removing the file reruns configuration |
+| `b.probeDirectory(path, buffer)` | the entries (names, kinds, sizes) of a package directory; returns nothing |
+| `b.probeCommand(program, args, buffer)` | the standard output and exit status of a command run in the package root; returns the output (at most 64 KiB, 256 arguments) |
+| `b.probeTool(program, buffer)` | the output of `program --version` and the program's identity |
+| `b.probeGitState(buffer)` | the output of `git status --porcelain=v1 --branch` |
+
+Buffers are caller-owned byte arrays, and a result larger than its buffer is an
+error. Commands run by probes get no standard input, their standard error is
+discarded, and they cannot write build outputs.
+
+```nia
+using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let release = match b.probeEnv("APP_RELEASE").? {
+        ?value => value.len() != 0,
+        null => false,
+    };
+    let mut versionBuffer: [u8; 64] = [0; 64];
+    let version = b.probeFile(fs::PathView::init("VERSION"), versionBuffer).?;
+
+    let options = build::ModuleOptions::init("app", fs::PathView::init("src/main.nia"));
+    let app = b.addModule(
+        if release { options.withOptimization(build::OptimizationMode::O2) } else { options },
+    ).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init("app", app)).?;
+    let emit = b.addEmitExecutableStep("build", exe).?;
+    _ = b.addGeneratedFileStep("version", build::BuildPathView::init("version.txt"), version).?;
+    b.setDefaultStep(emit).?;
+    !()
+}
+```
+
+Setting `APP_RELEASE` or editing `VERSION` makes the next build configure
+again; otherwise the recorded graph is reused.
+
+`b.packageRoot()`, `b.buildDir()`, `b.cacheDir()`, and `b.requestedStep()` (the
+step named on the command line, or `null`) are also available. Errors from
+other `std` APIs inside the script convert to `build::Error` with
+`.withBuildContext(operation, subject)`.
+

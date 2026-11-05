@@ -154,9 +154,9 @@ This table registers the Nia-specific variables that the toolchain and test
 harness read; do not add a new `NIA_*` variable without adding it here and
 deciding whether it should be a CLI/API option instead. Standard variables keep
 their usual meaning: `PATH` and `PATHEXT` for program search, `TERM` and `CI`
-for [progress output](../guide/build-scripts.md#progress-output), the proxy
+for [progress output](../reference/cli.md#progress-output), the proxy
 variables and `SSH_AUTH_SOCK` for
-[dependency sources](../guide/build-scripts.md#dependency-sources), and `HOME`
+[dependency sources](../guides/packages.md#git-dependencies), and `HOME`
 or `USERPROFILE` for SSH configuration. The release scripts' own variables are
 described in [`tools/release/README.md`](../../tools/release/README.md).
 

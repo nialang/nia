@@ -1,7 +1,7 @@
 # Nia Language Reference
 
 This document defines the syntax and meaning of Nia source code. It is a
-reference, not a tutorial; the [language tour](../guide/tour.md) introduces the
+reference, not a tutorial; the [language tour](../learn/README.md) introduces the
 same material in order. Data representation and the C boundary are specified in
 the [ABI reference](abi.md), and the operations in `std::builtin` are listed in
 the [builtins reference](builtins.md).
@@ -110,7 +110,7 @@ Returning `!()` reports success. Returning an error such as
 ordinary function.
 
 A package's `build.nia` is an ordinary Nia program that uses `std::build`; see
-[Build Scripts](../guide/build-scripts.md).
+[Custom Builds](../guides/build-scripts.md).
 
 ## Lexical Structure
 
@@ -701,7 +701,7 @@ extern static mut shared_counter: usize;
 There are no `extern { ... }` blocks and no ABI strings. Which types may cross
 the boundary, symbol naming, and argument promotion for variadic calls are
 specified in the [ABI reference](abi.md#the-c-abi-boundary); the
-[C interop guide](../guide/c-interop.md) shows the patterns.
+[C interop guide](../guides/c-interop.md) shows the patterns.
 
 ### Structs
 
@@ -2259,8 +2259,8 @@ trait Iterator {
 Each `.nia` file is one module. Modules are loaded explicitly: `module name;`
 declares a child module of the current one, and `using` only opens names that
 the module graph already contains; it never discovers files. How a child
-declaration maps to a file is defined by the toolchain; see
-[Build Scripts](../guide/build-scripts.md).
+declaration maps to a file is described in
+[Modules](../learn/modules.md#files-are-modules).
 
 ```nia ignore
 module math;            // private child module
@@ -2414,5 +2414,5 @@ enclosing block. Use a `static` for data that foreign code keeps.
 
 The types that may cross the boundary, layout, calling conventions, and symbol
 names are specified in the [ABI reference](abi.md#the-c-abi-boundary). The
-[C interop guide](../guide/c-interop.md) covers declaring, linking, and
+[C interop guide](../guides/c-interop.md) covers declaring, linking, and
 exporting functions.

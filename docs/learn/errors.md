@@ -1,22 +1,76 @@
-# Error Handling
+# Optionals And Errors
 
-Nia has no exceptions. A function that can fail says so in its return type, and
-the caller decides what happens next. This guide shows the patterns the
+Nia has no exceptions and no null pointers. A value that may be missing has an
+*optional* type, and an operation that can fail returns an *error union*: the
+possibility of absence or failure is part of the type, and the compiler makes
+the caller deal with it. This chapter introduces both, then the patterns the
 standard library uses, from propagating a failure to cleaning up after one.
-The [language tour](tour.md#optionals-and-errors) introduces the syntax, and the
-[language reference](../reference/language.md#propagation) has the exact rules.
+The [language reference](../reference/language.md#propagation) has the exact
+rules.
 
 Every program here is complete; build one with `nia emit --exe` and run it to
 see the output shown after it.
 
-## Choosing A Result Type
+## Optional Values
 
-Two types carry an outcome:
+`?T` holds either a `T` or nothing. `?value` builds the present case and `null`
+the empty one; both need the full type from context:
 
-- `?T` is an optional: `?value` when there is one, `null` when there is not.
-  Use it when absence is an ordinary answer, as in a lookup.
-- `E!T` is an error union: `!value` on success, `error!` on failure. Use it
-  when the caller needs to know why an operation failed.
+```nia fragment
+let found: ?i32 = ?42;
+let missing: ?i32 = null;
+_ = found;
+_ = missing;
+```
+
+An optional cannot be used as a plain value. Take it apart with a pattern:
+`?name` matches a present value and binds it, and `null` matches the empty
+case.
+
+```nia
+fun orZero(value: ?i32) i32 {
+    match value {
+        ?number => number,
+        null => 0,
+    }
+}
+
+fun doubled(value: ?i32) i32 {
+    if value is ?number { number * 2 } else { 0 }
+}
+```
+
+A pointer that may be absent is `?&T`. This replaces C's null pointer: a plain
+`&T` always points somewhere, so code never has to wonder whether to check.
+
+Lookups are the usual source of optionals. A slice's `get` returns `?&T`, a
+pointer to the element if the index is in range:
+
+```nia
+using std::slice;
+
+fun first(values: &[i32]) ?i32 {
+    if values.get(0) is ?element {
+        ?element.*
+    } else {
+        null
+    }
+}
+```
+
+## Error Unions
+
+`E!T` holds either a success value of type `T` or an error of type `E`.
+`!value` builds a success and `error!` a failure; read `!` on the left as "ok"
+and on the right as "failed with". Patterns use the same shapes: `!value`
+matches a success and `error!` a failure. Optionals and error unions nest, as
+in `?(E!T)`, and so do their patterns: `?!value`.
+
+### Choosing Between Them
+
+Use an optional when absence is an ordinary answer that needs no explanation,
+as in a lookup. Use an error union when the caller needs to know why an
+operation failed.
 
 `E` can be any type. Most modules declare one enum with a variant per cause,
 and a variant may carry details. An operation with nothing to return on
@@ -414,3 +468,16 @@ len=2 rejected=true
 
 The failed call pushed `3` before it found `-1`, and the `defer` removed it
 again.
+
+## Summary
+
+- `?T` is a value that may be absent; `E!T` is a success or an error. Both are
+  taken apart with patterns: `?x`, `null`, `!x`, `err!`.
+- `.?` unwraps a success or returns the failure from the current function,
+  converting the error through `IntoError` when the types differ.
+- `okOr`, `map`, `mapError`, and the other helpers in `std::option` and
+  `std::result` reshape results; import the module whose helper you call.
+- `defer` runs cleanup on every exit path, `CleanupAccumulator` attempts every
+  release, and an update that can fail midway should restore what it changed.
+
+Next, [Memory And Allocators](memory.md).
