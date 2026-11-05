@@ -297,6 +297,28 @@ fn add_reexport_provider_modules_matching_inner(
         if !direct_match && nested_paths.is_empty() {
             continue;
         }
+        if direct_match {
+            let Some(start) = used_path_start(graph, facade_module, source_path) else {
+                continue;
+            };
+            let Some(provider_module) = add_visible_declared_module_path(
+                graph,
+                facade_module,
+                start,
+                source_path.segments(),
+                UsedModulePathProcessing::Never,
+                fact_memo,
+            )?
+            else {
+                continue;
+            };
+            visited.insert(candidate_path);
+            mark_process_used_paths_and_process(db, graph, provider_module, fact_memo)?;
+            graph.add_provider_dependency(requesting_module, provider_module);
+            graph.mark_semantic_selected(facade_module);
+            any_match = true;
+            continue;
+        }
         let mut branch_graph = graph.clone();
         let mut branch_visited = visited.clone();
         branch_visited.insert(candidate_path);
@@ -314,21 +336,15 @@ fn add_reexport_provider_modules_matching_inner(
         else {
             continue;
         };
-        let branch_matches = if direct_match {
-            mark_process_used_paths_and_process(db, &mut branch_graph, provider_module, fact_memo)?;
-            branch_graph.add_provider_dependency(requesting_module, provider_module);
-            true
-        } else {
-            add_reexport_provider_modules_matching_inner(
-                &mut branch_graph,
-                requesting_module,
-                provider_module,
-                &nested_paths,
-                matches_provider,
-                &mut branch_visited,
-                fact_memo,
-            )?
-        };
+        let branch_matches = add_reexport_provider_modules_matching_inner(
+            &mut branch_graph,
+            requesting_module,
+            provider_module,
+            &nested_paths,
+            matches_provider,
+            &mut branch_visited,
+            fact_memo,
+        )?;
         if branch_matches {
             branch_graph.mark_semantic_selected(facade_module);
             *graph = branch_graph;
