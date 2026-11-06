@@ -230,10 +230,7 @@ pub fn machine_mismatches(
             left.architecture, right.architecture
         ));
     }
-    if left.runner_class.is_none()
-        && right.runner_class.is_none()
-        && left.cpu_model != right.cpu_model
-    {
+    if left.cpu_model != right.cpu_model {
         mismatches.push(format!(
             "cpu_model differs: {:?} != {:?}",
             left.cpu_model, right.cpu_model
@@ -538,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn controlled_runner_allows_cpu_model_but_not_resource_drift() {
+    fn controlled_runner_rejects_cpu_model_and_resource_drift() {
         let before = baseline(
             vec![result("check", 10.0, 100.0, 1000.0, 1000.0)],
             4.0,
@@ -551,16 +548,17 @@ mod tests {
             Some("hosted"),
             "cpu-b",
         );
-        assert!(
-            compare_baselines(&before, &model_drift, &thresholds(), false)
-                .unwrap()
-                .passed
-        );
+        let report = compare_baselines(&before, &model_drift, &thresholds(), false).unwrap();
+        assert!(!report.passed);
+        assert!(!report.machine_compatible);
+        assert!(report.comparisons.is_empty());
+        assert_eq!(report.machine_mismatches.len(), 1);
+        assert!(report.machine_mismatches[0].starts_with("cpu_model differs:"));
         let resource_drift = baseline(
             vec![result("check", 10.0, 100.0, 1000.0, 1000.0)],
             2.0,
             Some("hosted"),
-            "cpu-b",
+            "cpu-a",
         );
         assert!(
             !compare_baselines(&before, &resource_drift, &thresholds(), false)

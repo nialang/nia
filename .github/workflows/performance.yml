@@ -82,48 +82,42 @@ jobs:
       - name: Check maintenance tooling
         run: cargo maintain check
 
-      - name: Download latest completed main baseline
+      - name: Select comparison revision
         id: main_baseline
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           mkdir -p target/nia-perf
-          available=false
-          if test "${GITHUB_EVENT_NAME}" = pull_request \
-            && ! git cat-file -e "${BASE_SHA}:.github/workflows/performance.yml"; then
-            run_ids=""
-          else
-            run_ids="$(
-              gh run list \
-                --repo "${GITHUB_REPOSITORY}" \
-                --workflow performance.yml \
-                --branch main \
-                --status completed \
-                --limit 20 \
-                --json databaseId \
-                --jq '.[].databaseId'
-            )"
+          if test -z "${BASE_SHA}" \
+            || test "${BASE_SHA}" = 0000000000000000000000000000000000000000; then
+            BASE_SHA="$(git rev-parse --verify HEAD^ 2>/dev/null || true)"
           fi
-          while read -r run_id; do
-            if test -z "${run_id}"; then
-              continue
-            fi
-            artifact_name=nia-perf-baseline
-            destination="target/nia-perf/main-${run_id}-${artifact_name}"
-            if gh run download "${run_id}" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --name "${artifact_name}" \
-              --dir "${destination}" \
-              && test -f "${destination}/baseline.json"; then
-              echo "path=${destination}/baseline.json" >> "${GITHUB_OUTPUT}"
-              echo "run_id=${run_id}" >> "${GITHUB_OUTPUT}"
-              echo "artifact_name=${artifact_name}" >> "${GITHUB_OUTPUT}"
-              available=true
-              break
-            fi
-          done <<< "${run_ids}"
-          echo "available=${available}" >> "${GITHUB_OUTPUT}"
+          if test -z "${BASE_SHA}"; then
+            echo "available=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          BASE_SHA="$(git rev-parse --verify "${BASE_SHA}^{commit}")"
+          echo "revision=${BASE_SHA}" >> "${GITHUB_OUTPUT}"
+          if ! git cat-file -e "${BASE_SHA}:.github/workflows/performance.yml"; then
+            echo "available=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          baseline_source="${RUNNER_TEMP}/nia-perf-baseline-source"
+          git worktree add --detach "${baseline_source}" "${BASE_SHA}"
+          echo "source=${baseline_source}" >> "${GITHUB_OUTPUT}"
+          echo "path=${GITHUB_WORKSPACE}/target/nia-perf/reference.json" >> "${GITHUB_OUTPUT}"
+          echo "available=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Collect reference baseline on this runner
+        if: steps.main_baseline.outputs.available == 'true'
+        working-directory: ${{ steps.main_baseline.outputs.source }}
+        run: |
+          set -o pipefail
+          cargo maintain baseline compiler \
+            --repeat 3 \
+            --runner-class github-hosted-ubuntu-24.04-x64 \
+            --output "${{ steps.main_baseline.outputs.path }}" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/target/nia-perf/reference.log"
 
       - name: Collect candidate baseline
         run: |
@@ -152,15 +146,14 @@ jobs:
       - name: Record bootstrap notice
         if: steps.main_baseline.outputs.available != 'true'
         run: |
-          echo "No completed main-branch performance sample is available yet."
-          echo "This run bootstraps the controlled-runner baseline; later runs compare against it."
+          echo "The comparison revision predates the performance harness."
+          echo "This run records the first sample; later runs measure both revisions on one runner."
 
       - name: Summarize performance guard
         if: always()
         env:
           BASELINE_AVAILABLE: ${{ steps.main_baseline.outputs.available }}
-          BASELINE_RUN_ID: ${{ steps.main_baseline.outputs.run_id }}
-          BASELINE_ARTIFACT_NAME: ${{ steps.main_baseline.outputs.artifact_name }}
+          BASELINE_REVISION: ${{ steps.main_baseline.outputs.revision }}
           COMPARISON_OUTCOME: ${{ steps.comparison.outcome }}
         run: |
           {
@@ -173,10 +166,9 @@ jobs:
               echo "- Candidate collected: \`false\`"
             fi
             if test "${BASELINE_AVAILABLE}" = true; then
-              echo "- Main baseline run: \`${BASELINE_RUN_ID}\`"
-              echo "- Main baseline artifact: \`${BASELINE_ARTIFACT_NAME}\`"
+              echo "- Comparison revision (same runner): \`${BASELINE_REVISION}\`"
             else
-              echo "- Main baseline: bootstrap (no prior artifact)"
+              echo "- Main baseline: bootstrap (revision predates harness)"
             fi
             if test -f target/nia-perf/comparison.json; then
               if test "${COMPARISON_OUTCOME}" = success; then
@@ -204,6 +196,12 @@ jobs:
           fi
           if test -f target/nia-perf/comparison.json; then
             cp target/nia-perf/comparison.json target/nia-perf/artifact/comparison.json
+          fi
+          if test -f target/nia-perf/reference.json; then
+            cp target/nia-perf/reference.json target/nia-perf/artifact/reference.json
+          fi
+          if test -f target/nia-perf/reference.log; then
+            cp target/nia-perf/reference.log target/nia-perf/artifact/reference.log
           fi
           printf '%s\n' "${GITHUB_RUN_ID}" > target/nia-perf/artifact/run-id.txt
           printf '%s\n' "${GITHUB_SHA}" > target/nia-perf/artifact/revision.txt

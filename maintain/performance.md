@@ -27,8 +27,9 @@ cargo maintain baseline compiler --repeat 3 \
   --runner-class github-hosted-ubuntu-24.04-x64
 ```
 
-`--runner-class` is a trust assertion about a managed runner image and resource
-class, not a way to rename a developer machine. Local runs should omit it.
+`--runner-class` identifies a managed runner image and resource class, not a
+promise that every hosted machine has the same CPU. Local runs should omit it.
+CPU model and effective resource limits remain part of the compatibility check.
 
 Every compiler and build report records the full Git revision and dirty state;
 resolved paths and version output for Rust, Cargo, `llvm-config`, and the linker
@@ -295,13 +296,10 @@ cgroup limits, and bare Linux hosts report system resources. Comparing results
 still requires comparable hardware and system load; CI guards should remain
 wide while a dedicated perf runner tracks trends.
 
-When both reports declare the same non-empty `runner_class`, the comparator
-treats that class as the controlled hardware identity and permits the provider's
-underlying CPU model string to vary. Operating system, architecture, effective
-CPU limit, and effective memory limit must still match. If either report omits
-the class, both reports must omit it and the physical CPU model remains part of
-the strict compatibility check. A controlled CI artifact therefore cannot be
-silently compared with a local sample.
+Both reports must agree on `runner_class`, CPU model, operating system,
+architecture, effective CPU limit, and effective memory limit. A shared hosted
+runner label does not make different CPU generations interchangeable. A
+controlled CI artifact also cannot be silently compared with a local sample.
 
 On Unix, process CPU time and peak RSS come from `getrusage`. Unsupported host
 metrics are encoded as JSON `null`, never inferred from a machine category.
@@ -332,32 +330,36 @@ result is itself machine-readable JSON.
 
 `.github/workflows/performance.yml` defines the managed Linux LLVM performance
 job. It follows the newest Rust stable release, reports the resolved toolchain
-identity, and installs LLVM 23 from apt.llvm.org on `ubuntu-24.04`. It runs every workload three times with
-the controlled `github-hosted-ubuntu-24.04-x64` runner class, and downloads the
-most recent completed main-branch artifact that contains a fully collected
-`baseline.json`. The candidate must pass the same broad comparator guards before
+identity, and installs LLVM 23 from apt.llvm.org on `ubuntu-24.04`. It builds and
+measures both revisions in the same job, running each workload three times with
+the `github-hosted-ubuntu-24.04-x64` runner class. Pull requests compare against
+their base revision; pushes compare against the branch tip before the push;
+scheduled and manually dispatched runs compare against the current revision's
+parent. The reference uses its own source tree, standard library, workload
+harness, and release compiler in a detached worktree. Both builds use the same
+Rust and LLVM installations. Failure to build or measure an available reference
+fails the job. The candidate must pass the existing comparator guards before
 the workflow succeeds.
 
 Every fully collected main-branch or scheduled candidate becomes the rolling
 `nia-perf-baseline`, with its comparison report and run/revision identity retained
-for 90 days. The current run remains failed when a guard fires, but its already
-landed main revision becomes the comparison point for the next push. This keeps
-pull requests relative to current main and prevents one accepted regression or
-changed workload from pinning all future comparisons to an arbitrarily old
-revision. Baseline discovery reads only the `nia-perf-baseline` artifact; an
-unpromoted candidate is diagnostic evidence, not an alternate trend source.
+for 90 days. The artifact also retains `reference.json` and `reference.log` when
+available, so both sides of the same-machine comparison can be inspected. The
+current run remains failed when a guard fires. Artifacts record trends; later
+jobs rebuild their comparison revision rather than comparing timing samples
+from different hosted machines.
 
 Pull-request candidates and main runs that fail before completing
 `candidate.json` are stored separately for 14 days for diagnosis. A failed
 collection retains its combined candidate log plus run/revision identity. The
-first main run is an explicit bootstrap only when no earlier fully collected
-controlled artifact exists; after that, every available baseline is compared.
+first main run is an explicit bootstrap only when the selected comparison
+revision predates the performance harness; every available reference is measured.
 This stores main-branch trends without committing machine-specific numbers to
 the source tree or treating a developer sample as a project-wide absolute
 threshold.
 Each run also publishes an Actions step summary containing the candidate
-revision, controlled runner class, selected main baseline run and artifact name,
-and comparison result when a prior artifact was available.
+revision, controlled runner class, comparison revision, and comparison result
+when a reference was available.
 
 Draw performance conclusions from the complete workload path, repeated samples,
 and compatible resource identity, and understand the deterministic query,

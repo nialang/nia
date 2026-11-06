@@ -201,7 +201,25 @@ fn performance_workflow_uses_rust_baselines_and_preserves_evidence() {
     }
     assert!(!workflow.contains("--allow-machine-mismatch"));
     assert!(workflow.contains("llvm-toolchain-noble-23"));
-    assert!(workflow.contains("artifact_name=nia-perf-baseline"));
+    for command in [
+        "github.event.pull_request.base.sha || github.event.before",
+        "git worktree add --detach",
+        "Collect reference baseline on this runner",
+        "working-directory: ${{ steps.main_baseline.outputs.source }}",
+        "reference.json",
+        "reference.log",
+    ] {
+        assert!(
+            workflow.contains(command),
+            "missing paired baseline {command}"
+        );
+    }
+    assert!(!workflow.contains("gh run download"));
+    assert!(
+        workflow.find("Collect reference baseline on this runner")
+            < workflow.find("Collect candidate baseline")
+    );
+    assert!(workflow.contains("name: nia-perf-baseline"));
     assert!(workflow.contains("steps.comparison.outcome"));
     assert!(workflow.contains("name: nia-perf-candidate"));
     assert!(workflow.contains("retention-days: 90"));
