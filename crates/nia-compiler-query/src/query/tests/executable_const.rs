@@ -33,19 +33,17 @@ explicit + inferred
     assert_eq!(module.body_ir.function_bodies.len(), 1);
 
     let trace = db.query_trace().expect("query trace");
-    let visible_extensions_key = format!("VisibleExtensionsQuery({module_id:?})");
-    let visible_extensions = trace
-        .queries
-        .iter()
-        .find(|query| {
-            query.frame.name == "visible_extensions"
-                && query.frame.key.as_ref() == visible_extensions_key
-        })
-        .expect("executable facts should build the entry module extension index");
-    assert_eq!(
-        visible_extensions.stats.cache_hits, 0,
-        "plain executable const inputs should not request the extension index again"
+    assert!(
+        trace.queries.iter().all(|query| {
+            query.frame.name != "visible_extensions"
+                || query.frame.key.as_ref() != visible_extensions_key(module_id)
+        }),
+        "plain executable const inputs should not request an extension index"
     );
+}
+
+fn visible_extensions_key(module_id: ModuleId) -> String {
+    format!("VisibleExtensionsQuery({module_id:?})")
 }
 
 #[test]
@@ -96,7 +94,7 @@ values[0] as i32
     );
 
     let trace = db.query_trace().expect("query trace");
-    let visible_extensions_key = format!("VisibleExtensionsQuery({module_id:?})");
+    let visible_extensions_key = visible_extensions_key(module_id);
     let visible_extensions = trace
         .queries
         .iter()
