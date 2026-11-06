@@ -368,7 +368,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let flag = true;
     let width = 5usize;
     let precision = 2usize;
-    stdout.print(&"r='{>5}' l='{<5}' c='{^5}' fr='{_>5}' fl='{_<5}' fc='{*^5}' z='{05}' ez='{0>5}' plus='{+}' plusw='{+5}' plusz='{+05}' nz='{05}' hx='{08x}' alt='{#x}' altw='{#08x}' bin='{#b}' oct='{#o}' text='{>5}' trunc='{.2}' trw='{>5.2}' tf='{_>5.2}' ch='{<3}' ch0='{.0}' bool='{>6}' btr='{>4.2}' hex='{x}' dw='{<{}}' dp='{.{}}' dwp='{>{}.{}}'\n", &[
+    stdout.print(&"r='{>5}' l='{<5}' c='{^5}' fr='{_>5}' fl='{_<5}' fc='{*^5}' z='{05}' ez='{0>5}' plus='{+}' plusw='{+5}' plusz='{+05}' nz='{05}' hx='{08x}' alt='{#x}' altw='{#08x}' bin='{#b}' oct='{#o}' text='{>5}' trunc='{.2}' trw='{>5.2}' tf='{_>5.2}' ch='{<3}' ch0='{.0}' bool='{>6}' btr='{>4.2}' hex='{x}' dw='{<*}' dp='{.*}' dwp='{>*.*}' bare='{*}' literal='{{}}'\n", &[
         &value,
         &value,
         &value,
@@ -402,6 +402,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
         text_slice,
         &width,
         &precision,
+        text_slice,
+        &width,
     ]).?;
     stdout.flush().?;
     !()
@@ -428,7 +430,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(run.status.code(), Some(0));
     assert_eq!(
         String::from_utf8_lossy(&run.stdout),
-        "r='    7' l='7    ' c='  7  ' fr='____7' fl='7____' fc='**7**' z='00007' ez='00007' plus='+7' plusw='   +7' plusz='+0007' nz='-0007' hx='000000ab' alt='0xab' altw='0x0000ab' bin='0b10101011' oct='0253' text='  nia' trunc='ni' trw='   ni' tf='___ni' ch='λ  ' ch0='' bool='  true' btr='  tr' hex='ab' dw='nia  ' dp='ni' dwp='   ni'\n"
+        "r='    7' l='7    ' c='  7  ' fr='____7' fl='7____' fc='**7**' z='00007' ez='00007' plus='+7' plusw='   +7' plusz='+0007' nz='-0007' hx='000000ab' alt='0xab' altw='0x0000ab' bin='0b10101011' oct='0253' text='  nia' trunc='ni' trw='   ni' tf='___ni' ch='λ  ' ch0='' bool='  true' btr='  tr' hex='ab' dw='nia  ' dp='ni' dwp='   ni' bare='  nia' literal='{}'\n"
     );
 }
 
@@ -751,17 +753,17 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if not expect_error(writer.print(&"{.2p}", &[&ptr]), fmt::Error::InvalidTemplate) {
         return process::ExitCode(23)!;
     }
-    if not expect_error(writer.print(&"{<{}}", &[&value]), fmt::Error::MissingArgument) {
+    if not expect_error(writer.print(&"{<*}", &[&value]), fmt::Error::MissingArgument) {
         return process::ExitCode(24)!;
     }
     let bad_width = 5u32;
-    if not expect_error(writer.print(&"{<{}}", &[&value, &bad_width]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print(&"{<*}", &[&value, &bad_width]), fmt::Error::InvalidTemplate) {
         return process::ExitCode(25)!;
     }
-    if not expect_error(writer.print(&"{.{}}", &[&flag]), fmt::Error::MissingArgument) {
+    if not expect_error(writer.print(&"{.*}", &[&flag]), fmt::Error::MissingArgument) {
         return process::ExitCode(26)!;
     }
-    if not expect_error(writer.print(&"{.{}}", &[&flag, &bad_width]), fmt::Error::InvalidTemplate) {
+    if not expect_error(writer.print(&"{.*}", &[&flag, &bad_width]), fmt::Error::InvalidTemplate) {
         return process::ExitCode(27)!;
     }
     if not expect_error(
@@ -867,6 +869,67 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_fmt_default_format_spec_rejects_unsupported_width() {
+    let root = temp_dir("emit_exe_std_fmt_default_format_spec_rejects_unsupported_width");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fmt;
+using std::io;
+using std::process;
+
+struct Point {
+    value: i32,
+}
+
+extend Point : fmt::Format {
+    fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+        self.value.format(formatter)
+    }
+}
+
+fun expect_error(result: fmt::Error!(), expected: fmt::Error) bool {
+    match result {
+        !ok => { _ = ok; false },
+        error! => { error == expected },
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut raw: [u8; 32] = [0; 32];
+    let mut writer = io::FixedBufferWriter::init(&mut raw[..]);
+    let point = Point { value: 7 };
+    if not expect_error(writer.print(&"{>6}", [point]), fmt::Error::InvalidTemplate) {
+        return process::ExitCode(1)!;
+    }
+    if writer.len() != 0 {
+        return process::ExitCode(2)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let run = Command::new(&exe).output_timeout_for_runtime("run emitted executable");
+    assert_eq!(run.status.code(), Some(0));
 }
 
 #[test]

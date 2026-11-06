@@ -273,12 +273,12 @@ start=(3, -4) name=[   Ada]
 ```
 
 A placeholder with a specification, such as `{>6}`, calls `formatSpec`
-instead. Its default implementation, which `Point` keeps, ignores width,
-fill, alignment, and precision, and rejects a presentation letter such as
-`{x}`. `Name` overrides it by handing the specification to its text, so it
-pads like any text does. A type that wraps one printable value usually
-delegates both methods this way; the standard library's `Arg` does exactly
-that for command-line arguments.
+instead. The default implementation accepts only plain display and rejects
+width, fill, alignment, precision, and presentation options it cannot apply.
+A type that wants those options must implement `formatSpec`; `Name` does this
+by handing the specification to its text, so it pads like any text does. A
+type that wraps one printable value usually delegates both methods this way;
+the standard library's `Arg` does exactly that for command-line arguments.
 
 ## Associated Types
 

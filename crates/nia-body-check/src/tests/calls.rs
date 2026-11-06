@@ -784,6 +784,16 @@ fun main() () {
         checked.diagnostics
     );
     assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .help
+                .iter()
+                .any(|help| help.contains("`Number` does not implement `Marker`"))
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
         checked
             .facts
             .iter_node_expr_adjustments()

@@ -3,7 +3,7 @@
 using root::io;
 using root::result;
 using super::formatter::Formatter;
-using super::spec::{FormatPresentation, FormatSpec};
+using super::spec::{FormatAlignment, FormatPresentation, FormatSpec};
 
 pub enum Error: i32 {
     Write = 1,
@@ -20,11 +20,25 @@ pub trait FormatWriter {
 pub trait Format {
     fun format(&self, formatter: &mut Formatter) Error!();
 
+    // The default preserves plain Display for lightweight implementations.
+    // A type must override this method to advertise support for other spec
+    // fields; unsupported requests fail rather than silently losing options.
     fun formatSpec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
         spec.validate().?;
-        if spec.presentation() == FormatPresentation::Display {
+        if spec.presentation() == FormatPresentation::Display
+            and spec.width() == 0
+            and not spec.hasPrecision()
+            and spec.fill() == ' '
+            and spec.alignment() == FormatAlignment::None
+            and not spec.signPlus()
+            and not spec.alternate()
+        {
             self.format(formatter)
         } else {
+            // A user implementation that only supplies `format` has no
+            // generic way to measure or pad arbitrary output through a
+            // streaming Formatter.  Reject unsupported specifiers instead
+            // of silently claiming that they were applied.
             .InvalidTemplate!
         }
     }

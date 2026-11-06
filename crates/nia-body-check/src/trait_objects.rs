@@ -555,6 +555,41 @@ impl<'a> BodyChecker<'a> {
         associated_type_bindings: &[AssociatedTypeBindingTy],
     ) -> bool {
         let self_ty = self.normalize_aliases_in_type(self_ty);
+        if !self.trait_object_has_implementation(self_ty, trait_id, trait_args, trait_const_args) {
+            self.record_trait_provider_demand(self_ty, trait_id, trait_args);
+            return false;
+        }
+        associated_type_bindings.iter().all(|binding| {
+            let binding_trait_id = binding.trait_id.unwrap_or(trait_id);
+            let binding_trait_args = if binding.trait_id.is_some() {
+                &binding.trait_args
+            } else {
+                trait_args
+            };
+            let binding_trait_const_args = if binding.trait_id.is_some() {
+                &binding.trait_const_args
+            } else {
+                trait_const_args
+            };
+            self.resolve_associated_type_projection(
+                self_ty,
+                binding_trait_id,
+                binding_trait_args,
+                binding_trait_const_args,
+                &binding.name,
+            )
+            .is_some_and(|actual| self.types_match(actual, binding.ty))
+        })
+    }
+
+    pub(crate) fn trait_object_has_implementation(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: nia_ty::TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
+    ) -> bool {
+        let self_ty = self.normalize_aliases_in_type(self_ty);
         let assumptions = self.current_trait_goals();
         let associated_type_assumptions = self.current_associated_type_assumptions();
         let mut const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
@@ -583,49 +618,20 @@ impl<'a> BodyChecker<'a> {
                     || extensions.has_trait_witness_impl(module_id, impl_id)
             }),
         };
-        let proven = {
-            let mut solver = context.solver_with_associated_type_assumptions(
-                &assumptions,
-                &associated_type_assumptions,
-            );
-            match solver.proves(TraitGoal {
-                self_ty,
-                trait_id,
-                trait_args: trait_args.to_vec(),
-                trait_const_args: trait_const_args.to_vec(),
-            }) {
-                Ok(proven) => proven,
-                Err(error) => {
-                    self.record_internal(error);
-                    false
-                }
+        let mut solver = context
+            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
+        match solver.proves(TraitGoal {
+            self_ty,
+            trait_id,
+            trait_args: trait_args.to_vec(),
+            trait_const_args: trait_const_args.to_vec(),
+        }) {
+            Ok(proven) => proven,
+            Err(error) => {
+                self.record_internal(error);
+                false
             }
-        };
-        if !proven {
-            self.record_trait_provider_demand(self_ty, trait_id, trait_args);
-            return false;
         }
-        associated_type_bindings.iter().all(|binding| {
-            let binding_trait_id = binding.trait_id.unwrap_or(trait_id);
-            let binding_trait_args = if binding.trait_id.is_some() {
-                &binding.trait_args
-            } else {
-                trait_args
-            };
-            let binding_trait_const_args = if binding.trait_id.is_some() {
-                &binding.trait_const_args
-            } else {
-                trait_const_args
-            };
-            self.resolve_associated_type_projection(
-                self_ty,
-                binding_trait_id,
-                binding_trait_args,
-                binding_trait_const_args,
-                &binding.name,
-            )
-            .is_some_and(|actual| self.types_match(actual, binding.ty))
-        })
     }
 
     fn record_trait_object_vtable_instantiations(

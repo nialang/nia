@@ -97,15 +97,15 @@ A `spec` has up to four parts, each optional, in this order:
 | Part | Written | Effect |
 | --- | --- | --- |
 | flags | `<`, `>`, `^`; a fill character before one of them, such as `_>`; `0`; `+`; `#`, in any order | alignment within the width; the fill character (a space by default); `0` pads with zeros, right-aligned; `+` always shows the sign; `#` adds the `0x`, `0b`, or `0o` prefix |
-| width | digits, or `{}` | the minimum width; padding uses the fill character |
-| precision | `.` and digits, or `.{}` | the maximum number of characters of text, `bool`, or `char` |
+| width | digits, or `*` | the minimum width; padding uses the fill character |
+| precision | `.` and digits, or `.*` | the maximum number of characters of text, `bool`, or `char` |
 | presentation | `x`, `X`, `b`, `o`, `p` | lower or upper hexadecimal, binary, octal, or a pointer's address |
 
 Without an alignment, padding goes before the value, so `{5}` right-aligns
-numbers and text alike. A `{}` width or precision takes its number from the
-array as a `usize`, after the value it applies to: `{^{}.{}}` reads the value,
-then the width, then the precision. A dynamic width needs a flag in front of
-it, as in `{<{}}` or `{>{}}`, because `{{` is a literal brace.
+numbers and text alike. Dynamic width and precision take their numbers from
+the array as `usize`, after the value they apply to: `{^*.*}` reads the value,
+then the width, then the precision. `*` is distinct from `{{` and `}}`, which
+escape literal braces.
 
 | Value | Accepts |
 | --- | --- |

@@ -1060,17 +1060,78 @@ impl<'a> BodyChecker<'a> {
         let actual_name = self.ty_name(actual);
         let summary =
             format!("type mismatch in {context}: expected {expected_name}, got {actual_name}");
-        self.diagnostics.push(
-            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
-                .primary(span, summary)
-                .note(format!(
-                    "this context requires `{expected_name}`, but the expression produces `{actual_name}`"
-                ))
-                .help(
-                    "change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation",
-                )
-                .finish(),
-        );
+        let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+            .primary(span, summary)
+            .note(format!(
+                "this context requires `{expected_name}`, but the expression produces `{actual_name}`"
+            ));
+        if let Some((trait_id, trait_args, trait_const_args)) =
+            self.trait_object_requirement(expected)
+            && let Some(actual_self) = self.trait_object_candidate_self_type(actual)
+            && !self.trait_object_has_implementation(
+                actual_self,
+                trait_id,
+                &trait_args,
+                &trait_const_args,
+            )
+        {
+            let trait_name = self.trait_ty_name(trait_id, &trait_args);
+            let actual_self_name = self.ty_name(actual_self);
+            diagnostic = diagnostic.help(format!(
+                "`{actual_self_name}` does not implement `{trait_name}`"
+            ));
+        } else {
+            diagnostic = diagnostic.help(
+                "change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation",
+            );
+        }
+        self.diagnostics.push(diagnostic.finish());
+    }
+
+    /// Returns the trait name required by a pointer-like trait-object type.
+    /// This is derived from the lowered type fact rather than from a callsite
+    /// spelling, so all argument, aggregate, and return-type mismatches share
+    /// the same actionable explanation.
+    fn trait_object_requirement(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(TraitId, Vec<InternedTyId>, Vec<ConstGenericArg>)> {
+        let ty = self.normalization.normalize(ty);
+        let object = match self.interner.get(ty) {
+            Some(TyKind::TraitObject {
+                trait_id,
+                trait_args,
+                trait_const_args,
+                ..
+            }) => Some((*trait_id, trait_args.clone(), trait_const_args.clone())),
+            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
+                let elem = self.normalization.normalize(*elem);
+                match self.interner.get(elem) {
+                    Some(TyKind::TraitObjectPointee {
+                        trait_id,
+                        trait_args,
+                        trait_const_args,
+                        ..
+                    }) => Some((*trait_id, trait_args.clone(), trait_const_args.clone())),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }?;
+        Some(object)
+    }
+
+    fn trait_object_candidate_self_type(&self, ty: InternedTyId) -> Option<InternedTyId> {
+        let ty = self.normalization.normalize(ty);
+        match self.interner.get(ty) {
+            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
+                Some(self.normalization.normalize(*elem))
+            }
+            Some(TyKind::Array { .. }) => None,
+            Some(TyKind::Slice { .. }) => None,
+            Some(TyKind::Error) => None,
+            _ => Some(ty),
+        }
     }
 
     pub(crate) fn expect_expr_type(

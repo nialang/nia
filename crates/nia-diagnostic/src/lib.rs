@@ -1293,6 +1293,10 @@ fn compare_report_items<T: DiagnosticReportItem>(left: &T, right: &T) -> Orderin
         .then_with(|| {
             diagnostic_priority(left_diagnostic).cmp(&diagnostic_priority(right_diagnostic))
         })
+        .then_with(|| {
+            diagnostic_stage_priority(left_diagnostic)
+                .cmp(&diagnostic_stage_priority(right_diagnostic))
+        })
         .then_with(|| left.report_path().cmp(&right.report_path()))
         .then_with(|| {
             left_diagnostic
@@ -1315,6 +1319,29 @@ fn compare_report_items<T: DiagnosticReportItem>(left: &T, right: &T) -> Orderin
                 .cmp(right_diagnostic.code.as_str())
         })
         .then_with(|| left_diagnostic.summary.cmp(&right_diagnostic.summary))
+}
+
+fn diagnostic_stage_priority(diagnostic: &Diagnostic) -> u8 {
+    use codes::DiagnosticStage;
+
+    match diagnostic.code.def().stage {
+        DiagnosticStage::Compiler => 0,
+        DiagnosticStage::Parse => 1,
+        DiagnosticStage::Load => 2,
+        DiagnosticStage::TargetConfig => 3,
+        DiagnosticStage::Resolution => 4,
+        DiagnosticStage::TypeNormalization => 5,
+        DiagnosticStage::ItemSignature => 6,
+        DiagnosticStage::LocalResolution => 7,
+        DiagnosticStage::TypeCheck => 8,
+        DiagnosticStage::BodyIr => 9,
+        DiagnosticStage::Const => 10,
+        DiagnosticStage::StaticCheck => 11,
+        DiagnosticStage::FunctionIr => 12,
+        DiagnosticStage::BackendIr => 13,
+        DiagnosticStage::Llvm => 14,
+        DiagnosticStage::Linker => 15,
+    }
 }
 
 fn diagnostic_priority(diagnostic: &Diagnostic) -> (u8, u8) {
@@ -2246,6 +2273,44 @@ mod tests {
         assert_eq!(report.error_count(), 2);
         assert_eq!(report.warning_count(), 0);
         assert_eq!(report.suppressed_by_limit(), 1);
+    }
+
+    #[test]
+    fn report_presents_earlier_source_stages_before_downstream_recovery() {
+        struct Item<'a> {
+            path: &'a str,
+            diagnostic: Diagnostic,
+        }
+
+        impl DiagnosticReportItem for Item<'_> {
+            fn report_diagnostic(&self) -> &Diagnostic {
+                &self.diagnostic
+            }
+
+            fn report_path(&self) -> Option<&str> {
+                Some(self.path)
+            }
+        }
+
+        let parse =
+            Diagnostic::user_error_at(codes::PARSE, Span::new(20, 21), "source parse error");
+        let downstream = Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            Span::new(0, 1),
+            "generated runtime type error",
+        );
+        let diagnostics = [
+            Item {
+                path: "src/main.nia",
+                diagnostic: parse.clone(),
+            },
+            Item {
+                path: "lib/runtime/main.nia",
+                diagnostic: downstream,
+            },
+        ];
+        let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
+        assert_eq!(report.entries()[0].diagnostic.summary, parse.summary);
     }
 
     #[test]

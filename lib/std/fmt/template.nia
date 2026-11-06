@@ -116,7 +116,10 @@ fun parseExtendedSpec(template: &[char], start: usize) Error!ParsedSpec {
 
     let mut width: usize = 0;
     let mut dynamicWidth = false;
-    if index + 1 < template.len() and template[index] == '{' and template[index + 1] == '}' {
+    if index < template.len() and template[index] == '*' {
+        dynamicWidth = true;
+        index += 1;
+    } else if index + 1 < template.len() and template[index] == '{' and template[index + 1] == '}' {
         dynamicWidth = true;
         index += 2;
     } else {
@@ -134,7 +137,10 @@ fun parseExtendedSpec(template: &[char], start: usize) Error!ParsedSpec {
     let mut dynamicPrecision = false;
     if index < template.len() and template[index] == '.' {
         index += 1;
-        if index + 1 < template.len() and template[index] == '{' and template[index + 1] == '}' {
+        if index < template.len() and template[index] == '*' {
+            dynamicPrecision = true;
+            index += 1;
+        } else if index + 1 < template.len() and template[index] == '{' and template[index + 1] == '}' {
             dynamicPrecision = true;
             index += 2;
         } else {
