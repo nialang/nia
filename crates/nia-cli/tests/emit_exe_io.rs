@@ -713,71 +713,68 @@ pub fun main(init: process::Init) process::ExitCode!() {
         !ok => { _ = ok; },
         error! => { return process::ExitCode(11)!; },
     }
-    if not expect_error(writer.print(&"{:x}", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(12)!;
-    }
     if not expect_error(writer.print(&"{q}", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(13)!;
+        return process::ExitCode(12)!;
     }
     let byte = 7u8;
     if not expect_error(writer.print(&"{08", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(14)!;
+        return process::ExitCode(13)!;
     }
     if not expect_error(writer.print(&"{+}", &[&byte]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(15)!;
+        return process::ExitCode(14)!;
     }
     if not expect_error(writer.print(&"{+}", &[&flag]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(16)!;
+        return process::ExitCode(15)!;
     }
     if not expect_error(writer.print(&"{#}", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(17)!;
+        return process::ExitCode(16)!;
     }
     if not expect_error(writer.print(&"{#}", &[&flag]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(18)!;
+        return process::ExitCode(17)!;
     }
     if not expect_error(writer.print(&"{.}", &[&flag]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(19)!;
+        return process::ExitCode(18)!;
     }
     if not expect_error(writer.print(&"{.2}", &[&value]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(20)!;
+        return process::ExitCode(19)!;
     }
     if not expect_error(writer.print(&"{_5}", &[&flag]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(21)!;
+        return process::ExitCode(20)!;
     }
     let ptr = &value;
     if not expect_error(writer.print(&"{+p}", &[&ptr]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(22)!;
+        return process::ExitCode(21)!;
     }
     if not expect_error(writer.print(&"{#p}", &[&ptr]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(23)!;
+        return process::ExitCode(22)!;
     }
     if not expect_error(writer.print(&"{.2p}", &[&ptr]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(24)!;
+        return process::ExitCode(23)!;
     }
     if not expect_error(writer.print(&"{<{}}", &[&value]), fmt::Error::MissingArgument) {
-        return process::ExitCode(25)!;
+        return process::ExitCode(24)!;
     }
     let bad_width = 5u32;
     if not expect_error(writer.print(&"{<{}}", &[&value, &bad_width]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(26)!;
+        return process::ExitCode(25)!;
     }
     if not expect_error(writer.print(&"{.{}}", &[&flag]), fmt::Error::MissingArgument) {
-        return process::ExitCode(27)!;
+        return process::ExitCode(26)!;
     }
     if not expect_error(writer.print(&"{.{}}", &[&flag, &bad_width]), fmt::Error::InvalidTemplate) {
-        return process::ExitCode(28)!;
+        return process::ExitCode(27)!;
     }
     if not expect_error(
         writer.print(&"{999999999999999999999999999999}", &[&value]),
         fmt::Error::InvalidTemplate,
     ) {
-        return process::ExitCode(29)!;
+        return process::ExitCode(28)!;
     }
     if not expect_error(
         writer.print(&"{.999999999999999999999999999999}", &[&value]),
         fmt::Error::InvalidTemplate,
     ) {
-        return process::ExitCode(30)!;
+        return process::ExitCode(29)!;
     }
 
     let invalidRadixSpec = fmt::FormatSpec::init(

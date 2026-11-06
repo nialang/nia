@@ -88,7 +88,7 @@ fun parseExtendedSpec(template: &[char], start: usize) Error!ParsedSpec {
     let mut parsingFlags = true;
     while parsingFlags and index < template.len() {
         let ch = template[index];
-        if ch != ':' and index + 1 < template.len() {
+        if index + 1 < template.len() {
             if parseAlignment(template[index + 1]) is ?parsedAlignment {
                 fill = ch;
                 alignment = parsedAlignment;
