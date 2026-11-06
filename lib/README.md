@@ -114,10 +114,12 @@ placeholder keeps `{{` and `}}` unambiguous: they always mean literal braces.
 | a pointer `ptr`, passed as `&ptr` | alignment, fill, width, and `p`; prints the address. Passing `ptr` itself formats the value it points to |
 | a type of your own | `{}` only, unless the type implements `formatSpec` to accept more |
 
-Templates are checked while printing, not by the compiler. A malformed
-template or an unsupported part fails with `fmt::Error::InvalidTemplate`, and
-too few or too many values with `MissingArgument` or `ExtraArgument`; all
-three convert to exit status 22 in `main`. Output written before the failure
+Templates are checked while printing, not by the compiler: formatting is
+ordinary library code, and a template is an ordinary character array. A
+malformed template or an unsupported part fails with
+`fmt::Error::InvalidTemplate`, and too few or too many values with
+`MissingArgument` or `ExtraArgument`; all three convert to exit status 22 in
+`main`. Output written before the failure
 stays written, except that `debugPrint`, which buffers its line, writes
 nothing. Implementing `fmt::Format` for a type of your own is shown in
 [Printing Your Own Types](../docs/learn/generics-and-traits.md#printing-your-own-types).

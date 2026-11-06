@@ -153,11 +153,13 @@ presentation letter, as in `{_>6.3}` or `{#06x}`. The
 [standard library overview](../../lib/README.md#formatting) lists every part
 and which types accept it.
 
-The compiler does not check templates; mistakes surface when the program
-runs. A malformed placeholder, or a value count that does not match the
-placeholders, makes `debugPrint` fail without printing anything, and `.?`
-then ends the program with exit status 22. A program that unexpectedly prints
-nothing and exits with 22 has a template mistake.
+The compiler does not check templates, by design: `std::fmt` is an ordinary
+library with no special support from the compiler, and to the compiler a
+template is just an array of `char` like any other text. Mistakes therefore
+surface when the program runs. A malformed placeholder, or a value count that
+does not match the placeholders, makes `debugPrint` fail without printing
+anything, and `.?` then ends the program with exit status 22. A program that
+unexpectedly prints nothing and exits with 22 has a template mistake.
 
 Integers, `bool`, `char`, and text can be printed; floating-point numbers
 cannot yet. The values in the array are named variables or fields. An
