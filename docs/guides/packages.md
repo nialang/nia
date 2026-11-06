@@ -148,15 +148,13 @@ code changes. Writing tests is covered in [Testing](../learn/testing.md).
 
 A run step starts the program without arguments; `nia build` does not forward
 any. To pass arguments, run the built program directly, as `build/out/hello`
-(`build\out\hello.exe` on Windows), or declare a run step with fixed arguments
-in a [build script](build-scripts.md#steps).
+on every platform, or declare a run step with fixed arguments in a
+[build script](build-scripts.md#steps).
 
 Names in `[[executable]]` and `[[test]]` must be unique across both tables, and
 cannot be `all`, `test`, or start with `run-`, because those names belong to
-the derived steps. Suite compilation is an internal prerequisite of the suite
-step, so executable names do not reserve a `<suite>.compile` spelling. An
-artifact may set `runtime = "bare"` to build without the standard process entry; see
-[Targets And Runtimes](targets.md).
+the derived steps. An artifact may set `runtime = "bare"` to build without the
+standard process entry; see [Targets And Runtimes](targets.md).
 
 ## Adding Dependencies
 

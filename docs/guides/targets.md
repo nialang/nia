@@ -32,8 +32,11 @@ baseline CPU, so an executable runs on every machine of its target.
 With `nia build --target`, the package's artifacts are built for that target.
 Steps that run programs during the build, such as test suites and the
 programs that build steps invoke, are built for the host so they can run. A
-build script can also pick a target for each artifact with `forTarget`; see
-[Targets](build-scripts.md#targets) in Custom Builds.
+program built for another platform cannot run on the host, so the manifest's
+`run-<name>` steps exist only when the target is the host; `nia build --list`
+shows which steps a target has. A build script can also pick a target for
+each artifact with `forTarget`; see [Targets](build-scripts.md#targets) in
+Custom Builds.
 
 ## Platform-Specific Code
 

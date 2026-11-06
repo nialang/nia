@@ -85,12 +85,11 @@ Each entry declares one artifact:
 | `path` | yes | The file that roots the artifact's module tree, relative to the package root. |
 | `runtime` | no | `freestanding` (default) for the standard process entry, or `bare` for none. |
 
-An executable produces the steps `<name>` and `run-<name>`; a test suite
-produces the step `<name>`, which builds and runs it, and joins `test`. Suite
-compilation is an internal prerequisite of that step. Names use letters,
-digits, `-`, `_`, and `.`, must be unique across both tables, and cannot be
-`all`, `test`, start with `run-`, or use the reserved
-`nia-internal-test-compile.` prefix.
+An executable produces the step `<name>`, and `run-<name>` when the build's
+target is the host; a test suite produces the step `<name>`, which builds and
+runs it, and joins `test`. Names use letters, digits, `-`, `_`, and `.`, must
+be unique across both tables, and cannot be `all`, `test`, start with `run-`,
+or start with the reserved prefix `nia-internal-test-compile.`.
 
 ## Dependency Tables
 

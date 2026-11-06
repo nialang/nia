@@ -113,12 +113,15 @@ nia emit --llvm src/main.nia
 nia emit --exe src/main.nia -o hello
 ```
 
-They do not read the dependencies in `nia.toml`. A package name that the code
-imports, including the package's own library, is mapped with
-`-M <name>=<path>`, where `<path>` is a source file or a package directory:
+They do not read the dependencies in `nia.toml`. When the source file lies
+inside a package that declares a `[library]`, the package's own name opens
+that library, as it does under `nia build`; any other package name the code
+imports is mapped with `-M <name>=<path>`, where `<path>` is a source file or
+a package directory:
 
 ```sh
-nia check src/main.nia --runtime freestanding -M hello=.
+nia check src/main.nia --runtime freestanding
+nia check src/main.nia --runtime freestanding -M json=../json
 ```
 
 Inside a package, `nia build` is usually simpler: it checks and builds every

@@ -144,9 +144,9 @@ FAIL ignores extra spaces: tests/unit.nia:25:5: values are not equal
 1 passed, 1 failed
 ```
 
-The location names the package (`root` is the package being built), the file,
-and the line and column of the assertion that failed. `nia build` then reports
-the suite as failed, with its exit status.
+The location is the assertion's file, relative to the package root, and its
+line and column. `nia build` then reports the suite as failed, with its exit
+status.
 
 The reporter's parameter is annotated, `\result: test::CaseResult -> ...`,
 because the closure calls methods on it before any use gives it a type.
