@@ -265,6 +265,62 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn relative_check_and_emit_paths_find_the_package_library_from_both_directories() {
+    let root = temp_dir("relative_source_own_library");
+    std::fs::create_dir_all(root.join("lib")).expect("create library directory");
+    std::fs::create_dir_all(root.join("src")).expect("create source directory");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"relative_library\"\nversion = \"1.0.0\"\n\
+         [library]\npath = \"lib/root.nia\"\n",
+    )
+    .expect("write package manifest");
+    std::fs::write(
+        root.join("lib/root.nia"),
+        "pub static greeting = \"hello\";\n",
+    )
+    .expect("write package library");
+    std::fs::write(
+        root.join("src/main.nia"),
+        "using std::process;\nusing relative_library;\n\n\
+         pub fun main(init: process::Init) process::ExitCode!() {\n\
+             _ = init;\n\
+             _ = relative_library::greeting;\n\
+             !()\n\
+         }\n",
+    )
+    .expect("write package executable source");
+
+    for (directory, path) in [
+        (&*root, "src/main.nia"),
+        (&*root, "./src/main.nia"),
+        (&*root.join("src"), "main.nia"),
+    ] {
+        let check = support::nia_command()
+            .current_dir(directory)
+            .args(["check", "--runtime", "freestanding", path])
+            .output_timeout_for_compiler("check relative source importing its package library");
+        assert!(
+            check.status.success(),
+            "check {path} from {} failed:\n{}",
+            directory.display(),
+            String::from_utf8_lossy(&check.stderr)
+        );
+
+        let emit = support::nia_command()
+            .current_dir(directory)
+            .args(["emit", "--checked", "--runtime", "freestanding", path])
+            .output_timeout_for_compiler("emit relative source importing its package library");
+        assert!(
+            emit.status.success(),
+            "emit {path} from {} failed:\n{}",
+            directory.display(),
+            String::from_utf8_lossy(&emit.stderr)
+        );
+    }
+}
+
+#[test]
 fn repository_nia_uses_the_exit_conversion_boundary() {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

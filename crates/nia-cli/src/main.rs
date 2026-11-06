@@ -402,6 +402,7 @@ struct CompileSettings {
 /// A loaded source entry for `check` and `emit`.
 struct SourceEntry {
     path: String,
+    source_path: SourcePath,
     source: String,
     own_library: Option<OwnLibraryMapping>,
 }
@@ -432,12 +433,14 @@ impl SourceEntry {
                 )
                 .map_err(|error| format!("cannot map the package's own library: {error}"))?;
         }
-        Ok(nia_driver::CheckRequest::new(&self.path)
-            .with_module_map(module_map)
-            .with_optimization(settings.optimization)
-            .with_profile(settings.profile)
-            .with_timings(settings.timings)
-            .with_runtime(runtime))
+        Ok(
+            nia_driver::CheckRequest::from_source_path(self.source_path.clone())
+                .with_module_map(module_map)
+                .with_optimization(settings.optimization)
+                .with_profile(settings.profile)
+                .with_timings(settings.timings)
+                .with_runtime(runtime),
+        )
     }
 
     fn request_or_report(
@@ -484,10 +487,20 @@ impl SourceEntry {
 /// any failure as a load diagnostic.
 fn load_entry(path: &str, format: DiagnosticsFormat) -> Option<SourceEntry> {
     let loaded = resolve_source_entry(path).and_then(|path| {
-        let source = read_source(&path)?;
-        let own_library = own_library_mapping(&path)?;
+        let absolute_path = std::path::absolute(&path)
+            .map_err(|error| format!("cannot resolve source path `{path}`: {error}"))?;
+        let physical_path_text = nia_source::normalize_path(&absolute_path.to_string_lossy());
+        let physical_path = PathBuf::from(&physical_path_text);
+        let source = read_source(&physical_path_text, &path)?;
+        let own_library = own_library_mapping(&physical_path)?;
+        let source_path = SourcePath::with_identity_and_display_path(
+            physical_path_text.clone(),
+            physical_path_text,
+            path.as_str(),
+        );
         Ok(SourceEntry {
             path,
+            source_path,
             source,
             own_library,
         })
@@ -501,8 +514,8 @@ fn load_entry(path: &str, format: DiagnosticsFormat) -> Option<SourceEntry> {
     }
 }
 
-fn own_library_mapping(entry: &str) -> Result<Option<OwnLibraryMapping>, String> {
-    let mut directory = Path::new(entry).parent();
+fn own_library_mapping(entry: &Path) -> Result<Option<OwnLibraryMapping>, String> {
+    let mut directory = entry.parent();
     while let Some(candidate) = directory {
         if candidate.join("nia.toml").is_file() {
             let manifest =
@@ -708,11 +721,11 @@ fn resolve_toolchain_layout(
         .map_err(|error| format!("invalid toolchain layout: {error}"))
 }
 
-fn read_source(path: &str) -> Result<String, String> {
+fn read_source(path: &str, display_path: &str) -> Result<String, String> {
     let source = match nia_source::read_source_text(path) {
         Ok(source) => source,
         Err(err) => {
-            return Err(format!("failed to read `{path}`: {err}"));
+            return Err(format!("failed to read `{display_path}`: {err}"));
         }
     };
     Ok(source)
