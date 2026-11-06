@@ -724,11 +724,11 @@ impl<'a> BodyChecker<'a> {
                 .or_else(|| self.const_types.get(&def_id.def_id))
                 .copied();
         }
-        if let Some(ty) = self.qualified_program_const_type(def_id) {
-            return Some(ty);
-        }
-        let program_signature = self.program_signature_scope.global(def_id)?;
-        if let Some(issue) = program_signature.type_issue {
+        if let Some(issue) = self
+            .program_signature_scope
+            .global(def_id)
+            .and_then(|signature| signature.type_issue)
+        {
             if let Some(current_global) = self.current_global_def_id {
                 self.global_type_issues.insert(current_global, issue);
             }
@@ -744,9 +744,9 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         }
-        let ty = program_signature
-            .value_type
-            .or(program_signature.signature.explicit_type)
+        let ty = self
+            .program_signature_scope
+            .value_type(def_id)
             .unwrap_or_else(|| self.error());
         Some(ty)
     }
@@ -755,8 +755,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         def_id: GlobalDefId,
     ) -> Option<InternedTyId> {
-        let program_signature = self.program_signature_scope.const_eval(def_id)?;
-        if let Some(ty) = program_signature.signature.explicit_type {
+        if let Some(ty) = self.program_signature_scope.value_type(def_id) {
             return Some(ty);
         }
         if let Some(typed) = (self.program_const_values)(def_id.module_id).and_then(|const_eval| {

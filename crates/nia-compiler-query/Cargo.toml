@@ -72,3 +72,4 @@ path = "src/lib.rs"
 [dev-dependencies]
 nia-alloc.workspace = true
 nia-mangle.workspace = true
+serde_json.workspace = true

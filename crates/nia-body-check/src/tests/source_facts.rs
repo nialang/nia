@@ -67,8 +67,8 @@ fun main() i32 {
 }
 
 #[test]
-fn global_type_product_skips_function_bodies_and_const_initializers() {
-    let checked = pipeline_global_types(
+fn module_value_type_product_checks_values_without_function_bodies() {
+    let checked = pipeline_module_value_types(
         r#"
 const invalid: i32 = false;
 static value = 42;
@@ -76,8 +76,24 @@ fun invalid_function() i32 { false }
 "#,
     );
 
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("const initializer")),
+        "the value-type pass must validate const initializer types: {:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !diagnostic.summary.contains("invalid_function")),
+        "the value-type pass must not check function bodies: {:?}",
+        checked.diagnostics
+    );
     assert_eq!(checked.facts.global_types.len(), 1);
+    assert_eq!(checked.facts.const_types.len(), 1);
     assert!(checked.facts.function_facts.is_empty());
 }
 

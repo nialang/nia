@@ -274,11 +274,13 @@ pub enum ProgramGlobalTypeIssue {
     CyclicInference,
 }
 
-/// Program-qualified const signature payload.
+/// Program-qualified const signature and resolved runtime value type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramConstSignature {
     /// Module-local signature payload.
     pub signature: ConstSignature,
+    /// Resolved type of the constant, including inference from its initializer.
+    pub value_type: Option<InternedTyId>,
 }
 
 /// Program-qualified struct signature payload.

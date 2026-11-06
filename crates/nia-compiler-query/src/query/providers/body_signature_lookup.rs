@@ -29,9 +29,18 @@ impl nia_program_signatures::ProgramSignatureLookup for BodyProgramSignatureLook
     }
 
     fn const_eval(&self, def_id: GlobalDefId) -> Option<ProgramConstSignature> {
-        self.maps
-            .and_then(|maps| maps.const_eval(def_id))
-            .or_else(|| self.fallback.const_eval(def_id))
+        let mapped = self.maps.and_then(|maps| maps.const_eval(def_id));
+        match mapped {
+            Some(signature) if signature.value_type.is_some() => Some(signature),
+            Some(signature) => {
+                let resolved = (self.fallback.const_eval)(def_id)?;
+                Some(ProgramConstSignature {
+                    value_type: resolved.value_type,
+                    ..signature
+                })
+            }
+            None => (self.fallback.const_eval)(def_id),
+        }
     }
 
     fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature> {

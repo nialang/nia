@@ -305,9 +305,7 @@ impl<'a> BodyChecker<'a> {
                 for item in active_item_tree.items.iter() {
                     if let ItemTreeNodeKind::Binding(binding) = &item.kind {
                         if binding.is_const() {
-                            if !self.body_filter.is_global_type_inference() {
-                                self.check_const_binding(item.span, binding);
-                            }
+                            self.check_const_binding(item.span, binding);
                         } else {
                             self.check_global_binding(item.span, binding);
                         }
@@ -470,7 +468,8 @@ impl<'a> BodyChecker<'a> {
         );
     }
 
-    pub(super) fn seed_global_types(&mut self) {
+    /// Seeds the shared runtime types for module-level globals and constants.
+    pub(super) fn seed_module_value_types(&mut self) {
         for (def_id, signature) in self.signatures.globals {
             if let Some(ty) = signature.explicit_type {
                 self.global_types.insert(*def_id, ty);
@@ -483,6 +482,10 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    /// Checks a compile-time constant and publishes its runtime value type.
+    ///
+    /// The type fact participates in the same module-level inference pass as
+    /// globals, while constant evaluation remains a separate semantic phase.
     pub(super) fn check_const_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
         let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Const)
         else {
@@ -542,7 +545,7 @@ impl<'a> BodyChecker<'a> {
         else {
             return;
         };
-        if self.body_filter.is_global_type_inference()
+        if self.body_filter.is_module_value_type_inference()
             || !self.body_filter.includes_global(self.global_def_id(def_id))
         {
             return;
@@ -587,6 +590,8 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    /// Checks a runtime global under storage-initializer rules and publishes
+    /// its type through the shared module value facts.
     pub(super) fn check_global_binding_inner(
         &mut self,
         item_span: Span,

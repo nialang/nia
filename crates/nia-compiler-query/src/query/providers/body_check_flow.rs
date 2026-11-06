@@ -106,7 +106,7 @@ fn body_check_filter_includes_def(
     match filter {
         nia_body_check::BodyCheckFilter::All
         | nia_body_check::BodyCheckFilter::ConstDeclarations => true,
-        nia_body_check::BodyCheckFilter::GlobalTypes => !is_function,
+        nia_body_check::BodyCheckFilter::ModuleValueTypes => !is_function,
         nia_body_check::BodyCheckFilter::ReachableFunctions(functions) => {
             !is_function || functions.contains(&global_def_id)
         }
@@ -134,12 +134,13 @@ pub(super) fn provide_body_check(
     module_id: ModuleId,
 ) -> QueryResult<ModuleBodyCheck> {
     time_module_provider(db, "body_check", module_id, || {
-        let inferred = db.get(InferredGlobalTypesQuery(module_id))?;
+        let inferred = db.get(InferredModuleValueTypesQuery(module_id))?;
         let mut facts = nia_sema_ir::SemanticFacts::default();
-        facts.global_types.clone_from(&inferred.types);
+        facts.global_types.clone_from(&inferred.global_types);
+        facts.const_types.clone_from(&inferred.const_types);
         let seed = nia_body_check::BodyCheckSeed {
             facts: &facts,
-            global_type_issues: Some(&inferred.type_issues),
+            global_type_issues: Some(&inferred.global_type_issues),
         };
         let mut body_check = body_check_with_filter(
             db,
@@ -176,7 +177,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
     match filter {
         nia_body_check::BodyCheckFilter::All
         | nia_body_check::BodyCheckFilter::ConstDeclarations
-        | nia_body_check::BodyCheckFilter::GlobalTypes => {
+        | nia_body_check::BodyCheckFilter::ModuleValueTypes => {
             let values = db.get(ValueResolutionQuery(module_id))?;
             let locals = db.get(LocalResolutionQuery(module_id))?;
             Ok(BodyCheckResolutionInputs {

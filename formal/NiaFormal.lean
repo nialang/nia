@@ -1,3 +1,4 @@
 import NiaFormal.ValueInference
 import NiaFormal.ModuleVisibility
+import NiaFormal.ModuleValueTypes
 import NiaFormal.ReachabilityRetraction

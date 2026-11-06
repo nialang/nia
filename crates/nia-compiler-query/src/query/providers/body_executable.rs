@@ -821,22 +821,22 @@ pub(super) fn body_check_const_declarations(
     .body_check)
 }
 
-pub(in crate::query) fn provide_inferred_global_types(
+pub(in crate::query) fn provide_inferred_module_value_types(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<InferredGlobalTypes> {
-    time_module_provider(db, "inferred_global_types", module_id, || {
+) -> QueryResult<InferredModuleValueTypes> {
+    time_module_provider(db, "inferred_module_value_types", module_id, || {
         let defs = full_module_defs_semantic(db, module_id)?;
-        let global_count = defs
+        let value_count = defs
             .defs
             .iter()
-            .filter(|(_, def)| def.kind == DefKind::Global)
+            .filter(|(_, def)| matches!(def.kind, DefKind::Global | DefKind::Const))
             .count();
         let mut seed_facts = nia_sema_ir::SemanticFacts::default();
         let mut final_check = None;
         let mut reached_fixed_point = false;
 
-        for _ in 0..=global_count {
+        for _ in 0..=value_count {
             let seed = nia_body_check::BodyCheckSeed {
                 facts: &seed_facts,
                 global_type_issues: None,
@@ -845,7 +845,7 @@ pub(in crate::query) fn provide_inferred_global_types(
                 db,
                 ExecutableBodyCheckInput {
                     module_id,
-                    filter: nia_body_check::BodyCheckFilter::GlobalTypes,
+                    filter: nia_body_check::BodyCheckFilter::ModuleValueTypes,
                     layouts: None,
                     program_layouts_override: None,
                     fact_mode: ExecutableFactMode::full(),
@@ -859,28 +859,19 @@ pub(in crate::query) fn provide_inferred_global_types(
                     prechecked: None,
                 },
             )?;
-            let mut changed = false;
-            for (global_id, ty) in &checked.body_check.facts.global_types {
-                if type_contains_error_recovery(&db.context().type_store, *ty) {
-                    continue;
-                }
-                match seed_facts.global_types.get(global_id) {
-                    Some(previous) if previous != ty => {
-                        if !type_contains_error_recovery(&db.context().type_store, *previous) {
-                            return Err(QueryError::internal(format!(
-                                "global type inference changed an established type for {global_id:?}"
-                            )));
-                        }
-                        seed_facts.global_types.insert(*global_id, *ty);
-                        changed = true;
-                    }
-                    Some(_) => {}
-                    None => {
-                        seed_facts.global_types.insert(*global_id, *ty);
-                        changed = true;
-                    }
-                }
-            }
+            let global_types_changed = merge_inferred_value_types(
+                &db.context().type_store,
+                "global",
+                &mut seed_facts.global_types,
+                &checked.body_check.facts.global_types,
+            )?;
+            let const_types_changed = merge_inferred_value_types(
+                &db.context().type_store,
+                "const",
+                &mut seed_facts.const_types,
+                &checked.body_check.facts.const_types,
+            )?;
+            let changed = global_types_changed || const_types_changed;
             final_check = Some(checked.body_check);
             if !changed {
                 reached_fixed_point = true;
@@ -890,20 +881,52 @@ pub(in crate::query) fn provide_inferred_global_types(
 
         if !reached_fixed_point {
             return Err(QueryError::internal(format!(
-                "global type inference exceeded its declaration bound of {global_count}"
+                "module value type inference exceeded its declaration bound of {value_count}"
             )));
         }
 
         let checked = final_check.ok_or_else(|| {
-            QueryError::internal("global type inference did not execute a body-check pass")
+            QueryError::internal("module value type inference did not execute a body-check pass")
         })?;
         let mut type_issues = checked.global_type_issues.clone();
         type_issues.retain(|global_id, _| !seed_facts.global_types.contains_key(global_id));
-        Ok(InferredGlobalTypes {
-            types: seed_facts.global_types,
-            type_issues,
+        Ok(InferredModuleValueTypes {
+            global_types: seed_facts.global_types,
+            const_types: seed_facts.const_types,
+            global_type_issues: type_issues,
         })
     })
+}
+
+fn merge_inferred_value_types(
+    type_store: &nia_ty::TypeStore,
+    declaration_kind: &str,
+    established: &mut HashMap<GlobalDefId, InternedTyId>,
+    discovered: &HashMap<GlobalDefId, InternedTyId>,
+) -> QueryResult<bool> {
+    let mut changed = false;
+    for (def_id, ty) in discovered {
+        if type_contains_error_recovery(type_store, *ty) {
+            continue;
+        }
+        match established.get(def_id) {
+            Some(previous) if previous != ty => {
+                if !type_contains_error_recovery(type_store, *previous) {
+                    return Err(QueryError::internal(format!(
+                        "{declaration_kind} type inference changed an established type for {def_id:?}"
+                    )));
+                }
+                established.insert(*def_id, *ty);
+                changed = true;
+            }
+            Some(_) => {}
+            None => {
+                established.insert(*def_id, *ty);
+                changed = true;
+            }
+        }
+    }
+    Ok(changed)
 }
 
 pub(super) fn module_has_const_declarations(
@@ -1043,7 +1066,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         match filter {
             nia_body_check::BodyCheckFilter::All
             | nia_body_check::BodyCheckFilter::ConstDeclarations
-            | nia_body_check::BodyCheckFilter::GlobalTypes => {
+            | nia_body_check::BodyCheckFilter::ModuleValueTypes => {
                 full_const_values = db.get(ConstValuesQuery(module_id))?;
                 full_const_array_lengths = db.get(ConstArrayLengthsQuery(module_id))?;
                 full_const_typed_facts = db.get(ConstTypedFactsQuery(module_id))?;
@@ -1212,15 +1235,15 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         let (value_type, type_issue) = if let Some(explicit) = signature.explicit_type {
             (Some(explicit), None)
         } else {
-            match db.get(InferredGlobalTypesQuery(def_id.module_id)) {
+            match db.get(InferredModuleValueTypesQuery(def_id.module_id)) {
                 Ok(inferred) => (
-                    inferred.types.get(&def_id).copied(),
-                    inferred.type_issues.get(&def_id).copied(),
+                    inferred.global_types.get(&def_id).copied(),
+                    inferred.global_type_issues.get(&def_id).copied(),
                 ),
                 Err(QueryError::Cycle { cycle })
                     if cycle
                         .iter()
-                        .any(|frame| frame.name == InferredGlobalTypesQuery::name()) =>
+                        .any(|frame| frame.name == InferredModuleValueTypesQuery::name()) =>
                 {
                     (
                         None,
@@ -1251,7 +1274,30 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .consts
         .get(&def_id.def_id)
         .cloned()
-        .map(|signature| ProgramConstSignature { signature })
+        .map(|signature| {
+            let value_type = if let Some(explicit) = signature.explicit_type {
+                Some(explicit)
+            } else {
+                match db.get(InferredModuleValueTypesQuery(def_id.module_id)) {
+                    Ok(inferred) => inferred.const_types.get(&def_id).copied(),
+                    Err(QueryError::Cycle { cycle })
+                        if cycle
+                            .iter()
+                            .any(|frame| frame.name == InferredModuleValueTypesQuery::name()) =>
+                    {
+                        None
+                    }
+                    Err(error) => {
+                        query_failure.borrow_mut().get_or_insert(error);
+                        None
+                    }
+                }
+            };
+            ProgramConstSignature {
+                signature,
+                value_type,
+            }
+        })
     };
     let program_struct_signature = |def_id: GlobalDefId| {
         capture_query_failure(
@@ -1656,7 +1702,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
             nia_body_check::BodyCheckFilter::ReachableFunctions(_)
             | nia_body_check::BodyCheckFilter::All
             | nia_body_check::BodyCheckFilter::ConstDeclarations
-            | nia_body_check::BodyCheckFilter::GlobalTypes,
+            | nia_body_check::BodyCheckFilter::ModuleValueTypes,
         ) => filtered_inputs,
     };
     let output = BodyCheckWithResolutionInputs {

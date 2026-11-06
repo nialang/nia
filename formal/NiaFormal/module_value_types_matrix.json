@@ -1,0 +1,14 @@
+{
+  "declaration_kinds": ["global", "const"],
+  "dependency_cases": [
+    "forward_const_used_by_static",
+    "transitive_const_chain",
+    "same_type_fact_for_const_and_global",
+    "cross_module_forward_const",
+    "cross_module_const_dependency_change",
+    "cross_module_const_cycle",
+    "incremental_const_dependency_change",
+    "const_cycle_source_diagnostic",
+    "forward_global_dependency"
+  ]
+}

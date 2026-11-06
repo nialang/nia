@@ -188,6 +188,7 @@ pub fn collect_program_consts(
                     def_id: *def_id,
                 },
                 ProgramConstSignature {
+                    value_type: signature.explicit_type,
                     signature: signature.clone(),
                 },
             );

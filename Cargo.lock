@@ -970,6 +970,7 @@ dependencies = [
  "nia-type-resolve",
  "nia-value-resolve",
  "parking_lot",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 

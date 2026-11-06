@@ -5,7 +5,7 @@ use super::*;
 pub(super) enum ActiveBodyCheckFilter<'a> {
     All,
     ConstDeclarations,
-    GlobalTypes,
+    ModuleValueTypes,
     ReachableItems {
         functions: &'a HashSet<GlobalDefId>,
         globals: &'a HashSet<GlobalDefId>,
@@ -20,7 +20,7 @@ impl<'a> ActiveBodyCheckFilter<'a> {
         match filter {
             BodyCheckFilter::All => Self::All,
             BodyCheckFilter::ConstDeclarations => Self::ConstDeclarations,
-            BodyCheckFilter::GlobalTypes => Self::GlobalTypes,
+            BodyCheckFilter::ModuleValueTypes => Self::ModuleValueTypes,
             BodyCheckFilter::ReachableFunctions(functions) => Self::ReachableItems {
                 functions,
                 globals: empty_global_def_ids(),
@@ -46,7 +46,7 @@ impl<'a> ActiveBodyCheckFilter<'a> {
     pub(super) fn includes_function(&self, def_id: GlobalDefId) -> bool {
         match self {
             Self::All | Self::ConstDeclarations => true,
-            Self::GlobalTypes => false,
+            Self::ModuleValueTypes => false,
             Self::ReachableItems {
                 functions,
                 already_checked_functions,
@@ -61,7 +61,7 @@ impl<'a> ActiveBodyCheckFilter<'a> {
 
     pub(super) fn includes_global(&self, def_id: GlobalDefId) -> bool {
         match self {
-            Self::All | Self::GlobalTypes => true,
+            Self::All | Self::ModuleValueTypes => true,
             Self::ConstDeclarations => false,
             Self::ReachableItems {
                 globals,
@@ -76,7 +76,7 @@ impl<'a> ActiveBodyCheckFilter<'a> {
 
     pub(super) fn selects_global(&self, def_id: GlobalDefId) -> bool {
         match self {
-            Self::All | Self::GlobalTypes => true,
+            Self::All | Self::ModuleValueTypes => true,
             Self::ConstDeclarations => false,
             Self::ReachableItems { globals, .. } => globals.contains(&def_id),
         }
@@ -85,7 +85,7 @@ impl<'a> ActiveBodyCheckFilter<'a> {
     pub(super) fn add_function(&mut self, def_id: GlobalDefId) -> bool {
         match self {
             Self::All => true,
-            Self::GlobalTypes => false,
+            Self::ModuleValueTypes => false,
             Self::ConstDeclarations => false,
             Self::ReachableItems {
                 functions,
@@ -113,7 +113,7 @@ impl<'a> ActiveBodyCheckFilter<'a> {
                 .iter()
                 .filter_map(|(def_id, item)| (!item.function.is_const).then_some(*def_id))
                 .collect(),
-            Self::GlobalTypes => Vec::new(),
+            Self::ModuleValueTypes => Vec::new(),
             Self::ConstDeclarations => available
                 .iter()
                 .filter_map(|(def_id, item)| item.function.is_const.then_some(*def_id))
@@ -137,8 +137,8 @@ impl<'a> ActiveBodyCheckFilter<'a> {
         !matches!(self, Self::ConstDeclarations)
     }
 
-    pub(super) fn is_global_type_inference(&self) -> bool {
-        matches!(self, Self::GlobalTypes)
+    pub(super) fn is_module_value_type_inference(&self) -> bool {
+        matches!(self, Self::ModuleValueTypes)
     }
 
     pub(super) fn checks_const_declarations(&self) -> bool {

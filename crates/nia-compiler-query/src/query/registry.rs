@@ -69,7 +69,7 @@ pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry>
         ExtensionTraitSignatureIndexQuery,
         ExtensionTraitSolvingModuleFactsQuery,
         FlowCheckQuery,
-        InferredGlobalTypesQuery,
+        InferredModuleValueTypesQuery,
         FrontendProgramSourcesQuery,
         FullActiveModuleItemTreeInputQuery,
         FullActiveModuleItemTreeQuery,

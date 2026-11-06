@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Program-wide views of module-local semantic signatures.
+//! Program-wide views of module-local signatures and value-type facts.
 //!
 //! This crate qualifies the declaration-only products from `nia-item-signatures`
-//! with global definition identities and provides visibility-aware extension and
-//! trait-implementation indexes. It does not perform body checking or reparse
-//! source text. Lookup and context APIs borrow or resolve existing signatures
-//! rather than reconstructing body semantics.
+//! with global definition identities and provides visibility-aware extension,
+//! trait-implementation, and runtime value-type lookup. It does not perform body
+//! checking or reparse source text. Type facts are resolved by the compiler query
+//! provider and exposed here alongside declaration-kind-specific signatures.
 //!
 //! Visibility-aware extension discovery computes a deterministic closure from
 //! `using` scopes, public surfaces, canonical type normalization, and nominal
@@ -14,7 +14,7 @@ mod analysis;
 
 use std::collections::HashMap;
 
-use nia_ids::GlobalDefId;
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{
     ProgramConstSignature, ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature,
     ProgramStructSignature, ProgramTraitImplIndex, ProgramTraitImplSignature,
@@ -24,7 +24,8 @@ use nia_symbol::{SymbolId, SymbolMap};
 
 pub use analysis::*;
 
-/// Resolves a global definition id to its declaration signature.
+/// Resolves a global definition id to its declaration signature and shared
+/// runtime value-type fact.
 pub trait ProgramSignatureLookup {
     /// Looks up a function signature.
     fn function(&self, def_id: GlobalDefId) -> Option<ProgramFunctionSignature>;
@@ -32,6 +33,18 @@ pub trait ProgramSignatureLookup {
     fn global(&self, def_id: GlobalDefId) -> Option<ProgramGlobalSignature>;
     /// Looks up a compile-time constant signature.
     fn const_eval(&self, def_id: GlobalDefId) -> Option<ProgramConstSignature>;
+    /// Looks up the runtime type of a global or constant value.
+    ///
+    /// The declaration signatures stay kind-specific because globals and
+    /// constants have different initialization and storage rules. Their
+    /// resolved value type is a shared semantic fact.
+    fn value_type(&self, def_id: GlobalDefId) -> Option<InternedTyId> {
+        if let Some(signature) = self.global(def_id) {
+            return signature.value_type.or(signature.signature.explicit_type);
+        }
+        self.const_eval(def_id)
+            .and_then(|signature| signature.value_type.or(signature.signature.explicit_type))
+    }
     /// Looks up a struct signature.
     fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature>;
     /// Looks up a union signature.

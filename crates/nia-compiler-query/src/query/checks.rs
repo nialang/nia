@@ -186,22 +186,28 @@ impl QueryKey<CompilerContext> for BodyCheckQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct InferredGlobalTypesQuery(pub(super) ModuleId);
+pub(super) struct InferredModuleValueTypesQuery(pub(super) ModuleId);
 
+/// Shared runtime type facts for a module's globals and top-level constants.
+///
+/// Initializer checking remains declaration-kind-specific; only the resolved
+/// value types and their dependency fixed point are shared.
 #[derive(Debug, Clone, Default)]
-pub(super) struct InferredGlobalTypes {
-    pub(super) types: HashMap<GlobalDefId, InternedTyId>,
-    pub(super) type_issues: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
+pub(super) struct InferredModuleValueTypes {
+    pub(super) global_types: HashMap<GlobalDefId, InternedTyId>,
+    pub(super) const_types: HashMap<GlobalDefId, InternedTyId>,
+    pub(super) global_type_issues:
+        HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
 }
 
-impl QueryKey<CompilerContext> for InferredGlobalTypesQuery {
-    type Value = InferredGlobalTypes;
+impl QueryKey<CompilerContext> for InferredModuleValueTypesQuery {
+    type Value = InferredModuleValueTypes;
 
     fn name() -> &'static str {
-        "inferred_global_types"
+        "inferred_module_value_types"
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        providers::provide_inferred_global_types(db, self.0)
+        providers::provide_inferred_module_value_types(db, self.0)
     }
 }

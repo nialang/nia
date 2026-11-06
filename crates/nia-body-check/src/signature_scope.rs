@@ -36,6 +36,13 @@ impl<'a> ProgramSignatureScope<'a> {
         }
     }
 
+    pub(super) fn value_type(&self, def_id: GlobalDefId) -> Option<InternedTyId> {
+        match self {
+            ProgramSignatureScope::LocalModule => None,
+            ProgramSignatureScope::Program(program) => program.value_type(def_id),
+        }
+    }
+
     pub(super) fn struct_(&self, def_id: GlobalDefId) -> Option<ProgramStructSignature> {
         match self {
             ProgramSignatureScope::LocalModule => None,

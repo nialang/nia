@@ -15,6 +15,7 @@ toolchain is pinned in [`lean-toolchain`](lean-toolchain).
 | Module | Contract | Compiler test |
 | --- | --- | --- |
 | [`NiaFormal/ValueInference.lean`](NiaFormal/ValueInference.lean) | Contextual typing of value construction | [`value_inference_matrix.rs`](../crates/nia-driver/src/tests/value_inference_matrix.rs) |
+| [`NiaFormal/ModuleValueTypes.lean`](NiaFormal/ModuleValueTypes.lean) | Bounded growth of inferred global and const type facts | [`semantic_diagnostics.rs`](../crates/nia-compiler-query/src/query/tests/semantic_diagnostics.rs) |
 | [`NiaFormal/ModuleVisibility.lean`](NiaFormal/ModuleVisibility.lean) | Explicit extension visibility and separate trait-witness closure | [`imports.rs`](../crates/nia-driver/src/tests/imports.rs) |
 | [`NiaFormal/ReachabilityRetraction.lean`](NiaFormal/ReachabilityRetraction.lean) | Exactness of over-delete/rederive after dependency-edge changes | Pending reachability integration tests |
 
@@ -53,6 +54,20 @@ cases. The links are:
 The third link does not reach the manifest: nothing checks that
 `ast_expression_forms` names exactly the `ExprKind` variants, so a new variant
 must be added to the manifest and the model by hand.
+
+### Module value type facts
+
+Globals and top-level constants keep different initialization rules: globals
+need runtime static storage, while constants are compile-time values. Their
+runtime value types now use one module-level inference query and dependency
+fixed point. The Lean model proves the finite bound for facts that only grow;
+it does not model the compiler's body checker or cross-module query graph.
+
+[`NiaFormal/module_value_types_matrix.json`](NiaFormal/module_value_types_matrix.json)
+lists the declaration kinds and dependency cases exercised by compiler tests:
+forward const use, a const chain, cross-module const lookup, incremental
+invalidation, source-level cycle reporting, and forward global inference. The
+Lean model checks the inventory, and the compiler tests read the same file.
 
 ### Module visibility
 

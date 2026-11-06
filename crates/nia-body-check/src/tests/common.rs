@@ -228,12 +228,12 @@ pub(super) fn pipeline_static_facts(source: &str) -> TestBodyCheck {
     )
 }
 
-pub(super) fn pipeline_global_types(source: &str) -> TestBodyCheck {
+pub(super) fn pipeline_module_value_types(source: &str) -> TestBodyCheck {
     pipeline_with_options(
         source,
         |_, _, _| {},
         true,
-        crate::BodyCheckFilter::GlobalTypes,
+        crate::BodyCheckFilter::ModuleValueTypes,
         crate::BodyCheckProduct::FactsOnly,
         false,
     )

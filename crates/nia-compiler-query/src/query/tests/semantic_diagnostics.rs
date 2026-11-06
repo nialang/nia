@@ -2,6 +2,55 @@
 
 use super::*;
 
+const MODULE_VALUE_TYPES_MATRIX: &str =
+    include_str!("../../../../../formal/NiaFormal/module_value_types_matrix.json");
+
+fn assert_formal_value_type_case(case: &str) {
+    let matrix: serde_json::Value =
+        serde_json::from_str(MODULE_VALUE_TYPES_MATRIX).expect("valid module value-type matrix");
+    let cases = matrix["dependency_cases"]
+        .as_array()
+        .expect("dependency case list");
+    assert!(
+        cases.iter().any(|entry| entry.as_str() == Some(case)),
+        "formal module value-type matrix is missing case `{case}`"
+    );
+}
+
+#[test]
+fn module_value_type_cases_match_the_formal_inventory() {
+    let matrix: serde_json::Value =
+        serde_json::from_str(MODULE_VALUE_TYPES_MATRIX).expect("valid module value-type matrix");
+    let declaration_kinds = matrix["declaration_kinds"]
+        .as_array()
+        .expect("declaration kind list")
+        .iter()
+        .map(|entry| entry.as_str().expect("string declaration kind"))
+        .collect::<Vec<_>>();
+    let dependency_cases = matrix["dependency_cases"]
+        .as_array()
+        .expect("dependency case list")
+        .iter()
+        .map(|entry| entry.as_str().expect("string dependency case"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(declaration_kinds, ["global", "const"]);
+    assert_eq!(
+        dependency_cases,
+        [
+            "forward_const_used_by_static",
+            "transitive_const_chain",
+            "same_type_fact_for_const_and_global",
+            "cross_module_forward_const",
+            "cross_module_const_dependency_change",
+            "cross_module_const_cycle",
+            "incremental_const_dependency_change",
+            "const_cycle_source_diagnostic",
+            "forward_global_dependency",
+        ]
+    );
+}
+
 #[test]
 fn signature_type_resolution_separates_semantic_value_from_diagnostics() {
     let fixture = LoadedProgramFixture::new("main.nia", "fun main(value: Missing) {}");
@@ -17,7 +66,7 @@ fn signature_type_resolution_separates_semantic_value_from_diagnostics() {
 }
 
 #[test]
-fn inferred_global_types_do_not_reenter_unrelated_module_bodies() {
+fn inferred_module_value_types_do_not_reenter_unrelated_module_bodies() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
         "module a; module b; using a; using b; fun main() i32 { a::fa() + b::fb() }",
@@ -46,7 +95,7 @@ fn inferred_global_types_do_not_reenter_unrelated_module_bodies() {
 }
 
 #[test]
-fn inferred_global_types_follow_cross_module_initializer_dependencies() {
+fn inferred_module_value_types_follow_cross_module_initializer_dependencies() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
         "module a; module b; using a; fun main() i32 { a::x }",
@@ -65,7 +114,8 @@ fn inferred_global_types_follow_cross_module_initializer_dependencies() {
 }
 
 #[test]
-fn inferred_global_types_follow_forward_dependencies_in_one_module() {
+fn inferred_module_value_types_follow_forward_dependencies_in_one_module() {
+    assert_formal_value_type_case("forward_global_dependency");
     let fixture = LoadedProgramFixture::new(
         "main.nia",
         "static pointer = &value; static value = 2; fun main() i32 { pointer.* }",
@@ -76,6 +126,210 @@ fn inferred_global_types_follow_forward_dependencies_in_one_module() {
     assert!(
         checked.diagnostics.is_empty(),
         "an earlier pointer global may infer its pointee from a later global: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn inferred_static_types_follow_forward_unannotated_const_dependencies() {
+    assert_formal_value_type_case("forward_const_used_by_static");
+    assert_formal_value_type_case("transitive_const_chain");
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "static value = FIRST; const FIRST = SECOND; const SECOND = 3; fun main() i32 { value }",
+    );
+
+    let checked = fixture.database().check_program();
+
+    assert!(
+        checked.diagnostics.is_empty(),
+        "an inferred static may use later unannotated const values: {:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn inferred_module_value_types_publish_forward_consts_across_modules() {
+    assert_formal_value_type_case("cross_module_forward_const");
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "module values; using values; static result = values::FIRST; fun main() i32 { result }",
+    );
+    let entry = fixture.entry_id();
+    let values = fixture.add_child(
+        entry,
+        "values",
+        "values.nia",
+        "pub const FIRST = SECOND; pub const SECOND = 3;",
+    );
+    let database = fixture.database();
+
+    let checked = database.check_program();
+
+    assert!(
+        checked.diagnostics.is_empty(),
+        "a static initializer may use forward inferred consts from another module: {:?}",
+        checked.diagnostics
+    );
+    let inferred = database
+        .db
+        .expect_get(InferredModuleValueTypesQuery(values));
+    assert_eq!(inferred.const_types.len(), 2);
+
+    assert_formal_value_type_case("cross_module_const_dependency_change");
+    fixture.update_module_source(
+        values,
+        "pub const FIRST = SECOND; pub const SECOND = true;",
+        SourceRevision(1),
+    );
+    fixture.update_module_source(
+        entry,
+        "module values; using values; static result = values::FIRST; fun main() bool { result }",
+        SourceRevision(1),
+    );
+    database.update(CompileRequest::new(fixture.program()));
+
+    let updated = database.check_program();
+    assert!(
+        updated.diagnostics.is_empty(),
+        "the importing module must observe an edited const type through query invalidation: {:?}",
+        updated.diagnostics
+    );
+}
+
+#[test]
+fn cross_module_const_type_cycles_remain_source_diagnostics() {
+    assert_formal_value_type_case("cross_module_const_cycle");
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "module a; using a; static value = a::FIRST; fun main() i32 { 0 }",
+    );
+    let entry = fixture.entry_id();
+    fixture.add_child(
+        entry,
+        "a",
+        "a.nia",
+        "module b; using super::b; pub const FIRST = b::SECOND;",
+    );
+    fixture.add_child(
+        entry,
+        "b",
+        "b.nia",
+        "using super::a; pub const SECOND = a::FIRST;",
+    );
+
+    let checked = fixture.database().check_program();
+
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| {
+            diagnostic.diagnostic.code.def().category
+                != nia_diagnostic::DiagnosticCategory::Internal
+        }),
+        "cross-module const cycles must not escape as internal query failures: {:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked.diagnostics.is_empty(),
+        "a cross-module const type cycle must produce a source diagnostic"
+    );
+}
+
+#[test]
+fn const_and_global_initializers_publish_the_same_value_type_fact() {
+    assert_formal_value_type_case("same_type_fact_for_const_and_global");
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "const ELEMENTS = [1, 2, 3]; static from_const = ELEMENTS; static direct = [1, 2, 3]; fun main() i32 { from_const[0] + direct[0] }",
+    );
+    let module_id = fixture.entry_id();
+    let database = fixture.database();
+
+    let checked = database.check_program();
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let defs = database.db.expect_get(FullModuleDefsQuery(module_id));
+    let inferred = database
+        .db
+        .expect_get(InferredModuleValueTypesQuery(module_id));
+    let def_id = |name| {
+        defs.semantic
+            .module_scope
+            .values
+            .get(&sym(name))
+            .expect("value declaration")
+    };
+    let const_type = inferred.const_types[&GlobalDefId {
+        module_id,
+        def_id: def_id("ELEMENTS"),
+    }];
+    let copied_global_type = inferred.global_types[&GlobalDefId {
+        module_id,
+        def_id: def_id("from_const"),
+    }];
+    let direct_global_type = inferred.global_types[&GlobalDefId {
+        module_id,
+        def_id: def_id("direct"),
+    }];
+
+    assert_eq!(const_type, copied_global_type);
+    assert_eq!(const_type, direct_global_type);
+}
+
+#[test]
+fn inferred_const_value_type_facts_invalidate_when_a_forward_target_changes_type() {
+    assert_formal_value_type_case("incremental_const_dependency_change");
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "static value = FIRST; const FIRST = SECOND; const SECOND = 2; fun main() i32 { value }",
+    );
+    let module_id = fixture.entry_id();
+    let database = fixture.database();
+
+    let first = database.check_program();
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+
+    fixture.update_module_source(
+        module_id,
+        "static value = FIRST; const FIRST = SECOND; const SECOND = true; fun main() bool { value }",
+        SourceRevision(1),
+    );
+    database.update(CompileRequest::new(fixture.program()));
+
+    let second = database.check_program();
+    assert!(
+        second.diagnostics.is_empty(),
+        "inferred const and static types must both follow an edited forward dependency: {:?}",
+        second.diagnostics
+    );
+}
+
+#[test]
+fn inferred_const_type_cycles_remain_source_diagnostics() {
+    assert_formal_value_type_case("const_cycle_source_diagnostic");
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "const FIRST = SECOND; const SECOND = FIRST; static value = FIRST; fun main() i32 { 0 }",
+    );
+
+    let checked = fixture.database().check_program();
+
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| {
+            diagnostic.diagnostic.code.def().category
+                != nia_diagnostic::DiagnosticCategory::Internal
+        }),
+        "cyclic unannotated const types must not escape as an internal query failure: {:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .to_ascii_lowercase()
+                .contains("cyclic")
+        }),
+        "a const cycle should retain its source-level diagnostic: {:?}",
         checked.diagnostics
     );
 }
@@ -117,11 +371,11 @@ fn recursive_inferred_global_pointer_types_are_source_diagnostics() {
     let database = fixture.database();
     let inferred = database
         .db
-        .expect_get(InferredGlobalTypesQuery(fixture.entry_id()));
+        .expect_get(InferredModuleValueTypesQuery(fixture.entry_id()));
     assert!(
-        !inferred.type_issues.is_empty(),
+        !inferred.global_type_issues.is_empty(),
         "the recursive type cycle should retain a source issue: {:?}",
-        inferred.type_issues
+        inferred.global_type_issues
     );
     let checked = database.check_program();
 
@@ -146,7 +400,7 @@ fn recursive_inferred_global_pointer_types_are_source_diagnostics() {
 }
 
 #[test]
-fn cyclic_inferred_global_types_are_not_query_engine_failures() {
+fn cyclic_inferred_module_value_types_are_not_query_engine_failures() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
         "module a; module b; using a; using b; fun main() i32 { a::x + b::y }",

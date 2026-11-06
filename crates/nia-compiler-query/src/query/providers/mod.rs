@@ -47,7 +47,7 @@ pub(in crate::query) use self::body_executable::{
     ExecutableArrayLengthCacheKey, ExecutableFactLayoutCacheEntry,
     ExecutableGlobalInitializerCacheKey, ExecutableValueRefEdges, provide_executable_function_body,
     provide_executable_static_init, provide_executable_value_ref_edges,
-    provide_inferred_global_types,
+    provide_inferred_module_value_types,
 };
 use self::body_signature_lookup::*;
 use self::codegen::*;

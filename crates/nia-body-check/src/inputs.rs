@@ -79,9 +79,9 @@ pub enum BodyCheckFilter<'a> {
     All,
     /// Checks only const declarations.
     ConstDeclarations,
-    /// Infers types from global initializers without checking function bodies
-    /// or const declarations.
-    GlobalTypes,
+    /// Infers types from module-scope global and const initializers without
+    /// checking function bodies. Associated constants keep their owner context.
+    ModuleValueTypes,
     /// Checks reachable functions only.
     ReachableFunctions(&'a HashSet<GlobalDefId>),
     /// Checks selected functions/globals with prior-product reuse markers.

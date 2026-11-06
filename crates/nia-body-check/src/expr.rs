@@ -2423,12 +2423,12 @@ impl<'a> BodyChecker<'a> {
                     .get(&global_id)
                     .copied()
                     .or_else(|| {
-                        (self.body_filter.is_global_type_inference()
+                        (self.body_filter.is_module_value_type_inference()
                             && self.current_global_def_id.is_some())
                         .then_some(nia_item_signatures::ProgramGlobalTypeIssue::CyclicInference)
                     });
                 if let Some(issue) = issue {
-                    if self.body_filter.is_global_type_inference() {
+                    if self.body_filter.is_module_value_type_inference() {
                         self.global_type_issues.insert(global_id, issue);
                     }
                     if let Some(current_global) = self.current_global_def_id {
