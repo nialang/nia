@@ -145,6 +145,7 @@ name=nia short=ni
 | `{05}`, `{+}` | pad with zeros; always show the sign |
 | `{x}`, `{X}`, `{b}`, `{o}`, `{#x}` | hexadecimal, binary, octal; `#` adds the prefix |
 | `{.2}` | at most 2 characters of text |
+| `{*}`, `{.*}` | width or precision taken from the next value, a `usize` |
 | `{{`, `}}` | a literal `{` or `}` |
 
 The parts combine in a fixed order, flags, width, precision, then the

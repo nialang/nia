@@ -104,14 +104,15 @@ A `spec` has up to four parts, each optional, in this order:
 Without an alignment, padding goes before the value, so `{5}` right-aligns
 numbers and text alike. Dynamic width and precision take their numbers from
 the array as `usize`, after the value they apply to: `{^*.*}` reads the value,
-then the width, then the precision. `*` is distinct from `{{` and `}}`, which
-escape literal braces.
+then the width, then the precision. Writing `*` rather than a nested
+placeholder keeps `{{` and `}}` unambiguous: they always mean literal braces.
 
 | Value | Accepts |
 | --- | --- |
 | integers | flags, width, and every presentation except `p` |
 | text, `char`, `bool` | alignment, fill, width, and precision |
 | a pointer `ptr`, passed as `&ptr` | alignment, fill, width, and `p`; prints the address. Passing `ptr` itself formats the value it points to |
+| a type of your own | `{}` only, unless the type implements `formatSpec` to accept more |
 
 Templates are checked while printing, not by the compiler. A malformed
 template or an unsupported part fails with `fmt::Error::InvalidTemplate`, and

@@ -95,8 +95,15 @@ _ = sum;
 Without the `as`, the compiler reports the mismatch:
 
 ```text
-error[E0301]: type mismatch in binary operator: expected i64, got i32
+error[E0301]: trait bound not satisfied: i32: Add[i64]
+note: the compiler could not find a visible implementation of `Add[i64]` for `i32`
 ```
+
+The message speaks of traits because operators are trait methods: `a + b`
+calls `Add`, and the standard library implements `i32: Add[i32]` but never
+`i32: Add[i64]`. [Operators Are Traits](generics-and-traits.md#operators-are-traits)
+explains the mechanism. For numbers, the fix is always an `as` conversion on
+one side.
 
 Integer overflow, division by zero, and shifting by too many bits are not
 silent. They *trap*: the program stops immediately, in debug and release
@@ -172,12 +179,16 @@ semicolon, is the result. `return` leaves early. A function without a return
 type, like `log`, returns `()`; the standard library writes `()` explicitly
 instead, as in `fun reset(&mut self) ()`, and both mean the same.
 
-The semicolon matters. `x * x;` with a semicolon is a statement that produces
-nothing, so the function falls off its end without a value:
+The semicolon matters. `x * x;` with a semicolon is a statement, so its value
+is thrown away and the function falls off its end without a result. The
+compiler reports both halves of the mistake:
 
 ```text
+error[E0301]: non-unit expression result is discarded; assign it to `_` explicitly
 error[E0501]: non-unit function does not return on all reachable paths
 ```
+
+The first error points at `x * x;`; removing the semicolon fixes both.
 
 Functions are private to their module unless marked `pub`; modules come in
 [a later chapter](modules.md).
