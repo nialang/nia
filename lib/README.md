@@ -79,6 +79,48 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
   call unless an API explicitly returns an owner such as
   `mem::CallableAllocation`.
 
+## Formatting
+
+`io::debugPrint` and the `print` method that `using std::fmt::template;` adds
+to every `io::Writer` take a template and an array of `&fmt::Format` values.
+The template is plain text with placeholders; each placeholder formats the
+next value from the array.
+
+| Template text | Output |
+| --- | --- |
+| `{}` | the next value, in its default form |
+| `{spec}` | the next value, formatted by `spec` |
+| `{{`, `}}` | a literal `{` or `}` |
+
+A `spec` has up to four parts, each optional, in this order:
+
+| Part | Written | Effect |
+| --- | --- | --- |
+| flags | `<`, `>`, `^`; a fill character before one of them, such as `_>`; `0`; `+`; `#`, in any order | alignment within the width; the fill character (a space by default); `0` pads with zeros, right-aligned; `+` always shows the sign; `#` adds the `0x`, `0b`, or `0o` prefix |
+| width | digits, or `{}` | the minimum width; padding uses the fill character |
+| precision | `.` and digits, or `.{}` | the maximum number of characters of text, `bool`, or `char` |
+| presentation | `x`, `X`, `b`, `o`, `p` | lower or upper hexadecimal, binary, octal, or a pointer's address |
+
+Without an alignment, padding goes before the value, so `{5}` right-aligns
+numbers and text alike. A `{}` width or precision takes its number from the
+array as a `usize`, after the value it applies to: `{^{}.{}}` reads the value,
+then the width, then the precision. A dynamic width needs a flag in front of
+it, as in `{<{}}` or `{>{}}`, because `{{` is a literal brace.
+
+| Value | Accepts |
+| --- | --- |
+| integers | flags, width, and every presentation except `p` |
+| text, `char`, `bool` | alignment, fill, width, and precision |
+| a pointer `ptr`, passed as `&ptr` | alignment, fill, width, and `p`; prints the address. Passing `ptr` itself formats the value it points to |
+
+Templates are checked while printing, not by the compiler. A malformed
+template or an unsupported part fails with `fmt::Error::InvalidTemplate`, and
+too few or too many values with `MissingArgument` or `ExtraArgument`; all
+three convert to exit status 22 in `main`. Output written before the failure
+stays written, except that `debugPrint`, which buffers its line, writes
+nothing. Implementing `fmt::Format` for a type of your own is shown in
+[Printing Your Own Types](../docs/learn/generics-and-traits.md#printing-your-own-types).
+
 ## Testing
 
 `std::test` provides assertions (`expect`, `expectEqual`, `expectNotEqual`,

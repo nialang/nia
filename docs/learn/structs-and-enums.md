@@ -53,6 +53,11 @@ fun half(distance: Meters) Meters {
 Nia picks the memory layout of an ordinary struct and may reorder its fields.
 `extern struct` keeps C's layout; see [C interop](../guides/c-interop.md).
 
+A struct cannot be printed with `{}` or compared with `==` until it implements
+the traits for them; Nia never derives them. Until
+[Printing Your Own Types](generics-and-traits.md#printing-your-own-types),
+the examples print a struct's fields one by one.
+
 ## Methods
 
 Methods live in `extend` blocks, separate from the type's declaration:

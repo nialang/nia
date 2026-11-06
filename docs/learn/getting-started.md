@@ -139,11 +139,24 @@ name=nia short=ni
 
 | Specification | Effect |
 | --- | --- |
+| `{5}` | pad to width 5; without an alignment, the padding goes before the value |
 | `{>5}`, `{<5}`, `{^5}` | pad to width 5, aligned right, left, or centered |
 | `{_>5}` | pad with `_` instead of spaces |
 | `{05}`, `{+}` | pad with zeros; always show the sign |
 | `{x}`, `{X}`, `{b}`, `{o}`, `{#x}` | hexadecimal, binary, octal; `#` adds the prefix |
 | `{.2}` | at most 2 characters of text |
+| `{{`, `}}` | a literal `{` or `}` |
+
+The parts combine in a fixed order, flags, width, precision, then the
+presentation letter, as in `{_>6.3}` or `{#06x}`. The
+[standard library overview](../../lib/README.md#formatting) lists every part
+and which types accept it.
+
+The compiler does not check templates; mistakes surface when the program
+runs. A malformed placeholder, or a value count that does not match the
+placeholders, makes `debugPrint` fail without printing anything, and `.?`
+then ends the program with exit status 22. A program that unexpectedly prints
+nothing and exits with 22 has a template mistake.
 
 Integers, `bool`, `char`, and text can be printed; floating-point numbers
 cannot yet. The values in the array are named variables or fields. An

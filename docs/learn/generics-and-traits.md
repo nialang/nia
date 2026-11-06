@@ -211,6 +211,75 @@ A struct has no `==` until it implements `Eq`; Nia never derives equality or
 other behavior on its own. The full list of operator traits is in the
 [reference](../reference/language.md#built-in-traits).
 
+## Printing Your Own Types
+
+Printing is a trait too. `debugPrint` and `print` accept any value whose type
+implements `fmt::Format`, and the standard library implements it for numbers,
+`bool`, `char`, and text. A struct of your own is rejected until it does:
+
+```text
+error[E0301]: type mismatch in array literal element: expected &Format, got Point
+```
+
+`Format` has one required method, `format`, which writes the value through the
+`fmt::Formatter` it receives. The formatter writes characters and text, and a
+field that is itself printable formats itself:
+
+```nia
+using std::fmt;
+using std::io;
+using std::process;
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+extend Point : fmt::Format {
+    fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+        formatter.writeChar('(').?;
+        self.x.format(formatter).?;
+        formatter.writeText(", ").?;
+        self.y.format(formatter).?;
+        formatter.writeChar(')')
+    }
+}
+
+struct Name {
+    text: &[char],
+}
+
+extend Name : fmt::Format {
+    fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
+        self.text.format(formatter)
+    }
+
+    fun formatSpec(&self, formatter: &mut fmt::Formatter, spec: fmt::FormatSpec) fmt::Error!() {
+        self.text.formatSpec(formatter, spec)
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let start = Point { x: 3, y: -4 };
+    let name = Name { text: "Ada" };
+    io::debugPrint("start={} name=[{>6}]\n", [start, name]).?;
+    !()
+}
+```
+
+```text
+start=(3, -4) name=[   Ada]
+```
+
+A placeholder with a specification, such as `{>6}`, calls `formatSpec`
+instead. Its default implementation, which `Point` keeps, ignores width,
+fill, alignment, and precision, and rejects a presentation letter such as
+`{x}`. `Name` overrides it by handing the specification to its text, so it
+pads like any text does. A type that wraps one printable value usually
+delegates both methods this way; the standard library's `Arg` does exactly
+that for command-line arguments.
+
 ## Associated Types
 
 A trait can let each implementation choose a type, such as the element type of
@@ -335,7 +404,9 @@ automatic address. A trait can be used this way only when every method takes
   the generic code may do with a `T`.
 - Traits declare methods; `extend Type : Trait` implements them. Trait methods
   need no import.
-- Operators are traits, and nothing is derived automatically.
+- Operators are traits, and nothing is derived automatically: a type is
+  compared with `Eq` and printed with `fmt::Format` only once it implements
+  them.
 - Associated types are written `[T as Trait]::Name`; implementing `Iterator`
   makes a type work with `for`.
 - `&Trait` gives dynamic dispatch when static generics do not fit.
