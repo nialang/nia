@@ -15,7 +15,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
     // `&ptr` formats the pointer itself; `ptr` would format the value it points to.
     stdout.print(
-        "name={:_>6.3} answer={:+05} hex={:#04x} ptr={:p}\n",
+        "name={_>6.3} answer={+05} hex={#04x} ptr={p}\n",
         [name, answer, byte, &ptr],
     ).?;
     stdout.flush().?;

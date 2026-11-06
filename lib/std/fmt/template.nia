@@ -88,7 +88,7 @@ fun parseExtendedSpec(template: &[char], start: usize) Error!ParsedSpec {
     let mut parsingFlags = true;
     while parsingFlags and index < template.len() {
         let ch = template[index];
-        if index + 1 < template.len() {
+        if ch != ':' and index + 1 < template.len() {
             if parseAlignment(template[index + 1]) is ?parsedAlignment {
                 fill = ch;
                 alignment = parsedAlignment;
@@ -239,8 +239,8 @@ where W: io::Writer
             } else if next == '{' {
                 formatter.writeChar('{').?;
                 index += 2;
-            } else if next == ':' {
-                let parsed = parseExtendedSpec(template, index + 2).?;
+            } else {
+                let parsed = parseExtendedSpec(template, index + 1).?;
                 if argIndex >= args.len() {
                     return .MissingArgument!;
                 }
@@ -249,8 +249,6 @@ where W: io::Writer
                 let spec = resolveDynamicSpec(parsed, args, argIndex).?;
                 args[valueIndex].formatSpec(formatter, spec).?;
                 index = parsed.nextIndex;
-            } else {
-                return .InvalidTemplate!;
             }
         } else if ch == '}' {
             if index + 1 < template.len() and template[index + 1] == '}' {

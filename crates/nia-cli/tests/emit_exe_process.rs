@@ -4109,7 +4109,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
     let mut storage: [u8; 16] = [0; 16];
     let mut writer = io::FixedBufferWriter::init(&mut storage[..]);
-    writer.print(&"{:_>5.2}", &[&firstArg]).?;
+    writer.print(&"{_>5.2}", &[&firstArg]).?;
     let written = writer.written();
     if written.len() != 5 or written[0] != b'_' or written[1] != b'_' or written[2] != b'_' or written[3] != b'n' or written[4] != b'i' {
         return process::ExitCode(8)!;

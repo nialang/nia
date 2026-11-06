@@ -55,7 +55,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         return process::ExitCode(1)!;
     }
     let address = &marker;
-    io::debugPrint(&"{:p}\n", &[&address]).?;
+    io::debugPrint(&"{p}\n", &[&address]).?;
     !()
 }
 "#;

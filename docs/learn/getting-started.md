@@ -116,7 +116,7 @@ Every line of this program says something about how Nia works:
 ## Printing Values
 
 `debugPrint`'s `{}` placeholders take values from the array that follows, in
-order. A placeholder can carry a format specification after a colon:
+order. A placeholder can carry a format specification directly inside its braces:
 
 ```nia
 using std::io;
@@ -126,8 +126,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let answer = 42;
     let name = "nia";
-    io::debugPrint("answer={} padded={:>5} hex={:#x}\n", [answer, answer, answer]).?;
-    io::debugPrint("name={} short={:.2}\n", [name, name]).?;
+    io::debugPrint("answer={} padded={>5} hex={#x}\n", [answer, answer, answer]).?;
+    io::debugPrint("name={} short={.2}\n", [name, name]).?;
     !()
 }
 ```
@@ -139,11 +139,11 @@ name=nia short=ni
 
 | Specification | Effect |
 | --- | --- |
-| `{:>5}`, `{:<5}`, `{:^5}` | pad to width 5, aligned right, left, or centered |
-| `{:_>5}` | pad with `_` instead of spaces |
-| `{:05}`, `{:+}` | pad with zeros; always show the sign |
-| `{:x}`, `{:X}`, `{:b}`, `{:o}`, `{:#x}` | hexadecimal, binary, octal; `#` adds the prefix |
-| `{:.2}` | at most 2 characters of text |
+| `{>5}`, `{<5}`, `{^5}` | pad to width 5, aligned right, left, or centered |
+| `{_>5}` | pad with `_` instead of spaces |
+| `{05}`, `{+}` | pad with zeros; always show the sign |
+| `{x}`, `{X}`, `{b}`, `{o}`, `{#x}` | hexadecimal, binary, octal; `#` adds the prefix |
+| `{.2}` | at most 2 characters of text |
 
 Integers, `bool`, `char`, and text can be printed; floating-point numbers
 cannot yet. The values in the array are named variables or fields. An
