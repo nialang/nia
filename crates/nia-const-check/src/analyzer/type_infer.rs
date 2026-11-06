@@ -1140,7 +1140,7 @@ impl Analyzer<'_> {
         );
     }
 
-    fn const_type_name(&mut self, ty: InternedTyId) -> String {
+    pub(super) fn const_type_name(&mut self, ty: InternedTyId) -> String {
         match self.ty_kind(ty) {
             Some(TyKind::Primitive(primitive)) => {
                 symbol_text_or_unresolved(self.input.symbols, primitive.symbol_id())

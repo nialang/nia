@@ -333,10 +333,48 @@ Diagnostics. Providers collect diagnostics in phase order and suppress a
 derived report only when a published root has a matching cause identity or
 applicable source-span evidence. Independent errors stay visible.
 
+Presentation belongs to `nia-diagnostic::report`. Each diagnostic may name one
+dominant causal parent by source path, registered code, and primary source
+span. This is a causal forest; `related` locations describe context and never
+create ownership edges. Parent resolution uses the complete deduplicated set,
+not the current presentation order. Reports emit parents before descendants,
+so a display limit cannot retain a child while hiding its parent. Missing,
+ambiguous, self-referential, or cyclic parent links leave diagnostics visible
+as independent entries; descendants of those entries may still attach.
+
+Explicit cause edges take precedence over stage ordering. Unrelated components
+are ordered by category (internal errors first), severity, source ownership,
+span provenance, stage, path, span, code, and structured evidence. The final
+tie-breaker includes labels, notes, help, suggestions, related locations, causes,
+and debug fields, so concurrent publication does not decide which explanation
+survives a display limit. Graph traversal is iterative. The tests exhaust all
+four-node parent assignments, reverse publication order and display limits,
+and exercise a 20,000-entry chain. This is bounded exhaustive validation, not
+an unbounded formal proof or an inference of causality from stage order.
+
+Trait resolution exposes semantic failure evidence from `nia-trait-solve`:
+missing or hidden implementations, ambiguity, unproven prerequisites, and
+missing or incompatible associated types. Associated-type evidence retains
+the member and the expected and actual type identities. Body and const checks
+use that evidence with the shared explanation protocol in `nia-diagnostic`;
+rendering does not parse error messages or rerun trait selection. An unavailable
+solver environment or internal failure is distinct from a missing implementation.
+Callable shape failures without a selection result use an explicitly unproven
+explanation. Proof scopes remain the caller's responsibility: extension-method
+visibility must not be substituted for the transitive trait witness scope.
+`VisibleTraitImplsQuery` owns that filtering. Const proof, associated projection,
+and trait-object conversion consume its admitted facts directly, including
+marker and associated-type-only implementations that have no method entry.
+Place diagnostics likewise retain obligation evidence separately from storage
+failures such as an immutable binding or a read-only pointer.
+
 A diagnostic is filed under the source of the module whose check produced it,
 unless it names another file as its own `source_path`; its labels then index
 that file, and filing, deduplication, and the stable bundle treat it as that
-file's. Body checking uses this for calls. An argument mismatch adds the
+file's. Text, JSON, causal identity, and persistence share this ownership;
+missing source text renders as a byte range, never as a different file's text.
+JSON preserves both the cause identity and the resolved report parent.
+Body checking uses this for calls. An argument mismatch adds the
 callee's parameter as a related location, in whatever file declares it. When
 the standard library or a runtime calls user code, a mismatch with the user's
 parameter or return type is reported at that declaration, with the toolchain

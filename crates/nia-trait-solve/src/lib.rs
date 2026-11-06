@@ -80,6 +80,15 @@ pub struct AssociatedTypeProjectionEq {
     pub ty: InternedTyId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// One associated-type equality required of a selected trait implementation.
+pub struct AssociatedTypeRequirement {
+    /// Required associated member.
+    pub name: SymbolId,
+    /// Type the selected member must equal.
+    pub ty: InternedTyId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct AssociatedTypeProjectionKey {
     goal: TraitGoal,
@@ -99,6 +108,71 @@ pub enum TraitResolution {
     Unsatisfied,
     /// Multiple incomparable user impls remain.
     Ambiguous,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Why a trait obligation could not be discharged by the current solver scope.
+///
+/// This is deliberately semantic data rather than a diagnostic string. The
+/// body checker, const checker, and tooling can choose their own wording while
+/// preserving the solver's distinction between a missing implementation,
+/// hidden implementation, and ambiguity.
+pub enum TraitObligationFailure {
+    /// No applicable implementation header or intrinsic rule exists.
+    NoImplementation,
+    /// An implementation exists, but the current module cannot see it.
+    NotVisible,
+    /// More than one equally specific implementation is applicable.
+    Ambiguous,
+    /// A matching implementation exists, but one of its prerequisite
+    /// obligations is not proven in the current generic environment.
+    AdditionalConstraint,
+    /// The selected implementation lacks a required associated type.
+    AssociatedTypeMissing {
+        /// Associated member that could not be resolved.
+        name: SymbolId,
+    },
+    /// The selected implementation provides an incompatible associated type.
+    AssociatedTypeMismatch {
+        /// Associated member whose equality failed.
+        name: SymbolId,
+        /// Type required by the obligation.
+        expected: InternedTyId,
+        /// Type provided by the selected implementation.
+        actual: InternedTyId,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// Structured result of checking one trait obligation.
+pub enum TraitObligationResolution {
+    /// The obligation was proved, with the ordinary selected resolution.
+    Satisfied(TraitResolution),
+    /// The obligation was rejected with a stable semantic reason.
+    Failed(TraitObligationFailure),
+    /// Resolution could not produce a semantic answer. A prerequisite query or
+    /// internal compiler diagnostic owns this failure; it is not evidence
+    /// that an implementation is missing.
+    Unavailable,
+}
+
+impl TraitObligationResolution {
+    /// Returns the ordinary resolution when the obligation is proven.
+    pub fn satisfied_resolution(&self) -> Option<&TraitResolution> {
+        match self {
+            Self::Satisfied(resolution) => Some(resolution),
+            Self::Failed(_) | Self::Unavailable => None,
+        }
+    }
+
+    /// Returns the proof-selection result without diagnostic evidence.
+    pub fn into_resolution(self) -> TraitResolution {
+        match self {
+            Self::Satisfied(resolution) => resolution,
+            Self::Failed(TraitObligationFailure::Ambiguous) => TraitResolution::Ambiguous,
+            Self::Failed(_) | Self::Unavailable => TraitResolution::Unsatisfied,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

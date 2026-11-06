@@ -748,6 +748,48 @@ fun main() i32 { width as i32 }
         "{:?}",
         program.diagnostics
     );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| {
+            let summary = &diagnostic.diagnostic.summary;
+            summary.contains("const function call")
+                && summary.contains("visible implementation of `Marker` for `i32`")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn const_associated_obligation_retains_member_and_type_evidence() {
+    let root = temp_dir("const_associated_obligation_retains_member_and_type_evidence");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source { type Item; }
+struct Wrong {}
+extend Wrong : Source { type Item = bool; }
+
+const fun constrained[T]() usize
+where T: Source[Item = i32] {
+    7usize
+}
+
+const width: usize = constrained[Wrong]();
+fun main() i32 { width as i32 }
+"#,
+    );
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| {
+            let summary = &diagnostic.diagnostic.summary;
+            summary.contains("const function call")
+                && summary.contains("Source::Item")
+                && summary.contains("`bool`")
+                && summary.contains("requires `i32`")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]

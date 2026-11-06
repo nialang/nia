@@ -110,7 +110,10 @@ pub trait ProgramSignatureLookup {
 pub struct ProgramSignatureContext<'a> {
     /// Global signature lookup implementation.
     pub lookup: &'a dyn ProgramSignatureLookup,
-    /// Program-wide trait implementations in deterministic collection order.
+    /// Trait implementations in the consumer's proof scope, in deterministic
+    /// collection order. Module checks receive the provider witness closure;
+    /// whole-program consumers may receive the complete program. This proof
+    /// scope is independent of the index used to look up source methods.
     pub trait_impls: &'a [ProgramTraitImplSignature],
     /// Optional index over `trait_impls` for fast candidate lookup.
     pub trait_impl_index: Option<&'a ProgramTraitImplIndex>,

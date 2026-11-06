@@ -30,6 +30,85 @@ impl TraitSolver<'_> {
         self.finish_operation(resolution)
     }
 
+    /// Resolves an obligation and preserves the semantic reason for failure.
+    ///
+    /// Visibility is evaluated separately from header matching so callers can
+    /// explain an omitted provider without guessing from rendered strings.
+    pub fn explain(&mut self, goal: TraitGoal) -> nia_ice::IceResult<TraitObligationResolution> {
+        let normalized = self.normalize_goal(goal);
+        let resolution = self.resolve_inner(normalized.clone());
+        let explained = match resolution {
+            TraitResolution::Intrinsic(_)
+            | TraitResolution::User(_)
+            | TraitResolution::Assumed(_) => TraitObligationResolution::Satisfied(resolution),
+            TraitResolution::Ambiguous => {
+                TraitObligationResolution::Failed(TraitObligationFailure::Ambiguous)
+            }
+            TraitResolution::Unsatisfied => {
+                let hidden = self
+                    .matching_user_impls_with_visibility(&normalized, false)
+                    .len();
+                let visible_headers = self
+                    .matching_impl_headers_with_visibility(&normalized, true)
+                    .len();
+                let hidden_headers = self
+                    .matching_impl_headers_with_visibility(&normalized, false)
+                    .len();
+                let failure = if visible_headers > 0 {
+                    TraitObligationFailure::AdditionalConstraint
+                } else if hidden > 0 {
+                    TraitObligationFailure::NotVisible
+                } else if hidden_headers > 0 {
+                    TraitObligationFailure::AdditionalConstraint
+                } else {
+                    TraitObligationFailure::NoImplementation
+                };
+                TraitObligationResolution::Failed(failure)
+            }
+        };
+        self.finish_operation(explained)
+    }
+
+    /// Proves a trait goal and its associated-type equalities in the same
+    /// solver environment, retaining evidence for the first failed equality.
+    /// Internal failures propagate as errors rather than missing-impl facts.
+    pub fn explain_with_associated_types(
+        &mut self,
+        goal: TraitGoal,
+        requirements: &[AssociatedTypeRequirement],
+    ) -> nia_ice::IceResult<TraitObligationResolution> {
+        let resolution = self.explain(goal.clone())?;
+        if resolution.satisfied_resolution().is_none() {
+            return Ok(resolution);
+        }
+        for requirement in requirements {
+            let Some(actual) = self.resolve_associated_type(
+                goal.self_ty,
+                goal.trait_id,
+                &goal.trait_args,
+                &goal.trait_const_args,
+                &requirement.name,
+            )?
+            else {
+                return Ok(TraitObligationResolution::Failed(
+                    TraitObligationFailure::AssociatedTypeMissing {
+                        name: requirement.name,
+                    },
+                ));
+            };
+            if !self.types_equivalent(actual, requirement.ty)? {
+                return Ok(TraitObligationResolution::Failed(
+                    TraitObligationFailure::AssociatedTypeMismatch {
+                        name: requirement.name,
+                        expected: requirement.ty,
+                        actual,
+                    },
+                ));
+            }
+        }
+        Ok(resolution)
+    }
+
     pub(crate) fn resolve_inner(&mut self, goal: TraitGoal) -> TraitResolution {
         self.stats.goals += 1;
         let goal = self.normalize_goal(goal);

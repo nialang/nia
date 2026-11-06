@@ -17,6 +17,13 @@ label: 241..256 Primary Source no value named `missing_in_main` is visible in th
 help: check the spelling, import `missing_in_main`, or declare it before this use
 
 report:
+error[E0201]: unknown value `missing_in_main`
+   --> fail/signature_generic_shadowing/main.nia:17:5
+   |
+17 |     missing_in_main
+   |     ^^^^^^^^^^^^^^^ no value named `missing_in_main` is visible in this scope
+help: check the spelling, import `missing_in_main`, or declare it before this use
+
 error[E0203]: method generic parameter cannot shadow enclosing generic parameter `T`
   --> fail/signature_generic_shadowing/main.nia:6:17
   |
@@ -30,12 +37,5 @@ error[E0203]: method generic parameter cannot shadow enclosing generic parameter
 13 |     fun convert[T](self, value: T) T;
    |                 ^ this method parameter shadows the enclosing parameter
 help: rename the method parameter or remove it and use the enclosing `T` parameter
-
-error[E0201]: unknown value `missing_in_main`
-   --> fail/signature_generic_shadowing/main.nia:17:5
-   |
-17 |     missing_in_main
-   |     ^^^^^^^^^^^^^^^ no value named `missing_in_main` is visible in this scope
-help: check the spelling, import `missing_in_main`, or declare it before this use
 
 summary: 3 errors, 0 warnings

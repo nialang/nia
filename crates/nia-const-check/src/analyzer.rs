@@ -26,7 +26,7 @@ use nia_const_ir::{
     ResolvedConstPatternBinding, ResolvedConstPatternKind, ResolvedConstStmtKind,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
-use nia_diagnostic::{Diagnostic, codes};
+use nia_diagnostic::{Diagnostic, TraitObligationExplanationKind, codes, explain_trait_obligation};
 use nia_ids::{
     BuiltinFunction, GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId,
     ModuleId, ValueBuiltin,

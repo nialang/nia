@@ -16,14 +16,21 @@
 
 use nia_span::Span;
 
+mod report;
 mod stable_bundle;
+mod trait_explanation;
+
+pub use report::{build_diagnostic_report, build_diagnostic_report_with_downstream};
+pub use trait_explanation::{
+    TraitObligationExplanation, TraitObligationExplanationKind, explain_associated_type_binding,
+    explain_trait_obligation,
+};
 mod store;
 
 pub use stable_bundle::{
     StableDiagnosticBundleError, decode_stable_diagnostic_bundle, encode_stable_diagnostic_bundle,
 };
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 pub use store::{DiagnosticBundle, DiagnosticBundleId, DiagnosticStore};
 
@@ -481,14 +488,14 @@ pub struct Diagnostic {
     pub debug: Box<Vec<DebugField>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-/// Stable identity of a diagnostic root that caused another diagnostic.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// Stable source identity of a diagnostic that caused another diagnostic.
 pub struct DiagnosticCause {
-    /// Source file owning the root diagnostic.
+    /// Source file owning the parent diagnostic.
     pub source_path: String,
-    /// Stable diagnostic code of the root.
+    /// Stable diagnostic code of the parent.
     pub code: String,
-    /// Primary source span of the root diagnostic.
+    /// Primary source span of the parent diagnostic.
     pub span: Span,
 }
 
@@ -516,7 +523,7 @@ pub struct DiagnosticCode {
     def: &'static codes::DiagnosticCodeDef,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// One labeled source span attached to a diagnostic.
 pub struct DiagnosticLabel {
     /// Labeled source span.
@@ -529,7 +536,7 @@ pub struct DiagnosticLabel {
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Provenance class for a diagnostic span.
 pub enum SpanSource {
     /// Span came directly from source text.
@@ -540,7 +547,7 @@ pub enum SpanSource {
     Generated,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Presentation style for a diagnostic label.
 pub enum LabelStyle {
     /// Main location for the diagnostic.
@@ -549,7 +556,7 @@ pub enum LabelStyle {
     Secondary,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Related source location attached to a diagnostic.
 pub struct RelatedDiagnostic {
     /// Related source span.
@@ -565,7 +572,7 @@ pub const MAX_DIAGNOSTIC_SUGGESTIONS: usize = 8;
 /// Maximum number of replacement edits retained by one suggestion.
 pub const MAX_SUGGESTION_EDITS: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Confidence with which tooling may apply a diagnostic suggestion.
 pub enum SuggestionApplicability {
     /// The edit is semantics-preserving for the diagnosed rule.
@@ -578,7 +585,7 @@ pub enum SuggestionApplicability {
     Unspecified,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// One source-relative replacement within a structured suggestion.
 pub struct SuggestionEdit {
     /// Source span replaced by the edit; an empty span is an insertion.
@@ -587,7 +594,7 @@ pub struct SuggestionEdit {
     pub replacement: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// One bounded, source-owned remediation proposal.
 pub struct DiagnosticSuggestion {
     /// User-facing explanation of the proposed change.
@@ -598,7 +605,7 @@ pub struct DiagnosticSuggestion {
     pub edits: Box<Vec<SuggestionEdit>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 /// Internal key/value context attached to a diagnostic.
 pub struct DebugField {
     /// Debug field name.
@@ -710,11 +717,11 @@ pub struct DiagnosticReport<'a, T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Presentation relationship of one retained report entry.
 pub enum DiagnosticReportEntryKind {
-    /// A source-owned diagnostic that establishes a root cause.
+    /// A source-owned diagnostic with no resolved parent.
     Root,
-    /// A diagnostic explicitly linked to a source root.
+    /// A diagnostic explicitly linked to another report entry.
     Related,
-    /// A diagnostic that cannot be attached to an unambiguous root.
+    /// A diagnostic that cannot be attached to an unambiguous parent.
     Independent,
 }
 
@@ -740,7 +747,7 @@ impl<'a, T> DiagnosticReport<'a, T> {
         self.entry_kinds.get(index).copied()
     }
 
-    /// Returns the root entry index for a related entry.
+    /// Returns the parent entry index for a related entry.
     pub fn entry_parent(&self, index: usize) -> Option<usize> {
         self.entry_parents.get(index).copied().flatten()
     }
@@ -816,6 +823,16 @@ pub trait DiagnosticReportItem {
     /// Returns an optional path used as a deterministic ordering key.
     fn report_path(&self) -> Option<&str> {
         None
+    }
+
+    /// Returns the diagnostic's explicit source owner, falling back to the
+    /// enclosing report item's path. This identity is shared by ordering,
+    /// causal links, deduplication, and machine-readable rendering.
+    fn report_source_path(&self) -> Option<&str> {
+        self.report_diagnostic()
+            .source_path
+            .as_deref()
+            .or_else(|| self.report_path())
     }
 }
 
@@ -1116,7 +1133,7 @@ impl DiagnosticBuilder {
         self
     }
 
-    /// Links this diagnostic to a source-owned root diagnostic.
+    /// Links this diagnostic to a source-owned parent diagnostic.
     pub fn caused_by(
         mut self,
         source_path: impl Into<String>,
@@ -1143,240 +1160,6 @@ impl DiagnosticBuilder {
     /// Finishes the builder and returns the immutable diagnostic.
     pub fn finish(self) -> Diagnostic {
         self.diagnostic
-    }
-}
-
-/// Sorts diagnostics for presentation, removes exact duplicates, and applies
-/// the configured display limit.
-///
-/// Deduplication happens before limiting so suppression counts remain stable.
-/// The full diagnostic participates in equality: sharing a primary location
-/// does not make two different candidate explanations interchangeable.
-pub fn build_diagnostic_report<T: DiagnosticReportItem>(
-    diagnostics: &[T],
-    config: DiagnosticReportConfig,
-) -> DiagnosticReport<'_, T> {
-    build_diagnostic_report_with_downstream(diagnostics, config, 0)
-}
-
-/// Builds a report while retaining the number of downstream diagnostics
-/// suppressed by an earlier semantic phase.
-pub fn build_diagnostic_report_with_downstream<T: DiagnosticReportItem>(
-    diagnostics: &[T],
-    config: DiagnosticReportConfig,
-    suppressed_downstream: usize,
-) -> DiagnosticReport<'_, T> {
-    let mut entries = diagnostics.iter().collect::<Vec<_>>();
-    entries.sort_by(|left, right| compare_report_items(*left, *right));
-
-    let mut selected = Vec::new();
-    let mut seen = HashSet::new();
-    let mut suppressed_duplicates = 0;
-    for entry in entries {
-        let key = DiagnosticDedupeKey::from_item(entry);
-        if !seen.insert(key) {
-            suppressed_duplicates += 1;
-            continue;
-        }
-        selected.push(entry);
-    }
-
-    // Only direct source roots can own context. A consequence cannot become
-    // another entry's root, even when it has its own source-owned primary span.
-    let mut root_positions = HashMap::new();
-    for (index, entry) in selected.iter().enumerate() {
-        let diagnostic = entry.report_diagnostic();
-        if diagnostic.cause.is_some()
-            || report_entry_kind(diagnostic) != DiagnosticReportEntryKind::Root
-        {
-            continue;
-        }
-        let Some(path) = entry.report_path() else {
-            continue;
-        };
-        let Some(span) = diagnostic.primary_span() else {
-            continue;
-        };
-        let key = (path, diagnostic.code.as_str(), span);
-        root_positions
-            .entry(key)
-            .and_modify(|position| *position = None)
-            .or_insert(Some(index));
-    }
-    let mut relationships = Vec::with_capacity(selected.len());
-    let mut children = vec![Vec::new(); selected.len()];
-    for (index, entry) in selected.iter().enumerate() {
-        let diagnostic = entry.report_diagnostic();
-        let parent = diagnostic.cause.as_ref().and_then(|cause| {
-            let key = (cause.source_path.as_str(), cause.code.as_str(), cause.span);
-            root_positions.get(&key).copied().flatten()
-        });
-        if let Some(parent) = parent {
-            children[parent].push(index);
-            relationships.push((DiagnosticReportEntryKind::Related, Some(parent)));
-        } else if diagnostic.cause.is_some() {
-            relationships.push((DiagnosticReportEntryKind::Independent, None));
-        } else {
-            relationships.push((report_entry_kind(diagnostic), None));
-        }
-    }
-
-    let mut ordered_indices = Vec::with_capacity(selected.len());
-    for (root_index, (kind, _)) in relationships.iter().enumerate() {
-        if *kind != DiagnosticReportEntryKind::Root {
-            continue;
-        }
-        ordered_indices.push(root_index);
-        ordered_indices.extend(children[root_index].iter().copied());
-    }
-    ordered_indices.extend(
-        relationships
-            .iter()
-            .enumerate()
-            .filter_map(|(index, (kind, _))| {
-                (*kind == DiagnosticReportEntryKind::Independent).then_some(index)
-            }),
-    );
-
-    let suppressed_by_limit = ordered_indices.len().saturating_sub(config.max_diagnostics);
-    ordered_indices.truncate(config.max_diagnostics);
-    let mut retained_positions = HashMap::with_capacity(ordered_indices.len());
-    for (report_index, selected_index) in ordered_indices.iter().enumerate() {
-        retained_positions.insert(*selected_index, report_index);
-    }
-    let mut entry_kinds = Vec::with_capacity(ordered_indices.len());
-    let mut entry_parents = Vec::with_capacity(ordered_indices.len());
-    let mut ordered_entries = Vec::with_capacity(ordered_indices.len());
-    for selected_index in ordered_indices {
-        let (kind, parent) = relationships[selected_index];
-        entry_kinds.push(kind);
-        entry_parents.push(parent.and_then(|parent| retained_positions.get(&parent).copied()));
-        ordered_entries.push(selected[selected_index]);
-    }
-    selected = ordered_entries;
-
-    let error_count = selected
-        .iter()
-        .filter(|entry| entry.report_diagnostic().severity() == Severity::Error)
-        .count();
-    let warning_count = selected
-        .iter()
-        .filter(|entry| entry.report_diagnostic().severity() == Severity::Warning)
-        .count();
-
-    DiagnosticReport {
-        entries: selected,
-        entry_kinds,
-        entry_parents,
-        error_count,
-        warning_count,
-        suppressed_duplicates,
-        suppressed_downstream,
-        suppressed_by_limit,
-    }
-}
-
-fn report_entry_kind(diagnostic: &Diagnostic) -> DiagnosticReportEntryKind {
-    match diagnostic.primary_span_source() {
-        Some(SpanSource::Source) => DiagnosticReportEntryKind::Root,
-        Some(SpanSource::Generated | SpanSource::Fallback) | None => {
-            DiagnosticReportEntryKind::Independent
-        }
-    }
-}
-
-fn compare_report_items<T: DiagnosticReportItem>(left: &T, right: &T) -> Ordering {
-    let left_diagnostic = left.report_diagnostic();
-    let right_diagnostic = right.report_diagnostic();
-    span_source_rank(left_diagnostic)
-        .cmp(&span_source_rank(right_diagnostic))
-        .then_with(|| {
-            diagnostic_priority(left_diagnostic).cmp(&diagnostic_priority(right_diagnostic))
-        })
-        .then_with(|| {
-            diagnostic_stage_priority(left_diagnostic)
-                .cmp(&diagnostic_stage_priority(right_diagnostic))
-        })
-        .then_with(|| left.report_path().cmp(&right.report_path()))
-        .then_with(|| {
-            left_diagnostic
-                .primary_span()
-                .unwrap_or_default()
-                .start
-                .cmp(&right_diagnostic.primary_span().unwrap_or_default().start)
-        })
-        .then_with(|| {
-            left_diagnostic
-                .primary_span()
-                .unwrap_or_default()
-                .end
-                .cmp(&right_diagnostic.primary_span().unwrap_or_default().end)
-        })
-        .then_with(|| {
-            left_diagnostic
-                .code
-                .as_str()
-                .cmp(right_diagnostic.code.as_str())
-        })
-        .then_with(|| left_diagnostic.summary.cmp(&right_diagnostic.summary))
-}
-
-fn diagnostic_stage_priority(diagnostic: &Diagnostic) -> u8 {
-    use codes::DiagnosticStage;
-
-    match diagnostic.code.def().stage {
-        DiagnosticStage::Compiler => 0,
-        DiagnosticStage::Parse => 1,
-        DiagnosticStage::Load => 2,
-        DiagnosticStage::TargetConfig => 3,
-        DiagnosticStage::Resolution => 4,
-        DiagnosticStage::TypeNormalization => 5,
-        DiagnosticStage::ItemSignature => 6,
-        DiagnosticStage::LocalResolution => 7,
-        DiagnosticStage::TypeCheck => 8,
-        DiagnosticStage::BodyIr => 9,
-        DiagnosticStage::Const => 10,
-        DiagnosticStage::StaticCheck => 11,
-        DiagnosticStage::FunctionIr => 12,
-        DiagnosticStage::BackendIr => 13,
-        DiagnosticStage::Llvm => 14,
-        DiagnosticStage::Linker => 15,
-    }
-}
-
-fn diagnostic_priority(diagnostic: &Diagnostic) -> (u8, u8) {
-    let category = match diagnostic.category() {
-        DiagnosticCategory::Internal => 0,
-        DiagnosticCategory::User => 1,
-    };
-    let severity = match diagnostic.severity() {
-        Severity::Error => 0,
-        Severity::Warning => 1,
-    };
-    (category, severity)
-}
-
-fn span_source_rank(diagnostic: &Diagnostic) -> u8 {
-    match diagnostic.primary_span_source() {
-        Some(SpanSource::Source) => 0,
-        Some(SpanSource::Generated) => 1,
-        Some(SpanSource::Fallback) => 2,
-        None => 3,
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct DiagnosticDedupeKey<'a> {
-    path: Option<&'a str>,
-    diagnostic: &'a Diagnostic,
-}
-
-impl<'a> DiagnosticDedupeKey<'a> {
-    fn from_item<T: DiagnosticReportItem>(item: &'a T) -> Self {
-        Self {
-            path: item.report_path(),
-            diagnostic: item.report_diagnostic(),
-        }
     }
 }
 
@@ -1466,6 +1249,12 @@ pub fn render_diagnostic_with_sources<'a>(
     diagnostic: &Diagnostic,
     sources: &'a HashMap<String, String>,
 ) -> String {
+    let (path, source) = match diagnostic.source_path.as_deref() {
+        Some(owner) if owner != path => {
+            (owner, sources.get(owner).map(String::as_str).unwrap_or(""))
+        }
+        _ => (path, source),
+    };
     let mut output = String::new();
     let category = match diagnostic.category() {
         DiagnosticCategory::User => "",
@@ -1564,8 +1353,8 @@ pub fn render_diagnostic_with_sources<'a>(
     output
 }
 
-/// Renders the note that ties a consequence to the root diagnostic it follows
-/// from. The root location uses `sources` when they cover its span and falls
+/// Renders the note that ties a consequence to the diagnostic it follows from.
+/// The parent location uses `sources` when they cover its span and falls
 /// back to the stable byte range otherwise.
 pub fn render_cause_note(cause: &DiagnosticCause, sources: &HashMap<String, String>) -> String {
     let path = cause.source_path.as_str();
@@ -1592,6 +1381,7 @@ fn is_synthetic_path(path: &str) -> bool {
 /// included only for internal diagnostics so user reports do not accidentally
 /// expose compiler handles.
 pub fn render_diagnostic_json(path: &str, diagnostic: &Diagnostic) -> String {
+    let path = diagnostic.source_path.as_deref().unwrap_or(path);
     let mut output = String::from("{");
     push_json_string_field(&mut output, "path", path, true);
     push_json_string_field(&mut output, "code", diagnostic.code.as_str(), false);
@@ -1696,6 +1486,16 @@ pub fn render_diagnostic_json(path: &str, diagnostic: &Diagnostic) -> String {
         output.push('}');
     }
     output.push(']');
+    if let Some(cause) = &diagnostic.cause {
+        output.push_str(",\"cause\":{");
+        push_json_string_field(&mut output, "path", &cause.source_path, true);
+        push_json_string_field(&mut output, "code", &cause.code, false);
+        output.push_str(",\"start\":");
+        output.push_str(&cause.span.start.to_string());
+        output.push_str(",\"end\":");
+        output.push_str(&cause.span.end.to_string());
+        output.push('}');
+    }
     if diagnostic.category() == DiagnosticCategory::Internal {
         output.push_str(",\"debug\":[");
         for (index, field) in diagnostic.debug.iter().enumerate() {
@@ -1735,7 +1535,7 @@ pub fn render_diagnostics_json_with_downstream<T: DiagnosticReportItem>(
             output.push(',');
         }
         let rendered = render_diagnostic_json(
-            entry.report_path().unwrap_or("<unknown>"),
+            entry.report_source_path().unwrap_or("<unknown>"),
             entry.report_diagnostic(),
         );
         let kind = report
@@ -2276,6 +2076,23 @@ mod tests {
     }
 
     #[test]
+    fn report_prioritizes_internal_failures_even_without_a_source_span() {
+        let source_error =
+            Diagnostic::user_error_at(codes::TYPE_CHECK, Span::new(0, 1), "source error");
+        let internal = Diagnostic::internal_error(codes::ICE, "internal failure")
+            .primary_fallback(Span::default(), "compiler failure location unavailable")
+            .finish();
+        let diagnostics = [source_error, internal];
+        let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
+
+        assert_eq!(report.entries()[0].code.as_str(), "I0001");
+        assert_eq!(
+            report.entry_kind(0),
+            Some(DiagnosticReportEntryKind::Independent)
+        );
+    }
+
+    #[test]
     fn report_presents_earlier_source_stages_before_downstream_recovery() {
         struct Item<'a> {
             path: &'a str,
@@ -2451,15 +2268,15 @@ mod tests {
         ];
         let report = build_diagnostic_report(&diagnostics, DiagnosticReportConfig::default());
 
-        assert_eq!(report.entry_kind(0), Some(DiagnosticReportEntryKind::Root));
         assert_eq!(
-            report.entry_kind(1),
-            Some(DiagnosticReportEntryKind::Related)
+            report.entry_kind(0),
+            Some(DiagnosticReportEntryKind::Independent)
         );
-        assert_eq!(report.entry_parent(1), Some(0));
+        assert_eq!(report.entry_kind(1), Some(DiagnosticReportEntryKind::Root));
+        assert_eq!(report.entry_parent(1), None);
         assert_eq!(
             report.entry_kind(2),
-            Some(DiagnosticReportEntryKind::Independent)
+            Some(DiagnosticReportEntryKind::Related)
         );
         assert_eq!(report.entries().len(), 4);
         assert_eq!(
@@ -2470,8 +2287,8 @@ mod tests {
         let root = json.find("\"kind\":\"root\"").unwrap();
         let related = json.find("\"kind\":\"related\"").unwrap();
         let independent = json.find("\"kind\":\"independent\"").unwrap();
-        assert!(root < related && related < independent, "{json}");
-        assert!(json.contains("\"kind\":\"related\",\"parent\":0"), "{json}");
+        assert!(independent < root && root < related, "{json}");
+        assert!(json.contains("\"kind\":\"related\",\"parent\":1"), "{json}");
     }
 
     #[test]
@@ -2508,7 +2325,7 @@ mod tests {
             (
                 "chain",
                 vec![root.clone(), consequence(2, 10), consequence(0, 2)],
-                vec!["root", "related", "independent"],
+                vec!["root", "related", "related"],
             ),
             (
                 "ambiguous",
@@ -2566,9 +2383,12 @@ mod tests {
                             .entry_parent(index)
                             .expect("related entry has a retained parent");
                         assert!(parent < index, "{name}");
-                        assert_eq!(
-                            report.entry_kind(parent),
-                            Some(DiagnosticReportEntryKind::Root),
+                        assert!(
+                            matches!(
+                                report.entry_kind(parent),
+                                Some(DiagnosticReportEntryKind::Root)
+                                    | Some(DiagnosticReportEntryKind::Related)
+                            ),
                             "{name}"
                         );
                     } else {
@@ -2577,6 +2397,42 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn trait_obligation_explanations_preserve_semantic_failure_kinds() {
+        let missing = explain_trait_obligation(
+            "Point",
+            "fmt::Format",
+            TraitObligationExplanationKind::NoImplementation,
+        );
+        assert!(missing.summary.contains("Point: fmt::Format"));
+        assert!(missing.note.contains("visible implementation"));
+        assert!(missing.help.contains("does not implement `fmt::Format`"));
+
+        let hidden = explain_trait_obligation(
+            "Point",
+            "fmt::Format",
+            TraitObligationExplanationKind::NotVisible,
+        );
+        assert!(hidden.note.contains("outside the current visibility scope"));
+        assert!(hidden.help.contains("make the module"));
+
+        let ambiguous = explain_trait_obligation(
+            "Point",
+            "fmt::Format",
+            TraitObligationExplanationKind::Ambiguous,
+        );
+        assert!(ambiguous.note.contains("multiple equally specific"));
+        assert!(ambiguous.help.contains("exactly one implementation"));
+
+        let constrained = explain_trait_obligation(
+            "Wrapper",
+            "Decode",
+            TraitObligationExplanationKind::AdditionalConstraint,
+        );
+        assert!(constrained.note.contains("required bounds"));
+        assert!(constrained.help.contains("additional trait bounds"));
     }
 
     // `Result<_, Diagnostic>` is everywhere; a diagnostic stays small enough

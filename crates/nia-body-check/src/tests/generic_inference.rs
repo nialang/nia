@@ -1208,9 +1208,9 @@ fun reject(value: Holder[Bad]) () {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic
-                .summary
-                .contains("trait bound not satisfied: Bad: Source"))
+            .filter(|diagnostic| diagnostic.summary.contains(
+                "associated type binding not satisfied: Source::Item expected i32, got bool"
+            ))
             .count(),
         1,
         "{:?}",

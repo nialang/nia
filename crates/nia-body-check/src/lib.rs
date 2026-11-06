@@ -264,7 +264,7 @@ struct BodyChecker<'a> {
     trait_impls_by_trait: FastHashMap<nia_ty::TraitId, Vec<usize>>,
     def_trait_obligations_cache: FastHashMap<DefId, Vec<TraitObligation>>,
     trait_obligation_resolution_cache:
-        FastHashMap<TraitObligationResolutionKey, nia_trait_solve::TraitResolution>,
+        FastHashMap<TraitObligationResolutionKey, nia_trait_solve::TraitObligationResolution>,
     type_match_cache: FastHashMap<(InternedTyId, InternedTyId), bool>,
     diagnostics: Vec<Diagnostic>,
     diagnostic_owners: Vec<Option<GlobalDefId>>,

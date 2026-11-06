@@ -2,6 +2,40 @@
 use super::common::*;
 
 #[test]
+fn mutable_place_failures_explain_the_required_trait() {
+    let checked = pipeline(
+        r#"
+fun invalid[T](pointer: T) ()
+where T: Deref[Target = i32] {
+    _ = &mut pointer.*;
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.summary.contains("not assignable")
+                && diagnostic.summary.contains("T: DerefMut")
+                && diagnostic
+                    .notes
+                    .iter()
+                    .any(|note| note.contains("DerefMut"))
+                && diagnostic.help.iter().any(|help| help.contains("DerefMut"))
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+    let checked = pipeline(
+        r#"
+fun valid[T](pointer: T) ()
+where T: DerefMut[Target = i32] {
+    _ = &mut pointer.*;
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn place_operations_do_not_reject_structural_error_recovery_types() {
     let checked = pipeline(
         r#"

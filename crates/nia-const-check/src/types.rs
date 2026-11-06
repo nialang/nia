@@ -307,7 +307,9 @@ pub struct ConstProgramContext<'a> {
     pub global_initializer: Option<&'a dyn Fn(GlobalDefId) -> Option<ResolvedConstExpr>>,
     /// Identifies enum definitions for value interpretation.
     pub program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
-    /// Lazily loads trait implementations visible in another module.
+    /// Lazily loads the complete trait witness scope for an execution module.
+    /// These facts are already filtered by trait visibility and provider
+    /// closure; consumers must not intersect them with a method index.
     pub trait_impls_for_module:
         Option<&'a dyn Fn(ModuleId) -> Option<Vec<ProgramTraitImplSignature>>>,
     /// Lazily loads visible extension methods for another module.

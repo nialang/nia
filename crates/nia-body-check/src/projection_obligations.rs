@@ -190,6 +190,22 @@ impl<'a> BodyChecker<'a> {
         trait_args: Vec<InternedTyId>,
         trait_const_args: Vec<ConstGenericArg>,
     ) -> TraitResolution {
+        self.current_context_explain_trait_obligation_with_const_args(
+            self_ty,
+            trait_id,
+            trait_args,
+            trait_const_args,
+        )
+        .into_resolution()
+    }
+
+    pub(crate) fn current_context_explain_trait_obligation_with_const_args(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
+    ) -> nia_trait_solve::TraitObligationResolution {
         let self_ty = self.normalize_aliases_in_type(self_ty);
         let trait_args = trait_args
             .into_iter()
@@ -209,8 +225,8 @@ impl<'a> BodyChecker<'a> {
             trait_args: trait_args.clone(),
             trait_const_args: trait_const_args.clone(),
         };
-        if let Some(resolution) = self.trait_obligation_resolution_cache.get(&key) {
-            return resolution.clone();
+        if let Some(explanation) = self.trait_obligation_resolution_cache.get(&key) {
+            return explanation.clone();
         }
         let obligations = self.current_trait_obligations();
         let required = TraitObligation {
@@ -220,13 +236,10 @@ impl<'a> BodyChecker<'a> {
             trait_const_args,
             associated_type_bindings: Vec::new(),
         };
-        let resolution = self.resolve_trait_obligation(&obligations, &required);
-        if matches!(resolution, TraitResolution::Unsatisfied) {
-            self.record_trait_provider_demand(self_ty, trait_id, &key.trait_args);
-        }
+        let explained = self.check_trait_obligation(&obligations, &required);
         self.trait_obligation_resolution_cache
-            .insert(key, resolution.clone());
-        resolution
+            .insert(key, explained.clone());
+        explained
     }
 
     pub(crate) fn check_function_signature_projection_obligations(
@@ -535,56 +548,36 @@ impl<'a> BodyChecker<'a> {
                 else {
                     continue;
                 };
-                if !self.current_context_proves_trait_obligation_with_const_args(
-                    predicate.ty,
+                let required = TraitObligation {
+                    self_ty: predicate.ty,
                     trait_id,
-                    trait_args.clone(),
-                    trait_const_args.clone(),
-                ) {
-                    if !self.is_error_recovery_ty(predicate.ty)
-                        && !trait_args
-                            .iter()
-                            .copied()
-                            .any(|arg| self.is_error_recovery_ty(arg))
-                    {
-                        self.report_trait_bound_not_satisfied(
-                            span,
-                            predicate.ty,
-                            trait_id,
-                            &trait_args,
-                        );
-                    }
-                    continue;
-                }
-                for binding in &bound.associated_type_bindings {
-                    let Some(actual_ty) = self.resolve_associated_type_projection(
-                        predicate.ty,
-                        trait_id,
-                        &trait_args,
-                        &trait_const_args,
-                        &binding.name,
-                    ) else {
-                        self.report_associated_type_binding_unresolved(
-                            span,
-                            trait_id,
-                            &trait_args,
-                            binding.name,
-                        );
-                        continue;
-                    };
-                    let expected_ty = self.normalize_projection(binding.ty);
-                    let actual_ty = self.normalize_projection(actual_ty);
-                    if !self.types_equivalent_without_projection_resolution(expected_ty, actual_ty)
-                    {
-                        self.report_associated_type_binding_mismatch(
-                            span,
-                            trait_id,
-                            &trait_args,
-                            binding.name,
-                            expected_ty,
-                            actual_ty,
-                        );
-                    }
+                    trait_args: trait_args.clone(),
+                    trait_const_args: trait_const_args.clone(),
+                    associated_type_bindings: bound
+                        .associated_type_bindings
+                        .iter()
+                        .map(|binding| TraitObligationAssociatedTypeBinding {
+                            name: binding.name,
+                            ty: self.normalize_projection(binding.ty),
+                        })
+                        .collect(),
+                };
+                // Function/method where predicates are checked in the
+                // caller's current generic environment.  Keep those
+                // assumptions in the solver input; passing an empty list
+                // would turn a valid generic bound into a false missing
+                // implementation and would make this path disagree with
+                // ordinary projection checking.
+                let obligations = self.current_trait_obligations();
+                if let nia_trait_solve::TraitObligationResolution::Failed(failure) =
+                    self.check_trait_obligation(&obligations, &required)
+                    && !self.is_error_recovery_ty(predicate.ty)
+                    && !trait_args
+                        .iter()
+                        .copied()
+                        .any(|arg| self.is_error_recovery_ty(arg))
+                {
+                    self.report_trait_obligation_failure(span, &required, failure);
                 }
             }
         }
@@ -1774,7 +1767,8 @@ impl<'a> BodyChecker<'a> {
                     trait_const_args,
                     associated_type_bindings: Vec::new(),
                 };
-                if !self.proves_trait_obligation(obligations, &required)
+                if let nia_trait_solve::TraitObligationResolution::Failed(failure) =
+                    self.check_trait_obligation(obligations, &required)
                     && !self.is_error_recovery_ty(required.self_ty)
                     && !required
                         .trait_args
@@ -1782,12 +1776,7 @@ impl<'a> BodyChecker<'a> {
                         .copied()
                         .any(|arg| self.is_error_recovery_ty(arg))
                 {
-                    self.report_trait_bound_not_satisfied(
-                        span,
-                        required.self_ty,
-                        required.trait_id,
-                        &required.trait_args,
-                    );
+                    self.report_trait_obligation_failure(span, &required, failure);
                 }
             }
             Some(
@@ -1873,7 +1862,8 @@ impl<'a> BodyChecker<'a> {
             trait_const_args: projection.trait_const_args,
             associated_type_bindings: Vec::new(),
         };
-        if !self.proves_trait_obligation(obligations, &required)
+        if let nia_trait_solve::TraitObligationResolution::Failed(failure) =
+            self.check_trait_obligation(obligations, &required)
             && !self.is_error_recovery_ty(required.self_ty)
             && !required
                 .trait_args
@@ -1881,12 +1871,7 @@ impl<'a> BodyChecker<'a> {
                 .copied()
                 .any(|arg| self.is_error_recovery_ty(arg))
         {
-            self.report_trait_bound_not_satisfied(
-                span,
-                required.self_ty,
-                required.trait_id,
-                &required.trait_args,
-            );
+            self.report_trait_obligation_failure(span, &required, failure);
         }
     }
 
@@ -1948,7 +1933,8 @@ impl<'a> BodyChecker<'a> {
                         })
                         .collect(),
                 };
-                if !self.proves_trait_obligation(obligations, &required)
+                let resolution = self.check_trait_obligation(obligations, &required);
+                if let nia_trait_solve::TraitObligationResolution::Failed(failure) = resolution
                     && !self.is_error_recovery_ty(required.self_ty)
                     && !required
                         .trait_args
@@ -1956,43 +1942,85 @@ impl<'a> BodyChecker<'a> {
                         .copied()
                         .any(|arg| self.is_error_recovery_ty(arg))
                 {
-                    self.report_trait_bound_not_satisfied(
-                        span,
-                        required.self_ty,
-                        required.trait_id,
-                        &required.trait_args,
-                    );
+                    self.report_trait_obligation_failure(span, &required, failure);
                 }
             }
         }
     }
 
-    fn proves_trait_obligation(
+    fn report_trait_obligation_failure(
+        &mut self,
+        span: Span,
+        required: &TraitObligation,
+        failure: nia_trait_solve::TraitObligationFailure,
+    ) {
+        match failure {
+            nia_trait_solve::TraitObligationFailure::AssociatedTypeMissing { name } => {
+                self.report_associated_type_binding_unresolved(
+                    span,
+                    required.trait_id,
+                    &required.trait_args,
+                    name,
+                );
+            }
+            nia_trait_solve::TraitObligationFailure::AssociatedTypeMismatch {
+                name,
+                expected,
+                actual,
+            } => {
+                let expected = self.normalize_projection(expected);
+                let actual = self.normalize_projection(actual);
+                self.report_associated_type_binding_mismatch(
+                    span,
+                    required.trait_id,
+                    &required.trait_args,
+                    name,
+                    expected,
+                    actual,
+                );
+            }
+            failure => {
+                let trait_name = self.trait_ty_name(required.trait_id, &required.trait_args);
+                self.report_trait_bound_not_satisfied_with_solver_failure(
+                    span,
+                    required.self_ty,
+                    trait_name,
+                    failure,
+                );
+            }
+        }
+    }
+
+    fn check_trait_obligation(
         &mut self,
         obligations: &[TraitObligation],
         required: &TraitObligation,
-    ) -> bool {
-        let resolution = self.resolve_trait_obligation(obligations, required);
+    ) -> nia_trait_solve::TraitObligationResolution {
+        let resolution = self.resolve_trait_obligation_explained(obligations, required);
         // Implementations live in the owner packages; an unproven goal asks
         // the loader for them, and the next round sees them.
-        if matches!(resolution, TraitResolution::Unsatisfied) {
+        if matches!(
+            resolution,
+            nia_trait_solve::TraitObligationResolution::Failed(
+                nia_trait_solve::TraitObligationFailure::NoImplementation
+                    | nia_trait_solve::TraitObligationFailure::NotVisible
+                    | nia_trait_solve::TraitObligationFailure::AdditionalConstraint
+            )
+        ) {
             self.record_trait_provider_demand(
                 required.self_ty,
                 required.trait_id,
                 &required.trait_args,
             );
         }
-        matches!(
-            resolution,
-            TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
-        )
+        resolution
     }
 
-    fn resolve_trait_obligation(
+    fn resolve_trait_obligation_explained(
         &mut self,
         obligations: &[TraitObligation],
         required: &TraitObligation,
-    ) -> TraitResolution {
+    ) -> nia_trait_solve::TraitObligationResolution {
         let assumptions = self.trait_goals_for_obligations(obligations);
         let associated_type_assumptions =
             self.associated_type_assumptions_for_obligations(obligations);
@@ -2022,7 +2050,16 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
-        let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
+        let const_expr_value = |id: nia_ids::GlobalConstExprId, ty| {
+            const_expr_values
+                .get(&(id.clone(), ty))
+                .cloned()
+                .or_else(|| {
+                    self.array_len_const_expr_value(id).map(|value| {
+                        ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
+                    })
+                })
+        };
         let program_signature_scope = self.program_signature_scope;
         let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
         let context = TraitSolverContext {
@@ -2036,23 +2073,37 @@ impl<'a> BodyChecker<'a> {
             local_enums: self.signatures.enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
+            // The supplied program facts already establish the witness scope.
+            // Re-filtering every prerequisite by the callsite's method scope
+            // would reject valid private provider chains inside an impl.
             impl_is_visible: None,
         };
         let mut solver = context
             .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
-        let resolution = match solver.resolve(TraitGoal {
-            self_ty: required.self_ty,
-            trait_id: required.trait_id,
-            trait_args: required.trait_args.clone(),
-            trait_const_args: required.trait_const_args.clone(),
-        }) {
+        let requirements = required
+            .associated_type_bindings
+            .iter()
+            .map(|binding| nia_trait_solve::AssociatedTypeRequirement {
+                name: binding.name,
+                ty: binding.ty,
+            })
+            .collect::<Vec<_>>();
+        let resolution = match solver.explain_with_associated_types(
+            TraitGoal {
+                self_ty: required.self_ty,
+                trait_id: required.trait_id,
+                trait_args: required.trait_args.clone(),
+                trait_const_args: required.trait_const_args.clone(),
+            },
+            &requirements,
+        ) {
             Ok(resolution) => resolution,
             Err(error) => {
                 self.record_internal(error);
-                return TraitResolution::Unsatisfied;
+                return nia_trait_solve::TraitObligationResolution::Unavailable;
             }
         };
-        if matches!(resolution, TraitResolution::Unsatisfied)
+        if resolution.satisfied_resolution().is_none()
             && matches!(required.trait_id, TraitId::Source(_))
         {
             self.record_trait_solver_dependencies(&solver);
@@ -2073,36 +2124,6 @@ impl<'a> BodyChecker<'a> {
                 "body_check.trait_solver.const_impl_args_scanned",
                 const_expr_impl_args_scanned,
             );
-        }
-        if !matches!(
-            resolution,
-            TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
-        ) {
-            return resolution;
-        }
-        for binding in &required.associated_type_bindings {
-            let actual_ty = match solver.resolve_associated_type(
-                required.self_ty,
-                required.trait_id,
-                &required.trait_args,
-                &required.trait_const_args,
-                &binding.name,
-            ) {
-                Ok(Some(actual_ty)) => actual_ty,
-                Ok(None) => return TraitResolution::Unsatisfied,
-                Err(error) => {
-                    self.record_internal(error);
-                    return TraitResolution::Unsatisfied;
-                }
-            };
-            match solver.types_equivalent(actual_ty, binding.ty) {
-                Ok(true) => {}
-                Ok(false) => return TraitResolution::Unsatisfied,
-                Err(error) => {
-                    self.record_internal(error);
-                    return TraitResolution::Unsatisfied;
-                }
-            }
         }
         resolution
     }

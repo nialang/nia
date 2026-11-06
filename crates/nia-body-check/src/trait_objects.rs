@@ -589,6 +589,18 @@ impl<'a> BodyChecker<'a> {
         trait_args: &[InternedTyId],
         trait_const_args: &[nia_ty::ConstGenericArg],
     ) -> bool {
+        self.trait_object_explain_implementation(self_ty, trait_id, trait_args, trait_const_args)
+            .satisfied_resolution()
+            .is_some()
+    }
+
+    pub(crate) fn trait_object_explain_implementation(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: nia_ty::TraitId,
+        trait_args: &[InternedTyId],
+        trait_const_args: &[nia_ty::ConstGenericArg],
+    ) -> nia_trait_solve::TraitObligationResolution {
         let self_ty = self.normalize_aliases_in_type(self_ty);
         let assumptions = self.current_trait_goals();
         let associated_type_assumptions = self.current_associated_type_assumptions();
@@ -601,7 +613,6 @@ impl<'a> BodyChecker<'a> {
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
         let program_signature_scope = self.program_signature_scope;
         let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
-        let extensions = self.extensions.methods();
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.normalization,
@@ -613,23 +624,23 @@ impl<'a> BodyChecker<'a> {
             local_enums: self.signatures.enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
-            impl_is_visible: Some(&|module_id, impl_id| {
-                module_id == self.defs.module_id
-                    || extensions.has_trait_witness_impl(module_id, impl_id)
-            }),
+            // Program trait facts already carry the witness scope. Method
+            // visibility is a separate capability and may contain no entry
+            // for an implementation with only associated types.
+            impl_is_visible: None,
         };
         let mut solver = context
             .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
-        match solver.proves(TraitGoal {
+        match solver.explain(TraitGoal {
             self_ty,
             trait_id,
             trait_args: trait_args.to_vec(),
             trait_const_args: trait_const_args.to_vec(),
         }) {
-            Ok(proven) => proven,
+            Ok(resolution) => resolution,
             Err(error) => {
                 self.record_internal(error);
-                false
+                nia_trait_solve::TraitObligationResolution::Unavailable
             }
         }
     }

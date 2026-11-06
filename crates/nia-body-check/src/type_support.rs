@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::{HashMap, HashSet};
+
 use crate::literals::{
     byte_string_literal_len, float_literal_suffix_ty, float_literal_text,
     has_numeric_literal_suffix, integer_literal_suffix_ty, integer_literal_value,
@@ -7,7 +9,7 @@ use crate::literals::{
 use crate::{BodyChecker, BodyTypeCx};
 use nia_ast::{Expr, ExprKind, TypeRef, UnaryOp};
 use nia_defs::{DefId, DefKind};
-use nia_diagnostic::{Diagnostic, codes};
+use nia_diagnostic::{Diagnostic, TraitObligationExplanationKind, codes, explain_trait_obligation};
 use nia_hash::FastHashMap;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_sema_ir::{
@@ -21,7 +23,31 @@ use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy,
     TraitId, TyKind,
 };
-use std::collections::{HashMap, HashSet};
+
+pub(crate) fn trait_obligation_explanation_kind(
+    failure: nia_trait_solve::TraitObligationFailure,
+) -> TraitObligationExplanationKind {
+    match failure {
+        nia_trait_solve::TraitObligationFailure::NoImplementation => {
+            TraitObligationExplanationKind::NoImplementation
+        }
+        nia_trait_solve::TraitObligationFailure::NotVisible => {
+            TraitObligationExplanationKind::NotVisible
+        }
+        nia_trait_solve::TraitObligationFailure::Ambiguous => {
+            TraitObligationExplanationKind::Ambiguous
+        }
+        nia_trait_solve::TraitObligationFailure::AdditionalConstraint => {
+            TraitObligationExplanationKind::AdditionalConstraint
+        }
+        nia_trait_solve::TraitObligationFailure::AssociatedTypeMissing { .. } => {
+            TraitObligationExplanationKind::AssociatedTypeMissing
+        }
+        nia_trait_solve::TraitObligationFailure::AssociatedTypeMismatch { .. } => {
+            TraitObligationExplanationKind::AssociatedTypeMismatch
+        }
+    }
+}
 
 static ERROR_TY_KIND: TyKind = TyKind::Error;
 
@@ -1014,7 +1040,6 @@ impl<'a> BodyChecker<'a> {
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
         let program_signature_scope = self.program_signature_scope;
         let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
-        let extensions = self.extensions.methods();
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.normalization,
@@ -1026,10 +1051,10 @@ impl<'a> BodyChecker<'a> {
             local_enums: self.signatures.enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
-            impl_is_visible: Some(&|module_id, impl_id| {
-                module_id == self.defs.module_id
-                    || extensions.has_trait_witness_impl(module_id, impl_id)
-            }),
+            // Program trait facts already carry the witness scope. Method
+            // visibility is a separate capability and may contain no entry
+            // for an implementation with only associated types.
+            impl_is_visible: None,
         };
         let mut solver = context
             .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
@@ -1068,18 +1093,30 @@ impl<'a> BodyChecker<'a> {
         if let Some((trait_id, trait_args, trait_const_args)) =
             self.trait_object_requirement(expected)
             && let Some(actual_self) = self.trait_object_candidate_self_type(actual)
-            && !self.trait_object_has_implementation(
+        {
+            let resolution = self.trait_object_explain_implementation(
                 actual_self,
                 trait_id,
                 &trait_args,
                 &trait_const_args,
-            )
-        {
-            let trait_name = self.trait_ty_name(trait_id, &trait_args);
-            let actual_self_name = self.ty_name(actual_self);
-            diagnostic = diagnostic.help(format!(
-                "`{actual_self_name}` does not implement `{trait_name}`"
-            ));
+            );
+            let failure = match resolution {
+                nia_trait_solve::TraitObligationResolution::Failed(failure) => {
+                    Some(trait_obligation_explanation_kind(failure))
+                }
+                nia_trait_solve::TraitObligationResolution::Satisfied(_)
+                | nia_trait_solve::TraitObligationResolution::Unavailable => None,
+            };
+            if let Some(failure) = failure {
+                let actual_self_name = self.ty_name(actual_self);
+                let trait_name = self.trait_ty_name(trait_id, &trait_args);
+                let explanation = explain_trait_obligation(&actual_self_name, &trait_name, failure);
+                diagnostic = diagnostic.note(explanation.note).help(explanation.help);
+            } else {
+                diagnostic = diagnostic.help(
+                    "change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation",
+                );
+            }
         } else {
             diagnostic = diagnostic.help(
                 "change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation",
@@ -1551,7 +1588,34 @@ impl<'a> BodyChecker<'a> {
         trait_args: &[InternedTyId],
     ) {
         let trait_name = self.trait_ty_name(trait_id, trait_args);
-        self.report_trait_bound_not_satisfied_named(span, self_ty, trait_name);
+        let failure = match self.current_context_explain_trait_obligation_with_const_args(
+            self_ty,
+            trait_id,
+            trait_args.to_vec(),
+            Vec::new(),
+        ) {
+            nia_trait_solve::TraitObligationResolution::Failed(failure) => {
+                Some(trait_obligation_explanation_kind(failure))
+            }
+            nia_trait_solve::TraitObligationResolution::Satisfied(_) => {
+                Some(TraitObligationExplanationKind::Unproven)
+            }
+            nia_trait_solve::TraitObligationResolution::Unavailable => None,
+        };
+        if let Some(failure) = failure {
+            self.report_trait_bound_not_satisfied_with_failure(span, self_ty, trait_name, failure);
+        }
+    }
+
+    pub(crate) fn report_trait_bound_not_satisfied_with_solver_failure(
+        &mut self,
+        span: Span,
+        self_ty: InternedTyId,
+        trait_name: impl Into<String>,
+        failure: nia_trait_solve::TraitObligationFailure,
+    ) {
+        let failure = trait_obligation_explanation_kind(failure);
+        self.report_trait_bound_not_satisfied_with_failure(span, self_ty, trait_name, failure);
     }
 
     pub(crate) fn report_trait_bound_not_satisfied_named(
@@ -1560,18 +1624,29 @@ impl<'a> BodyChecker<'a> {
         self_ty: InternedTyId,
         trait_name: impl Into<String>,
     ) {
+        self.report_trait_bound_not_satisfied_with_failure(
+            span,
+            self_ty,
+            trait_name,
+            TraitObligationExplanationKind::Unproven,
+        );
+    }
+
+    pub(crate) fn report_trait_bound_not_satisfied_with_failure(
+        &mut self,
+        span: Span,
+        self_ty: InternedTyId,
+        trait_name: impl Into<String>,
+        failure: TraitObligationExplanationKind,
+    ) {
         let self_name = self.ty_name(self_ty);
         let trait_name = trait_name.into();
-        let summary = format!("trait bound not satisfied: {self_name}: {trait_name}");
+        let explanation = explain_trait_obligation(&self_name, &trait_name, failure);
         self.diagnostics.push(
-            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
-                .primary(span, summary)
-                .note(format!(
-                    "the compiler could not find a visible implementation of `{trait_name}` for `{self_name}`"
-                ))
-                .help(format!(
-                    "provide an implementation of `{trait_name}` for `{self_name}`, import the module that defines it, or use a type with a matching implementation"
-                ))
+            Diagnostic::user_error(codes::TYPE_CHECK, explanation.summary.clone())
+                .primary(span, explanation.summary)
+                .note(explanation.note)
+                .help(explanation.help)
                 .finish(),
         );
     }
@@ -1585,18 +1660,12 @@ impl<'a> BodyChecker<'a> {
     ) {
         let trait_name = self.trait_ty_name(trait_id, trait_args);
         let name = self.symbol_name(name);
-        let summary = format!(
-            "associated type binding not satisfied: {trait_name}::{name} could not be resolved"
-        );
+        let explanation = nia_diagnostic::explain_associated_type_binding(&trait_name, &name, None);
         self.diagnostics.push(
-            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
-                .primary(span, summary)
-                .note(format!(
-                    "the implementation for `{trait_name}` does not expose a resolvable associated type named `{name}`"
-                ))
-                .help(format!(
-                    "define `{name}` in the implementation, use the correct associated type name, or remove the binding"
-                ))
+            Diagnostic::user_error(codes::TYPE_CHECK, explanation.summary.clone())
+                .primary(span, explanation.summary)
+                .note(explanation.note)
+                .help(explanation.help)
                 .finish(),
         );
     }
@@ -1614,18 +1683,16 @@ impl<'a> BodyChecker<'a> {
         let name = self.symbol_name(name);
         let expected_name = self.ty_name(expected);
         let actual_name = self.ty_name(actual);
-        let summary = format!(
-            "associated type binding not satisfied: {trait_name}::{name} expected {expected_name}, got {actual_name}"
+        let explanation = nia_diagnostic::explain_associated_type_binding(
+            &trait_name,
+            &name,
+            Some((&expected_name, &actual_name)),
         );
         self.diagnostics.push(
-            Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
-                .primary(span, summary)
-                .note(format!(
-                    "the implementation resolves `{trait_name}::{name}` as `{actual_name}`, but this bound requires `{expected_name}`"
-                ))
-                .help(format!(
-                    "change the associated type definition to `{expected_name}`, or update the bound to match `{actual_name}`"
-                ))
+            Diagnostic::user_error(codes::TYPE_CHECK, explanation.summary.clone())
+                .primary(span, explanation.summary)
+                .note(explanation.note)
+                .help(explanation.help)
                 .finish(),
         );
     }

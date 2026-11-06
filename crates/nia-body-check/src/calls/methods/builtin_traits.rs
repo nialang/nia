@@ -455,15 +455,12 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
+            self.report_trait_bound_not_satisfied(
                 call.span,
-                format!(
-                    "trait bound not satisfied: {}: {}",
-                    self.ty_name(call.target_ty),
-                    self.builtin_trait_ty_name(trait_id, &trait_args)
-                ),
-            ));
+                call.target_ty,
+                TraitId::Builtin(trait_id),
+                &trait_args,
+            );
         }
         let output =
             self.builtin_trait_place_method_output(call.target_ty, trait_id, trait_args.clone());

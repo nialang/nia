@@ -41,12 +41,6 @@ error[E0201]: unknown value `missing_config`
   |                       ^^^^^^^^^^^^^^ no value named `missing_config` is visible in this scope
 help: check the spelling, import `missing_config`, or declare it before this use
 
-error[E0301]: builtin `asm` requires a `code` byte string literal
-  --> fail/asm_container_recovery/main.nia:3:5
-  |
-3 |     std::builtin::asm(.{
-  |     ^^^^^^^^^^^^^^^^^
-
 error[E0201]: unknown value `missing_inputs`
   --> fail/asm_container_recovery/main.nia:4:17
   |
@@ -74,5 +68,11 @@ error[E0201]: unknown value `missing_options`
 7 |         options: missing_options,
   |                  ^^^^^^^^^^^^^^^ no value named `missing_options` is visible in this scope
 help: check the spelling, import `missing_options`, or declare it before this use
+
+error[E0301]: builtin `asm` requires a `code` byte string literal
+  --> fail/asm_container_recovery/main.nia:3:5
+  |
+3 |     std::builtin::asm(.{
+  |     ^^^^^^^^^^^^^^^^^
 
 summary: 6 errors, 0 warnings

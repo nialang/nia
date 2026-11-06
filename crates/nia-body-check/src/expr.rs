@@ -1772,10 +1772,11 @@ impl<'a> BodyChecker<'a> {
             && !self.is_error_recovery_ty(lhs_ty)
             && !self.is_error_recovery_ty(rhs_ty)
         {
-            self.report_trait_bound_not_satisfied_named(
+            self.report_trait_bound_not_satisfied(
                 span,
                 lhs_ty,
-                self.builtin_trait_ty_name(trait_id, &trait_args),
+                TraitId::Builtin(trait_id),
+                &trait_args,
             );
             return;
         }
@@ -1832,10 +1833,11 @@ impl<'a> BodyChecker<'a> {
         ) && !self.is_error_recovery_ty(lhs_ty)
             && !self.is_error_recovery_ty(rhs_ty)
         {
-            self.report_trait_bound_not_satisfied_named(
+            self.report_trait_bound_not_satisfied(
                 span,
                 lhs_ty,
-                self.builtin_trait_ty_name(trait_id, &[rhs_ty]),
+                TraitId::Builtin(trait_id),
+                &[rhs_ty],
             );
         }
         if let Some(expected) = expected {
@@ -1956,10 +1958,11 @@ impl<'a> BodyChecker<'a> {
         ) && !self.is_error_recovery_ty(lhs_ty)
             && !self.is_error_recovery_ty(rhs_ty)
         {
-            self.report_trait_bound_not_satisfied_named(
+            self.report_trait_bound_not_satisfied(
                 finish.span,
                 lhs_ty,
-                self.builtin_trait_ty_name(finish.trait_id, &trait_args),
+                TraitId::Builtin(finish.trait_id),
+                &trait_args,
             );
         }
         self.record_builtin_operator_method(finish.op, lhs_ty, trait_args.clone());
@@ -2000,11 +2003,7 @@ impl<'a> BodyChecker<'a> {
                 Vec::new(),
             )
         {
-            self.report_trait_bound_not_satisfied_named(
-                span,
-                inner_ty,
-                self.builtin_trait_ty_name(trait_id, &[]),
-            );
+            self.report_trait_bound_not_satisfied(span, inner_ty, TraitId::Builtin(trait_id), &[]);
         }
         self.record_builtin_operator_method(BuiltinOperatorOp::Unary(op), inner_ty, Vec::new());
         if builtin_trait_output_is_boolean(trait_id) {

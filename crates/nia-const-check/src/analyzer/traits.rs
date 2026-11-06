@@ -152,15 +152,14 @@ impl Analyzer<'_> {
         trait_args: Vec<InternedTyId>,
         trait_const_args: Vec<ConstGenericArg>,
     ) -> bool {
-        matches!(
-            self.resolve_trait_obligation_with_const_args(
-                self_ty,
-                trait_id,
-                trait_args,
-                trait_const_args,
-            ),
-            TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
+        self.explain_trait_obligation_with_const_args(
+            self_ty,
+            trait_id,
+            trait_args,
+            trait_const_args,
         )
+        .satisfied_resolution()
+        .is_some()
     }
 
     pub(super) fn resolve_trait_obligation(
@@ -179,8 +178,41 @@ impl Analyzer<'_> {
         trait_args: Vec<InternedTyId>,
         trait_const_args: Vec<ConstGenericArg>,
     ) -> TraitResolution {
+        self.explain_trait_obligation_with_const_args(
+            self_ty,
+            trait_id,
+            trait_args,
+            trait_const_args,
+        )
+        .into_resolution()
+    }
+
+    fn explain_trait_obligation_with_const_args(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
+    ) -> nia_trait_solve::TraitObligationResolution {
+        self.explain_trait_obligation_with_requirements(
+            self_ty,
+            trait_id,
+            trait_args,
+            trait_const_args,
+            &[],
+        )
+    }
+
+    fn explain_trait_obligation_with_requirements(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        trait_const_args: Vec<ConstGenericArg>,
+        requirements: &[nia_trait_solve::AssociatedTypeRequirement],
+    ) -> nia_trait_solve::TraitObligationResolution {
         let Some(module_id) = self.ensure_trait_solver_module(self_ty, &trait_args) else {
-            return TraitResolution::Unsatisfied;
+            return nia_trait_solve::TraitObligationResolution::Unavailable;
         };
         let assumptions = self.current_trait_goals();
         let local_enums = self
@@ -194,13 +226,8 @@ impl Analyzer<'_> {
             }
             program_is_enum_query.is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let visible_extensions = self
-            .input
-            .program
-            .visible_extensions
-            .and_then(|visible_extensions| visible_extensions(module_id));
         let trait_impls = self.trait_impls_for_solver_module(module_id);
-        let array_lengths = self.trait_solver_array_lengths(
+        let mut array_lengths = self.trait_solver_array_lengths(
             self_ty,
             trait_id,
             &trait_args,
@@ -208,6 +235,11 @@ impl Analyzer<'_> {
             &assumptions,
             &trait_impls,
         );
+        let mut required_lengths = HashSet::new();
+        for requirement in requirements {
+            self.collect_array_len_const_exprs_in_ty(requirement.ty, &mut required_lengths);
+        }
+        self.extend_trait_solver_array_lengths(&mut array_lengths, required_lengths);
         let const_expr_value = |id, _ty| {
             array_lengths
                 .get(&id)
@@ -215,15 +247,7 @@ impl Analyzer<'_> {
         };
         let normalization = self.type_normalization_for_module(module_id);
         let Some(normalization) = normalization else {
-            return TraitResolution::Unsatisfied;
-        };
-        let impl_is_visible = |impl_module_id, impl_id| {
-            impl_module_id == module_id
-                || visible_extensions
-                    .as_ref()
-                    .is_none_or(|visible_extensions| {
-                        visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
-                    })
+            return nia_trait_solve::TraitObligationResolution::Unavailable;
         };
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let layout_module_id = match self.ty_kind(self_ty) {
@@ -245,7 +269,10 @@ impl Analyzer<'_> {
             local_enums: &local_enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
-            impl_is_visible: Some(&impl_is_visible),
+            // The provider supplies the witness closure for this execution
+            // module. A method index cannot re-filter that proof scope:
+            // marker and associated-type-only impls have no method entries.
+            impl_is_visible: None,
         };
         let goal = TraitGoal {
             self_ty,
@@ -254,11 +281,17 @@ impl Analyzer<'_> {
             trait_const_args,
         };
         let mut solver = context.solver(&assumptions);
-        let Some(resolution) = self.recover_internal(solver.resolve(goal.clone())) else {
-            return TraitResolution::Unsatisfied;
+        let Some(resolution) =
+            self.recover_internal(solver.explain_with_associated_types(goal.clone(), requirements))
+        else {
+            return nia_trait_solve::TraitObligationResolution::Unavailable;
         };
-        if matches!(resolution, TraitResolution::Unsatisfied)
-            && goal.trait_id == TraitId::Builtin(nia_ty::BuiltinTrait::Sized)
+        if matches!(
+            resolution,
+            nia_trait_solve::TraitObligationResolution::Failed(
+                nia_trait_solve::TraitObligationFailure::NoImplementation
+            )
+        ) && goal.trait_id == TraitId::Builtin(nia_ty::BuiltinTrait::Sized)
             && self
                 .resolve_layout_builtin_for_ty(
                     Span::default(),
@@ -267,7 +300,9 @@ impl Analyzer<'_> {
                 )
                 .is_ok()
         {
-            TraitResolution::Intrinsic(nia_trait_solve::IntrinsicImpl { goal })
+            nia_trait_solve::TraitObligationResolution::Satisfied(TraitResolution::Intrinsic(
+                nia_trait_solve::IntrinsicImpl { goal },
+            ))
         } else {
             resolution
         }
@@ -310,19 +345,9 @@ impl Analyzer<'_> {
                 else {
                     continue;
                 };
-                if !self.proves_trait_obligation_with_const_args(
-                    self_ty,
-                    trait_id,
-                    trait_args.clone(),
-                    trait_const_args.clone(),
-                ) {
-                    return Err(ConstError {
-                        span,
-                        message: "trait bound not satisfied for const function call".to_string(),
-                    });
-                }
+                let mut requirements = Vec::with_capacity(bound.associated_type_bindings.len());
                 for binding in &bound.associated_type_bindings {
-                    let expected = self
+                    let ty = self
                         .const_expected_param_type(
                             signature_module_id,
                             binding.ty,
@@ -333,28 +358,80 @@ impl Analyzer<'_> {
                             span,
                             message: "cannot resolve const call associated type bound".to_string(),
                         })?;
-                    let actual = self
-                        .resolve_associated_type_projection(
-                            self_ty,
-                            trait_id,
-                            &trait_args,
-                            &trait_const_args,
-                            &binding.name,
-                        )
-                        .ok_or_else(|| ConstError {
-                            span,
-                            message: "associated type bound not satisfied for const function call"
-                                .to_string(),
-                        })?;
-                    let expected = self.normalize_projection(expected);
-                    let actual = self.normalize_projection(actual);
-                    if !self.const_function_types_match(expected, actual) {
-                        return Err(ConstError {
-                            span,
-                            message: "associated type bound not satisfied for const function call"
-                                .to_string(),
-                        });
-                    }
+                    requirements.push(nia_trait_solve::AssociatedTypeRequirement {
+                        name: binding.name,
+                        ty,
+                    });
+                }
+                let obligation = self.explain_trait_obligation_with_requirements(
+                    self_ty,
+                    trait_id,
+                    trait_args.clone(),
+                    trait_const_args,
+                    &requirements,
+                );
+                if let nia_trait_solve::TraitObligationResolution::Failed(failure) = obligation {
+                    let target_name = self.const_type_name(self_ty);
+                    let trait_name = self.const_trait_name(trait_id, &trait_args);
+                    let explanation = match failure {
+                        nia_trait_solve::TraitObligationFailure::AssociatedTypeMissing { name } => {
+                            let name = symbol_text_or_unresolved(self.input.symbols, name);
+                            nia_diagnostic::explain_associated_type_binding(
+                                &trait_name,
+                                &name,
+                                None,
+                            )
+                        }
+                        nia_trait_solve::TraitObligationFailure::AssociatedTypeMismatch {
+                            name,
+                            expected,
+                            actual,
+                        } => {
+                            let name = symbol_text_or_unresolved(self.input.symbols, name);
+                            let expected = self.const_type_name(expected);
+                            let actual = self.const_type_name(actual);
+                            nia_diagnostic::explain_associated_type_binding(
+                                &trait_name,
+                                &name,
+                                Some((&expected, &actual)),
+                            )
+                        }
+                        nia_trait_solve::TraitObligationFailure::NoImplementation => {
+                            explain_trait_obligation(
+                                &target_name,
+                                &trait_name,
+                                TraitObligationExplanationKind::NoImplementation,
+                            )
+                        }
+                        nia_trait_solve::TraitObligationFailure::NotVisible => {
+                            explain_trait_obligation(
+                                &target_name,
+                                &trait_name,
+                                TraitObligationExplanationKind::NotVisible,
+                            )
+                        }
+                        nia_trait_solve::TraitObligationFailure::Ambiguous => {
+                            explain_trait_obligation(
+                                &target_name,
+                                &trait_name,
+                                TraitObligationExplanationKind::Ambiguous,
+                            )
+                        }
+                        nia_trait_solve::TraitObligationFailure::AdditionalConstraint => {
+                            explain_trait_obligation(
+                                &target_name,
+                                &trait_name,
+                                TraitObligationExplanationKind::AdditionalConstraint,
+                            )
+                        }
+                    };
+                    return Err(ConstError {
+                        span,
+                        message: format!(
+                            "trait bound not satisfied for const function call: {}",
+                            explanation.note
+                        ),
+                    });
                 }
             }
         }
@@ -382,11 +459,6 @@ impl Analyzer<'_> {
             }
             program_is_enum_query.is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let visible_extensions = self
-            .input
-            .program
-            .visible_extensions
-            .and_then(|visible_extensions| visible_extensions(module_id));
         let trait_impls = self.trait_impls_for_solver_module(module_id);
         let array_lengths = self.trait_solver_array_lengths(
             self_ty,
@@ -402,14 +474,6 @@ impl Analyzer<'_> {
                 .map(|value| ConstGenericValue::Int(IntConst::unsigned((*value).into())))
         };
         let normalization = self.type_normalization_for_module(module_id)?;
-        let impl_is_visible = |impl_module_id, impl_id| {
-            impl_module_id == module_id
-                || visible_extensions
-                    .as_ref()
-                    .is_none_or(|visible_extensions| {
-                        visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
-                    })
-        };
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let program_layouts = |module_id| self.compute_program_layout(module_id, &array_lengths);
         let context = TraitSolverContext {
@@ -423,7 +487,10 @@ impl Analyzer<'_> {
             local_enums: &local_enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
-            impl_is_visible: Some(&impl_is_visible),
+            // The provider supplies the witness closure for this execution
+            // module. A method index cannot re-filter that proof scope:
+            // marker and associated-type-only impls have no method entries.
+            impl_is_visible: None,
         };
         let mut solver = context.solver(&assumptions);
         let result =
@@ -477,11 +544,6 @@ impl Analyzer<'_> {
             }
             program_is_enum_query.is_some_and(|program_is_enum| program_is_enum(def_id))
         };
-        let visible_extensions = self
-            .input
-            .program
-            .visible_extensions
-            .and_then(|visible_extensions| visible_extensions(module_id));
         let trait_impls = self.trait_impls_for_solver_module(module_id);
         let array_lengths = self.trait_solver_array_lengths(
             self_ty,
@@ -497,14 +559,6 @@ impl Analyzer<'_> {
                 .map(|value| ConstGenericValue::Int(IntConst::unsigned((*value).into())))
         };
         let normalization = self.type_normalization_for_module(module_id)?;
-        let impl_is_visible = |impl_module_id, impl_id| {
-            impl_module_id == module_id
-                || visible_extensions
-                    .as_ref()
-                    .is_none_or(|visible_extensions| {
-                        visible_extensions.has_trait_witness_impl(impl_module_id, impl_id)
-                    })
-        };
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let program_layouts = |module_id| self.compute_program_layout(module_id, &array_lengths);
         let context = TraitSolverContext {
@@ -518,7 +572,10 @@ impl Analyzer<'_> {
             local_enums: &local_enums,
             program_is_enum: Some(&program_is_enum),
             const_expr_value: Some(&const_expr_value),
-            impl_is_visible: Some(&impl_is_visible),
+            // The provider supplies the witness closure for this execution
+            // module. A method index cannot re-filter that proof scope:
+            // marker and associated-type-only impls have no method entries.
+            impl_is_visible: None,
         };
         let mut solver = context.solver(&assumptions);
         let result = solver.resolve_associated_const(
@@ -681,15 +738,30 @@ impl Analyzer<'_> {
                 &impl_signature.trait_const_args,
                 &mut needed,
             );
+            for associated in &impl_signature.associated_types {
+                self.collect_array_len_const_exprs_in_ty(associated.ty, &mut needed);
+            }
             for predicate in &impl_signature.where_predicates {
                 self.collect_array_len_const_exprs_in_ty(predicate.ty, &mut needed);
                 for bound in &predicate.bounds {
                     self.collect_array_len_const_exprs_in_ty(bound.trait_ty, &mut needed);
+                    for binding in &bound.associated_type_bindings {
+                        self.collect_array_len_const_exprs_in_ty(binding.ty, &mut needed);
+                    }
                 }
             }
         }
 
         let mut array_lengths = self.array_lengths.clone();
+        self.extend_trait_solver_array_lengths(&mut array_lengths, needed);
+        array_lengths
+    }
+
+    fn extend_trait_solver_array_lengths(
+        &mut self,
+        array_lengths: &mut HashMap<GlobalConstExprId, u64>,
+        needed: HashSet<GlobalConstExprId>,
+    ) {
         for id in needed {
             if !array_lengths.contains_key(&id)
                 && let Some(value) = self.eval_array_len_const_expr_id(&id)
@@ -697,7 +769,6 @@ impl Analyzer<'_> {
                 array_lengths.insert(id, value);
             }
         }
-        array_lengths
     }
 
     fn collect_trait_solver_const_arg_exprs(
@@ -761,6 +832,31 @@ impl Analyzer<'_> {
             const_substitutions,
         );
         arg
+    }
+
+    fn const_trait_name(&mut self, trait_id: TraitId, args: &[InternedTyId]) -> String {
+        let base = match trait_id {
+            TraitId::Builtin(trait_id) => trait_id.name().to_string(),
+            TraitId::Source(def_id) => self
+                .global_defs(def_id.module_id)
+                .and_then(|defs| {
+                    defs.as_ref()
+                        .defs
+                        .get(def_id.def_id)
+                        .map(|def| symbol_text_or_unresolved(self.input.symbols, def.name))
+                })
+                .unwrap_or_else(|| "<const trait>".to_string()),
+        };
+        if args.is_empty() {
+            base
+        } else {
+            let args = args
+                .iter()
+                .map(|arg| self.const_type_name(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{base}[{args}]")
+        }
     }
 
     pub(super) fn trait_id_and_args(

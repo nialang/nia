@@ -2,6 +2,64 @@
 use super::common::*;
 
 #[test]
+fn associated_obligation_evidence_preserves_generic_and_const_proofs() {
+    let root = temp_dir("associated_obligation_evidence_preserves_generic_and_const_proofs");
+    write(
+        &root.join("main.nia"),
+        r#"
+module provider;
+using root::provider;
+
+const fun forward[T]() i32
+where T: provider::Source[Item = provider::Items] {
+    provider::accept[T]()
+}
+
+const VALUE: i32 = forward[provider::Good]();
+
+const fun marker[T]() i32
+where T: provider::Marker { 1 }
+
+const MARKER: i32 = marker[provider::Good]();
+
+fun consume(value: &provider::Marker) () { _ = value; }
+
+fun projected(value: [provider::Good as provider::Source]::Item) provider::Items {
+    value
+}
+
+fun main() i32 {
+    let value = provider::Good {};
+    consume(&value);
+    _ = projected([1, 2]);
+    VALUE + MARKER
+}
+"#,
+    );
+    write(
+        &root.join("provider.nia"),
+        r#"
+const WIDTH: usize = 2;
+pub type Items = [i32; WIDTH];
+
+pub trait Source { type Item; }
+pub trait Marker {}
+pub struct Good {}
+
+extend Good : Source { type Item = [i32; 1 + 1]; }
+extend Good : Marker {}
+
+pub const fun accept[T]() i32
+where T: Source[Item = Items] {
+    7
+}
+"#,
+    );
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn associated_types_resolve_explicit_projection_in_trait_methods() {
     let root = temp_dir("associated_types_resolve_explicit_projection_in_trait_methods");
     write(

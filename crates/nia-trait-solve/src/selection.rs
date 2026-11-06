@@ -3,6 +3,12 @@
 
 use super::*;
 
+#[derive(Clone, Copy)]
+enum ImplVisibilityFilter {
+    Visible,
+    Invisible,
+}
+
 impl TraitSolver<'_> {
     pub(crate) fn impl_header_subsumes_signatures(
         &mut self,
@@ -51,6 +57,54 @@ impl TraitSolver<'_> {
     }
 
     pub(crate) fn matching_user_impls(&mut self, goal: &TraitGoal) -> Vec<UserImpl> {
+        self.matching_impls_by_visibility(goal, ImplVisibilityFilter::Visible)
+    }
+
+    pub(crate) fn matching_user_impls_with_visibility(
+        &mut self,
+        goal: &TraitGoal,
+        visible: bool,
+    ) -> Vec<UserImpl> {
+        let filter = if visible {
+            ImplVisibilityFilter::Visible
+        } else {
+            ImplVisibilityFilter::Invisible
+        };
+        self.matching_impls_by_visibility(goal, filter)
+    }
+
+    /// Finds implementation headers that match the requested trait reference,
+    /// without requiring their where-clauses to be proven. This is used only
+    /// to explain an otherwise-unsatisfied goal: it distinguishes a truly
+    /// absent implementation from a candidate blocked by additional bounds.
+    pub(crate) fn matching_impl_headers_with_visibility(
+        &mut self,
+        goal: &TraitGoal,
+        visible: bool,
+    ) -> Vec<UserImpl> {
+        let filter = if visible {
+            ImplVisibilityFilter::Visible
+        } else {
+            ImplVisibilityFilter::Invisible
+        };
+        let indexes = self
+            .trait_impl_index
+            .map(|index| index.indexes_for_trait_and_target(goal.trait_id, goal.self_ty))
+            .unwrap_or_else(|| (0..self.trait_impls.len()).collect());
+        indexes
+            .into_iter()
+            .filter_map(|impl_index| {
+                self.stats.candidate_indexes += 1;
+                self.match_impl_header_at_with_visibility(goal, impl_index, filter)
+            })
+            .collect()
+    }
+
+    fn matching_impls_by_visibility(
+        &mut self,
+        goal: &TraitGoal,
+        filter: ImplVisibilityFilter,
+    ) -> Vec<UserImpl> {
         let mut matches = Vec::new();
         if let Some(index) = self.trait_impl_index {
             for impl_index in index
@@ -58,14 +112,18 @@ impl TraitSolver<'_> {
                 .into_iter()
             {
                 self.stats.candidate_indexes += 1;
-                if let Some(user_impl) = self.match_user_impl_at(goal, impl_index) {
+                if let Some(user_impl) =
+                    self.match_user_impl_at_with_visibility(goal, impl_index, filter)
+                {
                     matches.push(user_impl);
                 }
             }
         } else {
             for impl_index in 0..self.trait_impls.len() {
                 self.stats.candidate_indexes += 1;
-                if let Some(user_impl) = self.match_user_impl_at(goal, impl_index) {
+                if let Some(user_impl) =
+                    self.match_user_impl_at_with_visibility(goal, impl_index, filter)
+                {
                     matches.push(user_impl);
                 }
             }
@@ -73,17 +131,48 @@ impl TraitSolver<'_> {
         self.filter_more_specific_user_impls(matches)
     }
 
+    #[cfg(test)]
     pub(crate) fn match_user_impl_at(
         &mut self,
         goal: &TraitGoal,
         impl_index: usize,
+    ) -> Option<UserImpl> {
+        self.match_user_impl_at_with_visibility(goal, impl_index, ImplVisibilityFilter::Visible)
+    }
+
+    fn match_user_impl_at_with_visibility(
+        &mut self,
+        goal: &TraitGoal,
+        impl_index: usize,
+        visibility_filter: ImplVisibilityFilter,
+    ) -> Option<UserImpl> {
+        let candidate =
+            self.match_impl_header_at_with_visibility(goal, impl_index, visibility_filter)?;
+        let impl_signature = self.trait_impls.get(impl_index)?;
+        if !self.impl_where_predicates_hold(
+            impl_signature,
+            &candidate.substitutions,
+            &candidate.const_substitutions,
+        ) {
+            return None;
+        }
+        self.stats.matched_impls += 1;
+        Some(candidate)
+    }
+
+    fn match_impl_header_at_with_visibility(
+        &mut self,
+        goal: &TraitGoal,
+        impl_index: usize,
+        visibility_filter: ImplVisibilityFilter,
     ) -> Option<UserImpl> {
         self.stats.match_attempts += 1;
         let impl_signature = self.trait_impls.get(impl_index)?;
         if impl_signature.builtin.is_some() {
             return None;
         }
-        if !(self.impl_is_visible)(impl_signature.module_id, impl_signature.impl_id) {
+        let is_visible = (self.impl_is_visible)(impl_signature.module_id, impl_signature.impl_id);
+        if is_visible != matches!(visibility_filter, ImplVisibilityFilter::Visible) {
             return None;
         }
         if impl_signature.trait_id != goal.trait_id {
@@ -129,20 +218,11 @@ impl TraitSolver<'_> {
                         &mut const_substitutions,
                     )
                 });
-        let where_holds = trait_const_args_match
-            && self.impl_where_predicates_hold(
-                impl_signature,
-                &substitutions,
-                &const_substitutions,
-            );
-        (target_matches && trait_args_match && trait_const_args_match && where_holds).then(|| {
-            self.stats.matched_impls += 1;
-            UserImpl {
-                goal: goal.clone(),
-                impl_index,
-                substitutions,
-                const_substitutions,
-            }
+        (target_matches && trait_args_match && trait_const_args_match).then(|| UserImpl {
+            goal: goal.clone(),
+            impl_index,
+            substitutions,
+            const_substitutions,
         })
     }
 

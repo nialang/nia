@@ -11,7 +11,79 @@ use nia_symbol::known;
 use nia_ty::{BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
+pub(crate) enum PlaceFailure {
+    Storage(&'static str),
+    Obligation {
+        self_ty: InternedTyId,
+        trait_id: BuiltinTrait,
+        args: Vec<InternedTyId>,
+        resolution: nia_trait_solve::TraitObligationResolution,
+    },
+}
+
 impl<'a> BodyChecker<'a> {
+    fn place_trait_failure(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: BuiltinTrait,
+        args: Vec<InternedTyId>,
+    ) -> PlaceFailure {
+        let resolution = self.current_context_explain_trait_obligation_with_const_args(
+            self_ty,
+            TraitId::Builtin(trait_id),
+            args.clone(),
+            Vec::new(),
+        );
+        PlaceFailure::Obligation {
+            self_ty,
+            trait_id,
+            args,
+            resolution,
+        }
+    }
+
+    fn report_place_failure(
+        &mut self,
+        span: Span,
+        context: &str,
+        property: &str,
+        reason: PlaceFailure,
+    ) {
+        let diagnostic = match reason {
+            PlaceFailure::Storage(reason) => Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                format!("{context} is not {property}: {reason}"),
+            ),
+            PlaceFailure::Obligation {
+                self_ty,
+                trait_id,
+                args,
+                resolution,
+            } => {
+                let kind = match resolution {
+                    nia_trait_solve::TraitObligationResolution::Failed(failure) => {
+                        crate::type_support::trait_obligation_explanation_kind(failure)
+                    }
+                    nia_trait_solve::TraitObligationResolution::Satisfied(_)
+                    | nia_trait_solve::TraitObligationResolution::Unavailable => return,
+                };
+                let explanation = nia_diagnostic::explain_trait_obligation(
+                    &self.ty_name(self_ty),
+                    &self.builtin_trait_ty_name(trait_id, &args),
+                    kind,
+                );
+                let summary = format!("{context} is not {property}: {}", explanation.summary);
+                Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
+                    .primary(span, summary)
+                    .note(explanation.note)
+                    .help(explanation.help)
+                    .finish()
+            }
+        };
+        self.diagnostics.push(diagnostic);
+    }
+
     pub(crate) fn check_assignment_lhs(&mut self, expr: &Expr) -> InternedTyId {
         let ty = match &expr.kind {
             ExprKind::Field { lhs, name } => {
@@ -148,11 +220,7 @@ impl<'a> BodyChecker<'a> {
                     .push(self.unresolved_using_diagnostic(expr, failure.clone()));
                 return;
             }
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                format!("{context} is not assignable: {reason}"),
-            ));
+            self.report_place_failure(expr.span, context, "assignable", reason);
         }
     }
 
@@ -179,6 +247,7 @@ impl<'a> BodyChecker<'a> {
             }
         } else {
             self.not_materializable_reason(ty)
+                .map(PlaceFailure::Storage)
         };
         if let Some(reason) = reason {
             if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
@@ -191,11 +260,7 @@ impl<'a> BodyChecker<'a> {
             } else {
                 "assignable"
             };
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                expr.span,
-                format!("{context} is not {property}: {reason}"),
-            ));
+            self.report_place_failure(expr.span, context, property, reason);
         }
     }
 
@@ -213,7 +278,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn not_addressable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
+    pub(crate) fn not_addressable_reason(&mut self, expr: &Expr) -> Option<PlaceFailure> {
         if self.qualified_value(expr).is_some() {
             return None;
         }
@@ -222,9 +287,15 @@ impl<'a> BodyChecker<'a> {
                 Some(LocalUse::Local(_))
                 | Some(LocalUse::Static(_))
                 | Some(LocalUse::ModuleValue) => None,
-                Some(LocalUse::Module) => Some("module namespace is not a value place"),
-                Some(LocalUse::TypePrefix) => Some("type prefix is not a value place"),
-                Some(LocalUse::Unresolved) | None => Some("name is unresolved"),
+                Some(LocalUse::Module) => Some(PlaceFailure::Storage(
+                    "module namespace is not a value place",
+                )),
+                Some(LocalUse::TypePrefix) => {
+                    Some(PlaceFailure::Storage("type prefix is not a value place"))
+                }
+                Some(LocalUse::Unresolved) | None => {
+                    Some(PlaceFailure::Storage("name is unresolved"))
+                }
             },
             ExprKind::Field { lhs, .. } | ExprKind::TupleField { lhs, .. } => {
                 self.not_addressable_reason(lhs)
@@ -232,7 +303,9 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Index { lhs, index } => match index {
                 IndexArg::Expr(_) if self.indirect_index_base(lhs).is_some() => None,
                 IndexArg::Expr(_) => self.not_addressable_reason(lhs),
-                IndexArg::Range(_) => Some("range index must be taken as a slice pointer"),
+                IndexArg::Range(_) => Some(PlaceFailure::Storage(
+                    "range index must be taken as a slice pointer",
+                )),
             },
             ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr) => {
                 if self.indirect_index_base(callee).is_some() {
@@ -245,11 +318,11 @@ impl<'a> BodyChecker<'a> {
                 op: UnaryOp::Deref,
                 expr: inner,
             } => self.deref_addressable_reason(inner),
-            _ => Some("expression is not a place"),
+            _ => Some(PlaceFailure::Storage("expression is not a place")),
         }
     }
 
-    fn deref_addressable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
+    fn deref_addressable_reason(&mut self, expr: &Expr) -> Option<PlaceFailure> {
         let ty = self.expr_runtime_ty(expr);
         let has_deref = self.current_context_proves_trait_obligation(
             ty,
@@ -259,22 +332,28 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(ty) {
             Some(_) if self.is_error_recovery_ty(ty) => None,
             Some(_) if has_deref => None,
-            Some(_) => Some("expression does not implement Deref"),
-            None => Some("pointer type is not known"),
+            Some(_) => Some(self.place_trait_failure(ty, BuiltinTrait::Deref, Vec::new())),
+            None => Some(PlaceFailure::Storage("pointer type is not known")),
         }
     }
 
-    pub(crate) fn not_assignable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
+    pub(crate) fn not_assignable_reason(&mut self, expr: &Expr) -> Option<PlaceFailure> {
         if self.qualified_value(expr).is_some() {
-            return Some("cross-module value is not assignable");
+            return Some(PlaceFailure::Storage(
+                "cross-module value is not assignable",
+            ));
         }
         match &expr.kind {
-            ExprKind::Ident(_) | ExprKind::SelfValue => self.ident_not_assignable_reason(expr),
+            ExprKind::Ident(_) | ExprKind::SelfValue => self
+                .ident_not_assignable_reason(expr)
+                .map(PlaceFailure::Storage),
             ExprKind::Field { lhs, .. } | ExprKind::TupleField { lhs, .. } => {
                 self.not_assignable_reason(lhs)
             }
             ExprKind::Index { lhs, index } => match index {
-                IndexArg::Range(_) => Some("range index must be taken as a slice pointer"),
+                IndexArg::Range(_) => Some(PlaceFailure::Storage(
+                    "range index must be taken as a slice pointer",
+                )),
                 IndexArg::Expr(index) if self.indirect_index_base(lhs).is_some() => {
                     self.index_write_not_assignable_reason(lhs, index)
                 }
@@ -289,18 +368,17 @@ impl<'a> BodyChecker<'a> {
                     self.not_assignable_reason(callee)
                 };
                 receiver_reason.or_else(|| {
-                    args.first()
-                        .and_then(|arg| arg.expr.as_ref())
-                        .map_or(Some("index type is not known"), |index| {
-                            self.index_write_not_assignable_reason(callee, index)
-                        })
+                    args.first().and_then(|arg| arg.expr.as_ref()).map_or(
+                        Some(PlaceFailure::Storage("index type is not known")),
+                        |index| self.index_write_not_assignable_reason(callee, index),
+                    )
                 })
             }
             ExprKind::Unary {
                 op: UnaryOp::Deref,
                 expr: inner,
             } => self.deref_not_assignable_reason(inner),
-            _ => Some("expression is not a place"),
+            _ => Some(PlaceFailure::Storage("expression is not a place")),
         }
     }
 
@@ -364,9 +442,9 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn deref_not_assignable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
+    fn deref_not_assignable_reason(&mut self, expr: &Expr) -> Option<PlaceFailure> {
         let Some(ty) = self.expr_ty(expr) else {
-            return Some("pointer type is not known");
+            return Some(PlaceFailure::Storage("pointer type is not known"));
         };
         let has_deref = self.current_context_proves_trait_obligation(
             ty,
@@ -381,9 +459,9 @@ impl<'a> BodyChecker<'a> {
             })
             | Some(TyKind::VolatilePointer {
                 is_readonly: true, ..
-            }) => Some("pointer is read-only"),
-            Some(_) => Some("expression does not implement Deref"),
-            None => Some("pointer type is not known"),
+            }) => Some(PlaceFailure::Storage("pointer is read-only")),
+            Some(_) => Some(self.place_trait_failure(ty, BuiltinTrait::DerefMut, Vec::new())),
+            None => Some(PlaceFailure::Storage("pointer type is not known")),
         }
     }
 
@@ -483,10 +561,11 @@ impl<'a> BodyChecker<'a> {
                 return self.normalize_projection(output);
             }
             if span != Span::default() {
-                self.report_trait_bound_not_satisfied_named(
+                self.report_trait_bound_not_satisfied(
                     span,
                     lhs_ty,
-                    self.builtin_trait_ty_name(BuiltinTrait::Slice, &[range_ty]),
+                    TraitId::Builtin(BuiltinTrait::Slice),
+                    &[range_ty],
                 );
             }
             return self.error();
@@ -511,10 +590,11 @@ impl<'a> BodyChecker<'a> {
             return self.normalize_projection(output);
         }
         if span != Span::default() {
-            self.report_trait_bound_not_satisfied_named(
+            self.report_trait_bound_not_satisfied(
                 span,
                 lhs_ty,
-                self.builtin_trait_ty_name(BuiltinTrait::SliceMut, &[range_ty]),
+                TraitId::Builtin(BuiltinTrait::SliceMut),
+                &[range_ty],
             );
         }
         self.error()
@@ -535,10 +615,11 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::Index),
             trait_args.clone(),
         ) {
-            self.report_trait_bound_not_satisfied_named(
+            self.report_trait_bound_not_satisfied(
                 span,
                 lhs_ty,
-                self.builtin_trait_ty_name(BuiltinTrait::Index, &trait_args),
+                TraitId::Builtin(BuiltinTrait::Index),
+                &trait_args,
             );
             return self.error();
         }
@@ -568,10 +649,11 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::IndexMut),
             trait_args.clone(),
         ) {
-            self.report_trait_bound_not_satisfied_named(
+            self.report_trait_bound_not_satisfied(
                 span,
                 lhs_ty,
-                self.builtin_trait_ty_name(BuiltinTrait::IndexMut, &trait_args),
+                TraitId::Builtin(BuiltinTrait::IndexMut),
+                &trait_args,
             );
             return self.error();
         }
@@ -680,12 +762,12 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         lhs: &Expr,
         index: &Expr,
-    ) -> Option<&'static str> {
+    ) -> Option<PlaceFailure> {
         let Some(lhs_ty) = self.expr_ty(lhs) else {
-            return Some("index base type is not known");
+            return Some(PlaceFailure::Storage("index base type is not known"));
         };
         let Some(index_ty) = self.expr_ty(index) else {
-            return Some("index type is not known");
+            return Some(PlaceFailure::Storage("index type is not known"));
         };
         let has_index = self.current_context_proves_trait_obligation(
             lhs_ty,
@@ -700,11 +782,11 @@ impl<'a> BodyChecker<'a> {
             })
             | Some(TyKind::VolatilePointer {
                 is_readonly: true, ..
-            }) => Some("pointer is read-only"),
+            }) => Some(PlaceFailure::Storage("pointer is read-only")),
             Some(TyKind::Slice {
                 is_readonly: true, ..
-            }) => Some("slice is read-only"),
-            _ => Some("expression does not implement IndexMut"),
+            }) => Some(PlaceFailure::Storage("slice is read-only")),
+            _ => Some(self.place_trait_failure(lhs_ty, BuiltinTrait::IndexMut, vec![index_ty])),
         }
     }
 
@@ -743,10 +825,11 @@ impl<'a> BodyChecker<'a> {
                 self.normalize_projection(target)
             }
             _ => {
-                self.report_trait_bound_not_satisfied_named(
+                self.report_trait_bound_not_satisfied(
                     span,
                     ty,
-                    self.builtin_trait_ty_name(BuiltinTrait::Deref, &[]),
+                    TraitId::Builtin(BuiltinTrait::Deref),
+                    &[],
                 );
                 self.error()
             }

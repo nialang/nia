@@ -1,6 +1,186 @@
 use super::*;
 use nia_ids::ModuleIdAllocator;
 
+#[test]
+fn obligation_explanations_distinguish_missing_hidden_and_ambiguous_impls() {
+    let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+    let local_module = module_ids.allocate().expect("allocate local module");
+    let first_provider = module_ids.allocate().expect("allocate provider module");
+    let second_provider = module_ids.allocate().expect("allocate provider module");
+    let type_store = TypeStore::new().expect("create type store");
+    let local_types = type_store.append_for_module(local_module);
+    let self_ty = local_types.test_primitive(PrimitiveTy::I32);
+    let trait_id = TraitId::Source(GlobalDefId {
+        module_id: local_module,
+        def_id: DefId(100),
+    });
+    let make_impl = |module_id, impl_id| ProgramTraitImplSignature {
+        module_id,
+        impl_id: TraitImplId(impl_id),
+        builtin: None,
+        generics: Vec::new(),
+        generic_params: Vec::new(),
+        target_ty: self_ty,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+        where_predicates: Vec::new(),
+        associated_types: Vec::new(),
+        associated_values: Vec::new(),
+    };
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let local_enums = HashMap::new();
+    let goal = TraitGoal {
+        self_ty,
+        trait_id,
+        trait_args: Vec::new(),
+        trait_const_args: Vec::new(),
+    };
+
+    let no_impls = Vec::new();
+    let missing_context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &no_impls,
+        trait_impl_index: None,
+        layouts: None,
+        program_layouts: None,
+        local_module_id: local_module,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    assert_eq!(
+        missing_context
+            .solver(&[])
+            .explain(goal.clone())
+            .expect("explain missing obligation"),
+        TraitObligationResolution::Failed(TraitObligationFailure::NoImplementation)
+    );
+
+    let one_impl = vec![make_impl(first_provider, 101)];
+    let invisible = |_, _| false;
+    let invisible_context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &one_impl,
+        trait_impl_index: None,
+        layouts: None,
+        program_layouts: None,
+        local_module_id: local_module,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: Some(&invisible),
+    };
+    assert_eq!(
+        invisible_context
+            .solver(&[])
+            .explain(goal.clone())
+            .expect("explain hidden obligation"),
+        TraitObligationResolution::Failed(TraitObligationFailure::NotVisible)
+    );
+
+    let two_impls = vec![
+        make_impl(first_provider, 102),
+        make_impl(second_provider, 103),
+    ];
+    let visible = |_, _| true;
+    let ambiguous_context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &two_impls,
+        trait_impl_index: None,
+        layouts: None,
+        program_layouts: None,
+        local_module_id: local_module,
+        local_enums: &local_enums,
+        program_is_enum: None,
+        const_expr_value: None,
+        impl_is_visible: Some(&visible),
+    };
+    assert!(matches!(
+        ambiguous_context
+            .solver(&[])
+            .explain(goal.clone())
+            .expect("explain ambiguous obligation"),
+        TraitObligationResolution::Failed(TraitObligationFailure::Ambiguous)
+    ));
+
+    for context in [&missing_context, &invisible_context, &ambiguous_context] {
+        let mut solver = context.solver(&[]);
+        let resolution = solver.resolve(goal.clone()).unwrap();
+        assert_eq!(
+            solver.explain(goal.clone()).unwrap().into_resolution(),
+            resolution
+        );
+        assert_eq!(solver.resolve(goal.clone()).unwrap(), resolution);
+    }
+
+    let bool_ty = local_types.test_primitive(PrimitiveTy::Bool);
+    let item = known::ITEM;
+    let requirements = [AssociatedTypeRequirement {
+        name: item,
+        ty: self_ty,
+    }];
+    let missing_member = make_impl(first_provider, 104);
+    let member_context = TraitSolverContext {
+        trait_impls: std::slice::from_ref(&missing_member),
+        impl_is_visible: Some(&visible),
+        ..missing_context
+    };
+    assert_eq!(
+        member_context
+            .solver(&[])
+            .explain_with_associated_types(goal.clone(), &requirements)
+            .unwrap(),
+        TraitObligationResolution::Failed(TraitObligationFailure::AssociatedTypeMissing {
+            name: item
+        }),
+    );
+    let mut present_member = missing_member.clone();
+    present_member
+        .associated_types
+        .push(nia_item_signatures::TraitImplAssociatedTypeSignature {
+            name: item,
+            ty: bool_ty,
+            span: nia_span::Span::default(),
+        });
+    let member_context = TraitSolverContext {
+        trait_impls: std::slice::from_ref(&present_member),
+        ..member_context
+    };
+    assert_eq!(
+        member_context
+            .solver(&[])
+            .explain_with_associated_types(goal.clone(), &requirements)
+            .unwrap(),
+        TraitObligationResolution::Failed(TraitObligationFailure::AssociatedTypeMismatch {
+            name: item,
+            expected: self_ty,
+            actual: bool_ty,
+        }),
+    );
+    let assumptions = [goal.clone()];
+    let equalities = [AssociatedTypeProjectionEq {
+        goal: goal.clone(),
+        name: item,
+        ty: self_ty,
+    }];
+    assert!(
+        missing_context
+            .solver_with_associated_type_assumptions(&assumptions, &equalities)
+            .explain_with_associated_types(goal, &requirements)
+            .unwrap()
+            .satisfied_resolution()
+            .is_some()
+    );
+}
+
 trait TestTypeStoreAppend {
     fn test_intern(&self, kind: TyKind) -> InternedTyId;
     fn test_primitive(&self, primitive: PrimitiveTy) -> InternedTyId;
@@ -1753,6 +1933,12 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
         trait_id: trait_b,
         ..goal_a.clone()
     };
+    assert_eq!(
+        solver
+            .explain(goal_a.clone())
+            .expect("explain goal blocked by a cyclic prerequisite"),
+        TraitObligationResolution::Failed(TraitObligationFailure::AdditionalConstraint)
+    );
     assert_eq!(
         solver
             .resolve(goal_a.clone())

@@ -137,6 +137,30 @@ help: change the expression to the expected type, add an explicit conversion, or
 related: 314..324 parameter `value` of `need` is declared here
 
 report:
+error[E0201]: method `hidden` is private
+   --> fail/failed_callable_arguments/main.nia:24:5
+   |
+24 |     api::Point::hidden(need(true));
+   |     ^^^^^^^^^^^^^^^^^^ this method is not visible from this module
+help: make the method public or use it from an allowed scope
+related: fail/failed_callable_arguments/api.nia:4:5: the restricted method is declared here
+
+error[E0201]: method `hidden_method` is private
+   --> fail/failed_callable_arguments/main.nia:25:5
+   |
+25 |     point.hidden_method(need(true));
+   |     ^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
+help: make the method public or use it from an allowed scope
+related: fail/failed_callable_arguments/api.nia:5:5: the restricted method is declared here
+
+error[E0201]: unknown method `missing`
+   --> fail/failed_callable_arguments/main.nia:26:5
+   |
+26 |     true.missing(need(true));
+   |     ^^^^^^^^^^^^ no method named `missing` is available here
+note: the receiver has type `bool`
+help: check the method name or use `using` to import the module that declares the extension method `missing`
+
 error[E0301]: unknown associated function `missing`
    --> fail/failed_callable_arguments/main.nia:18:5
    |
@@ -198,14 +222,6 @@ note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
 
-error[E0201]: method `hidden` is private
-   --> fail/failed_callable_arguments/main.nia:24:5
-   |
-24 |     api::Point::hidden(need(true));
-   |     ^^^^^^^^^^^^^^^^^^ this method is not visible from this module
-help: make the method public or use it from an allowed scope
-related: fail/failed_callable_arguments/api.nia:4:5: the restricted method is declared here
-
 error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:24:29
    |
@@ -215,14 +231,6 @@ note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
 
-error[E0201]: method `hidden_method` is private
-   --> fail/failed_callable_arguments/main.nia:25:5
-   |
-25 |     point.hidden_method(need(true));
-   |     ^^^^^^^^^^^^^^^^^^^ this method is not visible from this module
-help: make the method public or use it from an allowed scope
-related: fail/failed_callable_arguments/api.nia:5:5: the restricted method is declared here
-
 error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:25:30
    |
@@ -231,14 +239,6 @@ error[E0301]: type mismatch in call argument 1: expected i32, got bool
 note: this context requires `i32`, but the expression produces `bool`
 help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 related: fail/failed_callable_arguments/main.nia:15:10: parameter `value` of `need` is declared here
-
-error[E0201]: unknown method `missing`
-   --> fail/failed_callable_arguments/main.nia:26:5
-   |
-26 |     true.missing(need(true));
-   |     ^^^^^^^^^^^^ no method named `missing` is available here
-note: the receiver has type `bool`
-help: check the method name or use `using` to import the module that declares the extension method `missing`
 
 error[E0301]: type mismatch in call argument 1: expected i32, got bool
    --> fail/failed_callable_arguments/main.nia:26:23
