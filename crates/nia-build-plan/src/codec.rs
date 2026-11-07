@@ -475,7 +475,9 @@ impl Writer {
                 }
                 self.artifact_configuration(configuration)?;
             }
-            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+            ActionKind::ExternalCommand(command)
+            | ActionKind::RunExecutable(command)
+            | ActionKind::TestExecutable(command) => {
                 let CommandAction {
                     resource_class,
                     environment_policy,
@@ -488,13 +490,12 @@ impl Writer {
                     outputs,
                     stdin,
                 } = command;
-                self.u8(
-                    if matches!(kind, ActionKind::TestExecutable(CommandAction { .. })) {
-                        7
-                    } else {
-                        2
-                    },
-                );
+                self.u8(match kind {
+                    ActionKind::ExternalCommand(_) => 2,
+                    ActionKind::TestExecutable(_) => 7,
+                    ActionKind::RunExecutable(_) => 8,
+                    _ => unreachable!("command action match is exhaustive"),
+                });
                 self.resource_class(*resource_class);
                 self.command_environment_policy(*environment_policy);
                 self.command_cache_policy(*cache_policy);
@@ -986,7 +987,7 @@ impl<'a> Reader<'a> {
                 static_archives: self.list(|reader| reader.artifact_key())?,
                 configuration: self.artifact_configuration()?,
             },
-            2 | 7 => {
+            2 | 7 | 8 => {
                 let resource_class = self.resource_class()?;
                 let environment_policy = self.command_environment_policy()?;
                 let cache_policy = self.command_cache_policy()?;
@@ -1038,8 +1039,8 @@ impl<'a> Reader<'a> {
                 })?;
                 let inputs = self.list(Reader::logical_path)?;
                 let outputs = self.list(Reader::logical_path)?;
-                if tag == 7 {
-                    ActionKind::TestExecutable(CommandAction {
+                match tag {
+                    7 => ActionKind::TestExecutable(CommandAction {
                         resource_class,
                         environment_policy,
                         cache_policy,
@@ -1050,9 +1051,8 @@ impl<'a> Reader<'a> {
                         inputs,
                         outputs,
                         stdin,
-                    })
-                } else {
-                    ActionKind::ExternalCommand(CommandAction {
+                    }),
+                    8 => ActionKind::RunExecutable(CommandAction {
                         resource_class,
                         environment_policy,
                         cache_policy,
@@ -1063,7 +1063,19 @@ impl<'a> Reader<'a> {
                         inputs,
                         outputs,
                         stdin,
-                    })
+                    }),
+                    _ => ActionKind::ExternalCommand(CommandAction {
+                        resource_class,
+                        environment_policy,
+                        cache_policy,
+                        program,
+                        arguments,
+                        working_directory,
+                        environment,
+                        inputs,
+                        outputs,
+                        stdin,
+                    }),
                 }
             }
             3 => {

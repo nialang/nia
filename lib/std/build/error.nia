@@ -68,7 +68,6 @@ pub enum ErrorCause {
 
 pub enum Error {
     UnknownStep,
-    RunArgumentsRequireRunStep,
     Invalid { operation: ErrorOperation, subject: ErrorSubject },
     Failure { operation: ErrorOperation, subject: ErrorSubject, cause: ErrorCause },
     Internal(ErrorOperation),
@@ -104,7 +103,6 @@ extend Error : builtin::IntoError[process::ExitCode] {
     const fun intoError(self) process::ExitCode {
         match self {
             .UnknownStep => process::ExitCode(2),
-            .RunArgumentsRequireRunStep => process::ExitCode(2),
             .Invalid { operation: _, subject: _ } => process::ExitCode(22),
             .Failure { operation: _, subject: _, cause } => cause.intoError(),
             .Internal(_) => process::ExitCode(255),

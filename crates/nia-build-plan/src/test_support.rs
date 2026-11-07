@@ -118,6 +118,36 @@ pub(crate) fn draft(reverse: bool) -> BuildPlanDraft {
     }
 }
 
+pub(crate) fn run_executable_draft() -> BuildPlanDraft {
+    let mut value = draft(false);
+    let run = action_key("run-app");
+    let selected = step_key("run-app");
+    value.actions.push(PlanAction {
+        key: run.clone(),
+        kind: ActionKind::RunExecutable(CommandAction {
+            resource_class: ActionResourceClass::Conservative,
+            environment_policy: CommandEnvironmentPolicy::Inherit,
+            cache_policy: CommandCachePolicy::Uncacheable,
+            stdin: CommandStdin::Null,
+            program: CommandProgram::Search("app".to_string()),
+            arguments: vec![CommandArgument::Literal("fixed".to_string())],
+            working_directory: LogicalPath::new(LogicalPathRoot::Package(PackageKey::root()), "")
+                .unwrap(),
+            environment: Vec::new(),
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+        }),
+    });
+    value.steps.push(PlanStep {
+        visibility: StepVisibility::Public,
+        key: selected.clone(),
+        action: run,
+        dependencies: Vec::new(),
+    });
+    value.selected_step = Some(selected);
+    value
+}
+
 pub(crate) fn static_archive_link_draft() -> BuildPlanDraft {
     let mut value = draft(false);
     let support = artifact_key("support");

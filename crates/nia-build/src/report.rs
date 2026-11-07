@@ -200,6 +200,11 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
             .help("use addDependency only for a selected runtime or development dependency declared in nia.toml")
             .finish(),
         ],
+        BuildError::RunArguments { error } => vec![
+            Diagnostic::user_error(codes::BUILD_PLAN, error.to_string())
+                .help("select a run-executable step such as `run-<name>` before `--`")
+                .finish(),
+        ],
         BuildError::CreateRunnerDirectory { path, error } => {
             create_directory_diagnostic("build runner directory", path, error)
         }

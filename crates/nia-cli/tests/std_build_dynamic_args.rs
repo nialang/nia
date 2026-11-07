@@ -84,7 +84,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
         .actions()
         .iter()
         .find_map(|action| match &action.kind {
-            nia_build::ActionKind::ExternalCommand(nia_build::CommandAction {
+            nia_build::ActionKind::RunExecutable(nia_build::CommandAction {
                 arguments, ..
             }) => Some(arguments),
             _ => None,

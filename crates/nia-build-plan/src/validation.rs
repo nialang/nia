@@ -93,7 +93,9 @@ pub(super) fn validate_package_references(draft: &BuildPlanDraft) -> Result<(), 
                     require(archive.package())?;
                 }
             }
-            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+            ActionKind::ExternalCommand(command)
+            | ActionKind::RunExecutable(command)
+            | ActionKind::TestExecutable(command) => {
                 let CommandAction {
                     program,
                     working_directory,

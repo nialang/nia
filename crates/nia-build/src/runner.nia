@@ -333,7 +333,7 @@ fun configPathArg(
     allocator: &mut mem::Allocator,
     storage: &mut fs::Path,
 ) build::Error!fs::PathView {
-    if init.args().len() < 3 {
+    if init.args().len() != 3 {
         return build::Error::Invalid {
             operation: build::ErrorOperation::Validate,
             subject: build::ErrorSubject::RunnerConfiguration,
@@ -348,21 +348,6 @@ fun configPathArg(
             operation: build::ErrorOperation::Validate,
             subject: build::ErrorSubject::RunnerConfiguration,
         }!;
-    }
-    if init.args().len() > 3 {
-        let separator = match init.args().get(3) {
-            ?value => value,
-            null => return build::Error::Invalid {
-                operation: build::ErrorOperation::Validate,
-                subject: build::ErrorSubject::RunnerConfiguration,
-            }!,
-        };
-        if not separator.bytes().equals(&b"--") {
-            return build::Error::Invalid {
-                operation: build::ErrorOperation::Validate,
-                subject: build::ErrorSubject::RunnerConfiguration,
-            }!;
-        }
     }
     let arg = match init.args().get(2) {
         ?value => value,
@@ -386,10 +371,6 @@ fun configPathArg(
         },
     };
     !storage.view()
-}
-
-fun forwardedArgumentStart(init: process::Init) usize {
-    if init.args().len() > 3 { 4 } else { 3 }
 }
 
 pub fun main(init: process::Init) process::ExitCode!() {
@@ -566,22 +547,6 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
 
     match buildScript::build(&mut api) {
-        !ok => {
-            _ = ok;
-        },
-        error! => {
-            match api.reportError(error) {
-                !reported => {
-                    _ = reported;
-                },
-                reportError! => {
-                    return reportError.intoError()!;
-                },
-            }
-            return error.intoError()!;
-        },
-    }
-    match api.applyRunArguments(init.args(), forwardedArgumentStart(init)) {
         !ok => {
             _ = ok;
         },

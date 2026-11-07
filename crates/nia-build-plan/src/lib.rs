@@ -689,6 +689,12 @@ pub enum ActionKind {
     },
     /// Run a declared external program in a bounded environment.
     ExternalCommand(CommandAction),
+    /// Run an executable declared through the build API.
+    ///
+    /// This remains distinct from arbitrary external commands because build
+    /// invocations may append arguments only to an explicitly selected run
+    /// executable step.
+    RunExecutable(CommandAction),
     /// Run a host test executable. This deliberately remains distinct from
     /// `ExternalCommand` so test selection and reporting cannot be inferred
     /// from an incidental command shape.
@@ -748,6 +754,7 @@ impl PlanAction {
     pub fn resource_class(&self) -> ActionResourceClass {
         match &self.kind {
             ActionKind::ExternalCommand(CommandAction { resource_class, .. })
+            | ActionKind::RunExecutable(CommandAction { resource_class, .. })
             | ActionKind::TestExecutable(CommandAction { resource_class, .. }) => *resource_class,
             ActionKind::CompilerCheck { .. } | ActionKind::CompilerEmit { .. } => {
                 ActionResourceClass::Cpu
@@ -861,6 +868,39 @@ pub struct BuildPlan {
     default_step: Option<StepKey>,
     selected_step: Option<StepKey>,
 }
+
+/// Failure while applying invocation arguments to a configured run step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunArgumentsError {
+    /// No explicit step was selected for this invocation.
+    NoSelectedStep,
+    /// The selected step does not represent a declared executable run.
+    NotRunExecutable(StepKey),
+    /// An argument cannot be represented in a process argument vector.
+    ContainsNul { index: usize },
+}
+
+impl fmt::Display for RunArgumentsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NoSelectedStep => {
+                formatter.write_str("arguments after `--` require selecting a run-executable step")
+            }
+            Self::NotRunExecutable(step) => write!(
+                formatter,
+                "arguments after `--` require selecting a run-executable step; `{}` is not one",
+                display_node_key(step)
+            ),
+            Self::ContainsNul { index } => write!(
+                formatter,
+                "run argument {} contains a NUL character, which process arguments cannot contain",
+                index + 1
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RunArgumentsError {}
 
 /// Semantic validation failure while freezing a build plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1314,6 +1354,49 @@ impl BuildPlan {
     pub fn selected_step(&self) -> Option<&StepKey> {
         self.selected_step.as_ref()
     }
+
+    /// Returns an invocation-specific plan with arguments appended to its
+    /// explicitly selected executable run action.
+    pub fn with_run_arguments(
+        &self,
+        requested_step: &str,
+        arguments: &[String],
+    ) -> Result<Self, RunArgumentsError> {
+        if arguments.is_empty() {
+            return Ok(self.clone());
+        }
+        let selected = self
+            .selected_step
+            .as_ref()
+            .ok_or(RunArgumentsError::NoSelectedStep)?;
+        if selected.package() != &self.root_package || selected.name() != requested_step {
+            return Err(RunArgumentsError::NoSelectedStep);
+        }
+        let step_index = self
+            .steps
+            .binary_search_by(|step| step.key.cmp(selected))
+            .map_err(|_| RunArgumentsError::NoSelectedStep)?;
+        let action_key = &self.steps[step_index].action;
+        let action_index = self
+            .actions
+            .binary_search_by(|action| action.key.cmp(action_key))
+            .map_err(|_| RunArgumentsError::NotRunExecutable(selected.clone()))?;
+        let mut plan = self.clone();
+        let action = &mut plan.actions[action_index];
+        let ActionKind::RunExecutable(command) = &mut action.kind else {
+            return Err(RunArgumentsError::NotRunExecutable(selected.clone()));
+        };
+        if let Some(index) = arguments
+            .iter()
+            .position(|argument| argument.contains('\0'))
+        {
+            return Err(RunArgumentsError::ContainsNul { index });
+        }
+        command
+            .arguments
+            .extend(arguments.iter().cloned().map(CommandArgument::Literal));
+        Ok(plan)
+    }
 }
 
 #[cfg(test)]
@@ -1386,13 +1469,162 @@ mod tests {
             kind: ActionKind::ExternalCommand(command.clone()),
         };
         let test = PlanAction {
-            key,
+            key: key.clone(),
             kind: ActionKind::TestExecutable(command),
+        };
+        let run = PlanAction {
+            key,
+            kind: ActionKind::RunExecutable(CommandAction {
+                resource_class: ActionResourceClass::Conservative,
+                environment_policy: CommandEnvironmentPolicy::Inherit,
+                cache_policy: CommandCachePolicy::Uncacheable,
+                stdin: CommandStdin::Null,
+                program: CommandProgram::Search("tool".into()),
+                arguments: Vec::new(),
+                working_directory: LogicalPath::new(LogicalPathRoot::Build, "").unwrap(),
+                environment: Vec::new(),
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            }),
         };
         let external_identity = external.identity();
         let test_identity = test.identity();
+        let run_identity = run.identity();
         assert_ne!(external_identity.encode(), test_identity.encode());
+        assert_ne!(external_identity.encode(), run_identity.encode());
+        assert_ne!(test_identity.encode(), run_identity.encode());
         assert_eq!(external_identity.encode(), external.identity().encode());
+    }
+
+    #[test]
+    fn invocation_arguments_modify_only_the_selected_run_action() {
+        let mut draft = run_executable_draft();
+        let mut other_action = draft.actions.last().unwrap().clone();
+        other_action.key = action_key("run-other");
+        draft.actions.push(other_action);
+        draft.steps.push(PlanStep {
+            visibility: StepVisibility::Public,
+            key: step_key("run-other"),
+            action: action_key("run-other"),
+            dependencies: Vec::new(),
+        });
+        let base = BuildPlan::freeze(draft).unwrap();
+        let base_bytes = base.encode().unwrap();
+        let invocation = base
+            .with_run_arguments(
+                "run-app",
+                &["--verbose".to_string(), "two words".to_string()],
+            )
+            .unwrap();
+        let base_action = base
+            .actions()
+            .iter()
+            .find(|action| action.key.name() == "run-app")
+            .unwrap();
+        let invocation_action = invocation
+            .actions()
+            .iter()
+            .find(|action| action.key.name() == "run-app")
+            .unwrap();
+        assert!(matches!(
+            &base_action.kind,
+            ActionKind::RunExecutable(CommandAction { arguments, .. })
+                if arguments == &[CommandArgument::Literal("fixed".to_string())]
+        ));
+        assert!(matches!(
+            &invocation_action.kind,
+            ActionKind::RunExecutable(CommandAction { arguments, .. })
+                if arguments == &[
+                    CommandArgument::Literal("fixed".to_string()),
+                    CommandArgument::Literal("--verbose".to_string()),
+                    CommandArgument::Literal("two words".to_string()),
+                ]
+        ));
+        assert_eq!(base.encode().unwrap(), base_bytes);
+        assert_eq!(base.packages(), invocation.packages());
+        assert_eq!(base.modules(), invocation.modules());
+        assert_eq!(base.artifacts(), invocation.artifacts());
+        assert_eq!(base.steps(), invocation.steps());
+        for action in base.actions() {
+            if action.key.name() != "run-app" {
+                let unchanged = invocation
+                    .actions()
+                    .iter()
+                    .find(|other| other.key == action.key)
+                    .unwrap();
+                assert_eq!(action, unchanged);
+                assert_eq!(action.identity(), unchanged.identity());
+            }
+        }
+        assert_eq!(
+            BuildPlan::decode(&invocation.encode().unwrap()).unwrap(),
+            invocation
+        );
+        assert_ne!(base, invocation);
+    }
+
+    #[test]
+    fn invocation_arguments_require_a_selected_run_step_and_valid_argv() {
+        let no_selection = BuildPlan::freeze(draft(false)).unwrap();
+        assert_eq!(
+            no_selection.with_run_arguments("run-app", &["value".to_string()]),
+            Err(RunArgumentsError::NoSelectedStep)
+        );
+
+        let mut selected_external = draft(false);
+        selected_external.selected_step = Some(step_key("emit"));
+        let selected_external = BuildPlan::freeze(selected_external).unwrap();
+        assert_eq!(
+            selected_external.with_run_arguments("emit", &["value".to_string()]),
+            Err(RunArgumentsError::NotRunExecutable(step_key("emit")))
+        );
+
+        let run = BuildPlan::freeze(run_executable_draft()).unwrap();
+        assert_eq!(
+            run.with_run_arguments("run-other", &["value".to_string()]),
+            Err(RunArgumentsError::NoSelectedStep)
+        );
+        assert_eq!(
+            run.with_run_arguments("run-app", &["bad\0argument".to_string()]),
+            Err(RunArgumentsError::ContainsNul { index: 0 })
+        );
+    }
+
+    #[test]
+    fn run_executable_actions_cannot_cache_invocation_results() {
+        for policy in [
+            CommandCachePolicy::DeclaredInputs,
+            CommandCachePolicy::ToolAndInputs,
+            CommandCachePolicy::SuccessfulTests,
+        ] {
+            let mut draft = run_executable_draft();
+            let ActionKind::RunExecutable(command) = &mut draft.actions.last_mut().unwrap().kind
+            else {
+                panic!("run action")
+            };
+            command.cache_policy = policy;
+            assert!(matches!(
+                BuildPlan::freeze(draft),
+                Err(PlanError::InvalidCommand {
+                    reason: "run executable actions must be uncacheable",
+                    ..
+                })
+            ));
+        }
+    }
+
+    #[test]
+    fn run_executable_action_round_trips_as_a_distinct_plan_kind() {
+        let plan = BuildPlan::freeze(run_executable_draft()).unwrap();
+        let decoded = BuildPlan::decode(&plan.encode().unwrap()).unwrap();
+        assert!(matches!(
+            decoded
+                .actions()
+                .iter()
+                .find(|action| action.key.name() == "run-app")
+                .map(|action| &action.kind),
+            Some(ActionKind::RunExecutable(_))
+        ));
     }
     use super::*;
 

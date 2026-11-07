@@ -496,8 +496,8 @@ fn manifest_artifacts_build_without_a_build_script() {
         String::from_utf8_lossy(&listed.stdout),
         "all               aggregate (default)\n\
          app               compiler-emit\n\
-         run-app           external-command\n\
-         run-unit.compile  external-command\n\
+         run-app           run-executable\n\
+         run-unit.compile  run-executable\n\
          test              aggregate\n\
          unit              test-executable\n\
          unit.compile      compiler-emit\n"

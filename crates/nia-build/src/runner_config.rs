@@ -150,7 +150,6 @@ fn payload_checksum(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::BuildInvocationIdentity;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -222,18 +221,18 @@ mod tests {
     }
 
     #[test]
-    fn forwarded_arguments_are_part_of_configure_identity_not_runner_identity() {
+    fn forwarded_arguments_do_not_change_configure_or_runner_identity() {
         let mut first = invocation(BuildStepSelection::Named("run-app".to_owned()));
         first.run_arguments = vec!["--format".to_owned(), "json".to_owned()];
         let mut second = first.clone();
         second.run_arguments[1] = "text".to_owned();
-        assert_ne!(
-            BuildInvocationIdentity::from_invocation(&first).key(),
-            BuildInvocationIdentity::from_invocation(&second).key()
+        assert_eq!(
+            crate::invocation_identity(&first),
+            crate::invocation_identity(&second)
         );
         assert_eq!(
-            BuildInvocationIdentity::from_invocation(&first).encode_runner(),
-            BuildInvocationIdentity::from_invocation(&second).encode_runner()
+            super::encode(&first).unwrap(),
+            super::encode(&second).unwrap()
         );
     }
 

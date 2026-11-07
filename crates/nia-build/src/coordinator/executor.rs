@@ -211,6 +211,9 @@ impl DriverActionExecutor {
             ActionKind::ExternalCommand(command) => {
                 return self.execute_external_command_action(action, command, cancellation);
             }
+            ActionKind::RunExecutable(command) => {
+                return self.execute_external_command_action(action, command, cancellation);
+            }
             ActionKind::TestExecutable(command) => {
                 return self.execute_test_suite_action(action, command, cancellation);
             }
@@ -1431,6 +1434,7 @@ impl DriverActionExecutor {
                 vec![&self.artifact(action, artifact)?.output]
             }
             ActionKind::ExternalCommand(CommandAction { outputs, .. })
+            | ActionKind::RunExecutable(CommandAction { outputs, .. })
             | ActionKind::TestExecutable(CommandAction { outputs, .. }) => outputs.iter().collect(),
             ActionKind::GeneratedFile { output, .. } => vec![output],
             ActionKind::InstallArtifact { destination, .. } => vec![destination],

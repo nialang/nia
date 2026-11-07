@@ -180,6 +180,17 @@ repeats these semantic checks rather than trusting runner-produced bytes.
 Module imports may form cycles; name resolution across them belongs to the
 compiler's using graph.
 
+Configuration produces the reusable base plan. Arguments after CLI `--` are
+invocation data: they are never sent to the build runner and do not enter the
+runner or configure cache identity. After restoring or configuring the base
+plan, the coordinator derives an invocation plan by appending literal arguments
+only to the explicitly selected `RunExecutable` action. Ordinary external
+commands, test actions, graph edges, and compiler action identities are
+unchanged. Run actions are uncacheable; changing their arguments reuses the
+base plan and compiled products while executing the program with fresh argv.
+Inspection and execution use the derived plan, while `build-plan.bin` remains
+the last configured base plan and is not overwritten on a configure cache hit.
+
 Profile and default optimization are invocation settings, not plan fields: the
 runner receives the default optimization, each module carries its effective
 level, and the coordinator passes the profile and that level to every

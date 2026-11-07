@@ -233,6 +233,8 @@ pub enum ProgressEventKind {
 pub struct ProgressActionDescription {
     /// Canonical action kind, derived from the typed plan operation.
     pub kind: &'static str,
+    /// Stop normal progress output before this action takes over the terminal.
+    pub terminal_handover: bool,
     /// First logical inputs, capped at eight paths.
     pub inputs: Vec<LogicalPath>,
     /// Total declared inputs before the display cap.

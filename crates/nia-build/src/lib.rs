@@ -587,6 +587,11 @@ pub enum BuildError {
         /// Reason the dependency reference was rejected.
         detail: String,
     },
+    /// Invocation arguments require a selected run-executable step.
+    RunArguments {
+        /// Semantic rejection from the validated build-plan model.
+        error: RunArgumentsError,
+    },
     /// A path required by generated runner source is not valid UTF-8.
     NonUtf8Path {
         /// Semantic role of the path.
@@ -763,6 +768,7 @@ impl fmt::Display for BuildError {
                 "build plan `{}` has an invalid manifest dependency reference: {detail}",
                 path.display()
             ),
+            Self::RunArguments { error } => write!(f, "{error}"),
             Self::NonUtf8Path { role, path } => {
                 write!(
                     f,
@@ -1220,7 +1226,29 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         path: invocation.plan_draft.clone(),
                         detail,
                     })?;
-                let plan = draft.plan;
+                if !configure_reused {
+                    time_build_stage(timings, "build_publish_configure_plan", || {
+                        publish_build_plan(&invocation.plan_path, &draft.plan).map_err(|error| {
+                            BuildError::PublishBuildPlan {
+                                path: invocation.plan_path.clone(),
+                                error,
+                            }
+                        })
+                    })?;
+                }
+                let plan = if invocation.run_arguments.is_empty() {
+                    draft.plan
+                } else {
+                    let BuildStepSelection::Named(step) = &invocation.step else {
+                        return Err(BuildError::RunArguments {
+                            error: RunArgumentsError::NoSelectedStep,
+                        });
+                    };
+                    draft
+                        .plan
+                        .with_run_arguments(step, &invocation.run_arguments)
+                        .map_err(|error| BuildError::RunArguments { error })?
+                };
                 let preview =
                     progress_phase(progress_guard.session(), ProgressPhase::Preview, || {
                         preview_build_plan(&plan, &invocation)
@@ -1887,7 +1915,9 @@ fn build_explanation_closure_packages(
                     );
                 }
             }
-            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+            ActionKind::ExternalCommand(command)
+            | ActionKind::RunExecutable(command)
+            | ActionKind::TestExecutable(command) => {
                 if let CommandProgram::Path(path) = &command.program {
                     include_build_explanation_path(path, &mut packages);
                 }
@@ -2460,6 +2490,7 @@ fn action_kind_name(action: &PlanAction) -> &'static str {
         ActionKind::CompilerCheck { .. } => "compiler-check",
         ActionKind::CompilerEmit { .. } => "compiler-emit",
         ActionKind::ExternalCommand(_) => "external-command",
+        ActionKind::RunExecutable(_) => "run-executable",
         ActionKind::TestExecutable(_) => "test-executable",
         ActionKind::GeneratedFile { .. } => "generated-file",
         ActionKind::InstallArtifact { .. } => "install-artifact",
@@ -2482,7 +2513,9 @@ fn plan_tool_json_values(plan: &BuildPlan) -> Vec<serde_json::Value> {
     let mut tools = Vec::new();
     for action in plan.actions() {
         let command = match &action.kind {
-            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => command,
+            ActionKind::ExternalCommand(command)
+            | ActionKind::RunExecutable(command)
+            | ActionKind::TestExecutable(command) => command,
             _ => continue,
         };
         let value = match &command.program {
@@ -2588,6 +2621,7 @@ fn action_json_value(plan: &BuildPlan, action: &PlanAction) -> serde_json::Value
         ActionKind::ExternalCommand(command) => {
             base("external-command", command_json_value(command))
         }
+        ActionKind::RunExecutable(command) => base("run-executable", command_json_value(command)),
         ActionKind::TestExecutable(command) => base("test-executable", command_json_value(command)),
         ActionKind::GeneratedFile { output, contents } => base(
             "generated-file",
@@ -2671,9 +2705,9 @@ fn action_output_paths<'a>(plan: &'a BuildPlan, action: &'a PlanAction) -> &'a [
             .ok()
             .map(|index| std::slice::from_ref(&plan.artifacts()[index].output))
             .unwrap_or_default(),
-        ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
-            &command.outputs
-        }
+        ActionKind::ExternalCommand(command)
+        | ActionKind::RunExecutable(command)
+        | ActionKind::TestExecutable(command) => &command.outputs,
         ActionKind::GeneratedFile { output, .. } => std::slice::from_ref(output),
         ActionKind::InstallArtifact { destination, .. } => std::slice::from_ref(destination),
         ActionKind::CompilerCheck { .. }
@@ -2697,7 +2731,9 @@ fn progress_action_description(plan: &BuildPlan, action: &PlanAction) -> Progres
             .map(|index| &plan.artifacts()[index])
     };
     let (inputs, total_inputs) = match &action.kind {
-        ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => (
+        ActionKind::ExternalCommand(command)
+        | ActionKind::RunExecutable(command)
+        | ActionKind::TestExecutable(command) => (
             command.inputs.iter().take(8).cloned().collect(),
             command.inputs.len(),
         ),
@@ -2739,6 +2775,11 @@ fn progress_action_description(plan: &BuildPlan, action: &PlanAction) -> Progres
     };
     ProgressActionDescription {
         kind: action_kind_name(action),
+        terminal_handover: match &action.kind {
+            ActionKind::RunExecutable(_) => true,
+            ActionKind::ExternalCommand(command) => command.outputs.is_empty(),
+            _ => false,
+        },
         inputs,
         total_inputs,
         outputs: outputs.iter().take(8).cloned().collect(),
@@ -3083,6 +3124,20 @@ fn emit_action_cache_counters(report: &ExecutionReport) {
 
 /// Resolves package paths and invocation-private directories without running actions.
 pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation, BuildError> {
+    if !request.run_arguments.is_empty() && (request.list || request.step.is_none()) {
+        return Err(BuildError::RunArguments {
+            error: RunArgumentsError::NoSelectedStep,
+        });
+    }
+    if let Some(index) = request
+        .run_arguments
+        .iter()
+        .position(|argument| argument.contains('\0'))
+    {
+        return Err(BuildError::RunArguments {
+            error: RunArgumentsError::ContainsNul { index },
+        });
+    }
     let start = match request.root {
         Some(root) if root.is_absolute() => root,
         Some(root) => env::current_dir()
@@ -3728,9 +3783,6 @@ fn run_build_runner(
         .arg(&invocation.runner_config)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if !invocation.run_arguments.is_empty() {
-        command.arg("--").args(&invocation.run_arguments);
-    }
     prepare_process_group(&mut command);
     let result = match time_build_stage(invocation.timings, "build_runner_execute_process", || {
         execute_runner_process(
@@ -3745,7 +3797,6 @@ fn run_build_runner(
             });
             match draft {
                 Ok(mut draft) => {
-                    let plan = draft.plan.clone();
                     let mut manifest = if draft.observations.is_empty() {
                         ConfigureManifest::new(ObservationPolicy::Disallow)
                     } else {
@@ -3798,45 +3849,30 @@ fn run_build_runner(
                             draft.observations.len() as u64,
                         );
                     }
-                    time_build_stage(invocation.timings, "build_runner_publish_plan", || {
-                        publish_build_plan(&invocation.plan_path, &plan)
-                            .map(|()| {
-                                let manifest = if draft.observations.is_empty() {
-                                    Some(ConfigureManifest::new(ObservationPolicy::Poison))
-                                } else {
-                                    ConfigureManifest::decode(&draft.observations).ok()
-                                };
-                                if let Some(manifest) = manifest {
-                                    let identity = ConfigureIdentity::new(
-                                        runner_cache_key,
-                                        invocation_identity(invocation),
-                                        &manifest,
-                                    );
-                                    if ConfigureCache::new(invocation)
-                                        .with_lock_observer(progress.map(|progress| {
-                                            progress.phase_lock_observer(ProgressPhase::Configure)
-                                        }))
-                                        .publish_draft(&identity, &draft)
-                                        .is_ok()
-                                    {
-                                        nia_timing::emit_counter(
-                                            "build.configure_cache_publications",
-                                            1,
-                                        );
-                                    } else {
-                                        nia_timing::emit_counter(
-                                            "build.configure_cache_failures",
-                                            1,
-                                        );
-                                    }
-                                }
-                                draft
-                            })
-                            .map_err(|error| BuildError::PublishBuildPlan {
-                                path: invocation.plan_path.clone(),
-                                error,
-                            })
-                    })
+                    let manifest = if draft.observations.is_empty() {
+                        Some(ConfigureManifest::new(ObservationPolicy::Poison))
+                    } else {
+                        ConfigureManifest::decode(&draft.observations).ok()
+                    };
+                    if let Some(manifest) = manifest {
+                        let identity = ConfigureIdentity::new(
+                            runner_cache_key,
+                            invocation_identity(invocation),
+                            &manifest,
+                        );
+                        if ConfigureCache::new(invocation)
+                            .with_lock_observer(progress.map(|progress| {
+                                progress.phase_lock_observer(ProgressPhase::Configure)
+                            }))
+                            .publish_draft(&identity, &draft)
+                            .is_ok()
+                        {
+                            nia_timing::emit_counter("build.configure_cache_publications", 1);
+                        } else {
+                            nia_timing::emit_counter("build.configure_cache_failures", 1);
+                        }
+                    }
+                    Ok(draft)
                 }
                 Err(error) => Err(error),
             }
@@ -4663,8 +4699,7 @@ mod tests {
                 .source
                 .contains(std::str::from_utf8(RUNNER_CONFIG.magic).unwrap())
         );
-        assert!(runner.source.contains("init.args().len() < 3"));
-        assert!(runner.source.contains("init.args().len() > 3"));
+        assert!(runner.source.contains("init.args().len() != 3"));
         assert!(runner.source.contains("equals(&b\"--config\")"));
         assert!(runner.source.contains("fun reportAndExit("));
         assert!(runner.source.contains("fs::Path::fromUtf8("));
@@ -4699,11 +4734,7 @@ mod tests {
         assert!(runner.source.contains("        requestedStep,"));
         assert!(!runner.source.contains("pathArg("));
         assert!(!runner.source.contains("stepArgIndex"));
-        assert!(
-            runner
-                .source
-                .contains("api.applyRunArguments(init.args(), forwardedArgumentStart(init))")
-        );
+        assert!(runner.source.contains("api.writePlanDraft(planDraft)"));
         assert!(runner.source.contains("api.reportError(error)"));
         assert!(runner.source.contains(").reportAndExit(init).?;"));
         assert!(!runner.source.contains("runRequestedStep"));

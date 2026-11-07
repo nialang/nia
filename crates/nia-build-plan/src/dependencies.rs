@@ -27,6 +27,12 @@ pub(crate) fn validate_artifact_dependencies(
                 inputs,
                 ..
             }))
+            | Some(ActionKind::RunExecutable(CommandAction {
+                program,
+                working_directory,
+                inputs,
+                ..
+            }))
             | Some(ActionKind::TestExecutable(CommandAction {
                 program,
                 working_directory,
@@ -147,6 +153,12 @@ pub(crate) fn validate_build_input_dependencies(draft: &BuildPlanDraft) -> Resul
             inputs,
             ..
         })
+        | ActionKind::RunExecutable(CommandAction {
+            program,
+            working_directory,
+            inputs,
+            ..
+        })
         | ActionKind::TestExecutable(CommandAction {
             program,
             working_directory,
@@ -235,7 +247,9 @@ pub(crate) fn validate_generated_source_dependencies(
             ActionKind::GeneratedFile { output, .. } => {
                 producers.insert(output, &action.key);
             }
-            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+            ActionKind::ExternalCommand(command)
+            | ActionKind::RunExecutable(command)
+            | ActionKind::TestExecutable(command) => {
                 let CommandAction { outputs, .. } = command;
                 for output in outputs {
                     producers.insert(output, &action.key);
@@ -394,6 +408,7 @@ fn action_outputs<'a>(
             }])
         }
         ActionKind::ExternalCommand(CommandAction { outputs, .. })
+        | ActionKind::RunExecutable(CommandAction { outputs, .. })
         | ActionKind::TestExecutable(CommandAction { outputs, .. }) => Ok(outputs
             .iter()
             .map(|path| ActionOutput {

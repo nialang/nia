@@ -62,6 +62,14 @@ pub(crate) fn canonicalize_actions(
                     reason: "test executable actions require a test cache policy",
                 });
             }
+            ActionKind::RunExecutable(CommandAction { cache_policy, .. })
+                if *cache_policy != CommandCachePolicy::Uncacheable =>
+            {
+                return Err(PlanError::InvalidCommand {
+                    action: action.key.clone(),
+                    reason: "run executable actions must be uncacheable",
+                });
+            }
             ActionKind::ExternalCommand(CommandAction {
                 cache_policy: CommandCachePolicy::SuccessfulTests,
                 ..
@@ -167,7 +175,9 @@ pub(crate) fn canonicalize_actions(
                     });
                 }
             }
-            ActionKind::ExternalCommand(command) | ActionKind::TestExecutable(command) => {
+            ActionKind::ExternalCommand(command)
+            | ActionKind::RunExecutable(command)
+            | ActionKind::TestExecutable(command) => {
                 let CommandAction {
                     program,
                     arguments,

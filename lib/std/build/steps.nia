@@ -6,7 +6,6 @@
 
 using root::collections;
 using root::mem;
-using root::process;
 using root::string;
 using root::error::CleanupAccumulator;
 using root::build::commands;
@@ -162,41 +161,6 @@ extend RunExecutableStep {
                     argument,
                 ).withBuildContext(.Retain, .Step(index)).?;
             }
-        }
-        !()
-    }
-
-    pub(root) fun appendPassthroughArguments(
-        &mut self,
-        allocator: &mut mem::Allocator,
-        arguments: process::Args,
-        firstArgument: usize,
-        index: usize,
-    ) Error!() {
-        if firstArgument > arguments.len() {
-            return .Invalid { operation: .Validate, subject: .Step(index) }!;
-        }
-        self.arguments.reserve(allocator, arguments.len() - firstArgument)
-            .withBuildContext(.Retain, .Step(index)).?;
-        let mut argumentIndex = firstArgument;
-        while argumentIndex < arguments.len() {
-            let argument = match arguments.get(argumentIndex) {
-                ?value => value,
-                null => return .Invalid { operation: .Validate, subject: .Step(index) }!,
-            };
-            let text = match string::String::fromUtf8(allocator, argument.bytes()) {
-                !value => value,
-                string::TextError::InvalidUtf8(_)! => {
-                    return .Invalid { operation: .Validate, subject: .Step(index) }!;
-                },
-                string::TextError::Allocation(cause)! => return .Failure {
-                    operation: .Retain,
-                    subject: .Step(index),
-                    cause: .Memory(cause),
-                }!,
-            };
-            self.arguments.appendAssumeCapacity(text);
-            argumentIndex += 1;
         }
         !()
     }

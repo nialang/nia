@@ -64,7 +64,6 @@ pub struct BuildInvocationIdentity {
     optimization: nia_build_plan::OptimizationMode,
     link_time_optimization: nia_driver::LinkTimeOptimization,
     step: crate::BuildStepSelection,
-    run_arguments: Vec<String>,
 }
 
 impl BuildInvocationIdentity {
@@ -78,7 +77,6 @@ impl BuildInvocationIdentity {
             optimization: invocation.optimization,
             link_time_optimization: invocation.link_time_optimization,
             step: invocation.step.clone(),
-            run_arguments: invocation.run_arguments.clone(),
         }
     }
 
@@ -98,10 +96,6 @@ impl BuildInvocationIdentity {
                 encoder.write_tag(2);
                 encoder.write_str(name);
             }
-        }
-        encoder.write_bytes(&(self.run_arguments.len() as u64).to_le_bytes());
-        for argument in &self.run_arguments {
-            encoder.write_str(argument);
         }
         encoder.finish()
     }

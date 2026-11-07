@@ -578,7 +578,10 @@ impl nia_build::ProgressObserver for PlainProgress {
                 );
                 if self.verbose == 0
                     && !state.handed_over
-                    && state.descriptions.get(&action).is_some_and(owns_terminal)
+                    && state
+                        .descriptions
+                        .get(&action)
+                        .is_some_and(|description| description.terminal_handover)
                 {
                     // Like `cargo run`, report the build before the program
                     // takes over the terminal and say nothing after it.
@@ -680,12 +683,6 @@ impl nia_build::ProgressObserver for PlainProgress {
             self.finish_output(&[summary]);
         }
     }
-}
-
-/// An external command that declares no outputs exists for what it prints,
-/// as a run step does, so it is handed the terminal.
-fn owns_terminal(description: &nia_build::ProgressActionDescription) -> bool {
-    description.kind == "external-command" && description.total_outputs == 0
 }
 
 fn count_actions(count: usize) -> String {

@@ -14,7 +14,6 @@ using root::collections;
 using root::fs;
 using root::io;
 using root::mem;
-using root::process;
 using root::string;
 using root::build::error;
 using root::build::types;
@@ -420,7 +419,7 @@ extend PlanEncoder {
             .RunExecutable => {
                 let run = step.payload.runExecutable;
                 let target = executables[run.target.index];
-                self.writeU8(2).?;
+                self.writeU8(8).?;
                 self.writeResourceClass(.Conservative).?;
                 self.writeCommandEnvironmentPolicy(.Inherit).?;
                 self.writeCommandCachePolicy(.Uncacheable).?;
@@ -643,7 +642,7 @@ extend PlanEncoder {
     }
 
     fun writeBuild(&mut self, build: &Build) Error!() {
-        self.writeBytes(&b"NIA-PLN\x02"[..]).?;
+        self.writeBytes(&b"NIA-PLN\x03"[..]).?;
         self.writeU32(build.protocolEpoch).?;
         self.writeRootPackage().?;
         let packageCount = PlanEncoder::addCount(build.packages.len(), 1).?;
@@ -703,31 +702,6 @@ extend PlanEncoder {
 extend Build {
     fun cleanupPlanEncoding(&mut self) Error!() {
         self.planEncoding.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan)
-    }
-
-    pub fun applyRunArguments(
-        &mut self,
-        arguments: process::Args,
-        firstArgument: usize,
-    ) Error!() {
-        self.validatePlan().?;
-        if arguments.len() <= firstArgument {
-            return !();
-        }
-        let selected = match self.selectedStep {
-            ?step => step,
-            null => return .RunArgumentsRequireRunStep!,
-        };
-        let mut step = &mut self.steps.asMutSlice()[selected.index()];
-        if step.kind != .RunExecutable {
-            return .RunArgumentsRequireRunStep!;
-        }
-        step.payload.runExecutable.appendPassthroughArguments(
-            self.allocator,
-            arguments,
-            firstArgument,
-            selected.index(),
-        )
     }
 
     pub fun writePlanDraft(&mut self, path: fs::PathView) Error!() {

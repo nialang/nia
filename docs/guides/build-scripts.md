@@ -77,8 +77,8 @@ nia build --list
 ```text
 all           aggregate (default)
 greet         compiler-emit
-greet-all     external-command
-run-greet     external-command
+greet-all     run-executable
+run-greet     run-executable
 test          aggregate
 unit          test-executable
 ```
@@ -308,6 +308,9 @@ A run step needs an emit step for the same executable, and depends on it
 automatically; manifest executables already have one. Additional invocation
 arguments can be supplied with `nia build <run-step> -- <args...>` and are
 appended after the arguments configured in `RunOptions`.
+These arguments are applied after configuration: changing them reuses the
+configured plan and compiled executable, but still runs the program with the
+new arguments. They are not available to `build.nia`.
 
 `b.dependOn(step, dependency)` makes `step` run after `dependency`.
 `b.setDefaultStep(step)` chooses what `nia build` runs without a step name; a

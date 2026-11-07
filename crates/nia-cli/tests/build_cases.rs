@@ -159,13 +159,13 @@ pub fun build(b: &mut build::Build) build::Error!() {
     assert!(output.stdout.is_empty());
     assert!(
         String::from_utf8_lossy(&output.stderr)
-            .ends_with("[fixed]\n[--output]\n[result.json]\n[-v]\n"),
+            .contains("[fixed]\n[--output]\n[result.json]\n[-v]\n"),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
 
     let manifest_run = support::nia_command()
-        .args(["build", "run-jsoncli", "--root"])
+        .args(["build", "run-jsoncli", "--print-cache", "--root"])
         .arg(&*root)
         .args(["--", "--manifest", "has space", ""])
         .output_timeout_in_session("forward exact arguments to a manifest run step");
@@ -174,28 +174,103 @@ pub fun build(b: &mut build::Build) build::Error!() {
         "{}",
         String::from_utf8_lossy(&manifest_run.stderr)
     );
-    assert!(manifest_run.stdout.is_empty());
     assert!(
-        String::from_utf8_lossy(&manifest_run.stderr).ends_with("[--manifest]\n[has space]\n[]\n"),
+        String::from_utf8_lossy(&manifest_run.stdout).contains("configure result: executed"),
+        "{}",
+        String::from_utf8_lossy(&manifest_run.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&manifest_run.stderr).contains("[--manifest]\n[has space]\n[]\n"),
         "{}",
         String::from_utf8_lossy(&manifest_run.stderr)
     );
 
     let changed_manifest_run = support::nia_command()
-        .args(["build", "run-jsoncli", "--root"])
+        .args(["build", "run-jsoncli", "--print-cache", "--root"])
         .arg(&*root)
         .args(["--", "changed"])
-        .output_timeout_in_session("reconfigure a manifest run step for changed arguments");
+        .output_timeout_in_session("reuse a manifest run plan with changed arguments");
     assert!(
         changed_manifest_run.status.success(),
         "{}",
         String::from_utf8_lossy(&changed_manifest_run.stderr)
     );
-    assert!(changed_manifest_run.stdout.is_empty());
     assert!(
-        String::from_utf8_lossy(&changed_manifest_run.stderr).ends_with("[changed]\n"),
+        String::from_utf8_lossy(&changed_manifest_run.stdout).contains("configure result: reused"),
+        "{}",
+        String::from_utf8_lossy(&changed_manifest_run.stdout)
+    );
+    assert!(String::from_utf8_lossy(&changed_manifest_run.stdout).contains("runner cache: hit"));
+    assert!(
+        String::from_utf8_lossy(&changed_manifest_run.stderr).contains("[changed]\n"),
         "{}",
         String::from_utf8_lossy(&changed_manifest_run.stderr)
+    );
+
+    let base_bytes = std::fs::read(root.join("build/out/build-plan.bin")).unwrap();
+    let base_plan = nia_build::BuildPlan::decode(&base_bytes).unwrap();
+    let run_action = base_plan
+        .actions()
+        .iter()
+        .find(|action| action.key.name() == "run-jsoncli")
+        .unwrap();
+    assert!(
+        matches!(&run_action.kind, nia_build::ActionKind::RunExecutable(nia_build::CommandAction {arguments, ..}) if arguments.is_empty())
+    );
+
+    let inspected = support::nia_command()
+        .args([
+            "--diagnostics-format=json",
+            "build",
+            "run-jsoncli",
+            "--dry-run",
+            "--print-plan",
+            "--root",
+        ])
+        .arg(&*root)
+        .args(["--", "preview", ""])
+        .output_timeout_in_session("inspect fresh arguments over a cached base plan");
+    assert!(
+        inspected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inspected.stderr)
+    );
+    let plan_json: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
+    let run = plan_json["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|action| action["name"] == "run-jsoncli")
+        .unwrap();
+    assert_eq!(
+        run["details"]["arguments"],
+        serde_json::json!([{"kind": "literal", "value": "preview"}, {"kind": "literal", "value": ""}])
+    );
+    assert_eq!(
+        std::fs::read(root.join("build/out/build-plan.bin")).unwrap(),
+        base_bytes
+    );
+
+    let without_arguments = support::nia_command()
+        .args(["build", "run-jsoncli", "--print-cache", "--root"])
+        .arg(&*root)
+        .output_timeout_in_session("reuse the same base plan without forwarded arguments");
+    assert!(
+        without_arguments.status.success(),
+        "{}",
+        String::from_utf8_lossy(&without_arguments.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&without_arguments.stdout).contains("configure result: reused")
+    );
+    assert!(
+        !without_arguments.stderr.contains(&b'['),
+        "{}",
+        String::from_utf8_lossy(&without_arguments.stderr)
+    );
+    assert_eq!(
+        std::fs::read(root.join("build/out/build-plan.bin")).unwrap(),
+        base_bytes
     );
 
     let invalid = support::nia_command()
@@ -1429,7 +1504,7 @@ fn assert_configured_build_success(
         .find(|action| action.key.name() == "run")
         .expect("run action");
     match &run_action.kind {
-        nia_build::ActionKind::ExternalCommand(nia_build::CommandAction {
+        nia_build::ActionKind::RunExecutable(nia_build::CommandAction {
             resource_class,
             environment_policy,
             cache_policy,
@@ -1669,7 +1744,7 @@ fn assert_configured_build_success(
         .expect("host tool run action");
     assert!(matches!(
         &host_run_action.kind,
-        nia_build::ActionKind::ExternalCommand(nia_build::CommandAction {
+        nia_build::ActionKind::RunExecutable(nia_build::CommandAction {
             program: nia_build::CommandProgram::Path(path),
             ..
         }) if matches!(

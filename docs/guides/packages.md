@@ -126,7 +126,7 @@ nia build --list
 ```text
 all           aggregate (default)
 hello         compiler-emit
-run-hello     external-command
+run-hello     run-executable
 test          aggregate
 unit          test-executable
 ```
