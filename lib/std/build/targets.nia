@@ -591,6 +591,14 @@ pub(root) fun isValidInternalStepName(name: &[char]) bool {
     name.startsWith(&"nia-internal-test-compile.") and isStableNameAlphabet(name)
 }
 
+// Public steps must be addressable before the CLI's argv separator.
+pub(root) fun isValidPublicStepName(name: &[char]) bool {
+    isValidStableName(name)
+        and not name.startsWith("-")
+        and not name.equals(".")
+        and not name.equals("..")
+}
+
 fun isStableNameAlphabet(name: &[char]) bool {
     for &ch in name.iter() {
         let code = ch as u32;

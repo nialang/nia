@@ -1798,6 +1798,23 @@ mod tests {
     }
 
     #[test]
+    fn decoding_rejects_unaddressable_public_steps() {
+        for name in ["-task", "--help", ".", ".."] {
+            let mut value = draft(false);
+            value.steps.push(PlanStep {
+                key: StepKey::new(PackageKey::root(), name).unwrap(),
+                visibility: StepVisibility::Public,
+                action: ActionKey::new(PackageKey::root(), "check").unwrap(),
+                dependencies: Vec::new(),
+            });
+            let bytes = encode_draft_without_freeze(&value);
+            assert!(
+                matches!(BuildPlan::decode(&bytes), Err(PlanCodecError::Semantic(error)) if matches!(*error, PlanError::InvalidPublicStepName { .. }))
+            );
+        }
+    }
+
+    #[test]
     fn decoded_draft_cannot_bypass_generated_source_producer_closure() {
         let draft = generated_source_draft("generated/root.nia", vec![]);
         let bytes = encode_draft_without_freeze(&draft);

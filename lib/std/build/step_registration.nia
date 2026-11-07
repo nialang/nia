@@ -16,7 +16,7 @@ using root::build::queries::{
 using root::build::paths::isValidBuildPath;
 using root::build::steps;
 using root::string;
-using root::build::targets::isValidStableName;
+using root::build::targets::isValidPublicStepName;
 using root::build::targets::isValidInternalStepName;
 using root::build::types;
 using root::build::validation::{
@@ -640,7 +640,7 @@ extend Build {
     ) Error!() {
         self.cleanupPendingStep().?;
         let validName = match visibility {
-            .Public => isValidStableName(name),
+            .Public => isValidPublicStepName(name),
             .Internal => isValidInternalStepName(name),
             _ => false,
         };

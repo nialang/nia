@@ -40,7 +40,9 @@ Every option that takes a value accepts both `--option value` and
 `--option=value`, and the next argument is always the value, even when it
 starts with `-`. When an option is repeated, the last value wins; `-M`, `-p`,
 `-L`, `-l`, `--link-arg`, and `--rpath` accumulate instead. `--` ends the
-options, so later arguments are taken literally.
+options, so later arguments are taken literally. For `nia build`, those
+arguments are passed to the explicitly selected run step's program; the step
+must appear before `--`.
 
 | Exit status | Meaning |
 | --- | --- |
@@ -163,6 +165,11 @@ after `--` is appended to the step's configured arguments and passed to the
 program. Arguments require an explicitly selected run step; when the program
 exits with a nonzero status, `nia build` reports the step as failed and exits
 with status 1.
+
+Public step names contain ASCII letters, digits, `-`, `_`, or `.`, but must
+not start with `-` or be exactly `.` or `..`. Write `nia build run-x` to
+select a step, and `nia build run-x -- --help` to pass `--help` to its program.
+`nia build -- run-x` does not select a step.
 
 | Option | Effect |
 | --- | --- |

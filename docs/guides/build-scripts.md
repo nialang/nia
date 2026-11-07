@@ -313,6 +313,9 @@ configured plan and compiled executable, but still runs the program with the
 new arguments. They are not available to `build.nia`.
 
 `b.dependOn(step, dependency)` makes `step` run after `dependency`.
+Public step names are nonempty ASCII letters, digits, `-`, `_`, and `.`,
+must not start with `-`, and must not be exactly `.` or `..`. These rules also
+apply to manifest executable and test names because they declare public steps.
 `b.setDefaultStep(step)` chooses what `nia build` runs without a step name; a
 script that has no default step can still be used with an explicit step name.
 

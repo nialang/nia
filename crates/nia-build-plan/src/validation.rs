@@ -246,6 +246,14 @@ pub(super) fn canonicalize_steps(
     let action_keys: BTreeSet<_> = actions.iter().map(|action| &action.key).collect();
     let step_keys: BTreeSet<_> = steps.iter().map(|step| step.key.clone()).collect();
     for step in steps {
+        if step.visibility == StepVisibility::Public {
+            validate_public_step_name(step.key.name()).map_err(|error| {
+                PlanError::InvalidPublicStepName {
+                    step: step.key.clone(),
+                    error,
+                }
+            })?;
+        }
         if !action_keys.contains(&step.action) {
             return Err(PlanError::MissingAction {
                 step: step.key.clone(),

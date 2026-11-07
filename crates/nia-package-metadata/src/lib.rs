@@ -2756,6 +2756,11 @@ fn manifest_artifacts(
                     "[[{table}]] name `{name}` must be letters, digits, `-`, `_`, or `.`"
                 )));
             }
+            nia_compat::build_names::validate_public_step_name(&name).map_err(|error| {
+                invalid(format!(
+                    "[[{table}]] name `{name}` cannot name its public build step: {error}"
+                ))
+            })?;
             if RESERVED_STEP_NAMES.contains(&name.as_str()) || name.starts_with("run-") {
                 return Err(invalid(format!(
                     "[[{table}]] name `{name}` is reserved for a derived step"
@@ -2795,11 +2800,7 @@ fn manifest_artifacts(
 
 // Matches the build plan's stable node names.
 fn is_stable_artifact_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 128
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    name.len() <= 128 && nia_compat::build_names::validate_stable_name(name).is_ok()
 }
 
 fn validate_library_entry(root: &Path, library_path: &str) -> io::Result<()> {
@@ -9639,6 +9640,33 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             ]
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn manifest_artifact_names_must_be_publicly_selectable_steps() {
+        for table in ["executable", "test"] {
+            for name in ["-app", "--help", "-", ".", ".."] {
+                let source = format!(
+                    "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[[{table}]]\nname = {name:?}\npath = \"main.nia\"\n"
+                );
+                let raw: RawPackageManifest = toml::from_str(&source).unwrap();
+                let error = PackageManifest::from_raw(Path::new("root"), raw, None).unwrap_err();
+                assert!(
+                    error.to_string().contains("public build step"),
+                    "{table} {name}: {error}"
+                );
+            }
+            for name in ["app", "unit.compile", ".hidden", "_", "0", "..."] {
+                let source = format!(
+                    "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[[{table}]]\nname = {name:?}\npath = \"main.nia\"\n"
+                );
+                let raw: RawPackageManifest = toml::from_str(&source).unwrap();
+                assert!(
+                    PackageManifest::from_raw(Path::new("root"), raw, None).is_ok(),
+                    "{table} {name}"
+                );
+            }
+        }
     }
 
     #[test]

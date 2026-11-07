@@ -38,6 +38,70 @@ build_cases!(
 );
 
 #[test]
+fn public_step_names_are_validated_by_registration_and_selection() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("public-step-names");
+    std::fs::write(root.join("build.nia"), r#"using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let invalid: &[&[char]] = &[&"-task", &"--help", &"-", &".", &".."];
+    for &name in invalid.iter() {
+        match b.addAggregateStep(name) {
+            !ok => {
+                _ = ok;
+                return .Internal(.Validate)!;
+            },
+            build::Error::Invalid {
+                operation: .Validate, subject: .Step(_),
+            }! => {},
+            error! => return error!,
+        }
+    }
+    // CLI restrictions apply to public steps, not module or artifact keys.
+    let privateModule = b.addModule(build::ModuleOptions::init(&"-private", fs::PathView::init(&"build.nia"))).?;
+    _ = b.addExecutable(build::ExecutableOptions::init(&"-private", privateModule)).?;
+    let valid: &[&[char]] = &[&"build-task", &"unit.compile", &".hidden", &"_", &"0", &"..."];
+    for &name in valid.iter() {
+        _ = b.addAggregateStep(name).?;
+    }
+    !()
+}
+"#).unwrap();
+    let listed = support::nia_command()
+        .args(["build", "--list", "--root"])
+        .arg(&*root)
+        .output_timeout_in_session("validate public step names in the std builder");
+    assert!(
+        listed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    let names = String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .map(|line| line.split_whitespace().next().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        ["...", ".hidden", "0", "_", "build-task", "unit.compile"]
+    );
+    for name in names {
+        let selected = support::nia_command()
+            .args(["build", &name, "--root"])
+            .arg(&*root)
+            .arg("--")
+            .output_timeout_in_session(
+                "select every accepted public step name before an empty separator",
+            );
+        assert!(
+            selected.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&selected.stderr)
+        );
+    }
+}
+
+#[test]
 fn run_steps_get_the_terminal_after_the_build_summary() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let root = nia_test_support::test_dir("run-step-progress");

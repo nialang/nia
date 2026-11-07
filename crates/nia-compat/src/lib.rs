@@ -8,6 +8,8 @@
 /// Version of the compiler crate set used in toolchain compatibility checks.
 pub const COMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub mod build_names;
+
 /// Replaces a filesystem destination with a fully written sibling path.
 /// Windows' `rename` does not replace an existing destination, so all cache
 /// and publication owners use this boundary instead of relying on host

@@ -31,45 +31,8 @@ pub use codec::*;
 pub use handoff::*;
 pub use observations::*;
 
-/// Error returned when a package, module, artifact, action, or step name is invalid.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StableNameError {
-    /// The name has no bytes.
-    Empty,
-    /// A byte position contains a character outside the stable-name alphabet.
-    InvalidCharacter {
-        /// Byte offset of the invalid character.
-        index: usize,
-        /// Character outside the stable-name alphabet.
-        character: char,
-    },
-}
-
-impl fmt::Display for StableNameError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Empty => f.write_str("stable name is empty"),
-            Self::InvalidCharacter { index, character } => write!(
-                f,
-                "stable name contains invalid character `{character}` at byte {index}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for StableNameError {}
-
-fn validate_stable_name(name: &str) -> Result<(), StableNameError> {
-    if name.is_empty() {
-        return Err(StableNameError::Empty);
-    }
-    for (index, character) in name.char_indices() {
-        if !(character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')) {
-            return Err(StableNameError::InvalidCharacter { index, character });
-        }
-    }
-    Ok(())
-}
+pub use nia_compat::build_names::{PublicStepNameError, StableNameError};
+use nia_compat::build_names::{validate_public_step_name, validate_stable_name};
 
 /// Stable package identity used by all plan keys.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -924,6 +887,13 @@ pub enum PlanError {
     DuplicateAction(ActionKey),
     /// A step identity is declared more than once.
     DuplicateStep(StepKey),
+    /// A public step cannot be selected unambiguously from the CLI.
+    InvalidPublicStepName {
+        /// Rejected step.
+        step: StepKey,
+        /// Shared naming-contract failure.
+        error: PublicStepNameError,
+    },
     /// A module declares the same import name more than once.
     DuplicateImport {
         /// Module containing the duplicate import.
@@ -1081,6 +1051,11 @@ impl fmt::Display for PlanError {
                 f,
                 "module `{}` imports `{name}` more than once",
                 display_node_key(module)
+            ),
+            Self::InvalidPublicStepName { step, error } => write!(
+                f,
+                "invalid public step `{}`: {error}",
+                display_node_key(step)
             ),
             Self::MissingModule { owner, module } => write!(
                 f,
@@ -1959,6 +1934,29 @@ mod tests {
         let mut value = draft(false);
         value.selected_step = value.default_step.take();
         assert!(BuildPlan::freeze(value).is_ok());
+    }
+
+    #[test]
+    fn public_step_names_are_stricter_than_internal_keys() {
+        for name in ["-task", "--help", "-", ".", ".."] {
+            let mut value = draft(false);
+            let key = step_key(name);
+            value.steps.push(PlanStep {
+                key: key.clone(),
+                visibility: StepVisibility::Public,
+                action: action_key("check"),
+                dependencies: Vec::new(),
+            });
+            assert!(
+                matches!(BuildPlan::freeze(value.clone()), Err(PlanError::InvalidPublicStepName {step, ..}) if step == key)
+            );
+            value.steps.last_mut().unwrap().visibility = StepVisibility::Internal;
+            let plan = BuildPlan::freeze(value).unwrap();
+            assert_eq!(BuildPlan::decode(&plan.encode().unwrap()).unwrap(), plan);
+            assert!(ModuleKey::new(PackageKey::root(), name).is_ok());
+            assert!(ArtifactKey::new(PackageKey::root(), name).is_ok());
+            assert!(ActionKey::new(PackageKey::root(), name).is_ok());
+        }
     }
 
     #[test]

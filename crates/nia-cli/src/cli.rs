@@ -881,12 +881,6 @@ fn parse_build(scanned: &Scanned) -> CliResult<CliCommand> {
         }
         None => match scanned.positionals.as_slice() {
             [] => (None, Vec::new()),
-            [step] if looks_like_path_argument(step) => {
-                return Err(CliError::new(
-                    format!("package path `{step}` must be passed with `--root`"),
-                    topic,
-                ));
-            }
             [step] => (Some(step.clone()), Vec::new()),
             [_, extra, ..] => {
                 return Err(CliError::new(
@@ -896,6 +890,17 @@ fn parse_build(scanned: &Scanned) -> CliResult<CliCommand> {
             }
         },
     };
+    if let Some(step) = &step {
+        if looks_like_path_argument(step) {
+            return Err(CliError::new(
+                format!("package path `{step}` must be passed with `--root`"),
+                topic,
+            ));
+        }
+        nia_compat::build_names::validate_public_step_name(step).map_err(|error| {
+            CliError::new(format!("invalid build step `{step}`: {error}"), topic)
+        })?;
+    }
     let link_time_optimization = match scanned.last(OptionId::Lto) {
         Some(occurrence) => parse_link_time_optimization(value(occurrence))
             .map_err(|message| CliError::new(message, topic))?,
@@ -1347,10 +1352,6 @@ mod tests {
     fn double_dash_makes_the_rest_positional() {
         let cli = run(&["check", "--", "-strange.nia"]);
         assert!(matches!(&cli.command, CliCommand::Check { path, .. } if path == "-strange.nia"));
-        let cli = run(&["build", "a/b", "--"]);
-        assert!(
-            matches!(&cli.command, CliCommand::Build { step: Some(step), .. } if step == "a/b")
-        );
         assert!(matches!(
             parse(&["check", "--", "-h"]),
             Ok(CliAction::Run(_))
@@ -1483,6 +1484,34 @@ mod tests {
             (&["build", "--lto=fat"], "expected `off`, `thin`, or `full`"),
             (&["check", "--lto=thin", "a.nia"], "belongs to `nia build`"),
         ]);
+    }
+
+    #[test]
+    fn build_step_validation_is_independent_of_the_separator() {
+        for name in [".", "..", "a/b", "a\\b"] {
+            assert_errors(&[
+                (&["build", name], "must be passed with `--root`"),
+                (&["build", name, "--"], "must be passed with `--root`"),
+                (
+                    &["build", name, "--", "value"],
+                    "must be passed with `--root`",
+                ),
+            ]);
+        }
+        for name in ["a b", "a:b", ""] {
+            assert_errors(&[
+                (&["build", name], "invalid build step"),
+                (&["build", name, "--"], "invalid build step"),
+            ]);
+        }
+        for name in ["run-app", "unit.compile", ".hidden", "_", "0"] {
+            for arguments in [vec!["build", name], vec!["build", name, "--"]] {
+                assert!(
+                    matches!(run(&arguments).command, CliCommand::Build { step: Some(step), .. } if step == name)
+                );
+            }
+        }
+        assert_errors(&[(&["build", "--", "run-app"], "require an explicit run step")]);
     }
 
     #[test]
