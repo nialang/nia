@@ -1236,19 +1236,11 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         })
                     })?;
                 }
-                let plan = if invocation.run_arguments.is_empty() {
-                    draft.plan
-                } else {
-                    let BuildStepSelection::Named(step) = &invocation.step else {
-                        return Err(BuildError::RunArguments {
-                            error: RunArgumentsError::NoSelectedStep,
-                        });
-                    };
-                    draft
-                        .plan
-                        .with_run_arguments(step, &invocation.run_arguments)
-                        .map_err(|error| BuildError::RunArguments { error })?
-                };
+                // `resolve_build_invocation` admits arguments only with a named step.
+                let plan = draft
+                    .plan
+                    .with_run_arguments(&invocation.run_arguments)
+                    .map_err(|error| BuildError::RunArguments { error })?;
                 let preview =
                     progress_phase(progress_guard.session(), ProgressPhase::Preview, || {
                         preview_build_plan(&plan, &invocation)
@@ -2777,6 +2769,8 @@ fn progress_action_description(plan: &BuildPlan, action: &PlanAction) -> Progres
         kind: action_kind_name(action),
         terminal_handover: match &action.kind {
             ActionKind::RunExecutable(_) => true,
+            // A command that declares no outputs exists for what it prints,
+            // as a run step does, so it is handed the terminal too.
             ActionKind::ExternalCommand(command) => command.outputs.is_empty(),
             _ => false,
         },

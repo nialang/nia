@@ -1332,11 +1332,10 @@ impl BuildPlan {
 
     /// Returns an invocation-specific plan with arguments appended to its
     /// explicitly selected executable run action.
-    pub fn with_run_arguments(
-        &self,
-        requested_step: &str,
-        arguments: &[String],
-    ) -> Result<Self, RunArgumentsError> {
+    ///
+    /// The selected step is part of the configuration that produced this plan,
+    /// so it is the step the invocation named.
+    pub fn with_run_arguments(&self, arguments: &[String]) -> Result<Self, RunArgumentsError> {
         if arguments.is_empty() {
             return Ok(self.clone());
         }
@@ -1344,9 +1343,6 @@ impl BuildPlan {
             .selected_step
             .as_ref()
             .ok_or(RunArgumentsError::NoSelectedStep)?;
-        if selected.package() != &self.root_package || selected.name() != requested_step {
-            return Err(RunArgumentsError::NoSelectedStep);
-        }
         let step_index = self
             .steps
             .binary_search_by(|step| step.key.cmp(selected))
@@ -1486,10 +1482,7 @@ mod tests {
         let base = BuildPlan::freeze(draft).unwrap();
         let base_bytes = base.encode().unwrap();
         let invocation = base
-            .with_run_arguments(
-                "run-app",
-                &["--verbose".to_string(), "two words".to_string()],
-            )
+            .with_run_arguments(&["--verbose".to_string(), "two words".to_string()])
             .unwrap();
         let base_action = base
             .actions()
@@ -1542,7 +1535,7 @@ mod tests {
     fn invocation_arguments_require_a_selected_run_step_and_valid_argv() {
         let no_selection = BuildPlan::freeze(draft(false)).unwrap();
         assert_eq!(
-            no_selection.with_run_arguments("run-app", &["value".to_string()]),
+            no_selection.with_run_arguments(&["value".to_string()]),
             Err(RunArgumentsError::NoSelectedStep)
         );
 
@@ -1550,17 +1543,13 @@ mod tests {
         selected_external.selected_step = Some(step_key("emit"));
         let selected_external = BuildPlan::freeze(selected_external).unwrap();
         assert_eq!(
-            selected_external.with_run_arguments("emit", &["value".to_string()]),
+            selected_external.with_run_arguments(&["value".to_string()]),
             Err(RunArgumentsError::NotRunExecutable(step_key("emit")))
         );
 
         let run = BuildPlan::freeze(run_executable_draft()).unwrap();
         assert_eq!(
-            run.with_run_arguments("run-other", &["value".to_string()]),
-            Err(RunArgumentsError::NoSelectedStep)
-        );
-        assert_eq!(
-            run.with_run_arguments("run-app", &["bad\0argument".to_string()]),
+            run.with_run_arguments(&["bad\0argument".to_string()]),
             Err(RunArgumentsError::ContainsNul { index: 0 })
         );
     }

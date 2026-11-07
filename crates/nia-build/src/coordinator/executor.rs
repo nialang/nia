@@ -208,10 +208,7 @@ impl DriverActionExecutor {
             } => {
                 return self.execute_compiler_emit(action, artifact, target, static_archives);
             }
-            ActionKind::ExternalCommand(command) => {
-                return self.execute_external_command_action(action, command, cancellation);
-            }
-            ActionKind::RunExecutable(command) => {
+            ActionKind::ExternalCommand(command) | ActionKind::RunExecutable(command) => {
                 return self.execute_external_command_action(action, command, cancellation);
             }
             ActionKind::TestExecutable(command) => {

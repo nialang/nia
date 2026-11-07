@@ -642,7 +642,7 @@ extend PlanEncoder {
     }
 
     fun writeBuild(&mut self, build: &Build) Error!() {
-        self.writeBytes(&b"NIA-PLN\x03"[..]).?;
+        self.writeBytes(b"NIA-PLN\x03").?;
         self.writeU32(build.protocolEpoch).?;
         self.writeRootPackage().?;
         let packageCount = PlanEncoder::addCount(build.packages.len(), 1).?;

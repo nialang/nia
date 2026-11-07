@@ -444,6 +444,68 @@ impl Writer {
         self.action_kind(&action.kind)
     }
 
+    fn command_action(&mut self, tag: u8, command: &CommandAction) -> Result<(), PlanCodecError> {
+        let CommandAction {
+            resource_class,
+            environment_policy,
+            cache_policy,
+            program,
+            arguments,
+            working_directory,
+            environment,
+            inputs,
+            outputs,
+            stdin,
+        } = command;
+        self.u8(tag);
+        self.resource_class(*resource_class);
+        self.command_environment_policy(*environment_policy);
+        self.command_cache_policy(*cache_policy);
+        match stdin {
+            CommandStdin::Null => self.u8(0),
+            CommandStdin::InputPath(path) => {
+                self.u8(1);
+                self.logical_path(path)?;
+            }
+        }
+        match program {
+            CommandProgram::Path(path) => {
+                self.u8(0);
+                self.logical_path(path)?;
+            }
+            CommandProgram::Search(name) => {
+                self.u8(1);
+                self.string(name)?;
+            }
+        }
+        self.count(arguments.len())?;
+        for argument in arguments {
+            match argument {
+                CommandArgument::Literal(value) => {
+                    self.u8(0);
+                    self.string(value)?;
+                }
+                CommandArgument::InputPath(path) => {
+                    self.u8(1);
+                    self.logical_path(path)?;
+                }
+                CommandArgument::OutputPath(path) => {
+                    self.u8(2);
+                    self.logical_path(path)?;
+                }
+            }
+        }
+        self.logical_path(working_directory)?;
+        self.count(environment.len())?;
+        for input in environment {
+            self.string(&input.name)?;
+            self.option_string(input.value.as_deref())?;
+        }
+        self.paths(inputs)?;
+        self.paths(outputs)?;
+        Ok(())
+    }
+
     fn action_kind(&mut self, kind: &ActionKind) -> Result<(), PlanCodecError> {
         match kind {
             ActionKind::CompilerCheck {
@@ -475,73 +537,9 @@ impl Writer {
                 }
                 self.artifact_configuration(configuration)?;
             }
-            ActionKind::ExternalCommand(command)
-            | ActionKind::RunExecutable(command)
-            | ActionKind::TestExecutable(command) => {
-                let CommandAction {
-                    resource_class,
-                    environment_policy,
-                    cache_policy,
-                    program,
-                    arguments,
-                    working_directory,
-                    environment,
-                    inputs,
-                    outputs,
-                    stdin,
-                } = command;
-                self.u8(match kind {
-                    ActionKind::ExternalCommand(_) => 2,
-                    ActionKind::TestExecutable(_) => 7,
-                    ActionKind::RunExecutable(_) => 8,
-                    _ => unreachable!("command action match is exhaustive"),
-                });
-                self.resource_class(*resource_class);
-                self.command_environment_policy(*environment_policy);
-                self.command_cache_policy(*cache_policy);
-                match stdin {
-                    CommandStdin::Null => self.u8(0),
-                    CommandStdin::InputPath(path) => {
-                        self.u8(1);
-                        self.logical_path(path)?;
-                    }
-                }
-                match program {
-                    CommandProgram::Path(path) => {
-                        self.u8(0);
-                        self.logical_path(path)?;
-                    }
-                    CommandProgram::Search(name) => {
-                        self.u8(1);
-                        self.string(name)?;
-                    }
-                }
-                self.count(arguments.len())?;
-                for argument in arguments {
-                    match argument {
-                        CommandArgument::Literal(value) => {
-                            self.u8(0);
-                            self.string(value)?;
-                        }
-                        CommandArgument::InputPath(path) => {
-                            self.u8(1);
-                            self.logical_path(path)?;
-                        }
-                        CommandArgument::OutputPath(path) => {
-                            self.u8(2);
-                            self.logical_path(path)?;
-                        }
-                    }
-                }
-                self.logical_path(working_directory)?;
-                self.count(environment.len())?;
-                for input in environment {
-                    self.string(&input.name)?;
-                    self.option_string(input.value.as_deref())?;
-                }
-                self.paths(inputs)?;
-                self.paths(outputs)?;
-            }
+            ActionKind::ExternalCommand(command) => self.command_action(2, command)?,
+            ActionKind::TestExecutable(command) => self.command_action(7, command)?,
+            ActionKind::RunExecutable(command) => self.command_action(8, command)?,
             ActionKind::GeneratedFile { output, contents } => {
                 self.u8(3);
                 self.logical_path(output)?;
@@ -969,6 +967,72 @@ impl<'a> Reader<'a> {
         })
     }
 
+    fn command_action(&mut self) -> Result<CommandAction, PlanCodecError> {
+        let resource_class = self.resource_class()?;
+        let environment_policy = self.command_environment_policy()?;
+        let cache_policy = self.command_cache_policy()?;
+        let stdin_offset = self.offset;
+        let stdin = match self.u8()? {
+            0 => CommandStdin::Null,
+            1 => CommandStdin::InputPath(self.logical_path()?),
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "command stdin",
+                    tag,
+                    offset: stdin_offset,
+                });
+            }
+        };
+        let program_offset = self.offset;
+        let program_tag = self.u8()?;
+        let program = match program_tag {
+            0 => CommandProgram::Path(self.logical_path()?),
+            1 => CommandProgram::Search(self.string()?),
+            _ => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "command program",
+                    tag: program_tag,
+                    offset: program_offset,
+                });
+            }
+        };
+        let arguments = self.list(|reader| {
+            let offset = reader.offset;
+            let tag = reader.u8()?;
+            match tag {
+                0 => Ok(CommandArgument::Literal(reader.string()?)),
+                1 => Ok(CommandArgument::InputPath(reader.logical_path()?)),
+                2 => Ok(CommandArgument::OutputPath(reader.logical_path()?)),
+                _ => Err(PlanCodecError::InvalidTag {
+                    kind: "command argument",
+                    tag,
+                    offset,
+                }),
+            }
+        })?;
+        let working_directory = self.logical_path()?;
+        let environment = self.list(|reader| {
+            Ok(EnvironmentInput {
+                name: reader.string()?,
+                value: reader.option_string()?,
+            })
+        })?;
+        let inputs = self.list(Reader::logical_path)?;
+        let outputs = self.list(Reader::logical_path)?;
+        Ok(CommandAction {
+            resource_class,
+            environment_policy,
+            cache_policy,
+            program,
+            arguments,
+            working_directory,
+            environment,
+            inputs,
+            outputs,
+            stdin,
+        })
+    }
+
     fn action(&mut self) -> Result<PlanAction, PlanCodecError> {
         let key = self.action_key()?;
         let offset = self.offset;
@@ -987,97 +1051,9 @@ impl<'a> Reader<'a> {
                 static_archives: self.list(|reader| reader.artifact_key())?,
                 configuration: self.artifact_configuration()?,
             },
-            2 | 7 | 8 => {
-                let resource_class = self.resource_class()?;
-                let environment_policy = self.command_environment_policy()?;
-                let cache_policy = self.command_cache_policy()?;
-                let stdin_offset = self.offset;
-                let stdin = match self.u8()? {
-                    0 => CommandStdin::Null,
-                    1 => CommandStdin::InputPath(self.logical_path()?),
-                    tag => {
-                        return Err(PlanCodecError::InvalidTag {
-                            kind: "command stdin",
-                            tag,
-                            offset: stdin_offset,
-                        });
-                    }
-                };
-                let program_offset = self.offset;
-                let program_tag = self.u8()?;
-                let program = match program_tag {
-                    0 => CommandProgram::Path(self.logical_path()?),
-                    1 => CommandProgram::Search(self.string()?),
-                    _ => {
-                        return Err(PlanCodecError::InvalidTag {
-                            kind: "command program",
-                            tag: program_tag,
-                            offset: program_offset,
-                        });
-                    }
-                };
-                let arguments = self.list(|reader| {
-                    let offset = reader.offset;
-                    let tag = reader.u8()?;
-                    match tag {
-                        0 => Ok(CommandArgument::Literal(reader.string()?)),
-                        1 => Ok(CommandArgument::InputPath(reader.logical_path()?)),
-                        2 => Ok(CommandArgument::OutputPath(reader.logical_path()?)),
-                        _ => Err(PlanCodecError::InvalidTag {
-                            kind: "command argument",
-                            tag,
-                            offset,
-                        }),
-                    }
-                })?;
-                let working_directory = self.logical_path()?;
-                let environment = self.list(|reader| {
-                    Ok(EnvironmentInput {
-                        name: reader.string()?,
-                        value: reader.option_string()?,
-                    })
-                })?;
-                let inputs = self.list(Reader::logical_path)?;
-                let outputs = self.list(Reader::logical_path)?;
-                match tag {
-                    7 => ActionKind::TestExecutable(CommandAction {
-                        resource_class,
-                        environment_policy,
-                        cache_policy,
-                        program,
-                        arguments,
-                        working_directory,
-                        environment,
-                        inputs,
-                        outputs,
-                        stdin,
-                    }),
-                    8 => ActionKind::RunExecutable(CommandAction {
-                        resource_class,
-                        environment_policy,
-                        cache_policy,
-                        program,
-                        arguments,
-                        working_directory,
-                        environment,
-                        inputs,
-                        outputs,
-                        stdin,
-                    }),
-                    _ => ActionKind::ExternalCommand(CommandAction {
-                        resource_class,
-                        environment_policy,
-                        cache_policy,
-                        program,
-                        arguments,
-                        working_directory,
-                        environment,
-                        inputs,
-                        outputs,
-                        stdin,
-                    }),
-                }
-            }
+            2 => ActionKind::ExternalCommand(self.command_action()?),
+            7 => ActionKind::TestExecutable(self.command_action()?),
+            8 => ActionKind::RunExecutable(self.command_action()?),
             3 => {
                 let output = self.logical_path()?;
                 ActionKind::GeneratedFile {
