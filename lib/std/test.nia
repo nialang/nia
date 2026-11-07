@@ -7,6 +7,10 @@
 using root::fmt;
 using root::source::{SourceLocation, callerLocation};
 
+pub(root) module failing_allocator;
+using root::test::failing_allocator;
+pub using failing_allocator::FailingAllocator;
+
 pub enum Error {
     AssertionFailed(SourceLocation) = 1,
     ValuesEqual(SourceLocation) = 2,

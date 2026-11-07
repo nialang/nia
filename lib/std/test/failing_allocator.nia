@@ -1,0 +1,102 @@
+// Deterministic allocation and release fault injection for tests.
+
+using root::mem;
+
+pub struct FailingAllocator {
+    backing: mem::FixedBufferAllocator,
+    allocationAttempts: usize,
+    freeAttempts: usize,
+    activeBlocks: usize,
+    failAllocationAt: usize,
+    failFreeAt: usize,
+}
+
+extend FailingAllocator {
+    pub fun init(buffer: &mut [u8]) FailingAllocator {
+        .{
+            backing: mem::FixedBufferAllocator::init(buffer),
+            allocationAttempts: 0,
+            freeAttempts: 0,
+            activeBlocks: 0,
+            failAllocationAt: 0,
+            failFreeAt: 0,
+        }
+    }
+
+    pub fun failAllocationAfter(&mut self, successfulAllocations: usize) () {
+        self.failAllocationAt = self.allocationAttempts + successfulAllocations + 1;
+    }
+
+    pub fun failNextAllocation(&mut self) () {
+        self.failAllocationAfter(0);
+    }
+
+    pub fun failFreeAfter(&mut self, successfulFrees: usize) () {
+        self.failFreeAt = self.freeAttempts + successfulFrees + 1;
+    }
+
+    pub fun failNextFree(&mut self) () {
+        self.failFreeAfter(0);
+    }
+
+    pub fun clearFailures(&mut self) () {
+        self.failAllocationAt = 0;
+        self.failFreeAt = 0;
+    }
+
+    pub fun allocationAttempts(&self) usize {
+        self.allocationAttempts
+    }
+
+    pub fun freeAttempts(&self) usize {
+        self.freeAttempts
+    }
+
+    pub fun activeBlocks(&self) usize {
+        self.activeBlocks
+    }
+
+    pub fun used(&self) usize {
+        self.backing.used()
+    }
+}
+
+extend FailingAllocator : mem::Allocator {
+    pub fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        if not layout.isEmpty() {
+            self.allocationAttempts += 1;
+            if self.failAllocationAt == self.allocationAttempts {
+                self.failAllocationAt = 0;
+                return .OutOfMemory!;
+            }
+        }
+        let block = self.backing.alloc(layout).?;
+        if not block.isEmpty() {
+            self.activeBlocks += 1;
+        }
+        !block
+    }
+
+    pub fun free(&mut self, block: mem::Block) mem::Error!() {
+        if not block.isEmpty() {
+            self.freeAttempts += 1;
+            if self.failFreeAt == self.freeAttempts {
+                self.failFreeAt = 0;
+                return .Invalid!;
+            }
+        }
+        self.backing.free(block).?;
+        if not block.isEmpty() {
+            self.activeBlocks -= 1;
+        }
+        !()
+    }
+
+    pub fun resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+        self.backing.resize(block, newLayout)
+    }
+
+    pub fun remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
+        self.backing.remap(block, newLayout)
+    }
+}

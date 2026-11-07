@@ -8,6 +8,7 @@ pub(root) module error;
 pub(root) module file_adapter;
 pub(root) module fixed_buffer;
 pub(root) module limit;
+pub(root) module read_to_end;
 pub(root) module debug;
 pub(root) module traits;
 
@@ -16,6 +17,7 @@ using root::io::error;
 using root::io::file_adapter;
 using root::io::fixed_buffer;
 using root::io::limit;
+using root::io::read_to_end;
 using root::io::debug;
 
 pub using traits::{BufferError, Reader, Writer};
@@ -24,4 +26,5 @@ pub using fixed_buffer::{DiscardingWriter, FixedBufferReader, FixedBufferWriter}
 pub using buffered::{BufferedReader, BufferedWriter};
 pub using file_adapter::{FileReader, FileWriter};
 pub using limit::{Limit, LimitedReader};
+pub using read_to_end::{ReadToEndError, ReadToEndErrorKind, readToEnd};
 pub using debug::{DebugPrintError, debugPrint};

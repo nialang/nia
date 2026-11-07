@@ -1258,6 +1258,124 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_std_io_read_to_end_is_bounded_and_allocator_failures_are_retryable() {
+    let root = temp_dir("emit_exe_std_io_read_to_end_and_failing_allocator");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::{collections, io, mem, process, test};
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut outputStorage: [u8; 64] = [0; 64];
+    let mut backing = mem::FixedBufferAllocator::init(&mut outputStorage[..]);
+    let allocator: &mut mem::Allocator = &mut backing;
+    let mut output = collections::ArrayList[u8]::init();
+    defer output.deinit(allocator).?;
+
+    let mut exactReader = io::FixedBufferReader::init(&b"abcdef");
+    match io::readToEnd(&mut exactReader, allocator, 6, &mut output) {
+        !() => {},
+        error! => {
+            if error.kind() == io::ReadToEndErrorKind::Memory {
+                return process::ExitCode(12)!;
+            }
+            return process::ExitCode(13)!;
+        },
+    }
+    if output.len() != 6usize or output.asSlice()[0] != b'a' or output.asSlice()[5] != b'f' {
+        return process::ExitCode(2)!;
+    }
+
+    output.clear();
+    let mut limitedReader = io::FixedBufferReader::init(&b"abcdef");
+    match io::readToEnd(&mut limitedReader, allocator, 3, &mut output) {
+        !() => return process::ExitCode(3)!,
+        error! => {
+            if error.kind() != io::ReadToEndErrorKind::LimitExceeded {
+                return process::ExitCode(4)!;
+            }
+        },
+    }
+    if output.len() != 3usize or output.asSlice()[2] != b'c' or limitedReader.remaining() != 2usize {
+        return process::ExitCode(5)!;
+    }
+
+    let mut smallStorage: [u8; 8] = [0; 8];
+    let mut failing = test::FailingAllocator::init(&mut smallStorage[..]);
+    let block = failing.alloc(mem::Layout::init(4, 1).?).?;
+    failing.failNextFree();
+    match failing.free(block) {
+        !() => return process::ExitCode(6)!,
+        mem::Error::Invalid! => {},
+        error! => { _ = error; return process::ExitCode(7)!; },
+    }
+    if failing.activeBlocks() != 1usize {
+        return process::ExitCode(8)!;
+    }
+    failing.clearFailures();
+    failing.free(block).?;
+    if failing.activeBlocks() != 0usize {
+        return process::ExitCode(9)!;
+    }
+    failing.failNextAllocation();
+    match failing.alloc(mem::Layout::init(4, 1).?) {
+        !block => { _ = block; return process::ExitCode(10)!; },
+        mem::Error::OutOfMemory! => {},
+        error! => { _ = error; return process::ExitCode(11)!; },
+    }
+
+    let mut retryStorage: [u8; 16] = [0; 16];
+    let mut retryAllocator = test::FailingAllocator::init(&mut retryStorage[..]);
+    let allocator: &mut mem::Allocator = &mut retryAllocator;
+    let mut retryOutput = collections::ArrayList[u8]::init();
+    let mut retryReader = io::FixedBufferReader::init(&b"xyz");
+    retryAllocator.failNextAllocation();
+    match io::readToEnd(&mut retryReader, allocator, 3, &mut retryOutput) {
+        !() => return process::ExitCode(14)!,
+        error! => {
+            if error.kind() != io::ReadToEndErrorKind::Memory {
+                return process::ExitCode(15)!;
+            }
+        },
+    }
+    if retryReader.remaining() != 3usize or retryOutput.len() != 0usize {
+        return process::ExitCode(16)!;
+    }
+    retryAllocator.clearFailures();
+    match io::readToEnd(&mut retryReader, allocator, 3, &mut retryOutput) {
+        !() => {},
+        error! => { _ = error; return process::ExitCode(18)!; },
+    }
+    if retryOutput.len() != 3usize or retryReader.remaining() != 0usize {
+        return process::ExitCode(17)!;
+    }
+    retryOutput.deinit(allocator).?;
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit bounded read-to-end and failing allocator tests");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run read-to-end and allocator tests");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_use_std_io_discarding_writer_and_limited_reader() {
     let root = temp_dir("emit_exe_can_use_std_io_discarding_writer_and_limited_reader");
     let main = root.join("main.nia");
