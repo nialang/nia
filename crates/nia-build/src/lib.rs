@@ -114,6 +114,8 @@ pub struct BuildRequest {
     pub lock_policy: nia_package_metadata::LockPolicy,
     /// Optional named build step; `None` selects the plan default.
     pub step: Option<String>,
+    /// Arguments forwarded after `--` to a selected run-executable step.
+    pub run_arguments: Vec<String>,
     /// Whether compiler timing information is emitted.
     pub timings: TimingMode,
     /// Format used when timing information is enabled.
@@ -160,6 +162,7 @@ impl BuildRequest {
             workspace_all: false,
             lock_policy: nia_package_metadata::LockPolicy::default(),
             step: None,
+            run_arguments: Vec::new(),
             timings: TimingMode::Off,
             timing_format: TimingFormat::Text,
             max_parallel_actions: None,
@@ -201,6 +204,12 @@ impl BuildRequest {
     /// Selects a named build step.
     pub fn with_step(mut self, step: impl Into<String>) -> Self {
         self.step = Some(step.into());
+        self
+    }
+
+    /// Adds arguments forwarded to the selected run-executable step.
+    pub fn with_run_arguments(mut self, arguments: impl IntoIterator<Item = String>) -> Self {
+        self.run_arguments.extend(arguments);
         self
     }
 
@@ -322,6 +331,7 @@ impl fmt::Debug for BuildRequest {
             .field("workspace_all", &self.workspace_all)
             .field("lock_policy", &self.lock_policy)
             .field("step", &self.step)
+            .field("run_arguments", &self.run_arguments)
             .field("timings", &self.timings)
             .field("timing_format", &self.timing_format)
             .field("max_parallel_actions", &self.max_parallel_actions)
@@ -349,6 +359,7 @@ impl PartialEq for BuildRequest {
             && self.workspace_all == other.workspace_all
             && self.lock_policy == other.lock_policy
             && self.step == other.step
+            && self.run_arguments == other.run_arguments
             && self.timings == other.timings
             && self.timing_format == other.timing_format
             && self.max_parallel_actions == other.max_parallel_actions
@@ -406,6 +417,8 @@ pub struct BuildInvocation {
     pub plan_path: PathBuf,
     /// Selected build-step policy.
     pub step: BuildStepSelection,
+    /// Arguments forwarded after `--` to the selected run-executable step.
+    pub run_arguments: Vec<String>,
     /// Whether independent actions keep running after one fails.
     pub keep_going: bool,
     /// Live child output policy inherited from the request.
@@ -3132,6 +3145,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
                 .map(BuildStepSelection::Named)
                 .unwrap_or(BuildStepSelection::Default)
         },
+        run_arguments: request.run_arguments,
         keep_going: request.keep_going,
         forward_output: request.forward_output,
         timings: request.timings,
@@ -3714,6 +3728,9 @@ fn run_build_runner(
         .arg(&invocation.runner_config)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if !invocation.run_arguments.is_empty() {
+        command.arg("--").args(&invocation.run_arguments);
+    }
     prepare_process_group(&mut command);
     let result = match time_build_stage(invocation.timings, "build_runner_execute_process", || {
         execute_runner_process(
@@ -4646,7 +4663,8 @@ mod tests {
                 .source
                 .contains(std::str::from_utf8(RUNNER_CONFIG.magic).unwrap())
         );
-        assert!(runner.source.contains("init.args().len() != 3"));
+        assert!(runner.source.contains("init.args().len() < 3"));
+        assert!(runner.source.contains("init.args().len() > 3"));
         assert!(runner.source.contains("equals(&b\"--config\")"));
         assert!(runner.source.contains("fun reportAndExit("));
         assert!(runner.source.contains("fs::Path::fromUtf8("));
@@ -4681,7 +4699,11 @@ mod tests {
         assert!(runner.source.contains("        requestedStep,"));
         assert!(!runner.source.contains("pathArg("));
         assert!(!runner.source.contains("stepArgIndex"));
-        assert!(runner.source.contains("api.writePlanDraft(planDraft)"));
+        assert!(
+            runner
+                .source
+                .contains("api.applyRunArguments(init.args(), forwardedArgumentStart(init))")
+        );
         assert!(runner.source.contains("api.reportError(error)"));
         assert!(runner.source.contains(").reportAndExit(init).?;"));
         assert!(!runner.source.contains("runRequestedStep"));

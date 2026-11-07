@@ -152,15 +152,17 @@ shows them in use.
 ## `nia build`
 
 ```text
-nia build [step] [options]
+nia build [step] [options] [-- <program-args>...]
 ```
 
 `nia build` runs the named step, or the package's default step, after every
 step it depends on. Steps come from the manifest and from `build.nia`;
 `nia build --list` prints them. Outputs go to `build/out/`, as described in
-[The Build Directory](#the-build-directory). A run step passes no arguments to
-the program, and when the program exits with a nonzero status, `nia build`
-reports the step as failed and exits with status 1.
+[The Build Directory](#the-build-directory). For a run-executable step, text
+after `--` is appended to the step's configured arguments and passed to the
+program. Arguments require an explicitly selected run step; when the program
+exits with a nonzero status, `nia build` reports the step as failed and exits
+with status 1.
 
 | Option | Effect |
 | --- | --- |

@@ -766,6 +766,8 @@ pub(crate) struct Scanned {
     pub(crate) positionals: Vec<String>,
     /// Whether `--` ended option scanning.
     pub(crate) ended_options: bool,
+    /// Number of positionals before `--`, when present.
+    pub(crate) separator_position: Option<usize>,
 }
 
 impl Scanned {
@@ -835,6 +837,7 @@ pub(crate) fn scan_from(
         let arg = &args[index];
         index += 1;
         if arg == "--" {
+            scanned.separator_position = Some(scanned.positionals.len());
             scanned.positionals.extend(args[index..].iter().cloned());
             scanned.ended_options = true;
             break;

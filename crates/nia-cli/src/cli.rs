@@ -112,6 +112,7 @@ pub(crate) enum CliCommand {
     Build {
         package: PackageOptions,
         step: Option<String>,
+        run_arguments: Vec<String>,
         link_time_optimization: nia_driver::LinkTimeOptimization,
         dry_run: bool,
         explain: bool,
@@ -857,21 +858,43 @@ fn parse_package_options(scanned: &Scanned, topic: HelpTopic) -> CliResult<Packa
 fn parse_build(scanned: &Scanned) -> CliResult<CliCommand> {
     let topic = HelpTopic::Build;
     let package = parse_package_options(scanned, topic)?;
-    let step = match scanned.positionals.as_slice() {
-        [] => None,
-        [step] if !scanned.ended_options && looks_like_path_argument(step) => {
-            return Err(CliError::new(
-                format!("package path `{step}` must be passed with `--root`"),
-                topic,
-            ));
+    let (step, run_arguments) = match scanned.separator_position {
+        Some(separator) => {
+            let tail = &scanned.positionals[separator..];
+            let prefix = &scanned.positionals[..separator];
+            match (prefix, tail.is_empty()) {
+                ([], true) => (None, Vec::new()),
+                ([step], _) => (Some(step.clone()), tail.to_vec()),
+                ([], false) => {
+                    return Err(CliError::new(
+                        "arguments after `--` require an explicit run step",
+                        topic,
+                    ));
+                }
+                ([_, extra, ..], _) => {
+                    return Err(CliError::new(
+                        format!("unexpected argument `{extra}` before `--` for `nia build`"),
+                        topic,
+                    ));
+                }
+            }
         }
-        [step] => Some(step.clone()),
-        [_, extra, ..] => {
-            return Err(CliError::new(
-                format!("unexpected argument `{extra}` for `nia build`"),
-                topic,
-            ));
-        }
+        None => match scanned.positionals.as_slice() {
+            [] => (None, Vec::new()),
+            [step] if looks_like_path_argument(step) => {
+                return Err(CliError::new(
+                    format!("package path `{step}` must be passed with `--root`"),
+                    topic,
+                ));
+            }
+            [step] => (Some(step.clone()), Vec::new()),
+            [_, extra, ..] => {
+                return Err(CliError::new(
+                    format!("unexpected argument `{extra}` for `nia build`"),
+                    topic,
+                ));
+            }
+        },
     };
     let link_time_optimization = match scanned.last(OptionId::Lto) {
         Some(occurrence) => parse_link_time_optimization(value(occurrence))
@@ -881,6 +904,7 @@ fn parse_build(scanned: &Scanned) -> CliResult<CliCommand> {
     Ok(CliCommand::Build {
         package,
         step,
+        run_arguments,
         link_time_optimization,
         dry_run: scanned.has(OptionId::DryRun),
         explain: scanned.has(OptionId::Explain),
@@ -1323,7 +1347,7 @@ mod tests {
     fn double_dash_makes_the_rest_positional() {
         let cli = run(&["check", "--", "-strange.nia"]);
         assert!(matches!(&cli.command, CliCommand::Check { path, .. } if path == "-strange.nia"));
-        let cli = run(&["build", "--", "a/b"]);
+        let cli = run(&["build", "a/b", "--"]);
         assert!(
             matches!(&cli.command, CliCommand::Build { step: Some(step), .. } if step == "a/b")
         );
@@ -1459,6 +1483,44 @@ mod tests {
             (&["build", "--lto=fat"], "expected `off`, `thin`, or `full`"),
             (&["check", "--lto=thin", "a.nia"], "belongs to `nia build`"),
         ]);
+    }
+
+    #[test]
+    fn build_forwards_only_arguments_after_the_separator() {
+        let cli = run(&[
+            "build",
+            "run-jsoncli",
+            "--root",
+            "project",
+            "--",
+            "--output",
+            "result.json",
+            "-v",
+        ]);
+        assert!(matches!(
+            &cli.command,
+            CliCommand::Build {
+                step: Some(step),
+                run_arguments,
+                ..
+            } if step == "run-jsoncli"
+                && run_arguments.iter().map(String::as_str).collect::<Vec<_>>()
+                    == ["--output", "result.json", "-v"]
+        ));
+
+        assert_errors(&[
+            (&["build", "--", "value"], "require an explicit run step"),
+            (
+                &["build", "run-jsoncli", "extra", "--", "value"],
+                "before `--`",
+            ),
+        ]);
+        let cli = run(&["build", "run-jsoncli", "--"]);
+        assert!(matches!(
+            &cli.command,
+            CliCommand::Build { step: Some(step), run_arguments, .. }
+                if step == "run-jsoncli" && run_arguments.is_empty()
+        ));
     }
 
     #[test]

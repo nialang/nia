@@ -105,6 +105,7 @@ extend Error : fmt::Format {
     fun format(&self, formatter: &mut fmt::Formatter) fmt::Error!() {
         match self.* {
             .UnknownStep => formatter.writeText("unknown requested step"),
+            .RunArgumentsRequireRunStep => formatter.writeText("arguments after `--` require selecting a run-executable step"),
             .Invalid { operation, subject } => {
                 formatter.writeText("invalid ").?;
                 subject.format(formatter).?;

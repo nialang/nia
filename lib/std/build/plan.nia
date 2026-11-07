@@ -14,6 +14,7 @@ using root::collections;
 using root::fs;
 using root::io;
 using root::mem;
+using root::process;
 using root::string;
 using root::build::error;
 using root::build::types;
@@ -702,6 +703,31 @@ extend PlanEncoder {
 extend Build {
     fun cleanupPlanEncoding(&mut self) Error!() {
         self.planEncoding.deinit(self.allocator).withBuildContext(Operation::Release, Subject::BuildPlan)
+    }
+
+    pub fun applyRunArguments(
+        &mut self,
+        arguments: process::Args,
+        firstArgument: usize,
+    ) Error!() {
+        self.validatePlan().?;
+        if arguments.len() <= firstArgument {
+            return !();
+        }
+        let selected = match self.selectedStep {
+            ?step => step,
+            null => return .RunArgumentsRequireRunStep!,
+        };
+        let mut step = &mut self.steps.asMutSlice()[selected.index()];
+        if step.kind != .RunExecutable {
+            return .RunArgumentsRequireRunStep!;
+        }
+        step.payload.runExecutable.appendPassthroughArguments(
+            self.allocator,
+            arguments,
+            firstArgument,
+            selected.index(),
+        )
     }
 
     pub fun writePlanDraft(&mut self, path: fs::PathView) Error!() {

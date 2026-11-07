@@ -307,6 +307,7 @@ fn run_cli(cli: Cli) -> ExitCode {
         CliCommand::Build {
             package,
             step,
+            run_arguments,
             link_time_optimization,
             dry_run,
             explain,
@@ -321,6 +322,7 @@ fn run_cli(cli: Cli) -> ExitCode {
                 request = request.with_step(step);
             }
             let request = request
+                .with_run_arguments(run_arguments)
                 .with_link_time_optimization(link_time_optimization)
                 .with_dry_run(dry_run)
                 .with_explain(explain)

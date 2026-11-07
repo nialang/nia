@@ -169,7 +169,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             title: "nia build",
             about: "Build a package with its build.nia script.",
             usage: &[
-                "nia build [step] [--root <dir>] [-p <name> ... | --workspace] [options]",
+                "nia build [step] [--root <dir>] [-p <name> ... | --workspace] [options] [-- <program-args>...]",
                 "nia build --list",
             ],
             commands: &[],
@@ -178,6 +178,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "nia build test",
                 "nia build test --keep-going",
                 "nia build install --root tools/example",
+                "nia build run-hello -- --verbose",
                 "nia build --workspace",
             ],
         },

@@ -35,8 +35,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
 ```
 
 The manifest's `run-greet` step runs the program without arguments, so it
-prints nothing. A script can declare a step that passes some, and make that
-step wait until the tests have passed:
+prints nothing. A script can declare fixed arguments and make that step wait
+until the tests have passed. Arguments supplied after `--` are appended to
+those fixed arguments for that invocation:
 
 ```nia
 // build.nia
@@ -304,7 +305,9 @@ Steps are the units that `nia build <step>` runs. Each step has a unique name.
 
 `RunOptions::init(exe).withArguments(args)` passes arguments to the program.
 A run step needs an emit step for the same executable, and depends on it
-automatically; manifest executables already have one.
+automatically; manifest executables already have one. Additional invocation
+arguments can be supplied with `nia build <run-step> -- <args...>` and are
+appended after the arguments configured in `RunOptions`.
 
 `b.dependOn(step, dependency)` makes `step` run after `dependency`.
 `b.setDefaultStep(step)` chooses what `nia build` runs without a step name; a

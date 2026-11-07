@@ -639,6 +639,7 @@ mod tests {
             plan_draft: package_root.join("build/tmp/plan.draft"),
             plan_path: package_root.join("build/out/plan"),
             step: BuildStepSelection::Default,
+            run_arguments: Vec::new(),
             keep_going: false,
             forward_output: true,
             timings: TimingMode::Off,

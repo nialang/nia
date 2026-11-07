@@ -69,6 +69,7 @@ fn test_invocation() -> BuildInvocation {
             declared: Vec::new(),
         },
         step: crate::BuildStepSelection::Default,
+        run_arguments: Vec::new(),
         keep_going: false,
         forward_output: true,
         timings: nia_driver::TimingMode::Off,

@@ -150,6 +150,7 @@ fn payload_checksum(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::BuildInvocationIdentity;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -218,6 +219,22 @@ mod tests {
             .expect("decode default selection");
         assert_eq!(decoded.step, None);
         assert!(!decoded.list);
+    }
+
+    #[test]
+    fn forwarded_arguments_are_part_of_configure_identity_not_runner_identity() {
+        let mut first = invocation(BuildStepSelection::Named("run-app".to_owned()));
+        first.run_arguments = vec!["--format".to_owned(), "json".to_owned()];
+        let mut second = first.clone();
+        second.run_arguments[1] = "text".to_owned();
+        assert_ne!(
+            BuildInvocationIdentity::from_invocation(&first).key(),
+            BuildInvocationIdentity::from_invocation(&second).key()
+        );
+        assert_eq!(
+            BuildInvocationIdentity::from_invocation(&first).encode_runner(),
+            BuildInvocationIdentity::from_invocation(&second).encode_runner()
+        );
     }
 
     #[test]
@@ -299,6 +316,7 @@ mod tests {
             plan_draft: PathBuf::from("/workspace/package/build/tmp/plan.draft"),
             plan_path: PathBuf::from("/workspace/package/build/out/build-plan.bin"),
             step,
+            run_arguments: Vec::new(),
             keep_going: false,
             forward_output: true,
             timings: nia_driver::TimingMode::Off,

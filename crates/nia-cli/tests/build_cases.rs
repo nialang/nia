@@ -106,6 +106,78 @@ pub fun build(b: &mut build::Build) build::Error!() {
 }
 
 #[test]
+fn run_steps_receive_arguments_after_the_separator() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("run-step-forwarded-arguments");
+    std::fs::create_dir_all(root.join("src")).expect("source directory");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"forward_args\"\nversion = \"0.1.0\"\nprotocol-epoch = 3\n\n[[executable]]\nname = \"jsoncli\"\npath = \"src/main.nia\"\n",
+    )
+    .expect("package manifest");
+    std::fs::write(
+        root.join("src/main.nia"),
+        r#"using std::io;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    for argument in init.args().skipProgram() {
+        io::debugPrint("{}\n", [argument]).?;
+    }
+    !()
+}
+"#,
+    )
+    .expect("program source");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"using std::build;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let executable = b.executable("jsoncli").?;
+    let fixed: [&[char]; 1] = ["fixed"];
+    _ = b.addRunExecutableStep(
+        "custom",
+        build::RunOptions::init(executable).withArguments(fixed),
+    ).?;
+    !()
+}
+"#,
+    )
+    .expect("build script");
+
+    let output = support::nia_command()
+        .args(["build", "custom", "--root"])
+        .arg(&*root)
+        .args(["--", "--output", "result.json", "-v"])
+        .output_timeout_in_session("forward arguments to a run step");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).ends_with("fixed\n--output\nresult.json\n-v\n"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let invalid = support::nia_command()
+        .args(["build", "jsoncli", "--root"])
+        .arg(&*root)
+        .args(["--", "unexpected"])
+        .output_timeout_in_session("reject arguments for a non-run step");
+    assert!(!invalid.status.success());
+    assert!(
+        String::from_utf8_lossy(&invalid.stderr)
+            .contains("arguments after `--` require selecting a run-executable step"),
+        "{}",
+        String::from_utf8_lossy(&invalid.stderr)
+    );
+}
+
+#[test]
 fn json_progress_keeps_success_and_failure_stderr_machine_readable() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/build");
