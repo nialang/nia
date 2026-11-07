@@ -1775,7 +1775,13 @@ mod tests {
 
     #[test]
     fn decoding_rejects_unaddressable_public_steps() {
-        for name in ["-task", "--help", ".", ".."] {
+        for name in [
+            "-task",
+            "--help",
+            ".",
+            "..",
+            "nia-internal-test-compile.unit",
+        ] {
             let mut value = draft(false);
             value.steps.push(PlanStep {
                 key: StepKey::new(PackageKey::root(), name).unwrap(),

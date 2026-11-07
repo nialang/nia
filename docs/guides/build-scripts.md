@@ -331,8 +331,7 @@ already have one.
 `b.dependOn(step, dependency)` makes `step` run after `dependency`.
 `b.setDefaultStep(step)` chooses what `nia build` runs without a step name; a
 script that has no default step can still be used with an explicit step name.
-Step names follow the rule in [`nia build`](../reference/cli.md#nia-build): a
-public step cannot start with `-` or be `.` or `..`.
+Step names follow the rule in [`nia build`](../reference/cli.md#nia-build).
 
 Paths written with `build::BuildPathView::init(path)` are relative to
 `build/out/`. Use slash-separated relative paths without `.` or `..` components,

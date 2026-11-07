@@ -9645,7 +9645,14 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     #[test]
     fn manifest_artifact_names_must_be_publicly_selectable_steps() {
         for table in ["executable", "test"] {
-            for name in ["-app", "--help", "-", ".", ".."] {
+            for name in [
+                "-app",
+                "--help",
+                "-",
+                ".",
+                "..",
+                "nia-internal-test-compile.app",
+            ] {
                 let source = format!(
                     "[package]\nname = \"root\"\nversion = \"1.0.0\"\n[[{table}]]\nname = {name:?}\npath = \"main.nia\"\n"
                 );

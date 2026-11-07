@@ -88,10 +88,8 @@ Each entry declares one artifact:
 An executable produces the step `<name>`, and `run-<name>` when the build's
 target is the host; a test suite produces the step `<name>`, which builds and
 runs it, and joins `test`. Names follow the
-[step-name rule](cli.md#nia-build), so they use letters, digits, `-`, `_`, and
-`.`, and cannot start with `-` or be `.` or `..`. They must be unique across
-both tables, and cannot be `all`, `test`, start with `run-`,
-or start with the reserved prefix `nia-internal-test-compile.`.
+[step-name rule](cli.md#nia-build), must be unique across both tables, and
+cannot be `all`, `test`, or start with `run-`.
 
 ## Dependency Tables
 

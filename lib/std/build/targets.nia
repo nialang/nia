@@ -591,7 +591,10 @@ pub(root) fun isValidInternalStepName(name: &[char]) bool {
     name.startsWith(&"nia-internal-test-compile.") and isStableNameAlphabet(name)
 }
 
-// Public steps must be addressable before the CLI's argv separator.
+// Public steps must be addressable before the CLI's argv separator and must
+// not claim the internal test-compile prefix, which `isValidStableName`
+// rejects. `nia_compat::build_names::validate_public_step_name` enforces the
+// same contract for manifests, the CLI, and decoded plans.
 pub(root) fun isValidPublicStepName(name: &[char]) bool {
     isValidStableName(name)
         and not name.startsWith("-")

@@ -177,8 +177,10 @@ them, and changing them reuses the configured plan and the compiled program.
 
 A step name consists of ASCII letters, digits, `-`, `_`, and `.`. A public
 step name, one that `nia build` can select, must also not start with `-` or be
-`.` or `..`, so that it cannot be read as an option or a path. Manifest
-artifact names follow the same rule, because each one names a step.
+`.` or `..`, so that it cannot be read as an option or a path, and must not
+start with `nia-internal-test-compile.`, which names the steps that compile
+test suites. Manifest artifact names follow the same rule, because each one
+names a step.
 
 | Option | Effect |
 | --- | --- |

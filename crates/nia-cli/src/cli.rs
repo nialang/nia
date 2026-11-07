@@ -1498,7 +1498,7 @@ mod tests {
                 ),
             ]);
         }
-        for name in ["a b", "a:b", ""] {
+        for name in ["a b", "a:b", "", "nia-internal-test-compile.unit"] {
             assert_errors(&[
                 (&["build", name], "invalid build step"),
                 (&["build", name, "--"], "invalid build step"),

@@ -1927,7 +1927,14 @@ mod tests {
 
     #[test]
     fn public_step_names_are_stricter_than_internal_keys() {
-        for name in ["-task", "--help", "-", ".", ".."] {
+        for name in [
+            "-task",
+            "--help",
+            "-",
+            ".",
+            "..",
+            "nia-internal-test-compile.unit",
+        ] {
             let mut value = draft(false);
             let key = step_key(name);
             value.steps.push(PlanStep {

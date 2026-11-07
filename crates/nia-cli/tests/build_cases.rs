@@ -45,7 +45,7 @@ fn public_step_names_are_validated_by_registration_and_selection() {
 using std::fs;
 
 pub fun build(b: &mut build::Build) build::Error!() {
-    let invalid: &[&[char]] = &[&"-task", &"--help", &"-", &".", &".."];
+    let invalid: &[&[char]] = &[&"-task", &"--help", &"-", &".", &"..", &"nia-internal-test-compile.unit"];
     for &name in invalid.iter() {
         match b.addAggregateStep(name) {
             !ok => {

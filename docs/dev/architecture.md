@@ -695,7 +695,7 @@ crate-level rustdoc is the detailed reference.
 | `nia-hash` | Deterministic non-cryptographic hashing for internal maps. |
 | `nia-timing` | Timing, trace events, and optional heap accounting. |
 | `nia-target` | Typed model of the maintained compilation targets. |
-| `nia-compat` | Protocol registry: format magic and the release-derived protocol epoch. |
+| `nia-compat` | Protocol registry: format magic, the release-derived protocol epoch, and build-protocol name rules. |
 | `nia-opt` | Declarative optimization policy matrix. |
 | `nia-package-metadata` | Relocation-independent package, module, and definition identities; stable type graphs. |
 | `nia-git` | Nia-owned Git transports (local, `git://`, HTTP(S), SSH) and verified checkout of package dependencies. |

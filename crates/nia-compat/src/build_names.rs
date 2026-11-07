@@ -44,6 +44,12 @@ pub fn validate_stable_name(name: &str) -> Result<(), StableNameError> {
     Ok(())
 }
 
+/// Prefix of the internal steps that compile test suites.
+///
+/// The standard builder names those steps itself and spells the same prefix in
+/// `lib/std/build/targets.nia`; no public step may claim it.
+pub const INTERNAL_TEST_COMPILE_STEP_PREFIX: &str = "nia-internal-test-compile.";
+
 /// A stable name cannot be selected unambiguously as a CLI build step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublicStepNameError {
@@ -53,6 +59,8 @@ pub enum PublicStepNameError {
     LeadingHyphen,
     /// The name is a directory navigation component.
     PathComponent,
+    /// The name uses the prefix of the builder's internal steps.
+    ReservedPrefix,
 }
 
 impl fmt::Display for PublicStepNameError {
@@ -61,6 +69,10 @@ impl fmt::Display for PublicStepNameError {
             Self::StableName(error) => error.fmt(f),
             Self::LeadingHyphen => f.write_str("public step names must not start with `-`"),
             Self::PathComponent => f.write_str("public step names must not be `.` or `..`"),
+            Self::ReservedPrefix => write!(
+                f,
+                "public step names must not start with the reserved prefix `{INTERNAL_TEST_COMPILE_STEP_PREFIX}`"
+            ),
         }
     }
 }
@@ -83,6 +95,9 @@ pub fn validate_public_step_name(name: &str) -> Result<(), PublicStepNameError> 
     if matches!(name, "." | "..") {
         return Err(PublicStepNameError::PathComponent);
     }
+    if name.starts_with(INTERNAL_TEST_COMPILE_STEP_PREFIX) {
+        return Err(PublicStepNameError::ReservedPrefix);
+    }
     Ok(())
 }
 
@@ -92,10 +107,22 @@ mod tests {
 
     #[test]
     fn public_step_rules_do_not_restrict_internal_identifiers() {
-        for name in ["-", "--help", "-task", ".", ".."] {
+        for name in [
+            "-",
+            "--help",
+            "-task",
+            ".",
+            "..",
+            "nia-internal-test-compile.unit",
+        ] {
             assert!(validate_stable_name(name).is_ok(), "{name}");
             assert!(validate_public_step_name(name).is_err(), "{name}");
         }
+        assert_eq!(
+            validate_public_step_name("nia-internal-test-compile.unit"),
+            Err(PublicStepNameError::ReservedPrefix)
+        );
+        assert!(validate_public_step_name("nia-internal-test-compile").is_ok());
         for name in [
             "build",
             "run-app",

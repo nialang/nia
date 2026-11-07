@@ -4,6 +4,12 @@
 //! Format magic identifies the payload kind. The release-derived protocol
 //! epoch identifies the compiler/toolchain compatibility line; development
 //! changes and individual payloads do not carry hand-bumped schema counters.
+//!
+//! [`build_names`] owns the name contracts of the build protocol: the stable
+//! names that plans and manifests share, and the stricter rule for steps that
+//! the CLI can select. Rust producers and readers of those names validate them
+//! here; the standard builder, an ordinary Nia library, spells the same rules
+//! in `lib/std/build/targets.nia`.
 
 /// Version of the compiler crate set used in toolchain compatibility checks.
 pub const COMPILER_VERSION: &str = env!("CARGO_PKG_VERSION");
