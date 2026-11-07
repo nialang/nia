@@ -146,11 +146,10 @@ works from any subdirectory. Results are cached: a step whose inputs have not
 changed is not repeated, and a test suite that passed is not rerun until its
 code changes. Writing tests is covered in [Testing](../learn/testing.md).
 
-A run step starts the program without extra arguments by default. Append
-arguments after `--` to pass them to a selected run step, for example
-`nia build run-hello -- --version`. Arguments declared in `build.nia` come
-first; command-line arguments follow them. To run an executable without its
-build step, invoke the built program directly from `build/out/`.
+A run step starts the program with no arguments. To pass some, name the step
+and put them after `--`, as in `nia build run-hello -- Ada`; see
+[`nia build`](../reference/cli.md#nia-build). The built program can also be
+run directly from `build/out/`.
 
 Names in `[[executable]]` and `[[test]]` must be unique across both tables, and
 cannot be `all`, `test`, or start with `run-`, because those names belong to

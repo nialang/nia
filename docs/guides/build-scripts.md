@@ -34,10 +34,18 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 ```
 
-The manifest's `run-greet` step runs the program without arguments, so it
-prints nothing. A script can declare fixed arguments and make that step wait
-until the tests have passed. Arguments supplied after `--` are appended to
-those fixed arguments for that invocation:
+Run it through the manifest's `run-greet` step, with the names after `--`:
+
+```sh
+nia build run-greet -- Ada
+```
+
+```text
+hello, Ada
+```
+
+A script can declare a step that always passes some names, and make that step
+wait until the tests have passed:
 
 ```nia
 // build.nia
@@ -93,7 +101,18 @@ hello, Grace
 ```
 
 `nia build greet-all` builds the executable and the test suite, runs the
-suite, and only then runs the program.
+suite, and only then runs the program. Names given after `--` follow the
+configured ones:
+
+```sh
+nia build greet-all -- Linus
+```
+
+```text
+hello, Ada
+hello, Grace
+hello, Linus
+```
 
 ## How A Build Runs
 
@@ -303,21 +322,17 @@ Steps are the units that `nia build <step>` runs. Each step has a unique name.
 | `addAggregateStep(name)` | does nothing itself; groups dependencies |
 | `addTestSuite(name, module)` | builds and runs a test executable; see [Tests](#tests) |
 
-`RunOptions::init(exe).withArguments(args)` passes arguments to the program.
-A run step needs an emit step for the same executable, and depends on it
-automatically; manifest executables already have one. Additional invocation
-arguments can be supplied with `nia build <run-step> -- <args...>` and are
-appended after the arguments configured in `RunOptions`.
-These arguments are applied after configuration: changing them reuses the
-configured plan and compiled executable, but still runs the program with the
-new arguments. They are not available to `build.nia`.
+`RunOptions::init(exe).withArguments(args)` passes arguments to the program;
+arguments given after `--` on the command line follow them (see
+[`nia build`](../reference/cli.md#nia-build)). A run step needs an emit step
+for the same executable, and depends on it automatically; manifest executables
+already have one.
 
 `b.dependOn(step, dependency)` makes `step` run after `dependency`.
-Public step names are nonempty ASCII letters, digits, `-`, `_`, and `.`,
-must not start with `-`, and must not be exactly `.` or `..`. These rules also
-apply to manifest executable and test names because they declare public steps.
 `b.setDefaultStep(step)` chooses what `nia build` runs without a step name; a
 script that has no default step can still be used with an explicit step name.
+Step names follow the rule in [`nia build`](../reference/cli.md#nia-build): a
+public step cannot start with `-` or be `.` or `..`.
 
 Paths written with `build::BuildPathView::init(path)` are relative to
 `build/out/`. Use slash-separated relative paths without `.` or `..` components,

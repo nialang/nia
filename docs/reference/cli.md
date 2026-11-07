@@ -40,9 +40,8 @@ Every option that takes a value accepts both `--option value` and
 `--option=value`, and the next argument is always the value, even when it
 starts with `-`. When an option is repeated, the last value wins; `-M`, `-p`,
 `-L`, `-l`, `--link-arg`, and `--rpath` accumulate instead. `--` ends the
-options, so later arguments are taken literally. For `nia build`, those
-arguments are passed to the explicitly selected run step's program; the step
-must appear before `--`.
+options, so later arguments are taken literally; `nia build` passes them to a
+run step's program instead (see [`nia build`](#nia-build)).
 
 | Exit status | Meaning |
 | --- | --- |
@@ -160,16 +159,26 @@ nia build [step] [options] [-- <program-args>...]
 `nia build` runs the named step, or the package's default step, after every
 step it depends on. Steps come from the manifest and from `build.nia`;
 `nia build --list` prints them. Outputs go to `build/out/`, as described in
-[The Build Directory](#the-build-directory). For a run-executable step, text
-after `--` is appended to the step's configured arguments and passed to the
-program. Arguments require an explicitly selected run step; when the program
-exits with a nonzero status, `nia build` reports the step as failed and exits
-with status 1.
+[The Build Directory](#the-build-directory). When a run step's program exits
+with a nonzero status, `nia build` reports the step as failed and exits with
+status 1.
 
-Public step names contain ASCII letters, digits, `-`, `_`, or `.`, but must
-not start with `-` or be exactly `.` or `..`. Write `nia build run-x` to
-select a step, and `nia build run-x -- --help` to pass `--help` to its program.
-`nia build -- run-x` does not select a step.
+Arguments after `--` are passed to the program of the selected run step,
+after the arguments its build script configures:
+
+```sh
+nia build run-greet -- --verbose "two words"
+```
+
+The step must be named before `--` and must be a run step: `nia build -- run-greet`
+names no step, and `nia build unit -- x` names a test suite; both are errors.
+The arguments are not part of the configuration. `build.nia` does not see
+them, and changing them reuses the configured plan and the compiled program.
+
+A step name consists of ASCII letters, digits, `-`, `_`, and `.`. A public
+step name, one that `nia build` can select, must also not start with `-` or be
+`.` or `..`, so that it cannot be read as an option or a path. Manifest
+artifact names follow the same rule, because each one names a step.
 
 | Option | Effect |
 | --- | --- |
