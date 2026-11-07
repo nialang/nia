@@ -222,8 +222,9 @@ Everything Nia writes lives in one `build/` directory beside the root
 | `build/tmp/` | files of builds in progress |
 | `build/packages/` | fetched Git checkouts and registry packages |
 | `build/registry/` | downloaded registry indexes and archives |
+| `build/packages.lock` | a lock that keeps concurrent `nia` commands from changing fetched packages at the same time; not the dependency lockfile `nia.lock` |
 
-`nia clean` removes the first three and keeps fetched dependencies.
+`nia clean` removes the first three and keeps the rest.
 
 ## Progress Output
 
