@@ -122,7 +122,7 @@ using std::process;
 
 pub fun main(init: process::Init) process::ExitCode!() {
     for argument in init.args().skipProgram() {
-        io::debugPrint("{}\n", [argument]).?;
+        io::debugPrint("[{}]\n", [argument]).?;
     }
     !()
 }
@@ -158,9 +158,44 @@ pub fun build(b: &mut build::Build) build::Error!() {
     );
     assert!(output.stdout.is_empty());
     assert!(
-        String::from_utf8_lossy(&output.stderr).ends_with("fixed\n--output\nresult.json\n-v\n"),
+        String::from_utf8_lossy(&output.stderr)
+            .ends_with("[fixed]\n[--output]\n[result.json]\n[-v]\n"),
         "{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+
+    let manifest_run = support::nia_command()
+        .args(["build", "run-jsoncli", "--root"])
+        .arg(&*root)
+        .args(["--", "--manifest", "has space", ""])
+        .output_timeout_in_session("forward exact arguments to a manifest run step");
+    assert!(
+        manifest_run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&manifest_run.stderr)
+    );
+    assert!(manifest_run.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&manifest_run.stderr).ends_with("[--manifest]\n[has space]\n[]\n"),
+        "{}",
+        String::from_utf8_lossy(&manifest_run.stderr)
+    );
+
+    let changed_manifest_run = support::nia_command()
+        .args(["build", "run-jsoncli", "--root"])
+        .arg(&*root)
+        .args(["--", "changed"])
+        .output_timeout_in_session("reconfigure a manifest run step for changed arguments");
+    assert!(
+        changed_manifest_run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&changed_manifest_run.stderr)
+    );
+    assert!(changed_manifest_run.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&changed_manifest_run.stderr).ends_with("[changed]\n"),
+        "{}",
+        String::from_utf8_lossy(&changed_manifest_run.stderr)
     );
 
     let invalid = support::nia_command()
