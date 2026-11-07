@@ -5,6 +5,7 @@
 
 pub(root) module alignment;
 pub(root) module checked;
+pub module float;
 pub(root) module signed;
 pub(root) module unsigned;
 

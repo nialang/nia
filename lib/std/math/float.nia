@@ -1,0 +1,67 @@
+// IEEE-754 classification and representation-preserving bit access.
+
+union F32Representation {
+    value: f32,
+    bits: u32,
+}
+
+union F64Representation {
+    value: f64,
+    bits: u64,
+}
+
+pub fun toBits32(value: f32) u32 {
+    let representation = F32Representation { value };
+    representation.bits
+}
+
+pub fun fromBits32(bits: u32) f32 {
+    let representation = F32Representation { bits };
+    representation.value
+}
+
+pub fun toBits64(value: f64) u64 {
+    let representation = F64Representation { value };
+    representation.bits
+}
+
+pub fun fromBits64(bits: u64) f64 {
+    let representation = F64Representation { bits };
+    representation.value
+}
+
+pub fun isNan32(value: f32) bool {
+    let bits = toBits32(value);
+    (bits & 0x7f800000u32) == 0x7f800000u32 and (bits & 0x007fffffu32) != 0
+}
+
+pub fun isInfinite32(value: f32) bool {
+    (toBits32(value) & 0x7fffffffu32) == 0x7f800000u32
+}
+
+pub fun isFinite32(value: f32) bool {
+    (toBits32(value) & 0x7f800000u32) != 0x7f800000u32
+}
+
+pub fun signBit32(value: f32) bool {
+    (toBits32(value) & 0x80000000u32) != 0
+}
+
+pub fun isNan64(value: f64) bool {
+    let bits = toBits64(value);
+    (bits & 0x7ff0000000000000u64) == 0x7ff0000000000000u64
+        and (bits & 0x000fffffffffffffu64) != 0
+}
+
+pub fun isInfinite64(value: f64) bool {
+    (toBits64(value) & 0x7fffffffffffffffu64) == 0x7ff0000000000000u64
+}
+
+pub fun isFinite64(value: f64) bool {
+    (toBits64(value) & 0x7ff0000000000000u64) != 0x7ff0000000000000u64
+}
+
+pub fun signBit64(value: f64) bool {
+    (toBits64(value) & 0x8000000000000000u64) != 0
+}
+

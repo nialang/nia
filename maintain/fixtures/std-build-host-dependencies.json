@@ -104,6 +104,7 @@
     "std/math.nia",
     "std/math/alignment.nia",
     "std/math/checked.nia",
+    "std/math/float.nia",
     "std/math/signed.nia",
     "std/math/unsigned.nia",
     "std/mem.nia",

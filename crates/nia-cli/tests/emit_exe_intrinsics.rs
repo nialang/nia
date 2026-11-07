@@ -6,6 +6,73 @@ mod support;
 use nia_test_support::{CommandExt, CommandStatusExt, test_dir as temp_dir};
 
 #[test]
+fn float_bit_access_and_classification_follow_ieee754_fields() {
+    let root = temp_dir("float_bit_access_and_classification_follow_ieee754_fields");
+    let source = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &source,
+        r#"
+using std::{math::float, process};
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let negativeZero32 = float::fromBits32(0x80000000u32);
+    if float::toBits32(negativeZero32) != 0x80000000u32 or not float::signBit32(negativeZero32) {
+        return process::ExitCode(1)!;
+    }
+    let subnormal32 = float::fromBits32(1u32);
+    if not float::isFinite32(subnormal32) or float::isNan32(subnormal32) or float::isInfinite32(subnormal32) {
+        return process::ExitCode(2)!;
+    }
+    let infinity32 = float::fromBits32(0x7f800000u32);
+    if not float::isInfinite32(infinity32) or float::isFinite32(infinity32) or float::isNan32(infinity32) {
+        return process::ExitCode(3)!;
+    }
+    let nan32 = float::fromBits32(0x7fc00000u32);
+    if not float::isNan32(nan32) or float::isFinite32(nan32) or float::isInfinite32(nan32) {
+        return process::ExitCode(4)!;
+    }
+
+    let negativeZero64 = float::fromBits64(0x8000000000000000u64);
+    if float::toBits64(negativeZero64) != 0x8000000000000000u64 or not float::signBit64(negativeZero64) {
+        return process::ExitCode(5)!;
+    }
+    let subnormal64 = float::fromBits64(1u64);
+    if not float::isFinite64(subnormal64) or float::isNan64(subnormal64) or float::isInfinite64(subnormal64) {
+        return process::ExitCode(6)!;
+    }
+    let infinity64 = float::fromBits64(0x7ff0000000000000u64);
+    if not float::isInfinite64(infinity64) or float::isFinite64(infinity64) or float::isNan64(infinity64) {
+        return process::ExitCode(7)!;
+    }
+    let nan64 = float::fromBits64(0x7ff8000000000000u64);
+    if not float::isNan64(nan64) or float::isFinite64(nan64) or float::isInfinite64(nan64) {
+        return process::ExitCode(8)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit IEEE-754 bit representation test");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run IEEE-754 bit representation test");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn array_pointer_methods_preserve_storage_and_evaluate_receivers_once() {
     let root = temp_dir("array_pointer_methods_preserve_storage_and_evaluate_receivers_once");
     let source = root.join("main.nia");
