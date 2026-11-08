@@ -612,7 +612,16 @@ pub fun main(init: process::Init) process::ExitCode!() {
                         .parse::<i32>()
                         .expect("host float exponent")
                 };
-                let extended = format!("{mantissa}{}e{}", "0".repeat(80), exponent - 80);
+                let fractional_digits = mantissa
+                    .split_once('.')
+                    .map_or(0, |(_, fraction)| fraction.len())
+                    as i32;
+                let coefficient = mantissa.replace('.', "");
+                let extended = format!(
+                    "{coefficient}{}e{}",
+                    "0".repeat(80),
+                    exponent - fractional_digits - 80
+                );
                 writeln!(
                     program,
                     "    if not matches64(b\"{extended}\", 0x{:016x}u64) {{ return process::ExitCode(5)!; }}",
@@ -662,7 +671,16 @@ pub fun main(init: process::Init) process::ExitCode!() {
                         .parse::<i32>()
                         .expect("host float exponent")
                 };
-                let extended = format!("{mantissa}{}e{}", "0".repeat(80), exponent - 80);
+                let fractional_digits = mantissa
+                    .split_once('.')
+                    .map_or(0, |(_, fraction)| fraction.len())
+                    as i32;
+                let coefficient = mantissa.replace('.', "");
+                let extended = format!(
+                    "{coefficient}{}e{}",
+                    "0".repeat(80),
+                    exponent - fractional_digits - 80
+                );
                 writeln!(
                     program,
                     "    if not matches32(b\"{extended}\", 0x{:08x}u32) {{ return process::ExitCode(6)!; }}",

@@ -24,7 +24,28 @@ struct RenderMode {
     precision: ?usize,
 }
 
-fun roundedCandidate(exact: decimal::Exact, precision: usize) Candidate {
+fun nonZeroSuffix(exact: decimal::Exact) [bool; maxFloatDigits] {
+    let mut suffix: [bool; maxFloatDigits] = [false; maxFloatDigits];
+    let mut found = false;
+    let mut index = exact.len();
+    while index != 0 {
+        index -= 1;
+        suffix[index] = found;
+        if exact.digit(index) != b'0' { found = true; }
+    }
+    suffix
+}
+
+fun hasNonZeroAfter(exact: decimal::Exact, index: usize) bool {
+    let mut scan = index + 1;
+    while scan < exact.len() {
+        if exact.digit(scan) != b'0' { return true; }
+        scan += 1;
+    }
+    false
+}
+
+fun roundedCandidate(exact: decimal::Exact, precision: usize, tailNonZero: bool) Candidate {
     let len = if exact.len() < precision { exact.len() } else { precision };
     let mut result: Candidate = .{ digits: [0u8; maxFloatDigits], len, exponent10: exact.exponent10() + exact.len() as i32 - len as i32 };
     let mut index: usize = 0;
@@ -34,12 +55,6 @@ fun roundedCandidate(exact: decimal::Exact, precision: usize) Candidate {
     }
     if exact.len() > len {
         let next = exact.digit(len);
-        let mut tailNonZero = false;
-        index = len + 1;
-        while index < exact.len() {
-            if exact.digit(index) != b'0' { tailNonZero = true; }
-            index += 1;
-        }
         let lastOdd = ((result.digits[len - 1] - b'0') & 1) != 0;
         let roundUp = next > b'5' or (next == b'5' and (tailNonZero or lastOdd));
         if roundUp {
@@ -104,15 +119,16 @@ fun shortest64(value: f64) Candidate {
     let significand = if exponentField == 0 { fraction } else { 0x0010000000000000u64 | fraction };
     let exponent2 = if exponentField == 0 { -1074 } else { exponentField as i32 - 1075 };
     let exact = decimal::fromBinary(significand, exponent2);
+    let suffix = nonZeroSuffix(exact);
     let lower = decimal::midpoint64(bits - if bits == 0 { 0u64 } else { 1u64 });
     let upper = decimal::midpoint64(bits);
     let mut precision: usize = 1;
     while precision <= 17 {
-        let candidate = roundedCandidate(exact, precision);
+        let candidate = roundedCandidate(exact, precision, suffix[precision]);
         if fits64(candidate, bits, lower, upper) { return candidate; }
         precision += 1;
     }
-    roundedCandidate(exact, 17)
+    roundedCandidate(exact, 17, suffix[17])
 }
 
 fun shortest32(value: f32) Candidate {
@@ -122,21 +138,22 @@ fun shortest32(value: f32) Candidate {
     let significand = if exponentField == 0 { fraction as u64 } else { (0x00800000u32 | fraction) as u64 };
     let exponent2 = if exponentField == 0 { -149 } else { exponentField as i32 - 150 };
     let exact = decimal::fromBinary(significand, exponent2);
+    let suffix = nonZeroSuffix(exact);
     let lower = decimal::midpoint32(bits - if bits == 0 { 0u32 } else { 1u32 });
     let upper = decimal::midpoint32(bits);
     let mut precision: usize = 1;
     while precision <= 9 {
-        let candidate = roundedCandidate(exact, precision);
+        let candidate = roundedCandidate(exact, precision, suffix[precision]);
         if fits32(candidate, bits, lower, upper) { return candidate; }
         precision += 1;
     }
-    roundedCandidate(exact, 9)
+    roundedCandidate(exact, 9, suffix[9])
 }
 
 fun fixedPrecisionCandidate(exact: decimal::Exact, precision: usize) Candidate {
     let point = exact.len() as i64 + exact.exponent10() as i64;
     if point >= exact.len() as i64 {
-        return roundedCandidate(exact, exact.len());
+        return roundedCandidate(exact, exact.len(), false);
     }
     let requiredPrecision = if point < 0 {
         exact.len() + (-point) as usize
@@ -144,7 +161,7 @@ fun fixedPrecisionCandidate(exact: decimal::Exact, precision: usize) Candidate {
         exact.len() - point as usize
     };
     if precision >= requiredPrecision {
-        return roundedCandidate(exact, exact.len());
+        return roundedCandidate(exact, exact.len(), false);
     }
     let retained = point + precision as i64;
     if retained <= 0 {
@@ -166,7 +183,8 @@ fun fixedPrecisionCandidate(exact: decimal::Exact, precision: usize) Candidate {
         }
         zeroCandidate()
     } else {
-        roundedCandidate(exact, retained as usize)
+        let retained = retained as usize;
+        roundedCandidate(exact, retained, hasNonZeroAfter(exact, retained))
     }
 }
 

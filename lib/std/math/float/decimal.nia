@@ -4,6 +4,9 @@
 // The largest exact denominator is 5^1075, multiplied by at most 54 bits.
 const limbCapacity: usize = 80;
 pub(root) const digitCapacity: usize = 800;
+// 5^13 is the largest power of five that fits in u32 for limb-wise multiplication.
+const powerOfFiveChunk: u32 = 1220703125;
+const powerOfFiveChunkExponent: i32 = 13;
 
 pub(root) enum SyntaxError: i32 {
     Empty = 1,
@@ -134,6 +137,18 @@ extend BigUInt {
         }
     }
 
+    fun multiplyPowerOfFive(&mut self, exponent: i32) () {
+        let mut remaining = exponent;
+        while remaining >= powerOfFiveChunkExponent {
+            self.multiplySmall(powerOfFiveChunk);
+            remaining -= powerOfFiveChunkExponent;
+        }
+        while remaining != 0 {
+            self.multiplySmall(5);
+            remaining -= 1;
+        }
+    }
+
     pub(root) fun shiftLeftOne(&mut self) () {
         let mut carry: u32 = 0;
         let mut index: usize = 0;
@@ -199,18 +214,34 @@ extend BigUInt {
             result.len = 1;
             return result;
         }
+        // Base 10^9 turns hundreds of single-digit divisions into a small chunk pass.
+        let mut chunks: [u32; 90] = [0; 90];
+        let mut chunkCount: usize = 0;
         while value.used != 0 {
-            result.bytes[result.len] = b'0' + value.divideSmall(10) as u8;
-            result.len += 1;
+            chunks[chunkCount] = value.divideSmall(1000000000);
+            chunkCount += 1;
         }
-        let mut left: usize = 0;
-        let mut right = result.len - 1;
-        while left < right {
-            let digit = result.bytes[left];
-            result.bytes[left] = result.bytes[right];
-            result.bytes[right] = digit;
-            left += 1;
-            right -= 1;
+        let mostSignificantChunk = chunkCount - 1;
+        while chunkCount != 0 {
+            chunkCount -= 1;
+            let mut chunk = chunks[chunkCount];
+            let mut width: usize = 9;
+            if chunkCount == mostSignificantChunk {
+                width = 1;
+                let mut remaining = chunk;
+                while remaining >= 10 {
+                    remaining /= 10;
+                    width += 1;
+                }
+            }
+            let end = result.len + width;
+            let mut index = end;
+            while index != result.len {
+                index -= 1;
+                result.bytes[index] = b'0' + (chunk % 10) as u8;
+                chunk /= 10;
+            }
+            result.len = end;
         }
         result
     }
@@ -228,8 +259,7 @@ pub(root) fun fromBinary(significand: u64, exponent2: i32) Exact {
         let mut index: i32 = 0;
         while index < exponent2 { value.shiftLeftOne(); index += 1; }
     } else {
-        let mut index: i32 = 0;
-        while index < -exponent2 { value.multiplySmall(5); index += 1; }
+        value.multiplyPowerOfFive(-exponent2);
         exponent10 = exponent2;
     }
     .{ digits: value.toDigits(), exponent10 }
