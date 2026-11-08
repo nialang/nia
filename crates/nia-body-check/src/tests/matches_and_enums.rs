@@ -586,6 +586,67 @@ fun constructor() Packet[i32, 3] {
 }
 
 #[test]
+fn generic_enum_extension_methods_keep_the_nominal_instance() {
+    let checked = pipeline(
+        r#"
+enum Option[T] {
+    Some(T),
+    None,
+}
+
+extend[T] Option[T] {
+    fun unwrap_or(self, fallback: T) T {
+        match self {
+            Option[T]::Some(value) => value,
+            Option[T]::None => fallback,
+        }
+    }
+}
+
+fun main() i32 {
+    let value: Option[i32] = Option[i32]::Some(7);
+    value.unwrap_or(0)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
+}
+
+#[test]
+fn generic_enum_trait_instances_keep_type_arguments_in_dispatch() {
+    let checked = pipeline(
+        r#"
+trait Extract[T] {
+    fun extract(&self, fallback: T) T;
+}
+
+enum Option[T] {
+    Some(T),
+    None,
+}
+
+extend[T] Option[T] : Extract[T] {
+    fun extract(&self, fallback: T) T {
+        match self.* {
+            Option[T]::Some(value) => value,
+            Option[T]::None => fallback,
+        }
+    }
+}
+
+fun read[T](value: Option[T], fallback: T) T where Option[T]: Extract[T] {
+    value.extract(fallback)
+}
+
+fun main() i32 {
+    read[i32](Option[i32]::Some(9), 0)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_enum_variants_and_match_exhaustiveness() {
     let checked = pipeline(
         r#"

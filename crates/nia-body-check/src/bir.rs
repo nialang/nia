@@ -596,13 +596,21 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         target_ty: nia_ids::InternedTyId,
     ) -> TypedPatternKind {
-        if let Some(variant) = self.qualified_enum_variant(expr).or_else(|| {
-            self.omitted_enum_variant_info(expr, target_ty)
-                .map(|(enum_id, def_id)| nia_ids::GlobalDefId {
-                    module_id: enum_id.module_id,
-                    def_id,
-                })
-        }) && let Some((enum_id, _)) = self.resolved_enum_variant(variant)
+        let variant = self
+            .enum_variant_info(expr)
+            .map(|(enum_id, def_id)| nia_ids::GlobalDefId {
+                module_id: enum_id.module_id,
+                def_id,
+            })
+            .or_else(|| {
+                self.omitted_enum_variant_info(expr, target_ty)
+                    .map(|(enum_id, def_id)| nia_ids::GlobalDefId {
+                        module_id: enum_id.module_id,
+                        def_id,
+                    })
+            });
+        if let Some(variant) = variant
+            && let Some((enum_id, _)) = self.resolved_enum_variant(variant)
             && let Some(signature) = self.resolved_enum_signature(enum_id)
         {
             return TypedPatternKind::Nominal {
