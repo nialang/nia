@@ -67,7 +67,7 @@ fun writeFloat(value: f64, buffer: &mut [u8]) fmt::Error!usize {
     let mut output = io::FixedBufferWriter::init(buffer);
     let writer: &mut fmt::FormatWriter = &mut output;
     let mut formatter = fmt::Formatter::init(writer);
-    value.format(&mut formatter).?;
+    formatter.writeFloat64(value).?;
     !output.len()
 }
 
@@ -75,7 +75,7 @@ fun writeFloat32(value: f32, buffer: &mut [u8]) fmt::Error!usize {
     let mut output = io::FixedBufferWriter::init(buffer);
     let writer: &mut fmt::FormatWriter = &mut output;
     let mut formatter = fmt::Formatter::init(writer);
-    value.format(&mut formatter).?;
+    formatter.writeFloat32(value).?;
     !output.len()
 }
 
@@ -493,6 +493,63 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn float_formatter_validates_before_output_and_propagates_short_writer_failure() {
+    let root = temp_dir("float_formatter_writer_contract");
+    let source = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &source,
+        r#"
+using std::{fmt, io, math::float, process};
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut bytes: [u8; 2] = [0; 2];
+    let mut output = io::FixedBufferWriter::init(&mut bytes[..]);
+    let writer: &mut fmt::FormatWriter = &mut output;
+    let mut formatter = fmt::Formatter::init(writer);
+    match formatter.writeFloat64(float::fromBits64(0x7ff0000000000000u64)) {
+        fmt::Error::InvalidTemplate! => {},
+        _ => return process::ExitCode(1)!,
+    }
+    match formatter.writeFloat32(float::fromBits32(0xffc00000u32)) {
+        fmt::Error::InvalidTemplate! => {},
+        _ => return process::ExitCode(2)!,
+    }
+    match formatter.writeFloat64Spec(1.0, fmt::FormatSpec::lowerHex()) {
+        fmt::Error::InvalidTemplate! => {},
+        _ => return process::ExitCode(3)!,
+    }
+    if output.len() != 0 { return process::ExitCode(4)!; }
+    match formatter.writeFloat64(1.25) {
+        fmt::Error::Write! => {},
+        _ => return process::ExitCode(5)!,
+    }
+    if output.len() != 2 or bytes[0] != b'1' or bytes[1] != b'.' {
+        return process::ExitCode(6)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write float formatter writer contract");
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit float formatter writer contract");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run float formatter writer contract");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn float_decimal_parser_matches_host_round_trip_samples() {
     use std::fmt::Write as _;
 
@@ -731,7 +788,7 @@ fn float_fixed_precision_matches_host_formatting_samples() {
 using std::{fmt, io, math::float, process};
 
 fun matches64(value: f64, precision: usize, alternate: bool, expected: &[u8]) bool {
-    let mut bytes: [u8; 400] = [0; 400];
+    let mut bytes: [u8; 1600] = [0; 1600];
     let mut output = io::FixedBufferWriter::init(&mut bytes[..]);
     let writer: &mut fmt::FormatWriter = &mut output;
     let mut formatter = fmt::Formatter::init(writer);
@@ -758,7 +815,7 @@ fun matches64(value: f64, precision: usize, alternate: bool, expected: &[u8]) bo
 }
 
 fun matches32(value: f32, precision: usize, alternate: bool, expected: &[u8]) bool {
-    let mut bytes: [u8; 400] = [0; 400];
+    let mut bytes: [u8; 1600] = [0; 1600];
     let mut output = io::FixedBufferWriter::init(&mut bytes[..]);
     let writer: &mut fmt::FormatWriter = &mut output;
     let mut formatter = fmt::Formatter::init(writer);
@@ -854,6 +911,12 @@ pub fun main(init: process::Init) process::ExitCode!() {
         (0x7fefffffffffffffu64, 20usize, false),
         (0x0010000000000000u64, 20usize, true),
         (0x3ff0000000000000u64, 20usize, false),
+        (0x0000000000000001u64, 1073usize, false),
+        (0x0000000000000001u64, 1074usize, false),
+        (0x8000000000000001u64, 1075usize, true),
+        (0x000fffffffffffffu64, 1074usize, false),
+        (0x0010000000000000u64, 1022usize, true),
+        (0x7fefffffffffffffu64, 1074usize, false),
     ]
     .into_iter()
     .enumerate()
@@ -890,6 +953,11 @@ pub fun main(init: process::Init) process::ExitCode!() {
         (0x7f7fffffu32, 20usize, false),
         (0x00800000u32, 20usize, true),
         (0x3f800000u32, 20usize, false),
+        (0x00000001u32, 148usize, false),
+        (0x00000001u32, 149usize, false),
+        (0x80000001u32, 150usize, true),
+        (0x007fffffu32, 149usize, false),
+        (0x00800000u32, 126usize, true),
     ]
     .into_iter()
     .enumerate()

@@ -115,6 +115,12 @@ placeholder keeps `{{` and `}}` unambiguous: they always mean literal braces.
 | a pointer `ptr`, passed as `&ptr` | alignment, fill, width, and `p`; prints the address. Passing `ptr` itself formats the value it points to |
 | a type of your own | `{}` only, unless the type implements `formatSpec` to accept more |
 
+`Formatter::writeFloat32` and `writeFloat64` write a finite value in its shortest
+round-trip form. `writeFloat32Spec` and `writeFloat64Spec` take a `FormatSpec`
+with the same float options as templates. These methods let custom formatters
+write float fields directly. Non-finite values and unsupported specifications
+return `InvalidTemplate` before writing; a writer failure can leave partial output.
+
 Templates are checked while printing, not by the compiler: formatting is
 ordinary library code, and a template is an ordinary character array. A
 malformed template or an unsupported part fails with

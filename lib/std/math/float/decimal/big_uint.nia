@@ -1,0 +1,125 @@
+// Fixed-capacity integer arithmetic for IEEE binary32/binary64 conversion.
+// 5^1075 times a 54-bit significand needs fewer than 2,560 bits.
+
+using root::iter;
+using root::slice;
+
+const limbCapacity: usize = 80;
+pub(root) const digitCapacity: usize = 800;
+const decimalChunkBase: u32 = 1000000000;
+const decimalChunkDigits: usize = 9;
+const chunkCapacity: usize = (digitCapacity + decimalChunkDigits - 1) / decimalChunkDigits;
+// 5^13 is the largest power of five that fits in one u32 multiplier.
+const powerOfFiveChunk: u32 = 1220703125;
+const powerOfFiveChunkExponent: i32 = 13;
+
+pub(super) struct BigUInt {
+    limbs: [u32; limbCapacity],
+    used: usize,
+}
+
+pub(super) struct Digits {
+    bytes: [u8; digitCapacity],
+    len: usize,
+}
+
+extend BigUInt {
+    pub(super) fun fromU64(value: u64) BigUInt {
+        let mut result: BigUInt = .{ limbs: [0u32; limbCapacity], used: 0 };
+        if value != 0 {
+            result.limbs[0] = value as u32;
+            result.used = 1;
+            let high = (value >> 32) as u32;
+            if high != 0 {
+                result.limbs[1] = high;
+                result.used = 2;
+            }
+        }
+        result
+    }
+
+    fun multiplySmall(&mut self, factor: u32) () {
+        let mut carry: u64 = 0;
+        for limb in (&mut self.limbs[0..self.used]).iterMut() {
+            let product = limb.* as u64 * factor as u64 + carry;
+            limb.* = product as u32;
+            carry = product >> 32;
+        }
+        if carry != 0 {
+            // Internal range violations must never silently discard high bits.
+            if self.used == limbCapacity { root::builtin::trap(); }
+            self.limbs[self.used] = carry as u32;
+            self.used += 1;
+        }
+    }
+
+    pub(super) fun multiplyPowerOfFive(&mut self, exponent: i32) () {
+        let mut remaining = exponent;
+        while remaining >= powerOfFiveChunkExponent {
+            self.multiplySmall(powerOfFiveChunk);
+            remaining -= powerOfFiveChunkExponent;
+        }
+        while remaining != 0 {
+            self.multiplySmall(5);
+            remaining -= 1;
+        }
+    }
+
+    pub(super) fun shiftLeft(&mut self, count: u32) () {
+        let mut remaining = count;
+        while remaining >= 31 {
+            self.multiplySmall(0x80000000u32);
+            remaining -= 31;
+        }
+        if remaining != 0 { self.multiplySmall(1u32 << remaining); }
+    }
+
+    fun divideSmall(&mut self, divisor: u32) u32 {
+        let mut remainder: u64 = 0;
+        for limb in (&mut self.limbs[0..self.used]).iterMut().rev() {
+            let dividend = (remainder << 32) | limb.* as u64;
+            limb.* = (dividend / divisor as u64) as u32;
+            remainder = dividend % divisor as u64;
+        }
+        while self.used != 0 and self.limbs[self.used - 1] == 0 { self.used -= 1; }
+        remainder as u32
+    }
+
+    pub(super) fun toDigits(&self) Digits {
+        let mut value = self.*;
+        let mut result: Digits = .{ bytes: [0u8; digitCapacity], len: 0 };
+        if value.used == 0 {
+            result.bytes[0] = b'0';
+            result.len = 1;
+            return result;
+        }
+        // Base 10^9 turns hundreds of single-digit divisions into a small chunk pass.
+        let mut chunks: [u32; chunkCapacity] = [0; chunkCapacity];
+        let mut chunkCount: usize = 0;
+        while value.used != 0 {
+            chunks[chunkCount] = value.divideSmall(decimalChunkBase);
+            chunkCount += 1;
+        }
+        let mostSignificantChunk = chunkCount - 1;
+        while chunkCount != 0 {
+            chunkCount -= 1;
+            let mut chunk = chunks[chunkCount];
+            let mut width = decimalChunkDigits;
+            if chunkCount == mostSignificantChunk {
+                width = 1;
+                let mut remaining = chunk;
+                while remaining >= 10 {
+                    remaining /= 10;
+                    width += 1;
+                }
+            }
+            let end = result.len + width;
+            for digit in (&mut result.bytes[result.len..end]).iterMut().rev() {
+                digit.* = b'0' + (chunk % 10) as u8;
+                chunk /= 10;
+            }
+            result.len = end;
+        }
+        result
+    }
+}

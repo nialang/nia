@@ -1,0 +1,109 @@
+// ASCII decimal syntax and a borrowed iterator over significant digits.
+
+using root::cmp;
+
+pub(root) enum SyntaxError: i32 {
+    Empty = 1,
+    Invalid = 2,
+}
+
+pub(root) struct Parsed {
+    negative: bool,
+    zero: bool,
+    digitsEnd: usize,
+    firstDigit: usize,
+    significantDigits: usize,
+    exponent10: i128,
+}
+
+pub(root) struct SignificantDigits {
+    input: &[u8],
+    cursor: usize,
+    end: usize,
+}
+
+extend Parsed {
+    pub(root) fun order(&self) i128 {
+        self.significantDigits as i128 + self.exponent10
+    }
+
+    pub(root) fun digits(&self, input: &[u8]) SignificantDigits {
+        .{ input, cursor: self.firstDigit, end: self.digitsEnd }
+    }
+}
+
+extend SignificantDigits : Iterator {
+    type Item = u8;
+
+    fun next(&mut self) ?u8 {
+        while self.cursor < self.end {
+            let byte = self.input[self.cursor];
+            self.cursor += 1;
+            if isDigit(byte) { return ?byte; }
+        }
+        null
+    }
+}
+
+fun isDigit(byte: u8) bool {
+    byte >= b'0' and byte <= b'9'
+}
+
+// Saturation beyond twice the largest slice length cannot affect a finite
+// result, even after accounting for all fractional and significant digits.
+fun appendExponent(value: i128, digit: u8) i128 {
+    let limit = usize::MAX as i128 * 2;
+    cmp::min(value * 10 + (digit - b'0') as i128, limit)
+}
+
+pub(root) fun parse(input: &[u8]) SyntaxError!Parsed {
+    if input.len() == 0 { return .Empty!; }
+    let negative = input[0] == b'-';
+    if input[0] == b'+' { return .Invalid!; }
+    let start: usize = if negative { 1 } else { 0 };
+    if start == input.len() { return .Invalid!; }
+
+    let mut index = start;
+    let mut fractionDigits: usize = 0;
+    let mut firstDigit = input.len();
+    let mut significantDigits: usize = 0;
+    let mut sawDigit = false;
+    let mut sawDot = false;
+    while index < input.len() {
+        let byte = input[index];
+        if isDigit(byte) {
+            sawDigit = true;
+            if sawDot { fractionDigits += 1; }
+            if firstDigit == input.len() and byte != b'0' { firstDigit = index; }
+            if firstDigit != input.len() { significantDigits += 1; }
+            index += 1;
+        } else if byte == b'.' and not sawDot {
+            sawDot = true;
+            index += 1;
+        } else {
+            break;
+        }
+    }
+    if not sawDigit or (sawDot and input[index - 1] == b'.') { return .Invalid!; }
+    let digitsEnd = index;
+
+    let mut exponent: i128 = 0;
+    let mut exponentNegative = false;
+    if index < input.len() and (input[index] == b'e' or input[index] == b'E') {
+        index += 1;
+        if index < input.len() and (input[index] == b'-' or input[index] == b'+') {
+            exponentNegative = input[index] == b'-';
+            index += 1;
+        }
+        let exponentStart = index;
+        while index < input.len() and isDigit(input[index]) {
+            exponent = appendExponent(exponent, input[index]);
+            index += 1;
+        }
+        if exponentStart == index { return .Invalid!; }
+    }
+    if index != input.len() { return .Invalid!; }
+    if exponentNegative { exponent = -exponent; }
+    let adjusted = exponent - fractionDigits as i128;
+    !.{ negative, zero: firstDigit == input.len(), digitsEnd, firstDigit, significantDigits, exponent10: adjusted }
+}
