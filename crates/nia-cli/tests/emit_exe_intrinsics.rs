@@ -240,6 +240,20 @@ pub fun main(init: process::Init) process::ExitCode!() {
     {
         return process::ExitCode(29)!;
     }
+    if not parses64As(
+        b"1.00000000000000011102230246251565404236316680908203125",
+        0x3ff0000000000000u64,
+    ) or not parses64As(
+        b"1.00000000000000033306690738754696212708950042724609375",
+        0x3ff0000000000002u64,
+    ) or not parses64As(b"2.4703282292062327e-324", 0u64)
+        or not parses64As(b"2.4703282292062328e-324", 1u64)
+    {
+        return process::ExitCode(30)!;
+    }
+    if not parses32As(b"3.4028235e38", 0x7f7fffffu32) {
+        return process::ExitCode(31)!;
+    }
     if not rejectsFloat(b"+1") or not rejectsFloat(b"NaN") or not rejectsFloat(b" 1") {
         return process::ExitCode(17)!;
     }
@@ -589,6 +603,24 @@ pub fun main(init: process::Init) process::ExitCode!() {
             )
             .expect("append f64 parser sample");
             if index < 8 {
+                let exponent_index = text.find(['e', 'E']).unwrap_or(text.len());
+                let mantissa = &text[..exponent_index];
+                let exponent = if exponent_index == text.len() {
+                    0
+                } else {
+                    text[exponent_index + 1..]
+                        .parse::<i32>()
+                        .expect("host float exponent")
+                };
+                let extended = format!("{mantissa}{}e{}", "0".repeat(80), exponent - 80);
+                writeln!(
+                    program,
+                    "    if not matches64(b\"{extended}\", 0x{:016x}u64) {{ return process::ExitCode(5)!; }}",
+                    state
+                )
+                .expect("append long-tail f64 parser sample");
+            }
+            if index < 8 {
                 writeln!(
                     program,
                     "    if shortestDigits64(float::fromBits64(0x{:016x}u64)) != {shortest_digits}usize {{ return process::ExitCode(3)!; }}",
@@ -620,6 +652,24 @@ pub fun main(init: process::Init) process::ExitCode!() {
                 bits
             )
             .expect("append f32 parser sample");
+            if index < 8 {
+                let exponent_index = text.find(['e', 'E']).unwrap_or(text.len());
+                let mantissa = &text[..exponent_index];
+                let exponent = if exponent_index == text.len() {
+                    0
+                } else {
+                    text[exponent_index + 1..]
+                        .parse::<i32>()
+                        .expect("host float exponent")
+                };
+                let extended = format!("{mantissa}{}e{}", "0".repeat(80), exponent - 80);
+                writeln!(
+                    program,
+                    "    if not matches32(b\"{extended}\", 0x{:08x}u32) {{ return process::ExitCode(6)!; }}",
+                    bits
+                )
+                .expect("append long-tail f32 parser sample");
+            }
             if index < 8 {
                 writeln!(
                     program,
