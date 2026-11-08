@@ -144,7 +144,7 @@ name=nia short=ni
 | `{_>5}` | pad with `_` instead of spaces |
 | `{05}`, `{+}` | pad with zeros; always show the sign |
 | `{x}`, `{X}`, `{b}`, `{o}`, `{#x}` | hexadecimal, binary, octal; `#` adds the prefix |
-| `{.2}` | at most 2 characters of text |
+| `{.2}` | at most 2 characters of text, or 2 digits after a float's decimal point |
 | `{*}`, `{.*}` | width or precision taken from the next value, a `usize` |
 | `{{`, `}}` | a literal `{` or `}` |
 
@@ -161,11 +161,13 @@ does not match the placeholders, makes `debugPrint` fail without printing
 anything, and `.?` then ends the program with exit status 22. A program that
 unexpectedly prints nothing and exits with 22 has a template mistake.
 
-Integers, floating-point numbers, `bool`, `char`, and text can be printed.
-Float precision sets the number of digits after the decimal point and rounds
-to nearest, ties to even; `#` forces a decimal point. The values in the array
-are named variables or fields. An expression such as `answer + 1` or a literal
-such as `42` cannot be written there directly; bind it to a name first.
+Integers, floating-point numbers, `bool`, `char`, and text can be printed. A
+float prints in the shortest form that reads back as the same value, so `0.1`
+prints as `0.1`. An infinity or NaN cannot be printed: passing one makes
+`debugPrint` fail with exit status 22, as a template mistake does. The values
+in the array are named variables or fields. An expression such as `answer + 1`
+or a literal such as `42` cannot be written there directly; bind it to a name
+first.
 
 `debugPrint` writes to standard error, which suits diagnostics and these
 chapters' examples. A program's real output goes to standard output through a

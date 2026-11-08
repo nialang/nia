@@ -31,19 +31,19 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
 | `std::fmt` | `Format` trait, `Formatter`, format specs, and checked template printing |
 | `std::fs` | `Path`/`PathView`, files, directories, metadata, and directory iteration |
 | `std::hash` | `Hash` and `Hasher` traits and the non-cryptographic hashers `Wyhash`, `SipHash13`, `SipHash24`, `XxHash64`, `Fnv1a32`, and `Fnv1a64` |
-| `std::io` | `Reader`/`Writer` traits, fixed and buffered adapters, file readers/writers, `debugPrint` |
+| `std::io` | `Reader`/`Writer` traits, fixed and buffered adapters, file readers/writers, bounded `readToEnd`, `debugPrint` |
 | `std::iter` | Iterator adapters, ranges, and eager consumers such as `forEach` and `fold` |
-| `std::math` | Checked arithmetic traits (`CheckedAdd`, `CheckedMul`, ...) |
+| `std::math` | Checked arithmetic traits (`CheckedAdd`, `CheckedMul`, ...); `math::float` for IEEE-754 bit access and classification |
 | `std::mem` | `Allocator` trait, `Block`/`Layout`, page, fixed-buffer, arena, general-purpose, and pool allocators, typed owners |
 | `std::os` | Low-level operating-system services, and the native interfaces `os::linux::syscall`, `os::windows::bindings`, and `os::macos::bindings` with their platform calling conventions and error results |
 | `std::option` | Operations on optional values (`?T`) |
-| `std::parse` | `From` and `FromRadix` parsing traits and their `Error` |
+| `std::parse` | `From` and `FromRadix` parsing traits and their `Error`; `parse::float` for correctly rounded `f32`/`f64` parsing from bytes |
 | `std::process` | `process::Init`, arguments, environment, commands, child processes, exit codes |
 | `std::result` | Operations on error unions (`E!T`) |
 | `std::slice` | Borrowed slice operations, iterators, splitting, sorting, binary search, bounds, and partition points |
 | `std::source` | `SourceLocation` and `callerLocation` |
 | `std::string` | Owned Unicode text (`String`) and text utilities |
-| `std::test` | Assertions and an explicit in-process test runner |
+| `std::test` | Assertions, an explicit in-process test runner, and `FailingAllocator` fault injection |
 | `std::unicode` | UTF-8 decoding and scalar-value validation |
 
 ## Conventions
@@ -169,7 +169,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
 A build script registers each suite with `Build::addTestSuite`. A suite is an
 ordinary host executable whose root module may import any number of test
 modules, using the same module imports as an application. See
-[Testing](../docs/learn/testing.md).
+[Testing](../docs/learn/testing.md), which also shows `FailingAllocator`
+testing an allocation failure.
 
 ## Windows
 

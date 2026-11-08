@@ -151,6 +151,94 @@ status.
 The reporter's parameter is annotated, `\result: test::CaseResult -> ...`,
 because the closure calls methods on it before any use gives it a type.
 
+## Testing Failure Paths
+
+Code that allocates must behave when an allocation fails, but a real allocator
+rarely fails on demand. `test::FailingAllocator` wraps another allocator and
+makes chosen operations fail: `failNextAllocation` and `failAllocationAfter(n)`
+make an allocation report `mem::Error::OutOfMemory`, `failNextResize` makes a
+block's in-place growth fail, and `failNextFree` makes a release fail. Every
+other request goes to the wrapped allocator, and `activeBlocks` counts the
+blocks still held, so a test can also check that nothing leaked.
+
+This test checks that `appendAll`, which uses the `defer` rollback from
+[Leaving State Unchanged On Failure](errors.md#leaving-state-unchanged-on-failure),
+leaves the list as it was when growing the list fails partway through:
+
+```nia
+using std::io;
+using std::mem;
+using std::process;
+using std::result;
+using std::test;
+
+// Appends every value or none of them.
+fun appendAll(
+    list: &mut std::ArrayList[i32],
+    allocator: &mut mem::Allocator,
+    values: &[i32],
+) mem::Error!() {
+    let original = list.len();
+    let mut committed = false;
+    defer if not committed {
+        list.truncate(original);
+    };
+    for &value in values {
+        list.push(allocator, value).?;
+    }
+    committed = true;
+    !()
+}
+
+fun rollsBackWhenGrowthFails() test::Error!() {
+    let mut page: mem::PageAllocator = .init();
+    let mut allocator = test::FailingAllocator::init(page);
+    let mut list: std::ArrayList[i32] = .init();
+    test::expect(appendAll(list, allocator, [1, 2]).isSuccess()).?;
+
+    // One value more than the list has room for, and the growth fails
+    // whether the list would extend its block or move to a new one.
+    let room = list.capacity() - list.len();
+    let values: [i32; 64] = [7; 64];
+    allocator.failNextResize();
+    allocator.failNextAllocation();
+    let failed = appendAll(list, allocator, &values[0..room + 1]);
+    test::expect(failed.isError()).?;
+    test::expectEqual(list.len(), 2).?;
+
+    test::expect(list.deinit(allocator).isSuccess()).?;
+    test::expectEqual(allocator.activeBlocks(), 0).?;
+    !()
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let cases = [test::Case::init("rolls back when growth fails", rollsBackWhenGrowthFails)];
+    let mut report = \result: test::CaseResult -> {
+        if result.error() is ?failure {
+            _ = io::debugPrint("FAIL {}: {}\n", [result.name(), failure]);
+        }
+    };
+    let summary = test::Runner::init(cases).runWith(report);
+    io::debugPrint("{} passed, {} failed\n", [summary.passed(), summary.failed()]).?;
+    if not summary.isSuccessful() {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+```
+
+```text
+1 passed, 0 failed
+```
+
+The failing call fills the list's remaining room before the growth fails, so
+without the `defer` the list would keep those values and the test would report
+`values are not equal`. A test function returns `test::Error`, which other
+errors do not convert to, so the test checks the list operations with
+`isSuccess` and `isError` from `std::result` rather than propagating them with
+`.?`.
+
 ## Organizing Tests
 
 A suite is one program, so it can import any number of test modules. Keep the
@@ -236,6 +324,8 @@ in `[dev-dependencies]`, which only test suites can import; see
   `expectNotEqual`, and `fail` with `.?`.
 - `Runner::run` reports only through its summary; `runWith` with a reporter
   prints which cases failed and where.
+- `test::FailingAllocator` makes chosen allocations, growths, and releases fail,
+  so failure paths can be tested and checked for leaks.
 - `nia build test` runs every suite and skips suites whose code has not
   changed.
 - `@[test]` code and `[dev-dependencies]` exist only in test builds.
