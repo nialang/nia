@@ -194,7 +194,7 @@ fun rollsBackWhenGrowthFails() test::Error!() {
     let mut page: mem::PageAllocator = .init();
     let mut allocator = test::FailingAllocator::init(page);
     let mut list: std::ArrayList[i32] = .init();
-    test::expect(appendAll(list, allocator, [1, 2]).isSuccess()).?;
+    appendAll(list, allocator, [1, 2]).?;
 
     // One value more than the list has room for, and the growth fails
     // whether the list would extend its block or move to a new one.
@@ -206,7 +206,7 @@ fun rollsBackWhenGrowthFails() test::Error!() {
     test::expect(failed.isError()).?;
     test::expectEqual(list.len(), 2).?;
 
-    test::expect(list.deinit(allocator).isSuccess()).?;
+    list.deinit(allocator).?;
     test::expectEqual(allocator.activeBlocks(), 0).?;
     !()
 }
@@ -234,10 +234,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
 The failing call fills the list's remaining room before the growth fails, so
 without the `defer` the list would keep those values and the test would report
-`values are not equal`. A test function returns `test::Error`, which other
-errors do not convert to, so the test checks the list operations with
-`isSuccess` and `isError` from `std::result` rather than propagating them with
-`.?`.
+`values are not equal`. A failed allocation outside the injected one still
+ends the test through `.?`: `mem::Error` converts to `test::Error::Memory`,
+which keeps the cause. The expected failure is kept as a value instead, so the
+test can check it with `isError` from `std::result`.
 
 ## Organizing Tests
 
