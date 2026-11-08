@@ -40,10 +40,13 @@ extend BigUInt {
 
     fun multiplySmall(&mut self, factor: u32) () {
         let mut carry: u64 = 0;
-        for limb in (&mut self.limbs[0..self.used]).iterMut() {
-            let product = limb.* as u64 * factor as u64 + carry;
-            limb.* = product as u32;
+        // The carry flows from low limbs to high limbs.
+        let mut index: usize = 0;
+        while index < self.used {
+            let product = self.limbs[index] as u64 * factor as u64 + carry;
+            self.limbs[index] = product as u32;
             carry = product >> 32;
+            index += 1;
         }
         if carry != 0 {
             // Internal range violations must never silently discard high bits.
@@ -76,9 +79,12 @@ extend BigUInt {
 
     fun divideSmall(&mut self, divisor: u32) u32 {
         let mut remainder: u64 = 0;
-        for limb in (&mut self.limbs[0..self.used]).iterMut().rev() {
-            let dividend = (remainder << 32) | limb.* as u64;
-            limb.* = (dividend / divisor as u64) as u32;
+        // Long division consumes the highest limb and passes its remainder down.
+        let mut index = self.used;
+        while index != 0 {
+            index -= 1;
+            let dividend = (remainder << 32) | self.limbs[index] as u64;
+            self.limbs[index] = (dividend / divisor as u64) as u32;
             remainder = dividend % divisor as u64;
         }
         while self.used != 0 and self.limbs[self.used - 1] == 0 { self.used -= 1; }
