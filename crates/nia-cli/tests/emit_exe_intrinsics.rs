@@ -79,6 +79,93 @@ fun writeFloat32(value: f32, buffer: &mut [u8]) fmt::Error!usize {
     !output.len()
 }
 
+fun writeFloatSpec(
+    value: f64,
+    precision: ?usize,
+    alternate: bool,
+    width: usize,
+    fill: char,
+    signPlus: bool,
+    buffer: &mut [u8],
+) fmt::Error!usize {
+    let mut output = io::FixedBufferWriter::init(buffer);
+    let writer: &mut fmt::FormatWriter = &mut output;
+    let mut formatter = fmt::Formatter::init(writer);
+    let spec = fmt::FormatSpec::init(
+        fmt::FormatPresentation::Display,
+        width,
+        precision,
+        fill,
+        fmt::FormatAlignment::Right,
+        signPlus,
+        alternate,
+    );
+    value.formatSpec(&mut formatter, spec).?;
+    !output.len()
+}
+
+fun writeFloat32Spec(
+    value: f32,
+    precision: ?usize,
+    alternate: bool,
+    buffer: &mut [u8],
+) fmt::Error!usize {
+    let mut output = io::FixedBufferWriter::init(buffer);
+    let writer: &mut fmt::FormatWriter = &mut output;
+    let mut formatter = fmt::Formatter::init(writer);
+    let spec = fmt::FormatSpec::init(
+        fmt::FormatPresentation::Display,
+        0usize,
+        precision,
+        ' ',
+        fmt::FormatAlignment::None,
+        false,
+        alternate,
+    );
+    value.formatSpec(&mut formatter, spec).?;
+    !output.len()
+}
+
+fun floatSpecEquals(
+    value: f64,
+    precision: ?usize,
+    alternate: bool,
+    expected: &[u8],
+    buffer: &mut [u8],
+) bool {
+    let length = match writeFloatSpec(value, precision, alternate, 0, ' ', false, buffer) {
+        !length => length,
+        error! => { _ = error; return false; },
+    };
+    if length != expected.len() { return false; }
+    let mut index: usize = 0;
+    while index < length {
+        if buffer[index] != expected[index] { return false; }
+        index += 1;
+    }
+    true
+}
+
+fun rejectsUnrepresentableFloatPrecision(buffer: &mut [u8]) bool {
+    let mut output = io::FixedBufferWriter::init(buffer);
+    let writer: &mut fmt::FormatWriter = &mut output;
+    let mut formatter = fmt::Formatter::init(writer);
+    let spec = fmt::FormatSpec::init(
+        fmt::FormatPresentation::Display,
+        0usize,
+        ?usize::MAX,
+        ' ',
+        fmt::FormatAlignment::None,
+        false,
+        false,
+    );
+    match 1.0f64.formatSpec(&mut formatter, spec) {
+        !() => false,
+        fmt::Error::InvalidTemplate! => output.len() == 0,
+        error! => { _ = error; false },
+    }
+}
+
 fun float64RoundTrips(bits: u64, buffer: &mut [u8]) bool {
     let value = float::fromBits64(bits);
     let length = match writeFloat(value, buffer) {
@@ -280,6 +367,44 @@ pub fun main(init: process::Init) process::ExitCode!() {
         or rendered[3] != b'0'
     {
         return process::ExitCode(34)!;
+    }
+    if not floatSpecEquals(1.25, ?1usize, false, b"1.2", &mut rendered[..])
+        or not floatSpecEquals(1.375, ?2usize, false, b"1.38", &mut rendered[..])
+        or not floatSpecEquals(2.5, ?0usize, false, b"2", &mut rendered[..])
+        or not floatSpecEquals(3.5, ?0usize, false, b"4", &mut rendered[..])
+        or not floatSpecEquals(9.999, ?2usize, false, b"10.00", &mut rendered[..])
+        or not floatSpecEquals(-0.125, ?2usize, false, b"-0.12", &mut rendered[..])
+        or not floatSpecEquals(12.0, null, true, b"12.", &mut rendered[..])
+        or not floatSpecEquals(1e20, null, true, b"1.e20", &mut rendered[..])
+        or not floatSpecEquals(12.0, ?0usize, true, b"12.", &mut rendered[..])
+        or not floatSpecEquals(12.0, ?3usize, true, b"12.000", &mut rendered[..])
+        or not floatSpecEquals(0.0, ?0usize, true, b"0.", &mut rendered[..])
+    {
+        return process::ExitCode(35)!;
+    }
+    if not rejectsUnrepresentableFloatPrecision(&mut rendered[..]) {
+        return process::ExitCode(38)!;
+    }
+    let signedPaddedLen = writeFloatSpec(1.2, ?2usize, false, 7, '0', true, &mut rendered[..]).?;
+    if signedPaddedLen != 7usize
+        or rendered[0] != b'+'
+        or rendered[1] != b'0'
+        or rendered[2] != b'0'
+        or rendered[3] != b'1'
+        or rendered[4] != b'.'
+        or rendered[5] != b'2'
+        or rendered[6] != b'0'
+    {
+        return process::ExitCode(36)!;
+    }
+    let rounded32Len = writeFloat32Spec(1.375f32, ?2usize, false, &mut rendered[..]).?;
+    if rounded32Len != 4usize
+        or rendered[0] != b'1'
+        or rendered[1] != b'.'
+        or rendered[2] != b'3'
+        or rendered[3] != b'8'
+    {
+        return process::ExitCode(37)!;
     }
     let negativeZero32 = float::fromBits32(0x80000000u32);
     if float::toBits32(negativeZero32) != 0x80000000u32 or not float::signBit32(negativeZero32) {

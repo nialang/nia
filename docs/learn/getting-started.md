@@ -161,10 +161,11 @@ does not match the placeholders, makes `debugPrint` fail without printing
 anything, and `.?` then ends the program with exit status 22. A program that
 unexpectedly prints nothing and exits with 22 has a template mistake.
 
-Integers, `bool`, `char`, and text can be printed; floating-point numbers
-cannot yet. The values in the array are named variables or fields. An
-expression such as `answer + 1` or a literal such as `42` cannot be written
-there directly; bind it to a name first.
+Integers, floating-point numbers, `bool`, `char`, and text can be printed.
+Float precision sets the number of digits after the decimal point and rounds
+to nearest, ties to even; `#` forces a decimal point. The values in the array
+are named variables or fields. An expression such as `answer + 1` or a literal
+such as `42` cannot be written there directly; bind it to a name first.
 
 `debugPrint` writes to standard error, which suits diagnostics and these
 chapters' examples. A program's real output goes to standard output through a

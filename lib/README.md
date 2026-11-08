@@ -98,7 +98,7 @@ A `spec` has up to four parts, each optional, in this order:
 | --- | --- | --- |
 | flags | `<`, `>`, `^`; a fill character before one of them, such as `_>`; `0`; `+`; `#`, in any order | alignment within the width; the fill character (a space by default); `0` pads with zeros, right-aligned; `+` always shows the sign; `#` adds the `0x`, `0b`, or `0o` prefix |
 | width | digits, or `*` | the minimum width; padding uses the fill character |
-| precision | `.` and digits, or `.*` | the maximum number of characters of text, `bool`, or `char` |
+| precision | `.` and digits, or `.*` | text, `bool`, and `char` are truncated; floats use that many fractional digits and round to nearest, ties to even |
 | presentation | `x`, `X`, `b`, `o`, `p` | lower or upper hexadecimal, binary, octal, or a pointer's address |
 
 Without an alignment, padding goes before the value, so `{5}` right-aligns
@@ -110,6 +110,7 @@ placeholder keeps `{{` and `}}` unambiguous: they always mean literal braces.
 | Value | Accepts |
 | --- | --- |
 | integers | flags, width, and every presentation except `p` |
+| `f32`, `f64` | sign, alignment, fill, width, precision, and `#`; precision is fixed fractional digits, and `#` forces a decimal point |
 | text, `char`, `bool` | alignment, fill, width, and precision |
 | a pointer `ptr`, passed as `&ptr` | alignment, fill, width, and `p`; prints the address. Passing `ptr` itself formats the value it points to |
 | a type of your own | `{}` only, unless the type implements `formatSpec` to accept more |

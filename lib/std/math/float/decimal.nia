@@ -3,7 +3,7 @@
 // IEEE binary64 midpoints need fewer than 2,560 bits and 800 decimal digits.
 // The largest exact denominator is 5^1075, multiplied by at most 54 bits.
 const limbCapacity: usize = 80;
-const digitCapacity: usize = 800;
+pub(root) const digitCapacity: usize = 800;
 
 pub(root) enum SyntaxError: i32 {
     Empty = 1,
