@@ -1,0 +1,17 @@
+// Numeric syntax consumes ASCII codes without narrowing Unicode text.
+
+pub(root) trait AsciiUnit : Sized {
+    fun asciiCode(self) u32;
+}
+
+extend char : AsciiUnit {
+    fun asciiCode(self) u32 {
+        self as u32
+    }
+}
+
+extend u8 : AsciiUnit {
+    fun asciiCode(self) u32 {
+        self as u32
+    }
+}

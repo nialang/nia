@@ -14,7 +14,7 @@ using io::DebugPrintError;
 extend test::Error : builtin::IntoError[ExitCode] {
     const fun intoError(self) ExitCode {
         match self {
-            .AssertionFailed(_), .ValuesEqual(_), .ValuesNotEqual(_) => ExitCode(1),
+            .AssertionFailed(_), .ValuesEqual(_), .ValuesNotEqual(_), .Memory(_) => ExitCode(1),
         }
     }
 }
@@ -121,6 +121,7 @@ extend fmt::Error : builtin::IntoError[ExitCode] {
             .InvalidTemplate => ExitCode(22),
             .MissingArgument => ExitCode(22),
             .ExtraArgument => ExitCode(22),
+            .NonFinite => ExitCode(33),
             _ => ExitCode(255),
         }
     }

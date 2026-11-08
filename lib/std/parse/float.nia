@@ -1,37 +1,26 @@
 // Accepts ASCII decimal forms `[-]digits[.digits][e[+-]digits]` and
 // `[-].digits`. Whitespace, a leading plus, and non-finite spellings are invalid.
 
-using root::builtin::IntoError;
+module syntax;
+
+using root::parse::float::syntax;
+using root::parse::ascii::AsciiUnit;
 using root::cmp;
 using root::iter;
 using root::math::float as ieee;
 using root::math::float::decimal;
-using super::core::From;
+using super::core::{Error, From};
 
-pub enum ParseError: i32 {
-    Empty = 1,
-    Invalid = 2,
-    Overflow = 3,
-    _,
-}
-
-extend decimal::SyntaxError : IntoError[ParseError] {
-    const fun intoError(self) ParseError {
-        match self {
-            .Empty => .Empty,
-            .Invalid => .Invalid,
-        }
-    }
-}
-
-fun roundedBits64(input: &[u8], parsed: decimal::Parsed) u64 {
+fun roundedBits64[U](input: &[U], parsed: syntax::Parsed) u64
+where U: AsciiUnit
+{
     let maxFinite: u64 = 0x7fefffffffffffff;
     let mut low: u64 = 0;
     let mut high: u64 = maxFinite + 1;
     while low < high {
         let middle = low + (high - low) / 2;
         let exact = decimal::midpoint64(middle);
-        let comparison = decimal::compareParsed(input, parsed, exact);
+        let comparison = syntax::compareParsed(input, parsed, exact);
         if comparison < 0 or (comparison == 0 and (middle & 1) == 0) {
             high = middle;
         } else {
@@ -41,14 +30,16 @@ fun roundedBits64(input: &[u8], parsed: decimal::Parsed) u64 {
     low
 }
 
-fun roundedBits32(input: &[u8], parsed: decimal::Parsed) u32 {
+fun roundedBits32[U](input: &[U], parsed: syntax::Parsed) u32
+where U: AsciiUnit
+{
     let maxFinite: u64 = 0x7f7fffff;
     let mut low: u64 = 0;
     let mut high: u64 = maxFinite + 1;
     while low < high {
         let middle = low + (high - low) / 2;
         let exact = decimal::midpoint32(middle as u32);
-        let comparison = decimal::compareParsed(input, parsed, exact);
+        let comparison = syntax::compareParsed(input, parsed, exact);
         if comparison < 0 or (comparison == 0 and (middle & 1) == 0) {
             high = middle;
         } else {
@@ -70,7 +61,9 @@ fun powerOfTen(exponent: i32) f64 {
     if exponent < 0 { 1.0 / result } else { result }
 }
 
-fun approximateMagnitude(input: &[u8], parsed: decimal::Parsed) ?f64 {
+fun approximateMagnitude[U](input: &[U], parsed: syntax::Parsed) ?f64
+where U: AsciiUnit
+{
     // Nineteen digits fit in u64; exact interval checks account for the discarded tail.
     let digitCount = cmp::min(parsed.significantDigits, 19usize);
     let significand = parsed.digits(input).take(digitCount).fold(
@@ -86,40 +79,46 @@ fun approximateMagnitude(input: &[u8], parsed: decimal::Parsed) ?f64 {
 
 // Approximation only supplies a candidate. Exact midpoint checks decide whether
 // it is correct; all candidates outside that rounding interval use the exact search.
-fun tryRoundedBits64(input: &[u8], parsed: decimal::Parsed) ?u64 {
+fun tryRoundedBits64[U](input: &[U], parsed: syntax::Parsed) ?u64
+where U: AsciiUnit
+{
     let value = match approximateMagnitude(input, parsed) { ?value => value, null => return null };
     let bits = ieee::toBits64(value);
     if bits > 0x7fefffffffffffff { return null; }
     let even = (bits & 1u64) == 0;
     if bits != 0 {
         let lower = decimal::midpoint64(bits - 1);
-        let comparison = decimal::compareParsed(input, parsed, lower);
+        let comparison = syntax::compareParsed(input, parsed, lower);
         if comparison < 0 or (comparison == 0 and not even) { return null; }
     }
     let upper = decimal::midpoint64(bits);
-    let comparison = decimal::compareParsed(input, parsed, upper);
+    let comparison = syntax::compareParsed(input, parsed, upper);
     if comparison > 0 or (comparison == 0 and not even) { return null; }
     ?bits
 }
 
-fun tryRoundedBits32(input: &[u8], parsed: decimal::Parsed) ?u32 {
+fun tryRoundedBits32[U](input: &[U], parsed: syntax::Parsed) ?u32
+where U: AsciiUnit
+{
     let value = match approximateMagnitude(input, parsed) { ?value => value, null => return null };
     let bits = ieee::toBits32(value as f32);
     if bits > 0x7f7fffff { return null; }
     let even = (bits & 1u32) == 0;
     if bits != 0 {
         let lower = decimal::midpoint32(bits - 1);
-        let comparison = decimal::compareParsed(input, parsed, lower);
+        let comparison = syntax::compareParsed(input, parsed, lower);
         if comparison < 0 or (comparison == 0 and not even) { return null; }
     }
     let upper = decimal::midpoint32(bits);
-    let comparison = decimal::compareParsed(input, parsed, upper);
+    let comparison = syntax::compareParsed(input, parsed, upper);
     if comparison > 0 or (comparison == 0 and not even) { return null; }
     ?bits
 }
 
-pub fun parse64(input: &[u8]) ParseError!f64 {
-    let parsed = decimal::parse(input).?;
+fun parseFloat64[U](input: &[U]) Error!f64
+where U: AsciiUnit
+{
+    let parsed = syntax::parse(input).?;
     let order = parsed.order();
     let magnitude = if parsed.zero or order < -323 {
         0u64
@@ -136,8 +135,10 @@ pub fun parse64(input: &[u8]) ParseError!f64 {
     !ieee::fromBits64(sign | magnitude)
 }
 
-pub fun parse32(input: &[u8]) ParseError!f32 {
-    let parsed = decimal::parse(input).?;
+fun parseFloat32[U](input: &[U]) Error!f32
+where U: AsciiUnit
+{
+    let parsed = syntax::parse(input).?;
     let order = parsed.order();
     let magnitude = if parsed.zero or order < -45 {
         0u32
@@ -154,22 +155,30 @@ pub fun parse32(input: &[u8]) ParseError!f32 {
     !ieee::fromBits32(sign | magnitude)
 }
 
-pub fun parse[T](input: &[u8]) [T as From[&[u8]]]::Error!T
-where T: From[&[u8]]
-{
-    [T]::from(input)
-}
+// Concrete byte entry points share the same conversion used by text parsing.
+pub fun parse64(input: &[u8]) Error!f64 { parseFloat64(input) }
+pub fun parse32(input: &[u8]) Error!f32 { parseFloat32(input) }
 
 extend f32 : From[&[u8]] {
-    type Error = ParseError;
+    type Error = Error;
 
-    fun from(input: &[u8]) ParseError!f32 { parse32(input) }
+    fun from(input: &[u8]) Error!f32 { parseFloat32(input) }
+}
+
+extend f32 : From[&[char]] {
+    type Error = Error;
+
+    fun from(input: &[char]) Error!f32 { parseFloat32(input) }
 }
 
 extend f64 : From[&[u8]] {
-    type Error = ParseError;
+    type Error = Error;
 
-    fun from(input: &[u8]) ParseError!f64 {
-        parse64(input)
-    }
+    fun from(input: &[u8]) Error!f64 { parseFloat64(input) }
+}
+
+extend f64 : From[&[char]] {
+    type Error = Error;
+
+    fun from(input: &[char]) Error!f64 { parseFloat64(input) }
 }

@@ -14,7 +14,7 @@ fn float_bit_access_and_classification_follow_ieee754_fields() {
         &source,
         r#"
 using std::{math::float, process};
-using std::parse::float as floatParse;
+using std::parse as floatParse;
 using std::{fmt, io};
 
 fun parsesNegativeZero(input: &[u8]) bool {
@@ -48,9 +48,10 @@ fun parses64As(input: &[u8], bits: u64) bool {
 fun rejectsFloat(input: &[u8]) bool {
     match floatParse::parse64(input) {
         !value => { _ = value; false },
-        floatParse::ParseError::Invalid! => true,
-        floatParse::ParseError::Empty! => true,
-        floatParse::ParseError::Overflow! => true,
+        floatParse::Error::InvalidDigit! => true,
+        floatParse::Error::Empty! => true,
+        floatParse::Error::InvalidSign! => true,
+        floatParse::Error::Overflow! => true,
         error! => { _ = error; false },
     }
 }
@@ -58,7 +59,7 @@ fun rejectsFloat(input: &[u8]) bool {
 fun overflows64(input: &[u8]) bool {
     match floatParse::parse64(input) {
         !value => { _ = value; false },
-        floatParse::ParseError::Overflow! => true,
+        floatParse::Error::Overflow! => true,
         error! => { _ = error; false },
     }
 }
@@ -259,7 +260,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
     match floatParse::parse64(b"1.7976931348623159e308") {
         !value => { _ = value; return process::ExitCode(18)!; },
-        floatParse::ParseError::Overflow! => {},
+        floatParse::Error::Overflow! => {},
         error! => { _ = error; return process::ExitCode(19)!; },
     }
     if not parses64As(b"1e-999999999999999999999", 0u64)
@@ -509,11 +510,11 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let writer: &mut fmt::FormatWriter = &mut output;
     let mut formatter = fmt::Formatter::init(writer);
     match formatter.writeFloat64(float::fromBits64(0x7ff0000000000000u64)) {
-        fmt::Error::InvalidTemplate! => {},
+        fmt::Error::NonFinite! => {},
         _ => return process::ExitCode(1)!,
     }
     match formatter.writeFloat32(float::fromBits32(0xffc00000u32)) {
-        fmt::Error::InvalidTemplate! => {},
+        fmt::Error::NonFinite! => {},
         _ => return process::ExitCode(2)!,
     }
     match formatter.writeFloat64Spec(1.0, fmt::FormatSpec::lowerHex()) {
@@ -559,7 +560,7 @@ fn float_decimal_parser_matches_host_round_trip_samples() {
     let mut program = String::from(
         r#"
 using std::{math::float, process};
-using std::parse::float as floatParse;
+using std::parse as floatParse;
 using std::{fmt, io};
 
 fun matches64(input: &[u8], expected: u64) bool {
@@ -786,7 +787,7 @@ fn float_decimal_parser_fuzzes_random_host_decimals() {
     let mut program = String::from(
         r#"
 using std::{math::float, process};
-using std::parse::float as floatParse;
+using std::parse as floatParse;
 
 fun matches64(input: &[u8], expected: u64) bool {
     match floatParse::parse64(input) {
@@ -805,7 +806,7 @@ fun matches32(input: &[u8], expected: u32) bool {
 fun overflows64(input: &[u8]) bool {
     match floatParse::parse64(input) {
         !value => { _ = value; false },
-        floatParse::ParseError::Overflow! => true,
+        floatParse::Error::Overflow! => true,
         error! => { _ = error; false },
     }
 }
@@ -813,8 +814,34 @@ fun overflows64(input: &[u8]) bool {
 fun overflows32(input: &[u8]) bool {
     match floatParse::parse32(input) {
         !value => { _ = value; false },
-        floatParse::ParseError::Overflow! => true,
+        floatParse::Error::Overflow! => true,
         error! => { _ = error; false },
+    }
+}
+
+fun textMatches64(input: &[char], expected: u64) bool {
+    match input.parse[f64]() {
+        !value => float::toBits64(value) == expected,
+        _ => false,
+    }
+}
+fun textOverflows64(input: &[char]) bool {
+    match input.parse[f64]() {
+        floatParse::Error::Overflow! => true,
+        _ => false,
+    }
+}
+
+fun textMatches32(input: &[char], expected: u32) bool {
+    match input.parse[f32]() {
+        !value => float::toBits32(value) == expected,
+        _ => false,
+    }
+}
+fun textOverflows32(input: &[char]) bool {
+    match input.parse[f32]() {
+        floatParse::Error::Overflow! => true,
+        _ => false,
     }
 }
 
@@ -866,14 +893,14 @@ pub fun main(init: process::Init) process::ExitCode!() {
         if value64.is_finite() {
             writeln!(
                 program,
-                "    if not matches64(b\"{text}\", 0x{:016x}u64) {{ return process::ExitCode(1)!; }}",
-                value64.to_bits()
+                "    if not (matches64(b\"{text}\", 0x{:016x}u64) and textMatches64(\"{text}\", 0x{:016x}u64)) {{ return process::ExitCode(1)!; }}",
+                value64.to_bits(), value64.to_bits()
             )
             .expect("append random f64 decimal");
         } else {
             writeln!(
                 program,
-                "    if not overflows64(b\"{text}\") {{ return process::ExitCode(2)!; }}"
+                "    if not (overflows64(b\"{text}\") and textOverflows64(\"{text}\")) {{ return process::ExitCode(2)!; }}"
             )
             .expect("append random f64 overflow decimal");
         }
@@ -881,14 +908,14 @@ pub fun main(init: process::Init) process::ExitCode!() {
         if value32.is_finite() {
             writeln!(
                 program,
-                "    if not matches32(b\"{text}\", 0x{:08x}u32) {{ return process::ExitCode(3)!; }}",
-                value32.to_bits()
+                "    if not (matches32(b\"{text}\", 0x{:08x}u32) and textMatches32(\"{text}\", 0x{:08x}u32)) {{ return process::ExitCode(3)!; }}",
+                value32.to_bits(), value32.to_bits()
             )
             .expect("append random f32 decimal");
         } else {
             writeln!(
                 program,
-                "    if not overflows32(b\"{text}\") {{ return process::ExitCode(4)!; }}"
+                "    if not (overflows32(b\"{text}\") and textOverflows32(\"{text}\")) {{ return process::ExitCode(4)!; }}"
             )
             .expect("append random f32 overflow decimal");
         }

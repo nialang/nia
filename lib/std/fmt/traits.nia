@@ -10,6 +10,7 @@ pub enum Error: i32 {
     InvalidTemplate = 2,
     MissingArgument = 3,
     ExtraArgument = 4,
+    NonFinite = 5,
     _,
 }
 

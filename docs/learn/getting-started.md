@@ -164,7 +164,7 @@ unexpectedly prints nothing and exits with 22 has a template mistake.
 Integers, floating-point numbers, `bool`, `char`, and text can be printed. A
 float prints in the shortest form that reads back as the same value, so `0.1`
 prints as `0.1`. An infinity or NaN cannot be printed: passing one makes
-`debugPrint` fail with exit status 22, as a template mistake does. The values
+`debugPrint` fail with `fmt::Error::NonFinite` (exit status 33). The values
 in the array are named variables or fields. An expression such as `answer + 1`
 or a literal such as `42` cannot be written there directly; bind it to a name
 first.

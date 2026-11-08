@@ -37,7 +37,7 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
 | `std::mem` | `Allocator` trait, `Block`/`Layout`, page, fixed-buffer, arena, general-purpose, and pool allocators, typed owners |
 | `std::os` | Low-level operating-system services, and the native interfaces `os::linux::syscall`, `os::windows::bindings`, and `os::macos::bindings` with their platform calling conventions and error results |
 | `std::option` | Operations on optional values (`?T`) |
-| `std::parse` | `From` and `FromRadix` parsing traits and their `Error`; `parse::float` for correctly rounded `f32`/`f64` parsing from bytes |
+| `std::parse` | `From` and `FromRadix` parsing traits and their `Error`; correctly rounded `f32`/`f64` parsing from text or bytes |
 | `std::process` | `process::Init`, arguments, environment, commands, child processes, exit codes |
 | `std::result` | Operations on error unions (`E!T`) |
 | `std::slice` | Borrowed slice operations, iterators, splitting, sorting, binary search, bounds, and partition points |
@@ -118,8 +118,9 @@ placeholder keeps `{{` and `}}` unambiguous: they always mean literal braces.
 `Formatter::writeFloat32` and `writeFloat64` write a finite value in its shortest
 round-trip form. `writeFloat32Spec` and `writeFloat64Spec` take a `FormatSpec`
 with the same float options as templates. These methods let custom formatters
-write float fields directly. Non-finite values and unsupported specifications
-return `InvalidTemplate` before writing; a writer failure can leave partial output.
+write float fields directly. Non-finite values return `NonFinite` (exit status
+33), while unsupported specifications return `InvalidTemplate`. Both fail before
+writing; a writer failure can leave partial output.
 
 Templates are checked while printing, not by the compiler: formatting is
 ordinary library code, and a template is an ordinary character array. A
@@ -131,11 +132,25 @@ stays written, except that `debugPrint`, which buffers its line, writes
 nothing. Implementing `fmt::Format` for a type of your own is shown in
 [Printing Your Own Types](../docs/learn/generics-and-traits.md#printing-your-own-types).
 
+## Numeric parsing
+
+Import `std::parse` to use `"1.5".parse[f64]()` or `b"1.5".parse[f32]()`,
+just as for integers. All numeric `From` implementations use `parse::Error`.
+The byte entry points `parse32` and `parse64` use the same conversion.
+Float syntax accepts `[-]digits[.digits][e[+-]digits]` and `[-].digits`.
+An empty input returns `Empty`, a leading `+` returns `InvalidSign`, malformed
+syntax (including whitespace, non-ASCII digits, NaN and infinity spellings)
+returns `InvalidDigit`, and overflow returns `Overflow`. Underflow rounds to a
+subnormal or signed zero. Both widths round to nearest, ties to even.
+
 ## Testing
 
 `std::test` provides assertions (`expect`, `expectEqual`, `expectNotEqual`,
-`fail`) that return `test::Error`, and a runner. A `Case` pairs a name with a
-test function; `Runner` borrows a table of cases, runs each one, and returns a
+`fail`) that return `test::Error`, and a runner. Memory operations returning
+`mem::Error` can propagate through `.?`; `test::Error::Memory` retains their
+cause. Errors that carry rollback resources must be handled before propagation.
+A `Case` pairs a name with a test function; `Runner` borrows a table of cases,
+runs each one, and returns a
 `RunSummary`. It continues after failures unless built with `withFailFast()`,
 and it does not allocate or discover files.
 

@@ -1,16 +1,13 @@
 // Shared exact decimal magnitudes and rounding boundaries for IEEE conversion.
-// Syntax scanning and integer storage have independent implementation owners.
+// Parsing syntax belongs to std::parse; integer storage is independent.
 
-module syntax;
 module big_uint;
 
 using root::cmp;
 using root::iter;
 using root::slice;
-using root::math::float::decimal::syntax;
 using root::math::float::decimal::big_uint::{BigUInt, Digits};
 
-pub(root) using syntax::{SyntaxError, Parsed, SignificantDigits, parse};
 pub(root) using big_uint::digitCapacity;
 
 pub(root) struct Exact {
@@ -30,26 +27,6 @@ extend Exact {
     pub(root) fun isZero(&self) bool {
         self.digits.len == 1 and self.digits.bytes[0] == b'0'
     }
-}
-
-pub(root) fun compareParsed(input: &[u8], parsed: Parsed, exact: &Exact) i32 {
-    if parsed.zero { return if exact.isZero() { 0 } else { -1 }; }
-    let leftOrder = parsed.order();
-    let rightOrder = exact.len() as i128 + exact.exponent10() as i128;
-    if leftOrder < rightOrder { return -1; }
-    if leftOrder > rightOrder { return 1; }
-
-    let mut digits = parsed.digits(input);
-    for &right in exact.asSlice() {
-        let left = match digits.next() { ?digit => digit, null => b'0' };
-        if left < right { return -1; }
-        if left > right { return 1; }
-    }
-    // An omitted suffix represents zeros, never lost significant input digits.
-    for left in digits {
-        if left != b'0' { return 1; }
-    }
-    0
 }
 
 pub(root) fun fromBinary(significand: u64, exponent2: i32) Exact {

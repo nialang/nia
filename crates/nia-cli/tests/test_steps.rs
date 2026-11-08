@@ -77,6 +77,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
             },
             .ValuesEqual(_) => return process::ExitCode(16)!,
             .ValuesNotEqual(_) => return process::ExitCode(17)!,
+            .Memory(_) => return process::ExitCode(18)!,
         },
         null => return process::ExitCode(18)!,
     }

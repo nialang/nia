@@ -13,8 +13,10 @@ using super::traits::{Error, Format};
 
 fun validate(spec: FormatSpec, finite: bool) Error!() {
     spec.validate().?;
-    if spec.presentation() != FormatPresentation::Display or not finite {
+    if spec.presentation() != FormatPresentation::Display {
         .InvalidTemplate!
+    } else if not finite {
+        .NonFinite!
     } else {
         !()
     }
@@ -31,7 +33,7 @@ extend Formatter {
     }
 
     // Precision is fractional decimal digits with ties-to-even rounding.
-    // Non-finite input and non-display presentations return InvalidTemplate.
+    // Non-finite input returns NonFinite; unsupported presentations return InvalidTemplate.
     pub fun writeFloat64Spec(&mut self, value: f64, spec: FormatSpec) Error!() {
         validate(spec, ieee::isFinite64(value)).?;
         let bits = ieee::toBits64(value) & 0x7fffffffffffffffu64;

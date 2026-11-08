@@ -1348,7 +1348,8 @@ pub fun main(init: Init) ExitCode!() {
                 && (module.starts_with("toolchain:/std/build")
                     || module.starts_with("toolchain:/std/collections/hash_map")))
                 || (module.starts_with("toolchain:/std/parse")
-                    && *module != "toolchain:/std/parse/core.nia")
+                    && *module != "toolchain:/std/parse/core.nia"
+                    && *module != "toolchain:/std/parse/ascii.nia")
         })
         .collect::<Vec<_>>();
     assert!(

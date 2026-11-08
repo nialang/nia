@@ -5,6 +5,8 @@
 // without requiring a language-level test attribute or process trap.
 
 using root::fmt;
+using root::builtin::IntoError;
+using root::mem;
 using root::source::{SourceLocation, callerLocation};
 
 pub(root) module failing_allocator;
@@ -15,6 +17,13 @@ pub enum Error {
     AssertionFailed(SourceLocation) = 1,
     ValuesEqual(SourceLocation) = 2,
     ValuesNotEqual(SourceLocation) = 3,
+    Memory(mem::Error) = 4,
+}
+
+// Preserve the allocation cause. Errors that own rollback resources must be
+// handled by the test before propagation rather than converted generically.
+extend mem::Error : IntoError[Error] {
+    const fun intoError(self) Error { .Memory(self) }
 }
 
 extend Error : fmt::Format {
@@ -31,6 +40,11 @@ extend Error : fmt::Format {
             .ValuesNotEqual(location) => {
                 location.format(formatter).?;
                 formatter.writeText(": values are not equal")
+            },
+            .Memory(cause) => {
+                formatter.writeText("memory operation failed (mem::Error ").?;
+                formatter.writeSigned(cause as i32 as i128).?;
+                formatter.writeText(")")
             },
         }
     }
