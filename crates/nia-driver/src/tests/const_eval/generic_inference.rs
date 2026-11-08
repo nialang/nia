@@ -33,6 +33,46 @@ fun main() i32 {
 }
 
 #[test]
+fn imported_generic_enum_instances_survive_const_and_runtime_calls() {
+    let root = temp_dir("imported_generic_enum_instances_survive_const_and_runtime_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+module events;
+using root::events;
+
+const event: events::Event[i32, 3] = .Bytes { data: [8, 9, 10] };
+const selected: i32 = events::first(event);
+
+fun main() i32 {
+    let event: events::Event[i32, 3] = events::Event[i32, 3]::Value(4);
+    let value = events::first(event);
+    selected + value
+}
+"#,
+    );
+    write(
+        &root.join("events.nia"),
+        r#"
+pub enum Event[T, N: usize] {
+    Value(T),
+    Bytes { data: [u8; N] },
+}
+
+pub const fun first(value: Event[i32, 3]) i32 {
+    match value {
+        Event[i32, 3]::Value(number) => number,
+        Event[i32, 3]::Bytes { data } => data[0] as i32,
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_const_function_explicit_type_args_drive_array_lengths() {
     let root = temp_dir("generic_const_function_explicit_type_args_drive_array_lengths");
     write(
