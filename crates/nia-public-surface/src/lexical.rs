@@ -108,6 +108,7 @@ pub fn compute_lexical_using_scopes_with_symbols<D: Borrow<DefCollection>>(
             symbols,
             mode: UsingLookupMode::Visible,
             imported_types: None,
+            imported_scopes: None,
             lexical_namespaces: None,
         },
         current,
@@ -168,6 +169,7 @@ impl<'ast> Visitor<'ast> for LexicalResolver<'_> {
             let using = ModuleUsing::from_ast(Visibility::Private, stmt.span, using);
             let context = UsingExpansionContext {
                 imported_types: Some(&scope.types),
+                imported_scopes: Some(&scope),
                 lexical_namespaces: Some(&namespace_names),
                 ..self.context
             };
@@ -219,10 +221,14 @@ impl<'ast> Visitor<'ast> for LexicalResolver<'_> {
                 }
                 match entry.kind {
                     ResolvedEntryKind::Module(module) => {
+                        local.module_scopes.insert(entry.name, entry.scope);
                         local.modules.insert(entry.name, module);
                         module_origins.insert(entry.name, (entry.name_span, using.span));
                     }
                     ResolvedEntryKind::Item(item) => {
+                        local
+                            .item_scopes
+                            .insert((item.namespace, entry.name), entry.scope);
                         let table = match item.namespace {
                             PublicNamespace::Value => &mut local.values,
                             PublicNamespace::Type => &mut local.types,
@@ -245,8 +251,13 @@ impl<'ast> Visitor<'ast> for LexicalResolver<'_> {
                 scope.modules.remove(name);
                 scope.values.remove(name);
                 scope.types.remove(name);
+                scope.module_scopes.remove(name);
+                scope.item_scopes.remove(&(PublicNamespace::Type, *name));
+                scope.item_scopes.remove(&(PublicNamespace::Value, *name));
             }
             scope.modules.extend(local.modules.clone());
+            scope.module_scopes.extend(local.module_scopes.clone());
+            scope.item_scopes.extend(local.item_scopes.clone());
             namespace_names.extend(local.modules.keys().copied());
             namespace_names.extend(local.unresolved_usings.keys().copied());
             scope.values.extend(local.values.clone());

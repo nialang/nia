@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 139);
+    assert_eq!(descriptors.len(), 140);
     assert!(
         !descriptors
             .iter()
@@ -114,6 +114,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "module_lexical_using_scopes"
             | "item_signatures"
             | "public_surface_module_facts"
+            | "public_surface_scope"
             | "public_surface_type"
             | "public_surface_value"
             | "public_surfaces"

@@ -275,6 +275,26 @@ pub enum Visibility {
     Public,
 }
 
+/// An access check retains whether the declaration names an item or a module.
+/// Private module names remain usable in descendants; private items do not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AccessRestriction {
+    /// Visibility of a value, type, or re-exporting directive.
+    Item(ModuleId, Visibility),
+    /// Visibility of a declared module namespace.
+    Module(ModuleId, Visibility),
+}
+
+impl AccessRestriction {
+    /// Declaring module and visibility, with a stable kind discriminator.
+    pub fn ordering_key(self) -> (ModuleId, u8, u8) {
+        match self {
+            Self::Item(owner, visibility) => (owner, visibility as u8, 0),
+            Self::Module(owner, visibility) => (owner, visibility as u8, 1),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 /// Identity of either a source-defined or builtin trait.
 pub enum TraitId {

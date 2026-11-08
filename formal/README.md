@@ -17,6 +17,7 @@ toolchain is pinned in [`lean-toolchain`](lean-toolchain).
 | [`NiaFormal/ValueInference.lean`](NiaFormal/ValueInference.lean) | Contextual typing of value construction | [`value_inference_matrix.rs`](../crates/nia-driver/src/tests/value_inference_matrix.rs) |
 | [`NiaFormal/ModuleValueTypes.lean`](NiaFormal/ModuleValueTypes.lean) | Bounded growth of inferred global and const type facts | [`semantic_diagnostics.rs`](../crates/nia-compiler-query/src/query/tests/semantic_diagnostics.rs) |
 | [`NiaFormal/ModuleVisibility.lean`](NiaFormal/ModuleVisibility.lean) | Explicit extension visibility and separate trait-witness closure | [`imports.rs`](../crates/nia-driver/src/tests/imports.rs) |
+| [`NiaFormal/ScopedExports.lean`](NiaFormal/ScopedExports.lean) | Restricted name exports and authorized provider publication | [`using.rs`](../crates/nia-driver/src/tests/using.rs) |
 | [`NiaFormal/ReachabilityRetraction.lean`](NiaFormal/ReachabilityRetraction.lean) | Exactness of over-delete/rederive after dependency-edge changes | Pending reachability integration tests |
 
 ### Value construction inference
@@ -91,6 +92,31 @@ the manifest. This still does not prove
 the Rust loader and query implementation correct, so the end-to-end cases are
 required alongside the model.
 
+### Scoped exports
+
+The extension-visibility model starts with resolved provider edges. It does not
+model access restrictions on exported names. [ScopedExports.lean](NiaFormal/ScopedExports.lean)
+covers that separate contract after host-path resolution: alternative routes are
+a union, each route requires all its restrictions, and re-exporting a selected
+name cannot remove that name's earlier restriction. It proves that intersecting
+routes requires both scopes, removing subsumed routes preserves access, and
+enum variants retain their enum's scope. It distinguishes item/module access
+restrictions and proves that provider reachability requires a permitted incoming
+publication route or a direct import.
+
+A host namespace only needs to be accessible to the exporting module. A public
+member selected from a private implementation module retains the member's own
+scope. Publishing a provider grants an explicit capability under the publishing
+directive's scope; it does not grant access to the private module namespace.
+
+[export_scope_matrix.json](NiaFormal/export_scope_matrix.json)
+connects these rules to cross-package driver regressions in
+[using.rs](../crates/nia-driver/src/tests/using.rs) for restricted values,
+types, enum aliases, alias chains, private implementation facades, and restricted
+provider publication. The algebra accepts an arbitrary grant predicate; it does
+not prove the Rust ancestry predicate, loader scheduling, or query implementation.
+Those remain covered by compiler unit, integration, and invalidation tests.
+
 ### Incremental reachability retraction
 
 `ReachabilityRetraction.lean` models an edge graph whose changed outgoing
@@ -131,8 +157,8 @@ cargo test -p nia-driver value_inference_matrix
 
 - Changing a rule: update the model and its proofs, the manifest, and the
   compiler test in the same change, and build both sides.
-- Adding a compiler case: add it to the test's case table and to
-  `compiler_expression_cases` in the same order.
+- Adding a compiler case: add it to the test's case table and the corresponding
+  manifest inventory in the same order.
 - Adding a model: add a module under `NiaFormal/`, import it from
   [`NiaFormal.lean`](NiaFormal.lean), declare any file it reads with
   `include_str` as an `[[input_file]]` in [`lakefile.toml`](lakefile.toml) and

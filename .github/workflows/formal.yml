@@ -10,6 +10,18 @@ on:
       - "crates/nia-const-check/src/**"
       - "crates/nia-const-ir/src/**"
       - "crates/nia-driver/src/tests/value_inference_matrix.rs"
+      - "crates/nia-defs/src/**"
+      - "crates/nia-imports/src/**"
+      - "crates/nia-ids/src/**"
+      - "crates/nia-compat/src/**"
+      - "crates/nia-public-surface/src/**"
+      - "crates/nia-loader-query/src/**"
+      - "crates/nia-program-signatures/src/**"
+      - "crates/nia-type-resolve/src/**"
+      - "crates/nia-value-resolve/src/**"
+      - "crates/nia-compiler-query/src/**"
+      - "crates/nia-driver/src/tests/imports.rs"
+      - "crates/nia-driver/src/tests/using.rs"
   push:
     branches:
       - main
@@ -21,6 +33,18 @@ on:
       - "crates/nia-const-check/src/**"
       - "crates/nia-const-ir/src/**"
       - "crates/nia-driver/src/tests/value_inference_matrix.rs"
+      - "crates/nia-defs/src/**"
+      - "crates/nia-imports/src/**"
+      - "crates/nia-ids/src/**"
+      - "crates/nia-compat/src/**"
+      - "crates/nia-public-surface/src/**"
+      - "crates/nia-loader-query/src/**"
+      - "crates/nia-program-signatures/src/**"
+      - "crates/nia-type-resolve/src/**"
+      - "crates/nia-value-resolve/src/**"
+      - "crates/nia-compiler-query/src/**"
+      - "crates/nia-driver/src/tests/imports.rs"
+      - "crates/nia-driver/src/tests/using.rs"
   workflow_dispatch:
 
 permissions:

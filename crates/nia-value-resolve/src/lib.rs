@@ -1190,10 +1190,28 @@ impl<'a> ValueResolver<'a> {
                     return None;
                 };
                 if let Some(surfaces) = self.public_surfaces {
-                    if let Some(child_module) = surfaces.public_module(module_id, &name) {
+                    if let Some(child_module) =
+                        surfaces.visible_module(module_id, &name, &|restriction| {
+                            self.graph.is_some_and(|graph| {
+                                nia_imports::access_restriction_allows(
+                                    restriction,
+                                    graph,
+                                    self.defs.module_id,
+                                )
+                            })
+                        })
+                    {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    if let Some(item) = surfaces.public_type(module_id, &name) {
+                    if let Some(item) = surfaces.visible_type(module_id, &name, &|restriction| {
+                        self.graph.is_some_and(|graph| {
+                            nia_imports::access_restriction_allows(
+                                restriction,
+                                graph,
+                                self.defs.module_id,
+                            )
+                        })
+                    }) {
                         let type_id = GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
@@ -1324,7 +1342,11 @@ impl<'a> ValueResolver<'a> {
             return;
         };
         if let Some(surfaces) = self.public_surfaces {
-            if let Some(item) = surfaces.public_value(module_id, &symbol) {
+            if let Some(item) = surfaces.visible_value(module_id, &symbol, &|restriction| {
+                self.graph.is_some_and(|graph| {
+                    nia_imports::access_restriction_allows(restriction, graph, self.defs.module_id)
+                })
+            }) {
                 self.insert_qualified_value(
                     node_key,
                     GlobalDefId {
@@ -1337,7 +1359,11 @@ impl<'a> ValueResolver<'a> {
                 }
                 return;
             }
-            if let Some(item) = surfaces.public_type(module_id, &symbol) {
+            if let Some(item) = surfaces.visible_type(module_id, &symbol, &|restriction| {
+                self.graph.is_some_and(|graph| {
+                    nia_imports::access_restriction_allows(restriction, graph, self.defs.module_id)
+                })
+            }) {
                 self.insert_qualified_type_prefix(
                     node_key,
                     GlobalDefId {
@@ -1347,7 +1373,18 @@ impl<'a> ValueResolver<'a> {
                 );
                 return;
             }
-            if surfaces.public_module(module_id, &symbol).is_some() {
+            if surfaces
+                .visible_module(module_id, &symbol, &|restriction| {
+                    self.graph.is_some_and(|graph| {
+                        nia_imports::access_restriction_allows(
+                            restriction,
+                            graph,
+                            self.defs.module_id,
+                        )
+                    })
+                })
+                .is_some()
+            {
                 return;
             }
         }

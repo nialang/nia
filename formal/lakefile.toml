@@ -18,6 +18,11 @@ name = "moduleValueTypesMatrix"
 path = "NiaFormal/module_value_types_matrix.json"
 text = true
 
+[[input_file]]
+name = "exportScopeMatrix"
+path = "NiaFormal/export_scope_matrix.json"
+text = true
+
 [[lean_lib]]
 name = "NiaFormal"
-needs = ["valueInferenceMatrix", "moduleVisibilityMatrix", "moduleValueTypesMatrix"]
+needs = ["valueInferenceMatrix", "moduleVisibilityMatrix", "moduleValueTypesMatrix", "exportScopeMatrix"]

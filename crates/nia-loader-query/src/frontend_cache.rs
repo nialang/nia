@@ -32,7 +32,7 @@ use nia_symbol_table::SymbolTable;
 use crate::cache_fs::{
     ensure_cache_directory, open_cache_file, open_cache_lock, validate_cache_namespace,
 };
-use crate::facade_facts::{ModuleFacadeFacts, PublicReexportSource};
+use crate::facade_facts::{ModuleFacadeFacts, ProviderSource, PublicReexportSource};
 use crate::used_paths::{ExplicitUsingImport, ModuleDeclarations};
 
 mod provider_demand_plan;
@@ -959,8 +959,15 @@ fn encode_facade_facts_payload(
         write_used_module_path(&mut encoded, &reexport.source);
     }
     encoded.extend_from_slice(&(facts.provider_source_paths().len() as u64).to_le_bytes());
-    for path in facts.provider_source_paths() {
-        write_used_module_path(&mut encoded, path);
+    for source in facts.provider_source_paths() {
+        write_used_module_path(&mut encoded, &source.path);
+        match source.publication {
+            Some(visibility) => {
+                encoded.push(1);
+                write_visibility(&mut encoded, visibility);
+            }
+            None => encoded.push(0),
+        }
     }
     Ok(encoded)
 }
@@ -982,7 +989,18 @@ fn decode_facade_facts_payload(payload: &[u8], symbols: &SymbolTable) -> Option<
     let provider_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
     let mut provider_source_paths = Vec::with_capacity(provider_len);
     for _ in 0..provider_len {
-        provider_source_paths.push(read_used_module_path(&mut cursor)?);
+        provider_source_paths.push(ProviderSource {
+            path: read_used_module_path(&mut cursor)?,
+            publication: match read_u8(&mut cursor)? {
+                0 => None,
+                1 => {
+                    let visibility = read_visibility(&mut cursor)?;
+                    (visibility != Visibility::Private).then_some(())?;
+                    Some(visibility)
+                }
+                _ => return None,
+            },
+        });
     }
     is_strictly_sorted(&provider_source_paths).then_some(())?;
     (usize::try_from(cursor.position()).ok()? == payload.len()).then_some(())?;
@@ -1672,8 +1690,8 @@ fn facade_fact_symbols(facts: &ModuleFacadeFacts) -> BTreeSet<SymbolId> {
         symbols.extend(reexport.exposed_name);
         collect_used_module_path_symbols(&reexport.source, &mut symbols);
     }
-    for path in facts.provider_source_paths() {
-        collect_used_module_path_symbols(path, &mut symbols);
+    for source in facts.provider_source_paths() {
+        collect_used_module_path_symbols(&source.path, &mut symbols);
     }
     symbols
 }

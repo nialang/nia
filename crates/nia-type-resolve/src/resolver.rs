@@ -862,13 +862,34 @@ impl<'a> TypeResolver<'a> {
         match namespace {
             ResolvedNamespace::Module(module_id) => {
                 if let Some(surfaces) = self.public_surfaces {
-                    if let Some(child_module) =
-                        surfaces.public_module(module_id, type_segment_name(segment)?)
-                    {
+                    if let Some(child_module) = surfaces.visible_module(
+                        module_id,
+                        type_segment_name(segment)?,
+                        &|restriction| {
+                            self.graph.is_some_and(|graph| {
+                                nia_imports::access_restriction_allows(
+                                    restriction,
+                                    graph,
+                                    self.defs.module_id,
+                                )
+                            })
+                        },
+                    ) {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    if let Some(item) = surfaces.public_type(module_id, type_segment_name(segment)?)
-                    {
+                    if let Some(item) = surfaces.visible_type(
+                        module_id,
+                        type_segment_name(segment)?,
+                        &|restriction| {
+                            self.graph.is_some_and(|graph| {
+                                nia_imports::access_restriction_allows(
+                                    restriction,
+                                    graph,
+                                    self.defs.module_id,
+                                )
+                            })
+                        },
+                    ) {
                         return Some(ResolvedNamespace::Type(GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
@@ -901,7 +922,16 @@ impl<'a> TypeResolver<'a> {
         segment: &TypePathSegment,
     ) -> Option<TypeNameResolution> {
         if let Some(surfaces) = self.public_surfaces
-            && let Some(item) = surfaces.public_type(module_id, type_segment_name(segment)?)
+            && let Some(item) =
+                surfaces.visible_type(module_id, type_segment_name(segment)?, &|restriction| {
+                    self.graph.is_some_and(|graph| {
+                        nia_imports::access_restriction_allows(
+                            restriction,
+                            graph,
+                            self.defs.module_id,
+                        )
+                    })
+                })
         {
             let global = GlobalDefId {
                 module_id: item.target_module,
@@ -1170,13 +1200,34 @@ impl<'a> TypeResolver<'a> {
         match namespace {
             ResolvedNamespace::Module(module_id) => {
                 if let Some(surfaces) = self.public_surfaces {
-                    if let Some(child_module) =
-                        surfaces.public_module(module_id, type_segment_name(segment)?)
-                    {
+                    if let Some(child_module) = surfaces.visible_module(
+                        module_id,
+                        type_segment_name(segment)?,
+                        &|restriction| {
+                            self.graph.is_some_and(|graph| {
+                                nia_imports::access_restriction_allows(
+                                    restriction,
+                                    graph,
+                                    self.defs.module_id,
+                                )
+                            })
+                        },
+                    ) {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    if let Some(item) = surfaces.public_type(module_id, type_segment_name(segment)?)
-                    {
+                    if let Some(item) = surfaces.visible_type(
+                        module_id,
+                        type_segment_name(segment)?,
+                        &|restriction| {
+                            self.graph.is_some_and(|graph| {
+                                nia_imports::access_restriction_allows(
+                                    restriction,
+                                    graph,
+                                    self.defs.module_id,
+                                )
+                            })
+                        },
+                    ) {
                         return Some(ResolvedNamespace::Type(GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
@@ -1305,7 +1356,11 @@ impl<'a> TypeResolver<'a> {
             return TypeNameResolution::Error;
         };
         if let Some(surfaces) = self.public_surfaces
-            && let Some(item) = surfaces.public_type(module_id, &name)
+            && let Some(item) = surfaces.visible_type(module_id, &name, &|restriction| {
+                self.graph.is_some_and(|graph| {
+                    nia_imports::access_restriction_allows(restriction, graph, self.defs.module_id)
+                })
+            })
         {
             let global = GlobalDefId {
                 module_id: item.target_module,

@@ -192,7 +192,7 @@ fn add_reexport_provider_modules_matching(
     graph: &mut ModuleGraph,
     requesting_module: nia_imports::ModuleId,
     facade_module: nia_imports::ModuleId,
-    source_paths: &[UsedModulePath],
+    source_paths: &[crate::facade_facts::ProviderSource],
     mut matches_provider: impl FnMut(&mut ModuleGraphFactMemo<'_>, SourcePath) -> TraversalResult<bool>,
     prefer_selected_branches: bool,
     fact_memo: &mut ModuleGraphFactMemo<'_>,
@@ -200,7 +200,7 @@ fn add_reexport_provider_modules_matching(
     let selected_paths = if prefer_selected_branches {
         let mut selected = Vec::new();
         for path in source_paths {
-            if provider_branch_is_semantic_selected(graph, facade_module, path)? {
+            if provider_branch_is_semantic_selected(graph, facade_module, &path.path)? {
                 selected.push(path.clone());
             }
         }
@@ -269,14 +269,20 @@ fn add_reexport_provider_modules_matching_inner(
     graph: &mut ModuleGraph,
     requesting_module: nia_imports::ModuleId,
     facade_module: nia_imports::ModuleId,
-    source_paths: &[UsedModulePath],
+    source_paths: &[crate::facade_facts::ProviderSource],
     matches_provider: &mut impl FnMut(&mut ModuleGraphFactMemo<'_>, SourcePath) -> TraversalResult<bool>,
     visited: &mut HashSet<SourcePath>,
     fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<bool> {
     let db = fact_memo.db();
     let mut any_match = false;
-    for source_path in source_paths {
+    for source in source_paths {
+        if source.publication.is_some_and(|visibility| {
+            !nia_imports::visibility_allows(visibility, graph, facade_module, requesting_module)
+        }) {
+            continue;
+        }
+        let source_path = &source.path;
         let Some(candidate_path) =
             resolve_used_module_path_source(graph, facade_module, source_path)?
         else {

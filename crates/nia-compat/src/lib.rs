@@ -487,7 +487,7 @@ pub mod formats {
         PersistedFormat::new("frontend-dependency-manifest", b"NIAFDM\0\0");
     /// Persisted facade and reexport facts for one module.
     pub const FRONTEND_FACADE_FACTS: PersistedFormat =
-        PersistedFormat::new("frontend-facade-facts", b"NIAFFF\0\x03");
+        PersistedFormat::new("frontend-facade-facts", b"NIAFFF\0\x04");
     /// Persisted module dependency edges.
     pub const FRONTEND_MODULE_DEPENDENCIES: PersistedFormat =
         PersistedFormat::new("frontend-module-dependencies", b"NIAFMD\0\x03");

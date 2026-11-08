@@ -114,6 +114,7 @@ pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry>
         ProgramTypeAliasSignatureQuery,
         ProviderFactRevisionQuery,
         ProviderFactWorklistQuery,
+        PublicSurfaceScopeQuery,
         PublicSurfaceModuleQuery,
         PublicSurfaceTypeQuery,
         PublicSurfaceValueQuery,

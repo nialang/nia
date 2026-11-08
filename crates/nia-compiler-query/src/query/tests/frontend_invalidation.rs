@@ -2,6 +2,59 @@
 use super::*;
 
 #[test]
+fn restricted_export_edits_invalidate_name_scopes_without_replacing_targets() {
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub module api; pub module source;");
+    let entry = fixture.entry_id();
+    let source = fixture.add_child(
+        entry,
+        "source",
+        "source.nia",
+        "pub struct Number {} pub fun answer() i32 { 42 }",
+    );
+    let api = fixture.add_child(
+        entry,
+        "api",
+        "api.nia",
+        "pub(root) using root::source::{Number, answer};",
+    );
+    let database = fixture.database();
+    let deny_restricted = |_| false;
+    for (revision, prefix, expected) in [
+        (1, "pub      ", true),
+        (2, "pub(root)", false),
+        (3, "pub      ", true),
+    ] {
+        let before = database
+            .db
+            .expect_get(PublicSurfaceTypeQuery(api, sym("Number")));
+        assert_eq!(before.as_ref().as_ref().unwrap().target_module, source);
+        fixture.update_module_source(
+            api,
+            &format!("{prefix} using root::source::{{Number, answer}};"),
+            SourceRevision(revision),
+        );
+        database.update(CompileRequest::new(fixture.program()));
+        let lookup = QueryPublicSurfaceLookup::new(&database.db);
+        assert_eq!(
+            lookup
+                .visible_type(api, &sym("Number"), &deny_restricted)
+                .is_some(),
+            expected
+        );
+        assert_eq!(
+            lookup
+                .visible_value(api, &sym("answer"), &deny_restricted)
+                .is_some(),
+            expected
+        );
+        let after = database
+            .db
+            .expect_get(PublicSurfaceTypeQuery(api, sym("Number")));
+        assert_eq!(before.as_ref(), after.as_ref());
+    }
+}
+
+#[test]
 fn semantic_module_ids_include_semantic_only_modules_and_exclude_shallow_facades() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",

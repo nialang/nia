@@ -1192,6 +1192,43 @@ impl QueryKey<CompilerContext> for ModulePublicSurfaceQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct PublicSurfaceScopeQuery(
+    pub(super) ModuleId,
+    pub(super) Option<nia_defs::PublicNamespace>,
+    pub(super) SymbolId,
+);
+
+impl QueryKey<CompilerContext> for PublicSurfaceScopeQuery {
+    type Value = nia_defs::ExportScope;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "public_surface_scope"
+    }
+    fn description(&self) -> String {
+        format!(
+            "public_surface_scope({:?}, {:?}, {:?})",
+            self.0, self.1, self.2
+        )
+    }
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let surface = db.get(ModulePublicSurfaceQuery(self.0))?;
+        Ok(surface
+            .as_ref()
+            .as_ref()
+            .and_then(|surface| match self.1 {
+                Some(namespace) => surface.item_scopes.get(&(namespace, self.2)),
+                None => surface.module_scopes.get(&self.2),
+            })
+            .cloned()
+            .unwrap_or_default())
+    }
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct PublicSurfaceModuleQuery(pub(super) ModuleId, pub(super) SymbolId);
 
 impl QueryKey<CompilerContext> for PublicSurfaceModuleQuery {

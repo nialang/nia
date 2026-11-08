@@ -1552,6 +1552,22 @@ pub fn add_resolved_module_declarations(
     Ok(())
 }
 
+/// Applies an export-route restriction using its declaration's access rule.
+pub fn access_restriction_allows(
+    restriction: nia_ids::AccessRestriction,
+    graph: &(impl ModuleGraphLookup + ?Sized),
+    accessing_module: ModuleId,
+) -> bool {
+    match restriction {
+        nia_ids::AccessRestriction::Item(owner, visibility) => {
+            visibility_allows(visibility, graph, owner, accessing_module)
+        }
+        nia_ids::AccessRestriction::Module(owner, visibility) => {
+            module_declaration_visibility_allows(visibility, graph, owner, accessing_module)
+        }
+    }
+}
+
 /// Checks whether an item visibility permits module access.
 pub fn visibility_allows(
     visibility: Visibility,

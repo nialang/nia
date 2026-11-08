@@ -79,6 +79,7 @@ pub(super) struct QueryPublicSurfaceLookup<'a> {
     failure: RefCell<Option<QueryError>>,
     surfaces: RefCell<HashMap<ModuleId, Option<Arc<ModulePublicSurface>>>>,
     modules: RefCell<HashMap<(ModuleId, SymbolId), Option<ModuleId>>>,
+    scopes: RefCell<HashMap<PublicSurfaceScopeQuery, nia_defs::ExportScope>>,
     values: RefCell<HashMap<(ModuleId, SymbolId), Option<nia_defs::PublicItem>>>,
     types: RefCell<HashMap<(ModuleId, SymbolId), Option<nia_defs::PublicItem>>>,
 }
@@ -99,6 +100,7 @@ impl<'a> QueryPublicSurfaceLookup<'a> {
             failure: RefCell::new(None),
             surfaces: RefCell::new(HashMap::new()),
             modules: RefCell::new(HashMap::new()),
+            scopes: RefCell::new(HashMap::new()),
             values: RefCell::new(HashMap::new()),
             types: RefCell::new(HashMap::new()),
         }
@@ -124,6 +126,23 @@ impl PublicSurfaceLookup for QueryPublicSurfaceLookup<'_> {
             .borrow_mut()
             .insert(module_id, surface.clone());
         surface
+    }
+
+    fn export_scope(
+        &self,
+        module: ModuleId,
+        namespace: Option<nia_defs::PublicNamespace>,
+        name: &SymbolId,
+    ) -> nia_defs::ExportScope {
+        let key = PublicSurfaceScopeQuery(module, namespace, *name);
+        if let Some(scope) = self.scopes.borrow().get(&key) {
+            return scope.clone();
+        }
+        let scope = capture_query_failure(&self.failure, self.db.get(key))
+            .map(|scope| scope.as_ref().clone())
+            .unwrap_or_default();
+        self.scopes.borrow_mut().insert(key, scope.clone());
+        scope
     }
 
     fn public_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {

@@ -376,8 +376,40 @@ fn extension_visibility_modules(
             continue;
         }
         if let Some(surface) = context.public_surfaces.public_surface(module_id) {
-            pending_modules.extend(surface.reexported_modules.values().copied());
-            pending_modules.extend(surface.reexported_provider_modules.iter().copied());
+            pending_modules.extend(surface.reexported_modules.iter().filter_map(
+                |(name, module)| {
+                    surface
+                        .module_scopes
+                        .get(name)
+                        .is_none_or(|scope| {
+                            scope.allows(&|restriction| {
+                                nia_imports::access_restriction_allows(
+                                    restriction,
+                                    context.graph,
+                                    context.module_id,
+                                )
+                            })
+                        })
+                        .then_some(*module)
+                },
+            ));
+            pending_modules.extend(
+                surface
+                    .reexported_provider_modules
+                    .iter()
+                    .filter(|module| {
+                        surface.provider_scopes.get(module).is_none_or(|scope| {
+                            scope.allows(&|restriction| {
+                                nia_imports::access_restriction_allows(
+                                    restriction,
+                                    context.graph,
+                                    context.module_id,
+                                )
+                            })
+                        })
+                    })
+                    .copied(),
+            );
         }
     }
     visible.extend(
@@ -400,7 +432,23 @@ fn extension_visibility_modules(
         .collect::<HashSet<_>>();
     for package_root in package_roots {
         if let Some(surface) = context.public_surfaces.public_surface(package_root) {
-            visible.extend(surface.reexported_provider_modules.iter().copied());
+            visible.extend(
+                surface
+                    .reexported_provider_modules
+                    .iter()
+                    .filter(|module| {
+                        surface.provider_scopes.get(module).is_none_or(|scope| {
+                            scope.allows(&|restriction| {
+                                nia_imports::access_restriction_allows(
+                                    restriction,
+                                    context.graph,
+                                    context.module_id,
+                                )
+                            })
+                        })
+                    })
+                    .copied(),
+            );
         }
     }
     visible.remove(&context.module_id);

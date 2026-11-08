@@ -1,5 +1,297 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
+use nia_imports::{ModuleMap, SourcePath};
+
+#[test]
+fn restricted_reexport_facades_work_inside_the_package_without_leaking() {
+    let root = temp_dir("restricted_reexport_facades");
+    write(
+        &root.join("main.nia"),
+        "pub module api; module values; module client; using root::client; fun main() i32 { client::run() }",
+    );
+    write(
+        &root.join("values.nia"),
+        "pub(root) struct Number { value: i32 } pub(root) const answer: i32 = 42; pub(root) enum Choice { Yes, No } pub(root) fun make() Number { .{ value: answer } }",
+    );
+    write(
+        &root.join("api.nia"),
+        "pub(root) using root::values::{Number, answer, Choice, make};",
+    );
+    write(
+        &root.join("client.nia"),
+        "using root::api; using api::{Number, make}; using api::Choice::Yes; pub fun run() i32 { let value: Number = make(); _ = Yes; value.value + api::answer }",
+    );
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+
+    let external = root.join("external.nia");
+    write(
+        &external,
+        "using dep::api::{Number, answer, Choice, make}; fun main() i32 { answer }",
+    );
+    let mut map = ModuleMap::new();
+    map.insert(
+        "dep",
+        SourcePath::new(root.join("main.nia").to_string_lossy()),
+    )
+    .unwrap();
+    let program = check_program_with_map(external.to_string_lossy().into_owned(), map);
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.severity() == nia_diagnostic::Severity::Error)
+    );
+}
+
+#[test]
+fn facade_public_items_and_providers_do_not_publish_private_namespaces() {
+    let root = temp_dir("facade_private_implementation");
+    write(
+        &root.join("root.nia"),
+        r#"
+pub module api;
+module types;
+module methods;
+"#,
+    );
+    write(&root.join("types.nia"), "pub struct Number { value: i32 }");
+    write(
+        &root.join("methods.nia"),
+        r#"
+using root::types::Number;
+extend Number { pub fun answer(&self) i32 { self.value } }
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+using root::{types, methods};
+pub using types::Number;
+pub using methods;
+"#,
+    );
+    let external = root.join("external.nia");
+    write(
+        &external,
+        "using dep::api; fun main(value: api::Number) i32 { value.answer() }",
+    );
+    let mut map = ModuleMap::new();
+    map.insert(
+        "dep",
+        SourcePath::new(root.join("root.nia").to_string_lossy()),
+    )
+    .unwrap();
+    let program = check_program_with_map(external.to_string_lossy().into_owned(), map.clone());
+    assert_no_error_diagnostics(&program.diagnostics);
+
+    write(&external, "using dep::api::methods; fun main() i32 { 0 }");
+    let program = check_program_with_map(external.to_string_lossy().into_owned(), map);
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.severity() == nia_diagnostic::Severity::Error)
+    );
+}
+
+#[test]
+fn restricted_provider_publication_stays_within_its_scope() {
+    let root = temp_dir("restricted_provider_publication");
+    write(
+        &root.join("root.nia"),
+        r#"
+pub module api;
+module types;
+module methods;
+module client;
+using root::client;
+fun main() i32 { client::run() }
+"#,
+    );
+    write(&root.join("types.nia"), "pub struct Number { value: i32 }");
+    write(
+        &root.join("methods.nia"),
+        r#"
+using root::types::Number;
+extend Number { pub fun answer(&self) i32 { self.value } }
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        "pub using root::types::Number; pub(root) using root::methods;",
+    );
+    write(
+        &root.join("client.nia"),
+        "using root::api; pub fun run() i32 { let n: api::Number = .{ value: 42 }; n.answer() }",
+    );
+    let program = check_program(root.join("root.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+
+    let external = root.join("external.nia");
+    write(
+        &external,
+        "using dep::api; fun main(n: api::Number) i32 { n.answer() }",
+    );
+    let mut map = ModuleMap::new();
+    map.insert(
+        "dep",
+        SourcePath::new(root.join("root.nia").to_string_lossy()),
+    )
+    .unwrap();
+    let program = check_program_with_map(external.to_string_lossy().into_owned(), map);
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .starts_with("unknown method")
+            && diagnostic.diagnostic.summary.contains("answer")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn restricted_reexport_alias_chains_do_not_widen_access() {
+    let root = temp_dir("restricted_reexport_alias_chains");
+    write(
+        &root.join("root.nia"),
+        "pub module api; pub module relay; pub module source; module client; using root::client; fun main() i32 { client::run() }",
+    );
+    write(
+        &root.join("source.nia"),
+        "pub enum Choice { Yes, No } pub fun answer() i32 { 42 }",
+    );
+    write(
+        &root.join("api.nia"),
+        "pub(root) using root::source::{Choice, answer};",
+    );
+    write(
+        &root.join("relay.nia"),
+        r#"
+using root::api::Choice as LocalChoice;
+pub(root) using LocalChoice::Yes as Ready;
+pub(root) using root::api::{Choice as Decision, answer as value};
+"#,
+    );
+    write(
+        &root.join("client.nia"),
+        "using root::relay::{Decision, Ready, value}; pub fun run() i32 { let decision: Decision = Ready; _ = decision; value() }",
+    );
+    let program = check_program(root.join("root.nia").to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+
+    let external = root.join("external.nia");
+    let mut map = ModuleMap::new();
+    map.insert(
+        "dep",
+        SourcePath::new(root.join("root.nia").to_string_lossy()),
+    )
+    .unwrap();
+    for source in [
+        "using dep::relay::value; fun main() i32 { value() }",
+        "using dep::relay::Decision; fun main(value: Decision) i32 { _ = value; 0 }",
+        "using dep::relay::Ready; fun main() i32 { _ = Ready; 0 }",
+        "using dep::relay; fun main() i32 { relay::value() }",
+    ] {
+        write(&external, source);
+        let program = check_program_with_map(external.to_string_lossy().into_owned(), map.clone());
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.severity()
+                    == nia_diagnostic::Severity::Error),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn restricted_module_aliases_preserve_parent_and_package_boundaries() {
+    let root = temp_dir("restricted_module_aliases");
+    write(
+        &root.join("root.nia"),
+        "pub module family; pub module source; module outside; using root::family::client; fun main() i32 { client::run() }",
+    );
+    write(
+        &root.join("source.nia"),
+        "pub struct Number { value: i32 } pub fun answer() i32 { 42 }",
+    );
+    write(
+        &root.join("family.nia"),
+        "pub module api; pub module relay; pub module client;",
+    );
+    write(
+        &root.join("family/api.nia"),
+        "pub(super) using root::source as Shared; pub(root) using root::source as Package;",
+    );
+    write(
+        &root.join("family/relay.nia"),
+        "pub(root) using super::api::Shared as Relay;",
+    );
+    write(
+        &root.join("family/client.nia"),
+        "using super::api::{Shared, Package}; using super::relay::Relay; pub fun run() i32 { let n: Shared::Number = .{ value: Package::answer() }; n.value + Relay::answer() }",
+    );
+    write(
+        &root.join("outside.nia"),
+        "using root::family::api::Package; fun run() i32 { Package::answer() }",
+    );
+    let entry = root.join("root.nia").to_string_lossy().into_owned();
+    assert_no_error_diagnostics(&check_program(entry.clone()).diagnostics);
+
+    for path in ["api::Shared", "relay::Relay"] {
+        write(
+            &root.join("outside.nia"),
+            &format!("using root::family::{path} as Hidden; fun run() i32 {{ Hidden::answer() }}"),
+        );
+        let program = check_program(entry.clone());
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| {
+                diagnostic.diagnostic.severity() == nia_diagnostic::Severity::Error
+            }),
+            "{path}: {:?}",
+            program.diagnostics
+        );
+    }
+    write(&root.join("outside.nia"), "");
+    let mut map = ModuleMap::new();
+    map.insert("dep", SourcePath::new(&entry)).unwrap();
+    for path in ["api::Shared", "api::Package", "relay::Relay"] {
+        let external = root.join("external.nia");
+        write(
+            &external,
+            &format!("using dep::family::{path} as Hidden; fun main() i32 {{ Hidden::answer() }}"),
+        );
+        let program = check_program_with_map(external.to_string_lossy().into_owned(), map.clone());
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| {
+                diagnostic.diagnostic.severity() == nia_diagnostic::Severity::Error
+            }),
+            "{path}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
+#[test]
+fn formal_export_scope_manifest_matches_compiler_cases() {
+    let matrix: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../formal/NiaFormal/export_scope_matrix.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        matrix["compiler_cases"],
+        serde_json::json!([
+            "restricted_reexport_facades_work_inside_the_package_without_leaking",
+            "facade_public_items_and_providers_do_not_publish_private_namespaces",
+            "restricted_provider_publication_stays_within_its_scope",
+            "restricted_reexport_alias_chains_do_not_widen_access",
+            "restricted_module_aliases_preserve_parent_and_package_boundaries",
+        ])
+    );
+}
 
 #[test]
 fn using_brings_imported_function_into_scope() {

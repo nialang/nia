@@ -3,6 +3,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::DefId;
 use nia_ids::ModuleId;
+
+mod export_scope;
+pub use export_scope::ExportScope;
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
 
@@ -66,6 +69,12 @@ pub struct ModulePublicSurface {
     pub values: SymbolMap<PublicItem>,
     /// Exported types by name.
     pub types: SymbolMap<PublicItem>,
+    /// Access routes for exported names. Absent entries are unrestricted.
+    pub item_scopes: HashMap<(PublicNamespace, SymbolId), ExportScope>,
+    /// Access routes for exported module namespaces.
+    pub module_scopes: SymbolMap<ExportScope>,
+    /// Access routes for explicitly exported extension providers.
+    pub provider_scopes: HashMap<ModuleId, ExportScope>,
 }
 
 impl ModulePublicSurface {
@@ -78,6 +87,9 @@ impl ModulePublicSurface {
             reexported_provider_modules: Vec::new(),
             values: SymbolMap::default(),
             types: SymbolMap::default(),
+            item_scopes: HashMap::new(),
+            module_scopes: SymbolMap::default(),
+            provider_scopes: HashMap::new(),
         }
     }
 
@@ -115,6 +127,65 @@ pub struct PublicSurfaces {
 pub trait PublicSurfaceLookup {
     /// Returns a module's public surface when available.
     fn public_surface(&self, module_id: ModuleId) -> Option<Arc<ModulePublicSurface>>;
+
+    /// Access routes for one exported name (None selects module namespaces).
+    /// Query implementations can project this fact without depending on every
+    /// other name in the module's surface.
+    fn export_scope(
+        &self,
+        module: ModuleId,
+        namespace: Option<PublicNamespace>,
+        name: &SymbolId,
+    ) -> ExportScope {
+        let Some(surface) = self.public_surface(module) else {
+            return ExportScope::default();
+        };
+        match namespace {
+            Some(namespace) => surface.item_scopes.get(&(namespace, *name)),
+            None => surface.module_scopes.get(name),
+        }
+        .cloned()
+        .unwrap_or_default()
+    }
+
+    /// Looks up a module through export routes accessible to the caller.
+    fn visible_module(
+        &self,
+        module: ModuleId,
+        name: &SymbolId,
+        allows: &dyn Fn(nia_ids::AccessRestriction) -> bool,
+    ) -> Option<ModuleId> {
+        let target = self.public_module(module, name)?;
+        self.export_scope(module, None, name)
+            .allows(allows)
+            .then_some(target)
+    }
+
+    /// Looks up a value through export routes accessible to the caller.
+    fn visible_value(
+        &self,
+        module: ModuleId,
+        name: &SymbolId,
+        allows: &dyn Fn(nia_ids::AccessRestriction) -> bool,
+    ) -> Option<PublicItem> {
+        let item = self.public_value(module, name)?;
+        self.export_scope(module, Some(PublicNamespace::Value), name)
+            .allows(allows)
+            .then_some(item)
+    }
+
+    /// Looks up a type through export routes accessible to the caller.
+    fn visible_type(
+        &self,
+        module: ModuleId,
+        name: &SymbolId,
+        allows: &dyn Fn(nia_ids::AccessRestriction) -> bool,
+    ) -> Option<PublicItem> {
+        let item = self.public_type(module, name)?;
+        self.export_scope(module, Some(PublicNamespace::Type), name)
+            .allows(allows)
+            .then_some(item)
+    }
 
     /// Looks up an exported child module.
     fn public_module(&self, module_id: ModuleId, name: &SymbolId) -> Option<ModuleId> {
@@ -197,6 +268,10 @@ pub struct ModuleUsingScope {
     pub values: SymbolMap<UsingEntry>,
     /// Imported types by local name.
     pub types: SymbolMap<UsingEntry>,
+    /// Export access routes retained while a module alias is resolved locally.
+    pub module_scopes: SymbolMap<ExportScope>,
+    /// Export access routes retained for imported value and type aliases.
+    pub item_scopes: HashMap<(PublicNamespace, SymbolId), ExportScope>,
     /// Source evidence for names whose `using` directive failed to resolve,
     /// indexed by the name exposed to the local scope.
     pub unresolved_usings: SymbolMap<UnresolvedUsing>,

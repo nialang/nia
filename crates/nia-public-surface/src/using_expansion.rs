@@ -59,6 +59,7 @@ pub(super) struct ResolvedEntry {
     pub(super) name: SymbolId,
     pub(super) name_span: Span,
     pub(super) kind: ResolvedEntryKind,
+    pub(super) scope: nia_defs::ExportScope,
 }
 
 /// Outcome of expanding one `using` directive.
@@ -167,6 +168,7 @@ pub(super) struct UsingExpansionContext<'a> {
     pub(super) symbols: &'a dyn SymbolText,
     pub(super) mode: UsingLookupMode,
     pub(super) imported_types: Option<&'a SymbolMap<UsingEntry>>,
+    pub(super) imported_scopes: Option<&'a ModuleUsingScope>,
     pub(super) lexical_namespaces: Option<&'a std::collections::HashSet<SymbolId>>,
 }
 
@@ -178,8 +180,8 @@ pub(super) enum UsingLookupMode {
 
 #[derive(Clone)]
 pub(super) enum ResolvedNamespace {
-    Module(ModuleId),
-    Enum(GlobalDefId),
+    Module(ModuleId, nia_defs::ExportScope),
+    Enum(GlobalDefId, nia_defs::ExportScope),
 }
 
 pub(super) fn root_module_for_segment(
@@ -228,30 +230,52 @@ pub(super) fn resolve_namespace_path(
     let mut namespace = if !shadowed
         && let Some(module_id) = root_module_for_segment(graph, current.module_id, first)
     {
-        ResolvedNamespace::Module(module_id)
+        ResolvedNamespace::Module(
+            module_id,
+            path_segment_name(first)
+                .map(|name| child_scope(context, current.module_id, &name))
+                .unwrap_or_default(),
+        )
     } else if let Some(name) = path_segment_name(first)
         && let Some(module_id) = local_modules.get(&name).copied()
     {
-        ResolvedNamespace::Module(module_id)
+        ResolvedNamespace::Module(
+            module_id,
+            context
+                .imported_scopes
+                .and_then(|scope| scope.module_scopes.get(&name))
+                .cloned()
+                .unwrap_or_default(),
+        )
     } else if let Some(name) = path_segment_name(first)
         && let Some(entry) = context.imported_types.and_then(|types| types.get(&name))
         && let Some(defs) = context.defs_by_module.get(&entry.target_module)
         && let Some(def) = defs.defs.get(entry.target_def_id)
         && def.kind == DefKind::Enum
     {
-        ResolvedNamespace::Enum(GlobalDefId {
-            module_id: entry.target_module,
-            def_id: entry.target_def_id,
-        })
+        ResolvedNamespace::Enum(
+            GlobalDefId {
+                module_id: entry.target_module,
+                def_id: entry.target_def_id,
+            },
+            context
+                .imported_scopes
+                .and_then(|scope| scope.item_scopes.get(&(PublicNamespace::Type, name)))
+                .cloned()
+                .unwrap_or_default(),
+        )
     } else if let Some(name) = path_segment_name(first)
         && let Some(def_id) = current.module_scope.types.get(&name)
         && let Some(def) = current.defs.get(def_id)
         && def.kind == DefKind::Enum
     {
-        ResolvedNamespace::Enum(GlobalDefId {
-            module_id: current.module_id,
-            def_id,
-        })
+        ResolvedNamespace::Enum(
+            GlobalDefId {
+                module_id: current.module_id,
+                def_id,
+            },
+            nia_defs::ExportScope::declaration(current.module_id, def.visibility),
+        )
     } else {
         return Err(invalid_path(
             first.span,
@@ -297,10 +321,16 @@ fn resolve_namespace_step(
     segment: &UsingPathSegment,
 ) -> Result<ResolvedNamespace, UsingFailureCause> {
     match namespace {
-        ResolvedNamespace::Module(module_id) => {
-            resolve_public_namespace_segment(context, module_id, segment)
+        ResolvedNamespace::Module(module_id, scope) => {
+            let mut resolved = resolve_public_namespace_segment(context, module_id, segment)?;
+            let target_scope = match &mut resolved {
+                ResolvedNamespace::Module(_, target_scope)
+                | ResolvedNamespace::Enum(_, target_scope) => target_scope,
+            };
+            *target_scope = scope.intersect(target_scope);
+            Ok(resolved)
         }
-        ResolvedNamespace::Enum(_) => Err(invalid_path(
+        ResolvedNamespace::Enum(..) => Err(invalid_path(
             segment.span,
             "enum namespaces do not contain nested namespaces",
         )),
@@ -417,6 +447,7 @@ fn direct_item_entry(
     Some(ResolvedEntry {
         name: local_name,
         name_span: local_span,
+        scope: nia_defs::ExportScope::declaration(defs.module_id, def.visibility),
         kind: ResolvedEntryKind::Item(PublicItem {
             target_module: defs.module_id,
             target_def_id: def_id,
@@ -454,17 +485,26 @@ fn expand_namespace(
     source: PublicSource,
 ) -> UsingExpansion {
     match namespace {
-        ResolvedNamespace::Module(target_module) => {
+        ResolvedNamespace::Module(target_module, _) => {
+            // Naming the host and exporting a selected member are different
+            // permissions. A facade can publish a public item from a private
+            // implementation module; the selected item's own scope survives.
             expand_module_host(context, target_module, selector, source.clone())
         }
-        ResolvedNamespace::Enum(enum_id) => expand_enum_host(
-            enum_id,
-            context.defs_by_module,
-            selector,
-            false,
-            context.symbols,
-            source.clone(),
-        ),
+        ResolvedNamespace::Enum(enum_id, scope) => {
+            let mut expansion = expand_enum_host(
+                enum_id,
+                context.defs_by_module,
+                selector,
+                false,
+                context.symbols,
+                source.clone(),
+            );
+            for entry in &mut expansion.entries {
+                entry.scope = scope.clone();
+            }
+            expansion
+        }
     }
 }
 
@@ -477,8 +517,17 @@ pub(super) fn expand_using(
     let source = PublicSource::PubUsing {
         directive_span: using.span,
     };
-    expand_directive(context, current, local_modules, using, source)
-        .owned_by(|| using_names(&using.host, &using.selector))
+    let mut expansion = expand_directive(context, current, local_modules, using, source)
+        .owned_by(|| using_names(&using.host, &using.selector));
+    for entry in &mut expansion.entries {
+        if using.visibility != Visibility::Private {
+            entry.scope = entry
+                .scope
+                .clone()
+                .restricted(current.module_id, using.visibility);
+        }
+    }
+    expansion
 }
 
 fn expand_directive(
@@ -643,6 +692,7 @@ fn expand_root_group_item(
                 return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
+                    scope: child_scope(context, current.module_id, &name.name),
                     kind: ResolvedEntryKind::Module(module_id),
                 }]);
             }
@@ -652,6 +702,7 @@ fn expand_root_group_item(
                 return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
+                    scope: child_scope(context, current.module_id, &name.name),
                     kind: ResolvedEntryKind::Module(module_id),
                 }]);
             }
@@ -659,6 +710,11 @@ fn expand_root_group_item(
                 return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
+                    scope: context
+                        .imported_scopes
+                        .and_then(|scope| scope.module_scopes.get(&name.name))
+                        .cloned()
+                        .unwrap_or_default(),
                     kind: ResolvedEntryKind::Module(module_id),
                 }]);
             }
@@ -732,12 +788,19 @@ fn expand_module_host(
                         entries.push(ResolvedEntry {
                             name: declaration.name,
                             name_span: declaration.span,
+                            scope: nia_defs::ExportScope::module_declaration(
+                                target_module,
+                                declaration.visibility,
+                            ),
                             kind: ResolvedEntryKind::Module(declaration.target),
                         });
                     }
                 }
             }
             for (name, module_id) in &target_surface.modules {
+                if visible_surface_module(context, target_surface, name).is_none() {
+                    continue;
+                }
                 if entries
                     .iter()
                     .any(|entry| matches!(entry.kind, ResolvedEntryKind::Module(existing) if existing == *module_id) && entry.name == *name)
@@ -747,6 +810,11 @@ fn expand_module_host(
                 entries.push(ResolvedEntry {
                     name: *name,
                     name_span: Span::default(),
+                    scope: target_surface
+                        .module_scopes
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_default(),
                     kind: ResolvedEntryKind::Module(*module_id),
                 });
             }
@@ -755,9 +823,19 @@ fn expand_module_host(
                 .iter()
                 .chain(target_surface.types.iter())
             {
+                if visible_surface_item(context, target_surface, public_item.namespace, name)
+                    .is_none()
+                {
+                    continue;
+                }
                 entries.push(ResolvedEntry {
                     name: *name,
                     name_span: public_item_name_span(public_item),
+                    scope: target_surface
+                        .item_scopes
+                        .get(&(public_item.namespace, *name))
+                        .cloned()
+                        .unwrap_or_default(),
                     kind: ResolvedEntryKind::Item(PublicItem {
                         target_module: public_item.target_module,
                         target_def_id: public_item.target_def_id,
@@ -814,6 +892,7 @@ fn expand_module_host(
                 return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
+                    scope: child_scope(context, target_module, &name.name),
                     kind: ResolvedEntryKind::Module(module_id),
                 }]);
             }
@@ -849,6 +928,7 @@ fn expand_group_item(
                 return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
+                    scope: child_scope(context, current_module, &name.name),
                     kind: ResolvedEntryKind::Module(module_id),
                 }]);
             }
@@ -883,14 +963,18 @@ fn expand_self_namespace(
     source: PublicSource,
 ) -> UsingExpansion {
     match namespace {
-        ResolvedNamespace::Module(module_id) => UsingExpansion::resolved(vec![ResolvedEntry {
+        ResolvedNamespace::Module(module_id, scope) => {
+            UsingExpansion::resolved(vec![ResolvedEntry {
+                name,
+                name_span,
+                scope,
+                kind: ResolvedEntryKind::Module(module_id),
+            }])
+        }
+        ResolvedNamespace::Enum(enum_id, scope) => UsingExpansion::resolved(vec![ResolvedEntry {
             name,
             name_span,
-            kind: ResolvedEntryKind::Module(module_id),
-        }]),
-        ResolvedNamespace::Enum(enum_id) => UsingExpansion::resolved(vec![ResolvedEntry {
-            name,
-            name_span,
+            scope,
             kind: ResolvedEntryKind::Item(PublicItem {
                 target_module: enum_id.module_id,
                 target_def_id: enum_id.def_id,
@@ -939,15 +1023,18 @@ fn resolve_public_namespace_segment(
     let symbols = context.symbols;
     let Some(segment_name) = path_segment_name(segment) else {
         return match segment.kind {
-            PathSegmentKind::SelfValue => Ok(ResolvedNamespace::Module(module_id)),
+            PathSegmentKind::SelfValue => Ok(ResolvedNamespace::Module(
+                module_id,
+                nia_defs::ExportScope::default(),
+            )),
             PathSegmentKind::Super => graph
                 .get(module_id)
                 .and_then(|node| node.parent)
-                .map(ResolvedNamespace::Module)
+                .map(|module| ResolvedNamespace::Module(module, nia_defs::ExportScope::default()))
                 .ok_or_else(|| invalid_path(segment.span, "`super` has no parent module")),
             PathSegmentKind::Root => graph
                 .current_package_root(module_id)
-                .map(ResolvedNamespace::Module)
+                .map(|module| ResolvedNamespace::Module(module, nia_defs::ExportScope::default()))
                 .ok_or_else(|| invalid_path(segment.span, "`root` has no module-tree root")),
             PathSegmentKind::Name(_) => {
                 Err(UsingFailureCause::Invalid(Diagnostic::internal_error_at(
@@ -963,15 +1050,26 @@ fn resolve_public_namespace_segment(
         // the root cause.
         return Err(module_unavailable_at(module_id, Some(segment.span)));
     };
-    if let Some(target_module) = surface.lookup_module(&segment_name) {
-        return Ok(ResolvedNamespace::Module(target_module));
+    if let Some(target_module) = visible_surface_module(context, surface, &segment_name) {
+        return Ok(ResolvedNamespace::Module(
+            target_module,
+            surface
+                .module_scopes
+                .get(&segment_name)
+                .cloned()
+                .unwrap_or_default(),
+        ));
     }
     if let Some(target_module) =
         visible_child_module(graph, accessing_module, module_id, &segment_name)
     {
-        return Ok(ResolvedNamespace::Module(target_module));
+        return Ok(ResolvedNamespace::Module(
+            target_module,
+            child_scope(context, module_id, &segment_name),
+        ));
     }
-    if let Some(item) = surface.lookup_type(&segment_name) {
+    if let Some(item) = visible_surface_item(context, surface, PublicNamespace::Type, &segment_name)
+    {
         let enum_id = GlobalDefId {
             module_id: item.target_module,
             def_id: item.target_def_id,
@@ -995,7 +1093,14 @@ fn resolve_public_namespace_segment(
                 ),
             ));
         }
-        return Ok(ResolvedNamespace::Enum(enum_id));
+        return Ok(ResolvedNamespace::Enum(
+            enum_id,
+            surface
+                .item_scopes
+                .get(&(PublicNamespace::Type, segment_name))
+                .cloned()
+                .unwrap_or_default(),
+        ));
     }
     if let Some(enum_id) = visible_direct_enum_namespace(
         defs_by_module,
@@ -1005,7 +1110,15 @@ fn resolve_public_namespace_segment(
         &segment_name,
         mode,
     ) {
-        return Ok(ResolvedNamespace::Enum(enum_id));
+        let visibility = defs_by_module[&enum_id.module_id]
+            .defs
+            .get(enum_id.def_id)
+            .map(|def| def.visibility)
+            .unwrap_or(Visibility::Private);
+        return Ok(ResolvedNamespace::Enum(
+            enum_id,
+            nia_defs::ExportScope::declaration(enum_id.module_id, visibility),
+        ));
     }
     if let Some(hidden) = hidden_namespace_failure(context, module_id, &segment_name, segment.span)
     {
@@ -1027,17 +1140,29 @@ fn resolve_module_single(
     let local_name = name.alias.unwrap_or(name.name);
     let local_span = name.alias_span.unwrap_or(name.name_span);
     let mut entries = Vec::new();
-    if let Some(module_id) = target_surface.lookup_module(&name.name) {
+    if let Some(module_id) = visible_surface_module(context, target_surface, &name.name) {
         entries.push(ResolvedEntry {
             name: local_name,
             name_span: local_span,
+            scope: target_surface
+                .module_scopes
+                .get(&name.name)
+                .cloned()
+                .unwrap_or_default(),
             kind: ResolvedEntryKind::Module(module_id),
         });
     }
-    if let Some(item) = target_surface.lookup_value(&name.name) {
+    if let Some(item) =
+        visible_surface_item(context, target_surface, PublicNamespace::Value, &name.name)
+    {
         entries.push(ResolvedEntry {
             name: local_name,
             name_span: local_span,
+            scope: target_surface
+                .item_scopes
+                .get(&(PublicNamespace::Value, name.name))
+                .cloned()
+                .unwrap_or_default(),
             kind: ResolvedEntryKind::Item(PublicItem {
                 target_module: item.target_module,
                 target_def_id: item.target_def_id,
@@ -1048,10 +1173,17 @@ fn resolve_module_single(
             }),
         });
     }
-    if let Some(item) = target_surface.lookup_type(&name.name) {
+    if let Some(item) =
+        visible_surface_item(context, target_surface, PublicNamespace::Type, &name.name)
+    {
         entries.push(ResolvedEntry {
             name: local_name,
             name_span: local_span,
+            scope: target_surface
+                .item_scopes
+                .get(&(PublicNamespace::Type, name.name))
+                .cloned()
+                .unwrap_or_default(),
             kind: ResolvedEntryKind::Item(PublicItem {
                 target_module: item.target_module,
                 target_def_id: item.target_def_id,
@@ -1166,6 +1298,7 @@ fn resolve_current_single(
         entries.push(ResolvedEntry {
             name: local_name,
             name_span: local_span,
+            scope: nia_defs::ExportScope::declaration(current.module_id, def.visibility),
             kind: ResolvedEntryKind::Item(PublicItem {
                 target_module: current.module_id,
                 target_def_id: def_id,
@@ -1186,6 +1319,7 @@ fn resolve_current_single(
         entries.push(ResolvedEntry {
             name: local_name,
             name_span: local_span,
+            scope: nia_defs::ExportScope::declaration(current.module_id, def.visibility),
             kind: ResolvedEntryKind::Item(PublicItem {
                 target_module: current.module_id,
                 target_def_id: def_id,
@@ -1232,6 +1366,7 @@ fn expand_enum_host(
             UsingExpansion::resolved(vec![ResolvedEntry {
                 name: def.name,
                 name_span: def.span,
+                scope: nia_defs::ExportScope::default(),
                 kind: ResolvedEntryKind::Item(PublicItem {
                     target_module: enum_id.module_id,
                     target_def_id: enum_id.def_id,
@@ -1252,6 +1387,7 @@ fn expand_enum_host(
                         .get(def_id)
                         .map(|def| def.span)
                         .unwrap_or_default(),
+                    scope: nia_defs::ExportScope::default(),
                     kind: ResolvedEntryKind::Item(PublicItem {
                         target_module: enum_id.module_id,
                         target_def_id: def_id,
@@ -1345,6 +1481,7 @@ fn resolve_enum_single(
     UsingExpansion::resolved(vec![ResolvedEntry {
         name: local_name,
         name_span: local_span,
+        scope: nia_defs::ExportScope::default(),
         kind: ResolvedEntryKind::Item(PublicItem {
             target_module: enum_id.module_id,
             target_def_id: variant_def_id,
@@ -1358,4 +1495,61 @@ fn resolve_enum_single(
 
 fn public_item_name_span(item: &PublicItem) -> Span {
     item.name_span
+}
+
+fn scope_visible(context: &UsingExpansionContext<'_>, scope: &nia_defs::ExportScope) -> bool {
+    scope.allows(&|restriction| match context.mode {
+        UsingLookupMode::PublicOnly => false,
+        UsingLookupMode::Visible => nia_imports::access_restriction_allows(
+            restriction,
+            context.graph,
+            context.accessing_module,
+        ),
+    })
+}
+
+pub(super) fn visible_surface_module(
+    context: &UsingExpansionContext<'_>,
+    surface: &ModulePublicSurface,
+    name: &SymbolId,
+) -> Option<ModuleId> {
+    surface
+        .module_scopes
+        .get(name)
+        .is_none_or(|scope| scope_visible(context, scope))
+        .then(|| surface.lookup_module(name))
+        .flatten()
+}
+
+fn visible_surface_item<'a>(
+    context: &UsingExpansionContext<'_>,
+    surface: &'a ModulePublicSurface,
+    namespace: PublicNamespace,
+    name: &SymbolId,
+) -> Option<&'a PublicItem> {
+    surface
+        .item_scopes
+        .get(&(namespace, *name))
+        .is_none_or(|scope| scope_visible(context, scope))
+        .then(|| surface.lookup(namespace, name))
+        .flatten()
+}
+
+fn child_scope(
+    context: &UsingExpansionContext<'_>,
+    parent: ModuleId,
+    name: &SymbolId,
+) -> nia_defs::ExportScope {
+    context
+        .graph
+        .get(parent)
+        .and_then(|node| {
+            node.declarations
+                .iter()
+                .find(|declaration| declaration.name == *name)
+        })
+        .map(|declaration| {
+            nia_defs::ExportScope::module_declaration(parent, declaration.visibility)
+        })
+        .unwrap_or_default()
 }

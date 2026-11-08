@@ -7,6 +7,182 @@ fn name(text: &str) -> SymbolId {
     SymbolId::from_stable_hash(stable_hash(text))
 }
 
+#[test]
+fn private_module_export_scopes_preserve_descendant_access_for_every_selector() {
+    use nia_defs::PublicSurfaceLookup;
+    for directive in [
+        "pub using implementation;",
+        "pub using {implementation};",
+        "using self::implementation as Local; pub using Local;",
+        "using self::implementation as Local; pub using {Local};",
+    ] {
+        let mut graph = graph_with_public_children(&["api"]);
+        let root = graph.entry();
+        let api = graph.root_module_for_name(root, name("api")).unwrap();
+        let implementation = graph
+            .intern_declared_child(
+                api,
+                &name("implementation"),
+                Visibility::Private,
+                Span::default(),
+            )
+            .unwrap();
+        let client = graph
+            .intern_declared_child(api, &name("client"), Visibility::Public, Span::default())
+            .unwrap();
+        let alias = if directive.contains("Local") {
+            "Local"
+        } else {
+            "implementation"
+        };
+        let all_defs = [
+            defs(root, "pub module api;"),
+            defs(
+                api,
+                &format!("module implementation; pub module client; {directive}"),
+            ),
+            defs(implementation, "pub fun answer() i32 { 42 }"),
+            defs(client, &format!("using root::api::{alias}::answer;")),
+        ];
+        let result = compute_public_surface_computation(&all_defs, &graph);
+        assert!(
+            result.diagnostics.is_empty(),
+            "{directive}: {:?}",
+            result.diagnostics
+        );
+        for caller in [api, client, root] {
+            let allows =
+                |restriction| nia_imports::access_restriction_allows(restriction, &graph, caller);
+            assert_eq!(
+                result
+                    .surfaces
+                    .visible_module(api, &name(alias), &allows)
+                    .is_some(),
+                caller != root,
+                "{directive}"
+            );
+        }
+    }
+}
+
+#[test]
+fn restricted_reexports_preserve_access_across_namespaces_and_chains() {
+    use nia_defs::PublicSurfaceLookup;
+    let mut graph = graph_with_public_children(&["api", "source", "client", "forward"]);
+    let entry = graph.entry();
+    let api = graph.root_module_for_name(entry, name("api")).unwrap();
+    let source = graph.root_module_for_name(entry, name("source")).unwrap();
+    let client = graph.root_module_for_name(entry, name("client")).unwrap();
+    let forward = graph.root_module_for_name(entry, name("forward")).unwrap();
+    let foreign = graph
+        .intern_package_root(&name("foreign"), SourcePath::new("foreign.nia"))
+        .unwrap();
+    let all_defs = [
+        defs(
+            entry,
+            "pub module api; pub module source; pub module client; pub module forward;",
+        ),
+        defs(
+            api,
+            "pub(root) using root::source::{value, Widget, Choice}; pub(super) using root::source::value as parentValue;",
+        ),
+        defs(
+            source,
+            "pub fun value() i32 { 1 } pub struct Widget {} pub enum Choice { One }",
+        ),
+        defs(
+            client,
+            "using root::api::{value, Widget}; using root::api::Choice::One;",
+        ),
+        defs(forward, "pub(root) using root::api::*;"),
+        defs(foreign, ""),
+    ];
+    let result = compute_public_surface_computation(&all_defs, &graph);
+    assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    assert!(
+        result.using_scopes[&client]
+            .lookup_value(&name("value"))
+            .is_some()
+    );
+    assert!(
+        result.using_scopes[&client]
+            .lookup_type(&name("Widget"))
+            .is_some()
+    );
+    assert!(
+        result.using_scopes[&client]
+            .lookup_value(&name("One"))
+            .is_some()
+    );
+    for facade in [api, forward] {
+        for caller in [client, foreign] {
+            let allows =
+                |restriction| nia_imports::access_restriction_allows(restriction, &graph, caller);
+            assert_eq!(
+                result
+                    .surfaces
+                    .visible_value(facade, &name("value"), &allows)
+                    .is_some(),
+                caller == client
+            );
+            assert_eq!(
+                result
+                    .surfaces
+                    .visible_type(facade, &name("Widget"), &allows)
+                    .is_some(),
+                caller == client
+            );
+        }
+    }
+}
+
+#[test]
+fn parent_reexports_stay_within_the_parent_subtree() {
+    use nia_defs::PublicSurfaceLookup;
+    let mut graph = graph_with_public_children(&["group", "outside", "source"]);
+    let root = graph.entry();
+    let group = graph.root_module_for_name(root, name("group")).unwrap();
+    let outside = graph.root_module_for_name(root, name("outside")).unwrap();
+    let source = graph.root_module_for_name(root, name("source")).unwrap();
+    let api = graph
+        .intern_declared_child(group, &name("api"), Visibility::Public, Span::default())
+        .unwrap();
+    let child = graph
+        .intern_declared_child(group, &name("client"), Visibility::Public, Span::default())
+        .unwrap();
+    let all_defs = [
+        defs(
+            root,
+            "pub module group; pub module outside; pub module source;",
+        ),
+        defs(group, "pub module api; pub module client;"),
+        defs(api, "pub(super) using root::source::{value, Widget};"),
+        defs(child, "using root::group::api::{value, Widget};"),
+        defs(source, "pub fun value() i32 { 1 } pub struct Widget {}"),
+        defs(outside, ""),
+    ];
+    let result = compute_public_surface_computation(&all_defs, &graph);
+    assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    for caller in [root, group, child, outside] {
+        let allows =
+            |restriction| nia_imports::access_restriction_allows(restriction, &graph, caller);
+        assert_eq!(
+            result
+                .surfaces
+                .visible_value(api, &name("value"), &allows)
+                .is_some(),
+            caller == group || caller == child
+        );
+        assert_eq!(
+            result
+                .surfaces
+                .visible_type(api, &name("Widget"), &allows)
+                .is_some(),
+            caller == group || caller == child
+        );
+    }
+}
+
 fn defs(module_id: ModuleId, source: &str) -> DefCollection {
     let (module, errors) = nia_parser::parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");

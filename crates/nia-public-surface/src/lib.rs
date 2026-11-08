@@ -285,8 +285,15 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
         let mut surface = ModulePublicSurface::new(defs.module_id);
         if let Some(node) = graph.get(defs.module_id) {
             for declaration in &node.declarations {
-                if declaration.visibility == Visibility::Public {
+                if declaration.visibility != Visibility::Private {
                     surface.modules.insert(declaration.name, declaration.target);
+                    surface.module_scopes.insert(
+                        declaration.name,
+                        nia_defs::ExportScope::module_declaration(
+                            defs.module_id,
+                            declaration.visibility,
+                        ),
+                    );
                 }
             }
         }
@@ -294,7 +301,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
             if def.parent.is_some() {
                 continue;
             }
-            if def.visibility != Visibility::Public {
+            if def.visibility == Visibility::Private {
                 continue;
             }
             let Some(namespace) = namespace_for(def.kind) else {
@@ -308,6 +315,10 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                 source: PublicSource::Direct,
                 parent_enum: None,
             };
+            surface.item_scopes.insert(
+                (namespace, def.name),
+                nia_defs::ExportScope::declaration(defs.module_id, def.visibility),
+            );
             insert_into_surface(&mut surface, &def.name, item);
         }
         surfaces.insert(surface);
@@ -330,16 +341,10 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
         let mut iteration_unresolved = 0usize;
         for defs in defs_by_module {
             let defs = defs.borrow();
-            let local_modules = collect_module_aliases(
-                &defs_by_id,
-                defs,
-                graph,
-                &SymbolMap::default(),
-                &surfaces,
-                symbols,
-            );
+            let local_modules =
+                collect_module_aliases(&defs_by_id, defs, graph, &surfaces, symbols);
             for using in &defs.module_usings {
-                if using.visibility != Visibility::Public {
+                if using.visibility == Visibility::Private {
                     continue;
                 }
                 let context = UsingExpansionContext {
@@ -348,11 +353,16 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                     accessing_module: defs.module_id,
                     surfaces: &surfaces,
                     symbols,
-                    mode: UsingLookupMode::PublicOnly,
-                    imported_types: None,
+                    mode: if using.visibility == Visibility::Public {
+                        UsingLookupMode::PublicOnly
+                    } else {
+                        UsingLookupMode::Visible
+                    },
+                    imported_types: Some(&local_modules.types),
+                    imported_scopes: Some(&local_modules),
                     lexical_namespaces: None,
                 };
-                let expansion = expand_using(&context, defs, using, &local_modules);
+                let expansion = expand_using(&context, defs, using, &local_modules.modules);
                 // A public facade may intentionally publish an extension
                 // provider whose module namespace is package-private. Resolve
                 // the same directive in the local visible scope and retain
@@ -363,7 +373,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                     ..context
                 };
                 let provider_expansion =
-                    expand_using(&provider_context, defs, using, &local_modules);
+                    expand_using(&provider_context, defs, using, &local_modules.modules);
                 iteration_unresolved += expansion
                     .failures
                     .iter()
@@ -381,10 +391,31 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                         surface.reexported_provider_modules.sort();
                         iteration_changed = true;
                     }
+                    if let ResolvedEntryKind::Module(target_module) = entry.kind {
+                        iteration_changed |= merge_export_scope(
+                            &mut surface.provider_scopes,
+                            target_module,
+                            // Publishing a provider is an explicit capability;
+                            // it does not publish its private namespace.
+                            nia_defs::ExportScope::declaration(defs.module_id, using.visibility),
+                        );
+                    }
                 }
                 for entry in expansion.entries {
                     match entry.kind {
                         ResolvedEntryKind::Module(target_module) => {
+                            if surface
+                                .modules
+                                .get(&entry.name)
+                                .is_some_and(|existing| *existing != target_module)
+                            {
+                                continue;
+                            }
+                            iteration_changed |= merge_export_scope(
+                                &mut surface.module_scopes,
+                                entry.name,
+                                entry.scope,
+                            );
                             if let Some(existing) = surface.modules.get(&entry.name).copied() {
                                 if existing == target_module {
                                     surface.reexported_modules.insert(entry.name, target_module);
@@ -396,6 +427,20 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                             surface.reexported_modules.insert(entry.name, target_module);
                         }
                         ResolvedEntryKind::Item(item) => {
+                            if surface
+                                .lookup(item.namespace, &entry.name)
+                                .is_some_and(|existing| {
+                                    existing.target_module != item.target_module
+                                        || existing.target_def_id != item.target_def_id
+                                })
+                            {
+                                continue;
+                            }
+                            iteration_changed |= merge_export_scope(
+                                &mut surface.item_scopes,
+                                (item.namespace, entry.name),
+                                entry.scope,
+                            );
                             if entry_already_present(&surface, &entry.name, item.namespace) {
                                 continue;
                             }
@@ -426,16 +471,9 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
         let process_used_paths = graph
             .get(defs.module_id)
             .is_some_and(|node| node.process_used_paths);
-        let local_modules = collect_module_aliases(
-            &defs_by_id,
-            defs,
-            graph,
-            &SymbolMap::default(),
-            &surfaces,
-            symbols,
-        );
+        let local_modules = collect_module_aliases(&defs_by_id, defs, graph, &surfaces, symbols);
         for using in &defs.module_usings {
-            if using.visibility != Visibility::Public {
+            if using.visibility == Visibility::Private {
                 continue;
             }
             let context = UsingExpansionContext {
@@ -444,11 +482,16 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                 accessing_module: defs.module_id,
                 surfaces: &surfaces,
                 symbols,
-                mode: UsingLookupMode::PublicOnly,
-                imported_types: None,
+                mode: if using.visibility == Visibility::Public {
+                    UsingLookupMode::PublicOnly
+                } else {
+                    UsingLookupMode::Visible
+                },
+                imported_types: Some(&local_modules.types),
+                imported_scopes: Some(&local_modules),
                 lexical_namespaces: None,
             };
-            let expansion = expand_using(&context, defs, using, &local_modules);
+            let expansion = expand_using(&context, defs, using, &local_modules.modules);
             if expansion.failures.is_empty() {
                 continue;
             }
@@ -560,6 +603,7 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                 symbols,
                 mode,
                 imported_types: Some(&scope.types),
+                imported_scopes: Some(&scope),
                 lexical_namespaces: None,
             };
             let expansion = expand_using(&context, defs, using, &scope.modules);
@@ -576,7 +620,7 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                 });
                 record_unresolved_using_names(&mut scope, using, failure, cause);
                 if process_used_paths
-                    && using.visibility != Visibility::Public
+                    && using.visibility == Visibility::Private
                     && let Some(diagnostic) = root
                 {
                     diagnostics.push((defs.module_id, diagnostic));
@@ -602,9 +646,13 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                             ));
                             continue;
                         }
+                        scope.module_scopes.insert(entry.name, entry.scope);
                         scope.modules.insert(entry.name, target_module);
                     }
                     ResolvedEntryKind::Item(item) => {
+                        scope
+                            .item_scopes
+                            .insert((item.namespace, entry.name), entry.scope);
                         let using_entry = UsingEntry {
                             target_module: item.target_module,
                             target_def_id: item.target_def_id,
@@ -652,3 +700,17 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+fn merge_export_scope<K: Eq + std::hash::Hash, S: std::hash::BuildHasher>(
+    scopes: &mut HashMap<K, nia_defs::ExportScope, S>,
+    name: K,
+    scope: nia_defs::ExportScope,
+) -> bool {
+    match scopes.entry(name) {
+        std::collections::hash_map::Entry::Occupied(mut entry) => entry.get_mut().merge(scope),
+        std::collections::hash_map::Entry::Vacant(entry) => {
+            entry.insert(scope);
+            true
+        }
+    }
+}

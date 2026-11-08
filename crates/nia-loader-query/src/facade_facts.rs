@@ -9,7 +9,7 @@ use std::collections::HashSet;
 pub(crate) struct ModuleFacadeFacts {
     public_type_names: HashSet<SymbolId>,
     public_reexports: Vec<PublicReexportSource>,
-    provider_source_paths: Vec<UsedModulePath>,
+    provider_source_paths: Vec<ProviderSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -18,11 +18,39 @@ pub(crate) struct PublicReexportSource {
     pub(crate) source: UsedModulePath,
 }
 
+/// Demand-driven implementation discovery and explicit publication are distinct.
+/// Publications retain the directive's scope; implementation discovery keeps the
+/// existing target-aware matching contract and does not export names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderSource {
+    pub(crate) path: UsedModulePath,
+    pub(crate) publication: Option<Visibility>,
+}
+
+impl PartialOrd for ProviderSource {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ProviderSource {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (
+            &self.path,
+            self.publication.map(|visibility| visibility as u8),
+        )
+            .cmp(&(
+                &other.path,
+                other.publication.map(|visibility| visibility as u8),
+            ))
+    }
+}
+
 impl ModuleFacadeFacts {
     pub(crate) fn from_cache_parts(
         public_type_names: impl IntoIterator<Item = SymbolId>,
         public_reexports: Vec<PublicReexportSource>,
-        provider_source_paths: Vec<UsedModulePath>,
+        provider_source_paths: Vec<ProviderSource>,
     ) -> Self {
         Self {
             public_type_names: public_type_names.into_iter().collect(),
@@ -51,7 +79,7 @@ impl ModuleFacadeFacts {
         let mut provider_source_paths = Vec::new();
 
         for item in item_tree.items.iter() {
-            if item.vis == Visibility::Public
+            if item.vis != Visibility::Private
                 && let Some(name) = public_type_name(item)
             {
                 public_type_names.insert(name);
@@ -66,15 +94,16 @@ impl ModuleFacadeFacts {
                 continue;
             };
 
-            if item.vis == Visibility::Public {
+            if item.vis != Visibility::Private {
                 collect_public_reexport_sources(&host_path, &using.selector, &mut public_reexports);
             }
-            if item.vis == Visibility::Public || has_declared_modules {
-                collect_provider_source_paths(
-                    &host_path,
-                    &using.selector,
-                    &mut provider_source_paths,
-                );
+            if item.vis != Visibility::Private || has_declared_modules {
+                let mut paths = Vec::new();
+                collect_provider_source_paths(&host_path, &using.selector, &mut paths);
+                provider_source_paths.extend(paths.into_iter().map(|path| ProviderSource {
+                    path,
+                    publication: (item.vis != Visibility::Private).then_some(item.vis),
+                }));
             }
         }
 
@@ -110,7 +139,7 @@ impl ModuleFacadeFacts {
             .map(|reexport| &reexport.source)
     }
 
-    pub(crate) fn provider_source_paths(&self) -> &[UsedModulePath] {
+    pub(crate) fn provider_source_paths(&self) -> &[ProviderSource] {
         &self.provider_source_paths
     }
 }

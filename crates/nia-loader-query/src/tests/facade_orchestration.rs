@@ -69,7 +69,23 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
     let facts = crate::facade_facts::ModuleFacadeFacts::from_cache_parts(
         [sym("Widget")],
         Vec::new(),
-        paths,
+        paths
+            .into_iter()
+            .enumerate()
+            .map(|(index, path)| {
+                let visibility = match index % 4 {
+                    0 => nia_imports::Visibility::Private,
+                    1 => nia_imports::Visibility::PublicSuper,
+                    2 => nia_imports::Visibility::PublicRoot,
+                    _ => nia_imports::Visibility::Public,
+                };
+                crate::facade_facts::ProviderSource {
+                    path,
+                    publication: (visibility != nia_imports::Visibility::Private)
+                        .then_some(visibility),
+                }
+            })
+            .collect(),
     );
     cache
         .publish_facade_facts(
