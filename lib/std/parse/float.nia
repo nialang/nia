@@ -46,6 +46,73 @@ fun roundedBits32(input: &[u8], parsed: decimal::Parsed) u32 {
     low as u32
 }
 
+fun powerOfTen(exponent: i32) f64 {
+    let mut power = if exponent < 0 { -exponent } else { exponent } as u32;
+    let mut factor: f64 = 10.0;
+    let mut result: f64 = 1.0;
+    while power != 0 {
+        if (power & 1u32) != 0 { result *= factor; }
+        power >>= 1;
+        if power != 0 { factor *= factor; }
+    }
+    if exponent < 0 { 1.0 / result } else { result }
+}
+
+fun approximateMagnitude(input: &[u8], parsed: decimal::Parsed) ?f64 {
+    // Nineteen digits fit in u64; exact interval checks account for the discarded tail.
+    let digitCount = if parsed.significantDigits < 19 { parsed.significantDigits } else { 19usize };
+    let mut sourceIndex = parsed.firstDigit;
+    let mut taken: usize = 0;
+    let mut significand: u64 = 0;
+    while taken < digitCount {
+        while sourceIndex < parsed.digitsEnd and not decimal::isDigit(input[sourceIndex]) {
+            sourceIndex += 1;
+        }
+        significand = significand * 10 + (input[sourceIndex] - b'0') as u64;
+        sourceIndex += 1;
+        taken += 1;
+    }
+    let exponent = parsed.exponent10 as i128 + (parsed.significantDigits - digitCount) as i128;
+    if exponent < -308 or exponent > 308 { return null; }
+    let value = significand as f64 * powerOfTen(exponent as i32);
+    if not ieee::isFinite64(value) or value == 0.0 { return null; }
+    ?value
+}
+
+// Approximation only supplies a candidate. Exact midpoint checks decide whether
+// it is correct; all candidates outside that rounding interval use the exact search.
+fun tryRoundedBits64(input: &[u8], parsed: decimal::Parsed) ?u64 {
+    let value = match approximateMagnitude(input, parsed) { ?value => value, null => return null };
+    let bits = ieee::toBits64(value);
+    if bits > 0x7fefffffffffffff { return null; }
+    let even = (bits & 1u64) == 0;
+    if bits != 0 {
+        let lower = decimal::midpoint64(bits - 1);
+        let comparison = decimal::BigUInt::compareParsed(input, parsed, lower);
+        if comparison < 0 or (comparison == 0 and not even) { return null; }
+    }
+    let upper = decimal::midpoint64(bits);
+    let comparison = decimal::BigUInt::compareParsed(input, parsed, upper);
+    if comparison > 0 or (comparison == 0 and not even) { return null; }
+    ?bits
+}
+
+fun tryRoundedBits32(input: &[u8], parsed: decimal::Parsed) ?u32 {
+    let value = match approximateMagnitude(input, parsed) { ?value => value, null => return null };
+    let bits = ieee::toBits32(value as f32);
+    if bits > 0x7f7fffff { return null; }
+    let even = (bits & 1u32) == 0;
+    if bits != 0 {
+        let lower = decimal::midpoint32(bits - 1);
+        let comparison = decimal::BigUInt::compareParsed(input, parsed, lower);
+        if comparison < 0 or (comparison == 0 and not even) { return null; }
+    }
+    let upper = decimal::midpoint32(bits);
+    let comparison = decimal::BigUInt::compareParsed(input, parsed, upper);
+    if comparison > 0 or (comparison == 0 and not even) { return null; }
+    ?bits
+}
+
 fun zero32(negative: bool) f32 {
     let sign: u32 = if negative { 0x80000000u32 } else { 0u32 };
     ieee::fromBits32(sign)
@@ -67,7 +134,10 @@ pub fun parse64(input: &[u8]) ParseError!f64 {
         return !ieee::fromBits64(sign);
     }
     if order > 309 { return .Overflow!; }
-    let magnitude = roundedBits64(input, parsed);
+    let magnitude = match tryRoundedBits64(input, parsed) {
+        ?bits => bits,
+        null => roundedBits64(input, parsed),
+    };
     if magnitude > 0x7fefffffffffffff { return .Overflow!; }
     let sign: u64 = if parsed.negative { 0x8000000000000000u64 } else { 0u64 };
     !ieee::fromBits64(sign | magnitude)
@@ -81,9 +151,12 @@ pub fun parse32(input: &[u8]) ParseError!f32 {
     };
     if parsed.zero { return !zero32(parsed.negative); }
     let order = parsed.significantDigits as i128 + parsed.exponent10 as i128;
-    if order < -44 { return !zero32(parsed.negative); }
+    if order < -45 { return !zero32(parsed.negative); }
     if order > 39 { return .Overflow!; }
-    let magnitude = roundedBits32(input, parsed);
+    let magnitude = match tryRoundedBits32(input, parsed) {
+        ?bits => bits,
+        null => roundedBits32(input, parsed),
+    };
     if magnitude > 0x7f7fffff { return .Overflow!; }
     let sign: u32 = if parsed.negative { 0x80000000u32 } else { 0u32 };
     !ieee::fromBits32(sign | magnitude)

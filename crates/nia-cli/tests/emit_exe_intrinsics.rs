@@ -233,6 +233,13 @@ pub fun main(init: process::Init) process::ExitCode!() {
     {
         return process::ExitCode(27)!;
     }
+    if not parses32As(b"7.0e-46", 0u32)
+        or not parses32As(b"7.1e-46", 1u32)
+        or not parses32As(b"9e-46", 1u32)
+        or not parses32As(b"-9e-46", 0x80000001u32)
+    {
+        return process::ExitCode(29)!;
+    }
     if not rejectsFloat(b"+1") or not rejectsFloat(b"NaN") or not rejectsFloat(b" 1") {
         return process::ExitCode(17)!;
     }
@@ -372,6 +379,12 @@ pub fun main(init: process::Init) process::ExitCode!() {
         or not floatSpecEquals(1.375, ?2usize, false, b"1.38", &mut rendered[..])
         or not floatSpecEquals(2.5, ?0usize, false, b"2", &mut rendered[..])
         or not floatSpecEquals(3.5, ?0usize, false, b"4", &mut rendered[..])
+        or not floatSpecEquals(0.5, ?0usize, false, b"0", &mut rendered[..])
+        or not floatSpecEquals(1.5, ?0usize, false, b"2", &mut rendered[..])
+        or not floatSpecEquals(-0.5, ?0usize, false, b"-0", &mut rendered[..])
+        or not floatSpecEquals(float::fromBits64(1u64), ?0usize, false, b"0", &mut rendered[..])
+        or not floatSpecEquals(0.05, ?1usize, false, b"0.1", &mut rendered[..])
+        or not floatSpecEquals(0.15, ?1usize, false, b"0.1", &mut rendered[..])
         or not floatSpecEquals(9.999, ?2usize, false, b"10.00", &mut rendered[..])
         or not floatSpecEquals(-0.125, ?2usize, false, b"-0.12", &mut rendered[..])
         or not floatSpecEquals(12.0, null, true, b"12.", &mut rendered[..])
@@ -405,6 +418,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
         or rendered[3] != b'8'
     {
         return process::ExitCode(37)!;
+    }
+    let rounded32IntegerLen = writeFloat32Spec(2.5f32, ?0usize, false, &mut rendered[..]).?;
+    if rounded32IntegerLen != 1usize or rendered[0] != b'2' {
+        return process::ExitCode(39)!;
     }
     let negativeZero32 = float::fromBits32(0x80000000u32);
     if float::toBits32(negativeZero32) != 0x80000000u32 or not float::signBit32(negativeZero32) {
@@ -458,6 +475,179 @@ pub fun main(init: process::Init) process::ExitCode!() {
         String::from_utf8_lossy(&output.stderr)
     );
     let status = Command::new(&exe).status_timeout("run IEEE-754 bit representation test");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn float_decimal_parser_matches_host_round_trip_samples() {
+    use std::fmt::Write as _;
+
+    let root = temp_dir("float_decimal_parser_matches_host_round_trip_samples");
+    let source = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    let mut program = String::from(
+        r#"
+using std::{math::float, process};
+using std::parse::float as floatParse;
+using std::{fmt, io};
+
+fun matches64(input: &[u8], expected: u64) bool {
+    match floatParse::parse64(input) {
+        !value => float::toBits64(value) == expected,
+        error! => { _ = error; false },
+    }
+}
+
+fun matches32(input: &[u8], expected: u32) bool {
+    match floatParse::parse32(input) {
+        !value => float::toBits32(value) == expected,
+        error! => { _ = error; false },
+    }
+}
+
+fun significantDigitCount(text: &[u8]) usize {
+    let mut end = text.len();
+    let mut index: usize = 0;
+    while index < text.len() {
+        if text[index] == b'e' { end = index; break; }
+        index += 1;
+    }
+    let mut first = text.len();
+    let mut last: usize = 0;
+    index = 0;
+    while index < end {
+        if text[index] >= b'1' and text[index] <= b'9' {
+            if first == text.len() { first = index; }
+            last = index;
+        }
+        index += 1;
+    }
+    if first == text.len() { return 1; }
+    let mut count: usize = 0;
+    index = first;
+    while index <= last {
+        if text[index] >= b'0' and text[index] <= b'9' { count += 1; }
+        index += 1;
+    }
+    count
+}
+
+fun shortestDigits64(value: f64) usize {
+    let mut bytes: [u8; 800] = [0; 800];
+    let mut output = io::FixedBufferWriter::init(&mut bytes[..]);
+    let writer: &mut fmt::FormatWriter = &mut output;
+    let mut formatter = fmt::Formatter::init(writer);
+    match value.format(&mut formatter) {
+        !() => {},
+        error! => { _ = error; return usize::MAX; },
+    }
+    significantDigitCount(&bytes[0..output.len()])
+}
+
+fun shortestDigits32(value: f32) usize {
+    let mut bytes: [u8; 800] = [0; 800];
+    let mut output = io::FixedBufferWriter::init(&mut bytes[..]);
+    let writer: &mut fmt::FormatWriter = &mut output;
+    let mut formatter = fmt::Formatter::init(writer);
+    match value.format(&mut formatter) {
+        !() => {},
+        error! => { _ = error; return usize::MAX; },
+    }
+    significantDigitCount(&bytes[0..output.len()])
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+"#,
+    );
+
+    let mut state = 0x9e3779b97f4a7c15u64;
+    let mut index = 0;
+    while index < 64 {
+        state ^= state << 7;
+        state ^= state >> 9;
+        state ^= state << 8;
+        let value = f64::from_bits(state);
+        if value.is_finite() {
+            let text = value.to_string();
+            let digits = text
+                .split(['e', 'E'])
+                .next()
+                .expect("float mantissa")
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>();
+            let shortest_digits = digits
+                .trim_start_matches('0')
+                .trim_end_matches('0')
+                .len()
+                .max(1);
+            writeln!(
+                program,
+                "    if not matches64(b\"{text}\", 0x{:016x}u64) {{ return process::ExitCode(1)!; }}",
+                state
+            )
+            .expect("append f64 parser sample");
+            if index < 8 {
+                writeln!(
+                    program,
+                    "    if shortestDigits64(float::fromBits64(0x{:016x}u64)) != {shortest_digits}usize {{ return process::ExitCode(3)!; }}",
+                    state
+                )
+                .expect("append f64 shortestness sample");
+            }
+        }
+
+        let bits = state as u32;
+        let value = f32::from_bits(bits);
+        if value.is_finite() {
+            let text = value.to_string();
+            let digits = text
+                .split(['e', 'E'])
+                .next()
+                .expect("float mantissa")
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>();
+            let shortest_digits = digits
+                .trim_start_matches('0')
+                .trim_end_matches('0')
+                .len()
+                .max(1);
+            writeln!(
+                program,
+                "    if not matches32(b\"{text}\", 0x{:08x}u32) {{ return process::ExitCode(2)!; }}",
+                bits
+            )
+            .expect("append f32 parser sample");
+            if index < 8 {
+                writeln!(
+                    program,
+                    "    if shortestDigits32(float::fromBits32(0x{:08x}u32)) != {shortest_digits}usize {{ return process::ExitCode(4)!; }}",
+                    bits
+                )
+                .expect("append f32 shortestness sample");
+            }
+        }
+        index += 1;
+    }
+
+    program.push_str("    !()\n}\n");
+    std::fs::write(&source, program).expect("write generated float parser test");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit float parser differential test");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run float parser differential test");
     assert_eq!(status.code(), Some(0));
 }
 

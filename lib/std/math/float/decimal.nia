@@ -42,7 +42,7 @@ extend Exact {
     pub(root) fun exponent10(&self) i32 { self.exponent10 }
 }
 
-fun isDigit(byte: u8) bool {
+pub(root) fun isDigit(byte: u8) bool {
     byte >= b'0' and byte <= b'9'
 }
 
