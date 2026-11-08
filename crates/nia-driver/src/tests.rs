@@ -7,6 +7,7 @@ mod cases;
 mod common;
 mod const_eval;
 mod const_generics;
+mod generic_enums;
 mod import_recovery;
 mod imports;
 mod orphan;
