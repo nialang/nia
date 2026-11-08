@@ -462,6 +462,25 @@ impl<'a> BodyChecker<'a> {
         if owner != enum_id {
             return None;
         }
+        let TyKind::Nominal {
+            args, const_args, ..
+        } = self
+            .interner
+            .get(self.normalization.normalize(ty))
+            .cloned()?
+        else {
+            return None;
+        };
+        // Frozen values carry data; the concrete nominal instance supplies
+        // field types, just as it does for runtime constructor calls.
+        let payload_types = if matches!(
+            &signature.payload,
+            nia_item_signatures::EnumVariantPayloadSignature::Unit
+        ) {
+            Vec::new()
+        } else {
+            self.enum_variant_payload_types(enum_id, signature.clone(), &args, &const_args)?
+        };
         let fields = match (&signature.payload, payload) {
             (
                 nia_item_signatures::EnumVariantPayloadSignature::Unit,
@@ -470,10 +489,10 @@ impl<'a> BodyChecker<'a> {
             (
                 nia_item_signatures::EnumVariantPayloadSignature::Tuple(field_tys),
                 nia_const_eval::ConstEnumPayload::Tuple(values),
-            ) if field_tys.len() == values.len() => values
+            ) if field_tys.len() == values.len() && payload_types.len() == values.len() => values
                 .iter()
                 .cloned()
-                .zip(field_tys.iter().copied())
+                .zip(payload_types.iter().copied())
                 .map(|(value, field_ty)| {
                     self.lower_const_value_expr_with_origin(
                         span,
@@ -486,17 +505,18 @@ impl<'a> BodyChecker<'a> {
             (
                 nia_item_signatures::EnumVariantPayloadSignature::Named(field_tys),
                 nia_const_eval::ConstEnumPayload::Named(values),
-            ) if field_tys.len() == values.len() => {
+            ) if field_tys.len() == values.len() && payload_types.len() == values.len() => {
                 // Const values store named fields in a map, while enum body IR
                 // is positional. Re-establish declaration order here so ABI
                 // lowering observes the signature's field layout.
                 field_tys
                     .iter()
-                    .map(|field| {
+                    .zip(payload_types.iter().copied())
+                    .map(|(field, field_ty)| {
                         let value = values.get(&field.name)?.clone();
                         Some(self.lower_const_value_expr_with_origin(
                             span,
-                            field.ty,
+                            field_ty,
                             Some(value),
                             fallback_allocation,
                         ))

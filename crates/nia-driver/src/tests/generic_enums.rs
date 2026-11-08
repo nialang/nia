@@ -126,6 +126,10 @@ using root::model;
 using root::model::Packet;
 using std::process;
 
+const fun importedBytes() model::Packet[i32, 3] {
+    model::Packet[i32, 3]::Bytes { data: [1, 2, 3] }
+}
+
 fun read32(value: Packet[i32, 3], fallback: i32) i32 {
     match value {
         Packet[i32, 3]::Value(number) => number,
@@ -148,6 +152,12 @@ fun read64_4(value: Packet[i64, 4], fallback: i64) i64 {
 }
 
 pub fun main(init: process::Init) process::ExitCode!() {
+    match importedBytes() {
+        model::Packet[i32, 3]::Bytes { data } => {
+            if data[0] != 1 or data[2] != 3 { return process::ExitCode(3)!; }
+        },
+        _ => return process::ExitCode(2)!,
+    }
     let make32: &fun(i32) Packet[i32, 3] = &Packet[i32, 3]::Value;
     let make64: &fun(i64) Packet[i64, 3] = &Packet[i64, 3]::Value;
     let bytes32: &fun([u8; 3]) Packet[i32, 3] = &Packet[i32, 3]::Bytes;
@@ -229,6 +239,8 @@ fun generic[E](value: E!i32) Failure[E]!i32 {
     !mapped
 }
 
+enum ReadFault { End, Source(u32) }
+
 struct Outer { value: u32 }
 extend Failure[u8] : std::builtin::IntoError[Outer] {
     fun intoError(self) Outer {
@@ -266,6 +278,14 @@ pub fun main(init: process::Init) process::ExitCode!() {
     match generic[u64](12345678900u64!) {
         Failure[u64]::Read(value)! => { if value != 12345678900 { return process::ExitCode(13)!; } },
         _ => return process::ExitCode(14)!,
+    }
+    match generic[ReadFault](ReadFault::Source(123)!) {
+        errors::Failure[ReadFault]::Read(ReadFault::Source(123))! => {},
+        _ => return process::ExitCode(17)!,
+    }
+    match generic[ReadFault](ReadFault::End!) {
+        root::errors::Failure[ReadFault]::Read(ReadFault::End)! => {},
+        _ => return process::ExitCode(18)!,
     }
     match converted(44u32!) {
         error! => { if error.value != 44 { return process::ExitCode(15)!; } },

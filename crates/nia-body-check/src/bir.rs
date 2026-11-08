@@ -1501,43 +1501,44 @@ impl<'a> BodyChecker<'a> {
                     .enum_variant_info(callee)
                     .or_else(|| self.omitted_enum_variant_info(callee, ty))
                 {
-                    let payload_types = self
+                    let signature = self
                         .resolved_enum_variant(nia_ids::GlobalDefId {
                             module_id: enum_id.module_id,
                             def_id: variant_def,
                         })
-                        .map(|(_, signature)| match signature.payload {
-                            nia_item_signatures::EnumVariantPayloadSignature::Tuple(types) => {
-                                let (args, const_args) = match self
-                                    .interner
-                                    .get(self.normalization.normalize(ty))
-                                    .cloned()
-                                {
-                                    Some(TyKind::Nominal {
-                                        args, const_args, ..
-                                    }) => (args, const_args),
-                                    _ => (Vec::new(), Vec::new()),
-                                };
-                                let (substitutions, const_substitutions) = self
-                                    .generic_substitutions_and_consts_for_def(
-                                        enum_id,
-                                        &args,
-                                        &const_args,
-                                    );
-                                types
-                                    .into_iter()
-                                    .map(|ty| {
-                                        self.substitute_generics_and_consts(
-                                            ty,
-                                            &substitutions,
-                                            &const_substitutions,
-                                        )
-                                    })
-                                    .collect::<Vec<_>>()
-                            }
-                            _ => Vec::new(),
-                        })
-                        .unwrap_or_default();
+                        .map(|(_, signature)| signature);
+                    let payload_types = signature.and_then(|signature| {
+                        if matches!(
+                            &signature.payload,
+                            nia_item_signatures::EnumVariantPayloadSignature::Unit
+                        ) {
+                            return Some(Vec::new());
+                        }
+                        let TyKind::Nominal {
+                            args, const_args, ..
+                        } = self
+                            .interner
+                            .get(self.normalization.normalize(ty))
+                            .cloned()?
+                        else {
+                            return None;
+                        };
+                        self.enum_variant_payload_types(enum_id, signature, &args, &const_args)
+                    });
+                    let Some(payload_types) = payload_types else {
+                        return TypedExpr {
+                            span: expr.span,
+                            ty,
+                            kind: TypedExprKind::Error,
+                        };
+                    };
+                    if payload_types.len() != args.len() {
+                        return TypedExpr {
+                            span: expr.span,
+                            ty,
+                            kind: TypedExprKind::Error,
+                        };
+                    }
                     TypedExprKind::EnumVariant {
                         variant: nia_ids::GlobalDefId {
                             module_id: enum_id.module_id,

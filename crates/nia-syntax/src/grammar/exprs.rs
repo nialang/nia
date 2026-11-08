@@ -321,31 +321,41 @@ fn postfix_until(p: &mut Parser<'_>, stops: &[TokenKind]) -> Option<Parsed> {
                 p.bump();
                 Done::new(SyntaxKind::ErrorErrExpr, Span::new(start, p.previous_end()))
             }),
-            TokenKind::ColonColon => p.node_preceding(&lhs, |p| {
-                p.bump();
-                p.expect_name("expected name after `::`")?;
-                let shape = if lhs.shape.contains(Shape::VALUE_PATH) {
-                    Shape::VALUE_PATH
-                } else {
-                    Shape::default()
-                };
-                Done::shaped(
-                    SyntaxKind::QualifiedExpr,
-                    Span::new(start, p.previous_end()),
-                    shape,
-                )
-            }),
-            TokenKind::LBracket => p.node_preceding(&lhs, |p| {
-                p.bump();
-                bracket_suffix_after_open(p)?;
-                p.expect(TokenKind::RBracket, "expected `]` after bracket suffix")?;
-                Done::new(SyntaxKind::BracketExpr, Span::new(start, p.previous_end()))
-            }),
+            TokenKind::ColonColon | TokenKind::LBracket => path_suffix(p, &lhs),
             _ => break,
         };
         expr = next?;
     }
     Some(expr)
+}
+
+/// Path segments and bracket suffixes have the same syntax in expressions,
+/// aggregate constructors, and patterns. Semantic resolution decides whether
+/// a bracket denotes type arguments or indexing.
+fn path_suffix(p: &mut Parser<'_>, lhs: &Parsed) -> Option<Parsed> {
+    p.node_preceding(lhs, |p| {
+        if p.eat(TokenKind::ColonColon).is_some() {
+            p.expect_name("expected name after `::`")?;
+            let shape = if lhs.shape.contains(Shape::VALUE_PATH) {
+                Shape::VALUE_PATH
+            } else {
+                Shape::default()
+            };
+            Done::shaped(
+                SyntaxKind::QualifiedExpr,
+                Span::new(lhs.span.start, p.previous_end()),
+                shape,
+            )
+        } else {
+            p.expect(TokenKind::LBracket, "expected `[` before bracket suffix")?;
+            bracket_suffix_after_open(p)?;
+            p.expect(TokenKind::RBracket, "expected `]` after bracket suffix")?;
+            Done::new(
+                SyntaxKind::BracketExpr,
+                Span::new(lhs.span.start, p.previous_end()),
+            )
+        }
+    })
 }
 
 fn tuple_field_index(p: &mut Parser<'_>) -> Option<()> {
@@ -712,7 +722,12 @@ fn qualified_struct_literal(p: &mut Parser<'_>) -> Option<Parsed> {
     let checkpoint = p.checkpoint();
     let errors = p.errors_len();
     let target = qualified_value_path(p);
-    let Some(target) = target.filter(|_| p.at(TokenKind::LBrace)) else {
+    // A terminal bracket suffix belongs to a type-targeted aggregate such as
+    // `module::Packet[T] { ... }`. Keep that canonical type reading; this
+    // production handles member targets such as `module::Packet[T]::Named`.
+    let Some(target) = target
+        .filter(|target| target.class == SyntaxKind::QualifiedExpr && p.at(TokenKind::LBrace))
+    else {
         p.rewind(checkpoint);
         p.truncate_errors(errors);
         return None;
@@ -730,7 +745,7 @@ fn qualified_struct_literal(p: &mut Parser<'_>) -> Option<Parsed> {
     })
 }
 
-/// `name::name...` value path with at least one `::`.
+/// Value path with at least one `::` and bracket suffixes on any segment.
 ///
 /// Returns `None` after consuming input when the path is unqualified or
 /// malformed; callers rewind.
@@ -751,29 +766,10 @@ pub(crate) fn qualified_value_path(p: &mut Parser<'_>) -> Option<Parsed> {
         };
         Done::shaped(SyntaxKind::NameExpr, span, shape)
     })?;
-    if p.at(TokenKind::LBracket) {
-        let lhs = expr.clone();
-        let start = lhs.span.start;
-        expr = p.node_preceding(&lhs, |p| {
-            p.bump();
-            bracket_suffix_after_open(p)?;
-            p.expect(TokenKind::RBracket, "expected `]` after bracket suffix")?;
-            Done::new(SyntaxKind::BracketExpr, Span::new(start, p.previous_end()))
-        })?;
-    }
     let mut qualified = false;
-    while p.at(TokenKind::ColonColon) {
-        let lhs = expr.clone();
-        expr = p.node_preceding(&lhs, |p| {
-            p.bump();
-            p.expect_name("expected name after `::`")?;
-            Done::shaped(
-                SyntaxKind::QualifiedExpr,
-                Span::new(lhs.span.start, p.previous_end()),
-                lhs.shape,
-            )
-        })?;
-        qualified = true;
+    while p.at(TokenKind::ColonColon) || p.at(TokenKind::LBracket) {
+        qualified |= p.at(TokenKind::ColonColon);
+        expr = path_suffix(p, &expr)?;
     }
     qualified.then_some(expr)
 }
