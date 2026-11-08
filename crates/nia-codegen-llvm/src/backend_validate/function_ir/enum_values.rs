@@ -302,10 +302,8 @@ impl BackendValidator<'_> {
         expected: nia_ids::InternedTyId,
         actual: nia_ids::InternedTyId,
     ) -> bool {
-        let (substitutions, const_substitutions) = self
-            .index
-            .enum_item(owner)
-            .and_then(|item| {
+        let Some((substitutions, const_substitutions)) =
+            self.index.enum_item(owner).and_then(|item| {
                 self.index.ty_kind(instance_ty).and_then(|kind| {
                     let TyKind::Nominal {
                         def_id,
@@ -332,110 +330,20 @@ impl BackendValidator<'_> {
                     })
                 })
             })
-            .unwrap_or_default();
-        self.same_type_after_substitution(expected, actual, &substitutions, &const_substitutions)
-    }
-
-    fn same_type_after_substitution(
-        &self,
-        expected: nia_ids::InternedTyId,
-        actual: nia_ids::InternedTyId,
-        substitutions: &HashMap<nia_symbol::SymbolId, nia_ids::InternedTyId>,
-        const_substitutions: &HashMap<nia_symbol::SymbolId, nia_ty::ConstGenericArg>,
-    ) -> bool {
-        let Some(expected_kind) = self.index.ty_kind(expected) else {
+        else {
             return false;
         };
-        if let TyKind::GenericParam(name) = expected_kind {
-            return substitutions
-                .get(name)
-                .is_some_and(|resolved| self.same_type(*resolved, actual));
-        }
-        match (expected_kind, self.index.ty_kind(actual)) {
-            (
-                TyKind::Nominal {
-                    def_id: expected_def,
-                    args: expected_args,
-                    const_args: expected_consts,
-                },
-                Some(TyKind::Nominal {
-                    def_id: actual_def,
-                    args: actual_args,
-                    const_args: actual_consts,
-                }),
-            ) if expected_def == actual_def
-                && expected_consts.len() == actual_consts.len()
-                && expected_args.len() == actual_args.len() =>
-            {
-                expected_args
-                    .iter()
-                    .zip(actual_args)
-                    .all(|(expected, actual)| {
-                        self.same_type_after_substitution(
-                            *expected,
-                            *actual,
-                            substitutions,
-                            const_substitutions,
-                        )
-                    })
-                    && expected_consts == actual_consts
-            }
-            (
-                TyKind::Pointer {
-                    is_readonly: expected_readonly,
-                    elem: expected_elem,
-                },
-                Some(TyKind::Pointer {
-                    is_readonly: actual_readonly,
-                    elem: actual_elem,
-                }),
-            ) => {
-                expected_readonly == actual_readonly
-                    && self.same_type_after_substitution(
-                        *expected_elem,
-                        *actual_elem,
-                        substitutions,
-                        const_substitutions,
-                    )
-            }
-            (
-                TyKind::Array {
-                    len: expected_len,
-                    elem: expected_elem,
-                },
-                Some(TyKind::Array {
-                    len: actual_len,
-                    elem: actual_elem,
-                }),
-            ) => {
-                self.same_array_len_after_substitution(
-                    expected_len,
-                    actual_len,
-                    const_substitutions,
-                ) && self.same_type_after_substitution(
-                    *expected_elem,
-                    *actual_elem,
-                    substitutions,
-                    const_substitutions,
-                )
-            }
-            _ => self.same_type(expected, actual),
-        }
-    }
-
-    fn same_array_len_after_substitution(
-        &self,
-        expected: &nia_ty::ArrayLenTy,
-        actual: &nia_ty::ArrayLenTy,
-        substitutions: &HashMap<nia_symbol::SymbolId, nia_ty::ConstGenericArg>,
-    ) -> bool {
-        match expected {
-            nia_ty::ArrayLenTy::GenericParam(name) => substitutions
-                .get(name)
-                .and_then(nia_ty::array_len_from_const_arg)
-                .is_some_and(|resolved| self.same_array_len(&resolved, actual)),
-            _ => expected == actual,
-        }
+        let append = self.index.type_store().append_for_module(owner.module_id);
+        let instantiated = nia_ty::substitute_ty(
+            self.index.type_store(),
+            &append,
+            expected,
+            &|name| substitutions.get(name).copied(),
+            &|name| const_substitutions.get(name).cloned(),
+            None,
+        )
+        .ok();
+        instantiated.is_some_and(|instantiated| self.same_type(instantiated, actual))
     }
 
     pub(super) fn invalid_enum(&mut self, span: Span, message: &'static str) {

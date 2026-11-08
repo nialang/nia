@@ -60,14 +60,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         function_pointer_ty: InternedTyId,
         span: Span,
     ) -> Result<FunctionValue<'ctx>, Diagnostic> {
-        if let Some(function) = self
-            .enum_constructor_functions
-            .borrow()
-            .get(&variant_id)
-            .copied()
-        {
-            return Ok(function);
-        }
         let Some(info) = self.program.enum_variant_info(variant_id) else {
             return Err(self.error(span, "missing enum constructor variant"));
         };
@@ -92,6 +84,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         else {
             return Err(self.error(span, "enum constructor is not a function pointer"));
         };
+        let instance_key = (variant_id, *return_type);
+        if let Some(function) = self
+            .enum_constructor_functions
+            .borrow()
+            .get(&instance_key)
+            .copied()
+        {
+            return Ok(function);
+        }
         let payload_types = self.instantiate_enum_payload_types(
             &info.owner.generics,
             &info.owner.const_generics,
@@ -139,10 +140,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             nia_mangle::stable_definition_key(variant_id),
             "enum_ctor",
             nia_mangle::MangleSymbolKind::Function,
-            [format!(
-                "owner:{}",
-                nia_mangle::stable_definition_key(owner_id)
-            )],
+            [
+                format!("owner:{}", nia_mangle::stable_definition_key(owner_id)),
+                format!("result:{}", self.mangle_ty(*return_type)),
+            ],
         )
         .map_err(Diagnostic::from)?;
         let function = self.add_internal_helper_function(&name, function_ty)?;
@@ -272,7 +273,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         self.enum_constructor_functions
             .borrow_mut()
-            .insert(variant_id, function);
+            .insert(instance_key, function);
         Ok(function)
     }
 

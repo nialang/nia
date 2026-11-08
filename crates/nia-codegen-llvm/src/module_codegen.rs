@@ -45,6 +45,9 @@ use nia_symbol::SymbolId;
 use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind};
 
 type InstanceKey = (GlobalDefId, Vec<InternedTyId>, Vec<ConstGenericArg>);
+/// A constructor helper is an ABI for one concrete enum instance, not for the
+/// source variant alone.
+type EnumConstructorKey = (GlobalDefId, InternedTyId);
 type AggregateInstanceArgs = (Vec<InternedTyId>, Vec<ConstGenericArg>);
 type AggregateInstanceMap<T> = HashMap<GlobalDefId, HashMap<AggregateInstanceArgs, T>>;
 type AggregateInstancesByDef<T> =
@@ -148,7 +151,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     closure_function_pointer_adapters:
         RefCell<HashMap<BackendClosureEntryKey, FunctionValue<'ctx>>>,
     function_pointer_callable_adapters: RefCell<HashMap<InternedTyId, FunctionValue<'ctx>>>,
-    enum_constructor_functions: RefCell<HashMap<GlobalDefId, FunctionValue<'ctx>>>,
+    enum_constructor_functions: RefCell<HashMap<EnumConstructorKey, FunctionValue<'ctx>>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) global_instances: HashMap<GlobalInstanceKey, GlobalValue<'ctx>>,
     promoted_allocations: RefCell<HashMap<PromotedAllocationKey, PromotedAllocationEntry<'ctx>>>,
