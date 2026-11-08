@@ -2317,8 +2317,15 @@ unions, enums, traits, and type aliases are types.
 
 `pub using` at module top level makes the selected names part of the current
 module's public surface. It accepts the same forms as `using`. Users may then
-reach an item through the re-exporting module (`facade::add`) or through a
-re-exported module (`facade::impl::add`). Re-exports may chain.
+reach an item through the re-exporting module (`facade::add`), or through a
+re-exported module (`facade::impl::add`) when that module is itself visible to
+them. Re-exports may chain.
+
+A re-export never widens access. A name reached through a re-export is visible
+only where the re-export and the name are both visible, and along a chain every
+link's restriction applies: after `pub(root) using impl::add;`, a later
+`pub using` of that `add` still stops at the module tree. When a name can be
+reached by more than one route, it is visible wherever any route allows.
 
 ```nia ignore
 // facade.nia
@@ -2333,7 +2340,9 @@ library that keeps a type's methods in a different file from the type
 re-exports that file's module from its facade, so callers that import the
 facade or the type see the methods. Declaring the module `pub module` is not
 enough on its own, and a module's private `using` declarations never reach
-its importers:
+its importers. The module may stay private: re-exporting it publishes its
+methods under the re-export's visibility, but callers still cannot name the
+module itself:
 
 ```nia ignore
 // geometry.nia: Point is declared in types.nia, its methods in methods.nia
