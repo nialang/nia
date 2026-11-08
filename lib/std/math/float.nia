@@ -1,5 +1,8 @@
 // IEEE-754 classification and representation-preserving bit access.
 
+pub(root) module decimal;
+using root::math::float::decimal;
+
 union F32Representation {
     value: f32,
     bits: u32,

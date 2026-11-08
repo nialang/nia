@@ -1,5 +1,8 @@
 pub(root) module core;
+pub module float;
 
 using root::parse::core;
+using root::parse::float;
 
 pub using core::{Error, From, FromRadix};
+pub using float::{ParseError, parse, parse32, parse64};

@@ -185,6 +185,7 @@ it is worth knowing their modules:
 | error-union helpers: `mapError`, `orElse`, `isError`, `map`, ... | `using std::result;` |
 | `cleanupAfter` | `using std::error;` |
 | text parsing: `parse[T]`, `parseRadix[T]` on `&[char]` | `using std::parse;` |
+| correctly rounded `f32`/`f64` decimal parsing from `&[u8]` | `std::parse::float::{parse32, parse64}` |
 | writer `print` | `using std::fmt::template;` |
 
 A module's own imports stay private: importing `std::io` does not bring in the

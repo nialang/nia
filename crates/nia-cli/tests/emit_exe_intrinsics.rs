@@ -14,9 +14,273 @@ fn float_bit_access_and_classification_follow_ieee754_fields() {
         &source,
         r#"
 using std::{math::float, process};
+using std::parse::float as floatParse;
+using std::{fmt, io};
+
+fun parsesNegativeZero(input: &[u8]) bool {
+    match floatParse::parse64(input) {
+        !value => float::toBits64(value) == 0x8000000000000000u64,
+        error! => { _ = error; false },
+    }
+}
+
+fun parsesOneTenth(input: &[u8]) bool {
+    match floatParse::parse64(input) {
+        !value => float::toBits64(value) == 0x3fb999999999999au64,
+        error! => { _ = error; false },
+    }
+}
+
+fun parses32As(input: &[u8], bits: u32) bool {
+    match floatParse::parse32(input) {
+        !value => float::toBits32(value) == bits,
+        error! => { _ = error; false },
+    }
+}
+
+fun parses64As(input: &[u8], bits: u64) bool {
+    match floatParse::parse64(input) {
+        !value => float::toBits64(value) == bits,
+        error! => { _ = error; false },
+    }
+}
+
+fun rejectsFloat(input: &[u8]) bool {
+    match floatParse::parse64(input) {
+        !value => { _ = value; false },
+        floatParse::ParseError::Invalid! => true,
+        floatParse::ParseError::Empty! => true,
+        floatParse::ParseError::Overflow! => true,
+        error! => { _ = error; false },
+    }
+}
+
+fun overflows64(input: &[u8]) bool {
+    match floatParse::parse64(input) {
+        !value => { _ = value; false },
+        floatParse::ParseError::Overflow! => true,
+        error! => { _ = error; false },
+    }
+}
+
+fun writeFloat(value: f64, buffer: &mut [u8]) fmt::Error!usize {
+    let mut output = io::FixedBufferWriter::init(buffer);
+    let writer: &mut fmt::FormatWriter = &mut output;
+    let mut formatter = fmt::Formatter::init(writer);
+    value.format(&mut formatter).?;
+    !output.len()
+}
+
+fun writeFloat32(value: f32, buffer: &mut [u8]) fmt::Error!usize {
+    let mut output = io::FixedBufferWriter::init(buffer);
+    let writer: &mut fmt::FormatWriter = &mut output;
+    let mut formatter = fmt::Formatter::init(writer);
+    value.format(&mut formatter).?;
+    !output.len()
+}
+
+fun float64RoundTrips(bits: u64, buffer: &mut [u8]) bool {
+    let value = float::fromBits64(bits);
+    let length = match writeFloat(value, buffer) {
+        !length => length,
+        error! => { _ = error; return false; },
+    };
+    match floatParse::parse64(&buffer[0..length]) {
+        !parsed => float::toBits64(parsed) == bits,
+        error! => { _ = error; false },
+    }
+}
+
+fun float32RoundTrips(bits: u32, buffer: &mut [u8]) bool {
+    let value = float::fromBits32(bits);
+    let length = match writeFloat32(value, buffer) {
+        !length => length,
+        error! => { _ = error; return false; },
+    };
+    match floatParse::parse32(&buffer[0..length]) {
+        !parsed => float::toBits32(parsed) == bits,
+        error! => { _ = error; false },
+    }
+}
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
+    if not parsesNegativeZero(b"-0e999999") {
+        return process::ExitCode(9)!;
+    }
+    if not parsesOneTenth(b"0.1") {
+        return process::ExitCode(10)!;
+    }
+    if not parses64As(b"1.00000000000000011102230246251565404236316680908203125", 0x3ff0000000000000u64) {
+        return process::ExitCode(12)!;
+    }
+    if not parses64As(b"1.00000000000000033306690738754696212708950042724609375", 0x3ff0000000000002u64) {
+        return process::ExitCode(13)!;
+    }
+    if not parses64As(b"2.5e-324", 1u64) {
+        return process::ExitCode(14)!;
+    }
+    if not parses64As(b"2.4703282292062327e-324", 0u64)
+        or not parses64As(b"2.4703282292062328e-324", 1u64)
+    {
+        return process::ExitCode(25)!;
+    }
+    if not parses64As(b"2.2250738585072011e-308", 0x000fffffffffffffu64)
+        or not parses64As(b"2.2250738585072012e-308", 0x0010000000000000u64)
+    {
+        return process::ExitCode(26)!;
+    }
+    if not parses64As(b"1.7976931348623157e308", 0x7fefffffffffffffu64) {
+        return process::ExitCode(15)!;
+    }
+    if not parses32As(b"0.1", 0x3dcccccdu32) {
+        return process::ExitCode(16)!;
+    }
+    if not parses32As(b"1.000000059604644775390625", 0x3f800000u32)
+        or not parses32As(b"1.000000178813934326171875", 0x3f800002u32)
+    {
+        return process::ExitCode(33)!;
+    }
+    if not parses32As(b"1.40129846e-45", 1u32)
+        or not parses32As(b"-1.40129846e-45", 0x80000001u32)
+    {
+        return process::ExitCode(27)!;
+    }
+    if not rejectsFloat(b"+1") or not rejectsFloat(b"NaN") or not rejectsFloat(b" 1") {
+        return process::ExitCode(17)!;
+    }
+    match floatParse::parse64(b"1.7976931348623159e308") {
+        !value => { _ = value; return process::ExitCode(18)!; },
+        floatParse::ParseError::Overflow! => {},
+        error! => { _ = error; return process::ExitCode(19)!; },
+    }
+    if not parses64As(b"1e-999999999999999999999", 0u64)
+        or not overflows64(b"1e999999999999999999999")
+    {
+        return process::ExitCode(28)!;
+    }
+    let mut rendered: [u8; 64] = [0; 64];
+    let renderedLen = writeFloat(0.1, &mut rendered[..]).?;
+    if renderedLen != 3usize or rendered[0] != b'0' or rendered[1] != b'.' or rendered[2] != b'1' {
+        return process::ExitCode(20)!;
+    }
+    rendered[0] = 0;
+    rendered[1] = 0;
+    rendered[2] = 0;
+    let rendered32Len = writeFloat32(0.1f32, &mut rendered[..]).?;
+    if rendered32Len != 3usize or rendered[0] != b'0' or rendered[1] != b'.' or rendered[2] != b'1' {
+        return process::ExitCode(21)!;
+    }
+    let float64Cases: [u64; 14] = [
+        0u64,
+        0x8000000000000000u64,
+        1u64,
+        2u64,
+        0x000fffffffffffffu64,
+        0x0010000000000000u64,
+        0x3fefffffffffffffu64,
+        0x3ff0000000000000u64,
+        0x3ff0000000000001u64,
+        0x4340000000000000u64,
+        0x7fdfffffffffffffu64,
+        0x7fe0000000000000u64,
+        0x7feffffffffffffeu64,
+        0x7fefffffffffffffu64,
+    ];
+    let mut floatIndex: usize = 0;
+    while floatIndex < float64Cases.len() {
+        if not float64RoundTrips(float64Cases[floatIndex], &mut rendered[..]) {
+            return process::ExitCode(40 + floatIndex as i32)!;
+        }
+        floatIndex += 1;
+    }
+    let float32Cases: [u32; 14] = [
+        0u32,
+        0x80000000u32,
+        1u32,
+        2u32,
+        0x007fffffu32,
+        0x00800000u32,
+        0x3f7fffffu32,
+        0x3f800000u32,
+        0x3f800001u32,
+        0x4b800000u32,
+        0x7effffffu32,
+        0x7f000000u32,
+        0x7f7ffffeu32,
+        0x7f7fffffu32,
+    ];
+    floatIndex = 0;
+    while floatIndex < float32Cases.len() {
+        if not float32RoundTrips(float32Cases[floatIndex], &mut rendered[..]) {
+            return process::ExitCode(60 + floatIndex as i32)!;
+        }
+        floatIndex += 1;
+    }
+    let sampled64: [u64; 8] = [
+        0x722806b1effed2dbu64,
+        0x7c6a94a55ab2f9beu64,
+        0x28aa0490841433cdu64,
+        0x608c08e8b7bd48eau64,
+        0x19047d19b16b48fbu64,
+        0x5ccf462b3090c0aau64,
+        0x1c80a1d04d828babu64,
+        0x32ca64acd436047cu64,
+    ];
+    floatIndex = 0;
+    while floatIndex < sampled64.len() {
+        if not float64RoundTrips(sampled64[floatIndex], &mut rendered[..]) {
+            return process::ExitCode(80 + floatIndex as i32)!;
+        }
+        floatIndex += 1;
+    }
+    let sampled32: [u32; 8] = [
+        0x6f7ed2dbu32,
+        0x5a32f9beu32,
+        0x041433cdu32,
+        0x373d48eau32,
+        0x316b48fbu32,
+        0x3010c0aau32,
+        0x4d028babu32,
+        0x5436047cu32,
+    ];
+    floatIndex = 0;
+    while floatIndex < sampled32.len() {
+        if not float32RoundTrips(sampled32[floatIndex], &mut rendered[..]) {
+            return process::ExitCode(90 + floatIndex as i32)!;
+        }
+        floatIndex += 1;
+    }
+    let minSubnormalLen = writeFloat(float::fromBits64(1u64), &mut rendered[..]).?;
+    if minSubnormalLen != 6usize
+        or rendered[0] != b'5'
+        or rendered[1] != b'e'
+        or rendered[2] != b'-'
+        or rendered[3] != b'3'
+        or rendered[4] != b'2'
+        or rendered[5] != b'4'
+    {
+        return process::ExitCode(24)!;
+    }
+    let minSubnormal32Len = writeFloat32(float::fromBits32(1u32), &mut rendered[..]).?;
+    if minSubnormal32Len != 5usize
+        or rendered[0] != b'1'
+        or rendered[1] != b'e'
+        or rendered[2] != b'-'
+        or rendered[3] != b'4'
+        or rendered[4] != b'5'
+    {
+        return process::ExitCode(32)!;
+    }
+    let largePowerLen = writeFloat(1e20, &mut rendered[..]).?;
+    if largePowerLen != 4usize
+        or rendered[0] != b'1'
+        or rendered[1] != b'e'
+        or rendered[2] != b'2'
+        or rendered[3] != b'0'
+    {
+        return process::ExitCode(34)!;
+    }
     let negativeZero32 = float::fromBits32(0x80000000u32);
     if float::toBits32(negativeZero32) != 0x80000000u32 or not float::signBit32(negativeZero32) {
         return process::ExitCode(1)!;

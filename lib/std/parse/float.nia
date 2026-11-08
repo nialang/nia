@@ -1,0 +1,110 @@
+// Accepts ASCII decimal forms `[-]digits[.digits][e[+-]digits]` and
+// `[-].digits`. Whitespace, a leading plus, and non-finite spellings are invalid.
+
+using root::math::float as ieee;
+using root::math::float::decimal;
+using super::core::From;
+
+pub enum ParseError: i32 {
+    Empty = 1,
+    Invalid = 2,
+    Overflow = 3,
+    _,
+}
+
+fun roundedBits64(input: &[u8], parsed: decimal::Parsed) u64 {
+    let maxFinite: u64 = 0x7fefffffffffffff;
+    let mut low: u64 = 0;
+    let mut high: u64 = maxFinite + 1;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        let exact = decimal::midpoint64(middle);
+        let comparison = decimal::BigUInt::compareParsed(input, parsed, exact);
+        if comparison < 0 or (comparison == 0 and (middle & 1) == 0) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    low
+}
+
+fun roundedBits32(input: &[u8], parsed: decimal::Parsed) u32 {
+    let maxFinite: u64 = 0x7f7fffff;
+    let mut low: u64 = 0;
+    let mut high: u64 = maxFinite + 1;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        let exact = decimal::midpoint32(middle as u32);
+        let comparison = decimal::BigUInt::compareParsed(input, parsed, exact);
+        if comparison < 0 or (comparison == 0 and (middle & 1) == 0) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    low as u32
+}
+
+fun zero32(negative: bool) f32 {
+    let sign: u32 = if negative { 0x80000000u32 } else { 0u32 };
+    ieee::fromBits32(sign)
+}
+
+pub fun parse64(input: &[u8]) ParseError!f64 {
+    let parsed = match decimal::parse(input) {
+        !value => value,
+        decimal::SyntaxError::Empty! => return .Empty!,
+        error! => { _ = error; return .Invalid!; },
+    };
+    if parsed.zero {
+        let sign: u64 = if parsed.negative { 0x8000000000000000u64 } else { 0u64 };
+        return !ieee::fromBits64(sign);
+    }
+    let order = parsed.significantDigits as i128 + parsed.exponent10 as i128;
+    if order < -323 {
+        let sign: u64 = if parsed.negative { 0x8000000000000000u64 } else { 0u64 };
+        return !ieee::fromBits64(sign);
+    }
+    if order > 309 { return .Overflow!; }
+    let magnitude = roundedBits64(input, parsed);
+    if magnitude > 0x7fefffffffffffff { return .Overflow!; }
+    let sign: u64 = if parsed.negative { 0x8000000000000000u64 } else { 0u64 };
+    !ieee::fromBits64(sign | magnitude)
+}
+
+pub fun parse32(input: &[u8]) ParseError!f32 {
+    let parsed = match decimal::parse(input) {
+        !value => value,
+        decimal::SyntaxError::Empty! => return .Empty!,
+        error! => { _ = error; return .Invalid!; },
+    };
+    if parsed.zero { return !zero32(parsed.negative); }
+    let order = parsed.significantDigits as i128 + parsed.exponent10 as i128;
+    if order < -44 { return !zero32(parsed.negative); }
+    if order > 39 { return .Overflow!; }
+    let magnitude = roundedBits32(input, parsed);
+    if magnitude > 0x7f7fffff { return .Overflow!; }
+    let sign: u32 = if parsed.negative { 0x80000000u32 } else { 0u32 };
+    !ieee::fromBits32(sign | magnitude)
+}
+
+pub fun parse[T](input: &[u8]) [T as From[&[u8]]]::Error!T
+where T: From[&[u8]]
+{
+    [T]::from(input)
+}
+
+extend f32 : From[&[u8]] {
+    type Error = ParseError;
+
+    fun from(input: &[u8]) ParseError!f32 { parse32(input) }
+}
+
+extend f64 : From[&[u8]] {
+    type Error = ParseError;
+
+    fun from(input: &[u8]) ParseError!f64 {
+        parse64(input)
+    }
+}

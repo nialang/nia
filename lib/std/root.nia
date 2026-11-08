@@ -55,6 +55,7 @@ pub using collections::hash_set as hash_set_provider;
 pub using collections::tree_map::map as tree_map_map_provider;
 pub using collections::tree_map::storage as tree_map_storage_provider;
 pub using collections::tree_set as tree_set_provider;
+pub using fmt::float as float_format_provider;
 
 using root::iter::range;
 using root::hash;

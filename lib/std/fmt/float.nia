@@ -1,0 +1,247 @@
+// Display emits the shortest round-tripping digits and chooses the shorter of
+// fixed and scientific notation; equal-length forms prefer fixed notation.
+
+using root::math::float as ieee;
+using root::math::float::decimal;
+using super::formatter::Formatter;
+using super::spec::{FormatAlignment, FormatPresentation, FormatSpec};
+using super::traits::{Error, Format};
+
+const maxFloatDigits: usize = 24;
+const outputCapacity: usize = 800;
+
+struct Candidate {
+    digits: [u8; maxFloatDigits],
+    len: usize,
+    exponent10: i32,
+}
+
+struct Rendered {
+    bytes: [u8; outputCapacity],
+    len: usize,
+}
+
+fun roundedCandidate(exact: decimal::Exact, precision: usize) Candidate {
+    let len = if exact.len() < precision { exact.len() } else { precision };
+    let mut result: Candidate = .{ digits: [0u8; maxFloatDigits], len, exponent10: exact.exponent10() + exact.len() as i32 - len as i32 };
+    let mut index: usize = 0;
+    while index < len {
+        result.digits[index] = exact.digit(index);
+        index += 1;
+    }
+    if exact.len() > len {
+        let next = exact.digit(len);
+        let mut tailNonZero = false;
+        index = len + 1;
+        while index < exact.len() {
+            if exact.digit(index) != b'0' { tailNonZero = true; }
+            index += 1;
+        }
+        let lastOdd = ((result.digits[len - 1] - b'0') & 1) != 0;
+        let roundUp = next > b'5' or (next == b'5' and (tailNonZero or lastOdd));
+        if roundUp {
+            let mut carry = true;
+            index = len;
+            while index != 0 and carry {
+                index -= 1;
+                if result.digits[index] == b'9' {
+                    result.digits[index] = b'0';
+                } else {
+                    result.digits[index] += 1;
+                    carry = false;
+                }
+            }
+            if carry {
+                result.digits[0] = b'1';
+                index = 1;
+                while index < len { result.digits[index] = b'0'; index += 1; }
+                result.exponent10 += 1;
+            }
+        }
+    }
+    while result.len > 1 and result.digits[result.len - 1] == b'0' {
+        result.len -= 1;
+        result.exponent10 += 1;
+    }
+    result
+}
+
+fun fits64(candidate: Candidate, bits: u64, lower: decimal::Exact, upper: decimal::Exact) bool {
+    let digits = &candidate.digits[0..candidate.len];
+    let even = (bits & 1) == 0;
+    if bits != 0 {
+        let comparison = decimal::compareDigits(digits, candidate.len, candidate.exponent10, lower);
+        if comparison < 0 or (comparison == 0 and not even) { return false; }
+    }
+    let comparison = decimal::compareDigits(digits, candidate.len, candidate.exponent10, upper);
+    comparison < 0 or (comparison == 0 and even)
+}
+
+fun fits32(candidate: Candidate, bits: u32, lower: decimal::Exact, upper: decimal::Exact) bool {
+    let digits = &candidate.digits[0..candidate.len];
+    let even = (bits & 1) == 0;
+    if bits != 0 {
+        let comparison = decimal::compareDigits(digits, candidate.len, candidate.exponent10, lower);
+        if comparison < 0 or (comparison == 0 and not even) { return false; }
+    }
+    let comparison = decimal::compareDigits(digits, candidate.len, candidate.exponent10, upper);
+    comparison < 0 or (comparison == 0 and even)
+}
+
+fun shortest64(value: f64) Candidate {
+    let bits = ieee::toBits64(value) & 0x7fffffffffffffffu64;
+    let exponentField = ((bits >> 52) & 0x7ffu64) as u32;
+    let fraction = bits & 0x000fffffffffffffu64;
+    let significand = if exponentField == 0 { fraction } else { 0x0010000000000000u64 | fraction };
+    let exponent2 = if exponentField == 0 { -1074 } else { exponentField as i32 - 1075 };
+    let exact = decimal::fromBinary(significand, exponent2);
+    let lower = decimal::midpoint64(bits - if bits == 0 { 0u64 } else { 1u64 });
+    let upper = decimal::midpoint64(bits);
+    let mut precision: usize = 1;
+    while precision <= 17 {
+        let candidate = roundedCandidate(exact, precision);
+        if fits64(candidate, bits, lower, upper) { return candidate; }
+        precision += 1;
+    }
+    roundedCandidate(exact, 17)
+}
+
+fun shortest32(value: f32) Candidate {
+    let bits = ieee::toBits32(value) & 0x7fffffffu32;
+    let exponentField = (bits >> 23) & 0xffu32;
+    let fraction = bits & 0x007fffffu32;
+    let significand = if exponentField == 0 { fraction as u64 } else { (0x00800000u32 | fraction) as u64 };
+    let exponent2 = if exponentField == 0 { -149 } else { exponentField as i32 - 150 };
+    let exact = decimal::fromBinary(significand, exponent2);
+    let lower = decimal::midpoint32(bits - if bits == 0 { 0u32 } else { 1u32 });
+    let upper = decimal::midpoint32(bits);
+    let mut precision: usize = 1;
+    while precision <= 9 {
+        let candidate = roundedCandidate(exact, precision);
+        if fits32(candidate, bits, lower, upper) { return candidate; }
+        precision += 1;
+    }
+    roundedCandidate(exact, 9)
+}
+
+fun appendByte(output: &mut Rendered, byte: u8) () {
+    output.bytes[output.len] = byte;
+    output.len += 1;
+}
+
+fun renderCandidate(candidate: Candidate, negative: bool, signPlus: bool) Rendered {
+    let mut output: Rendered = .{ bytes: [0u8; outputCapacity], len: 0 };
+    if negative { appendByte(&mut output, b'-'); }
+    else if signPlus { appendByte(&mut output, b'+'); }
+    let point = candidate.len as i32 + candidate.exponent10;
+    if point <= 0 {
+        appendByte(&mut output, b'0');
+        appendByte(&mut output, b'.');
+        let mut zeros = -point;
+        while zeros != 0 { appendByte(&mut output, b'0'); zeros -= 1; }
+        let mut index: usize = 0;
+        while index < candidate.len { appendByte(&mut output, candidate.digits[index]); index += 1; }
+    } else {
+        let mut index: usize = 0;
+        while index < candidate.len {
+            appendByte(&mut output, candidate.digits[index]);
+            index += 1;
+            if index as i32 == point and index < candidate.len { appendByte(&mut output, b'.'); }
+        }
+        while index as i32 < point { appendByte(&mut output, b'0'); index += 1; }
+    }
+    output
+}
+
+fun renderScientific(candidate: Candidate, negative: bool, signPlus: bool) Rendered {
+    let mut output: Rendered = .{ bytes: [0u8; outputCapacity], len: 0 };
+    if negative { appendByte(&mut output, b'-'); }
+    else if signPlus { appendByte(&mut output, b'+'); }
+    appendByte(&mut output, candidate.digits[0]);
+    if candidate.len > 1 {
+        appendByte(&mut output, b'.');
+        let mut index: usize = 1;
+        while index < candidate.len {
+            appendByte(&mut output, candidate.digits[index]);
+            index += 1;
+        }
+    }
+    appendByte(&mut output, b'e');
+    let exponent = candidate.len as i32 + candidate.exponent10 - 1;
+    let mut magnitude = if exponent < 0 { -exponent } else { exponent } as u32;
+    if exponent < 0 { appendByte(&mut output, b'-'); }
+    let mut reversed: [u8; 12] = [0u8; 12];
+    let mut count: usize = 0;
+    while magnitude != 0 {
+        reversed[count] = b'0' + (magnitude % 10) as u8;
+        magnitude /= 10;
+        count += 1;
+    }
+    if count == 0 {
+        appendByte(&mut output, b'0');
+    } else {
+        while count != 0 {
+            count -= 1;
+            appendByte(&mut output, reversed[count]);
+        }
+    }
+    output
+}
+
+fun renderShortest(candidate: Candidate, negative: bool, signPlus: bool) Rendered {
+    let fixed = renderCandidate(candidate, negative, signPlus);
+    let scientific = renderScientific(candidate, negative, signPlus);
+    if scientific.len < fixed.len { scientific } else { fixed }
+}
+
+fun emit(value: f64, formatter: &mut Formatter, spec: FormatSpec) Error!() {
+    spec.validate().?;
+    if spec.presentation() != FormatPresentation::Display or spec.hasPrecision() or spec.alternate() {
+        return .InvalidTemplate!;
+    }
+    if not ieee::isFinite64(value) { return .InvalidTemplate!; }
+    writeCandidate(shortest64(value), ieee::signBit64(value), formatter, spec)
+}
+
+fun writeCandidate(candidate: Candidate, negative: bool, formatter: &mut Formatter, spec: FormatSpec) Error!() {
+    let rendered = renderShortest(candidate, negative, spec.signPlus());
+    let padding = if spec.width() > rendered.len { spec.width() - rendered.len } else { 0 };
+    let before: usize = match spec.alignment() {
+        .Left => 0,
+        .Center => padding / 2,
+        _ => padding,
+    };
+    let after = padding - before;
+    formatter.writeFill(spec.fill(), before).?;
+    formatter.writeBytes(&rendered.bytes[0..rendered.len]).?;
+    formatter.writeFill(spec.fill(), after)
+}
+
+fun emit32(value: f32, formatter: &mut Formatter, spec: FormatSpec) Error!() {
+    spec.validate().?;
+    if spec.presentation() != FormatPresentation::Display or spec.hasPrecision() or spec.alternate() {
+        return .InvalidTemplate!;
+    }
+    if not ieee::isFinite32(value) { return .InvalidTemplate!; }
+    writeCandidate(shortest32(value), ieee::signBit32(value), formatter, spec)
+}
+
+extend f64 : Format {
+    fun format(&self, formatter: &mut Formatter) Error!() {
+        emit(self.*, formatter, FormatSpec::display())
+    }
+
+    fun formatSpec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
+        emit(self.*, formatter, spec)
+    }
+}
+
+extend f32 : Format {
+    fun format(&self, formatter: &mut Formatter) Error!() {
+        emit32(self.*, formatter, FormatSpec::display())
+    }
+
+    fun formatSpec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
+        emit32(self.*, formatter, spec)
+    }
+}
