@@ -720,6 +720,222 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn float_fixed_precision_matches_host_formatting_samples() {
+    use std::fmt::Write as _;
+
+    let root = temp_dir("float_fixed_precision_matches_host_formatting_samples");
+    let source = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    let mut program = String::from(
+        r#"
+using std::{fmt, io, math::float, process};
+
+fun matches64(value: f64, precision: usize, alternate: bool, expected: &[u8]) bool {
+    let mut bytes: [u8; 400] = [0; 400];
+    let mut output = io::FixedBufferWriter::init(&mut bytes[..]);
+    let writer: &mut fmt::FormatWriter = &mut output;
+    let mut formatter = fmt::Formatter::init(writer);
+    let spec = fmt::FormatSpec::init(
+        fmt::FormatPresentation::Display,
+        0usize,
+        ?precision,
+        ' ',
+        fmt::FormatAlignment::None,
+        false,
+        alternate,
+    );
+    match value.formatSpec(&mut formatter, spec) {
+        !() => {},
+        error! => { _ = error; return false; },
+    }
+    if output.len() != expected.len() { return false; }
+    let mut index: usize = 0;
+    while index < output.len() {
+        if bytes[index] != expected[index] { return false; }
+        index += 1;
+    }
+    true
+}
+
+fun matches32(value: f32, precision: usize, alternate: bool, expected: &[u8]) bool {
+    let mut bytes: [u8; 400] = [0; 400];
+    let mut output = io::FixedBufferWriter::init(&mut bytes[..]);
+    let writer: &mut fmt::FormatWriter = &mut output;
+    let mut formatter = fmt::Formatter::init(writer);
+    let spec = fmt::FormatSpec::init(
+        fmt::FormatPresentation::Display,
+        0usize,
+        ?precision,
+        ' ',
+        fmt::FormatAlignment::None,
+        false,
+        alternate,
+    );
+    match value.formatSpec(&mut formatter, spec) {
+        !() => {},
+        error! => { _ = error; return false; },
+    }
+    if output.len() != expected.len() { return false; }
+    let mut index: usize = 0;
+    while index < output.len() {
+        if bytes[index] != expected[index] { return false; }
+        index += 1;
+    }
+    true
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+"#,
+    );
+
+    let mut state = 0x243f6a8885a308d3u64;
+    let mut index = 0;
+    while index < 40 {
+        state ^= state << 7;
+        state ^= state >> 9;
+        state ^= state << 8;
+
+        let bits64 = (state & 0x800fffffffffffffu64) | ((((state >> 19) % 2046 + 1) & 0x7ff) << 52);
+        let value64 = f64::from_bits(bits64);
+        let precision = (state as usize) % 9;
+        let alternate = (state & 0x100u64) != 0;
+        let mut expected64 = if alternate {
+            format!("{:#.*}", precision, value64)
+        } else {
+            format!("{:.*}", precision, value64)
+        };
+        if alternate && precision == 0 {
+            expected64.push('.');
+        }
+        writeln!(
+            program,
+            "    if not matches64(float::fromBits64(0x{:016x}u64), {precision}usize, {alternate}, b\"{expected64}\") {{ return process::ExitCode({})!; }}",
+            bits64,
+            index + 51,
+        )
+        .expect("append f64 precision case");
+
+        let bits32 =
+            (state as u32 & 0x807fffffu32) | ((((state >> 28) as u32 % 254 + 1) & 0xff) << 23);
+        let value32 = f32::from_bits(bits32);
+        let precision32 = ((state >> 8) as usize) % 9;
+        let alternate32 = (state & 0x200u64) != 0;
+        let mut expected32 = if alternate32 {
+            format!("{:#.*}", precision32, value32)
+        } else {
+            format!("{:.*}", precision32, value32)
+        };
+        if alternate32 && precision32 == 0 {
+            expected32.push('.');
+        }
+        writeln!(
+            program,
+            "    if not matches32(float::fromBits32(0x{:08x}u32), {precision32}usize, {alternate32}, b\"{expected32}\") {{ return process::ExitCode({})!; }}",
+            bits32,
+            index + 1,
+        )
+        .expect("append f32 precision case");
+        index += 1;
+    }
+
+    for (case_index, (bits, precision, alternate)) in [
+        (0x3ff4000000000000u64, 1usize, false),
+        (0x3ffc000000000000u64, 1usize, false),
+        (0xbff4000000000000u64, 1usize, false),
+        (0x4004000000000000u64, 0usize, false),
+        (0x400e000000000000u64, 0usize, false),
+        (0xc00c000000000000u64, 0usize, false),
+        (0x4023000000000000u64, 0usize, true),
+        (0x4058e00000000000u64, 0usize, false),
+        (0x8000000000000000u64, 4usize, false),
+        (0x0000000000000000u64, 0usize, true),
+        (0x0000000000000001u64, 17usize, false),
+        (0x7fefffffffffffffu64, 20usize, false),
+        (0x0010000000000000u64, 20usize, true),
+        (0x3ff0000000000000u64, 20usize, false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let value = f64::from_bits(bits);
+        let mut expected = if alternate {
+            format!("{:#.*}", precision, value)
+        } else {
+            format!("{:.*}", precision, value)
+        };
+        if alternate && precision == 0 {
+            expected.push('.');
+        }
+        writeln!(
+            program,
+            "    if not matches64(float::fromBits64(0x{bits:016x}u64), {precision}usize, {alternate}, b\"{expected}\") {{ return process::ExitCode({})!; }}",
+            101 + case_index
+        )
+        .expect("append f64 boundary formatting case");
+    }
+
+    for (case_index, (bits, precision, alternate)) in [
+        (0x3fa00000u32, 1usize, false),
+        (0x3fe00000u32, 1usize, false),
+        (0xbfa00000u32, 1usize, false),
+        (0x40200000u32, 0usize, false),
+        (0x40600000u32, 0usize, false),
+        (0xc0600000u32, 0usize, false),
+        (0x41180000u32, 0usize, true),
+        (0x42c70000u32, 0usize, false),
+        (0x80000000u32, 4usize, false),
+        (0x00000000u32, 0usize, true),
+        (0x00000001u32, 17usize, false),
+        (0x7f7fffffu32, 20usize, false),
+        (0x00800000u32, 20usize, true),
+        (0x3f800000u32, 20usize, false),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let value = f32::from_bits(bits);
+        let mut expected = if alternate {
+            format!("{:#.*}", precision, value)
+        } else {
+            format!("{:.*}", precision, value)
+        };
+        if alternate && precision == 0 {
+            expected.push('.');
+        }
+        writeln!(
+            program,
+            "    if not matches32(float::fromBits32(0x{bits:08x}u32), {precision}usize, {alternate}, b\"{expected}\") {{ return process::ExitCode({})!; }}",
+            151 + case_index
+        )
+        .expect("append f32 boundary formatting case");
+    }
+
+    program.push_str("    !()\n}\n");
+    std::fs::write(&source, program).expect("write float precision differential test");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit float precision differential test");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run float precision differential test");
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "formatting differential sample failed with case code {:?}",
+        status.code()
+    );
+}
+
+#[test]
 fn array_pointer_methods_preserve_storage_and_evaluate_receivers_once() {
     let root = temp_dir("array_pointer_methods_preserve_storage_and_evaluate_receivers_once");
     let source = root.join("main.nia");
