@@ -1304,7 +1304,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
 
     let mut smallStorage: [u8; 8] = [0; 8];
-    let mut failing = test::FailingAllocator::init(&mut smallStorage[..]);
+    let mut smallBacking = mem::FixedBufferAllocator::init(&mut smallStorage[..]);
+    let backing: &mut mem::Allocator = &mut smallBacking;
+    let mut failing = test::FailingAllocator::init(backing);
     let block = failing.alloc(mem::Layout::init(4, 1).?).?;
     failing.failNextFree();
     match failing.free(block) {
@@ -1320,6 +1322,18 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if failing.activeBlocks() != 0usize {
         return process::ExitCode(9)!;
     }
+    let block = failing.alloc(mem::Layout::init(4, 1).?).?;
+    failing.failNextResize();
+    if failing.remap(block, mem::Layout::init(8, 1).?) is ?unexpected {
+        _ = unexpected;
+        return process::ExitCode(19)!;
+    }
+    failing.clearFailures();
+    let resized = match failing.remap(block, mem::Layout::init(8, 1).?) {
+        ?resized => resized,
+        null => return process::ExitCode(20)!,
+    };
+    failing.free(resized).?;
     failing.failNextAllocation();
     match failing.alloc(mem::Layout::init(4, 1).?) {
         !block => { _ = block; return process::ExitCode(10)!; },
@@ -1328,7 +1342,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
 
     let mut retryStorage: [u8; 16] = [0; 16];
-    let mut retryAllocator = test::FailingAllocator::init(&mut retryStorage[..]);
+    let mut retryBacking = mem::FixedBufferAllocator::init(&mut retryStorage[..]);
+    let backing: &mut mem::Allocator = &mut retryBacking;
+    let mut retryAllocator = test::FailingAllocator::init(backing);
     let allocator: &mut mem::Allocator = &mut retryAllocator;
     let mut retryOutput = collections::ArrayList[u8]::init();
     let mut retryReader = io::FixedBufferReader::init(&b"xyz");

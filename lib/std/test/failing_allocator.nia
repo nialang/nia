@@ -3,23 +3,27 @@
 using root::mem;
 
 pub struct FailingAllocator {
-    backing: mem::FixedBufferAllocator,
+    child: &mut mem::Allocator,
     allocationAttempts: usize,
     freeAttempts: usize,
+    resizeAttempts: usize,
     activeBlocks: usize,
     failAllocationAt: usize,
     failFreeAt: usize,
+    failResizeAt: usize,
 }
 
 extend FailingAllocator {
-    pub fun init(buffer: &mut [u8]) FailingAllocator {
+    pub fun init(child: &mut mem::Allocator) FailingAllocator {
         .{
-            backing: mem::FixedBufferAllocator::init(buffer),
+            child,
             allocationAttempts: 0,
             freeAttempts: 0,
+            resizeAttempts: 0,
             activeBlocks: 0,
             failAllocationAt: 0,
             failFreeAt: 0,
+            failResizeAt: 0,
         }
     }
 
@@ -39,9 +43,18 @@ extend FailingAllocator {
         self.failFreeAfter(0);
     }
 
+    pub fun failResizeAfter(&mut self, successfulResizes: usize) () {
+        self.failResizeAt = self.resizeAttempts + successfulResizes + 1;
+    }
+
+    pub fun failNextResize(&mut self) () {
+        self.failResizeAfter(0);
+    }
+
     pub fun clearFailures(&mut self) () {
         self.failAllocationAt = 0;
         self.failFreeAt = 0;
+        self.failResizeAt = 0;
     }
 
     pub fun allocationAttempts(&self) usize {
@@ -52,13 +65,14 @@ extend FailingAllocator {
         self.freeAttempts
     }
 
+    pub fun resizeAttempts(&self) usize {
+        self.resizeAttempts
+    }
+
     pub fun activeBlocks(&self) usize {
         self.activeBlocks
     }
 
-    pub fun used(&self) usize {
-        self.backing.used()
-    }
 }
 
 extend FailingAllocator : mem::Allocator {
@@ -70,7 +84,7 @@ extend FailingAllocator : mem::Allocator {
                 return .OutOfMemory!;
             }
         }
-        let block = self.backing.alloc(layout).?;
+        let block = self.child.alloc(layout).?;
         if not block.isEmpty() {
             self.activeBlocks += 1;
         }
@@ -85,7 +99,7 @@ extend FailingAllocator : mem::Allocator {
                 return .Invalid!;
             }
         }
-        self.backing.free(block).?;
+        self.child.free(block).?;
         if not block.isEmpty() {
             self.activeBlocks -= 1;
         }
@@ -93,10 +107,24 @@ extend FailingAllocator : mem::Allocator {
     }
 
     pub fun resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
-        self.backing.resize(block, newLayout)
+        if not block.isEmpty() {
+            self.resizeAttempts += 1;
+            if self.failResizeAt == self.resizeAttempts {
+                self.failResizeAt = 0;
+                return false;
+            }
+        }
+        self.child.resize(block, newLayout)
     }
 
     pub fun remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
-        self.backing.remap(block, newLayout)
+        if not block.isEmpty() {
+            self.resizeAttempts += 1;
+            if self.failResizeAt == self.resizeAttempts {
+                self.failResizeAt = 0;
+                return null;
+            }
+        }
+        self.child.remap(block, newLayout)
     }
 }
