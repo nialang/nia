@@ -1,7 +1,6 @@
-// Checked arithmetic and alignment utilities.
+// Arithmetic traits, floating-point representation, and alignment utilities.
 //
-// Traits and primitive implementations live in focused modules; this facade
-// preserves the established `std::math` entry points.
+// Implementations live in focused modules; this facade exposes their public traits.
 
 pub(root) module alignment;
 pub(root) module checked;
@@ -13,6 +12,8 @@ using root::math::alignment;
 using root::math::checked;
 using root::math::signed;
 using root::math::unsigned;
+
+pub using float::BinaryFloat;
 
 pub using checked::{
     CheckedAdd,

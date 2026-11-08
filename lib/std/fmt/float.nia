@@ -4,7 +4,8 @@
 module candidate;
 module render;
 
-using root::math::float as ieee;
+using root::math::float::BinaryFloat;
+using root::math::float::BinaryFloatRepresentation;
 using root::math::float::decimal;
 using root::fmt::float::{candidate, render};
 using super::formatter::Formatter;
@@ -23,62 +24,53 @@ fun validate(spec: FormatSpec, finite: bool) Error!() {
 }
 
 extend Formatter {
-    // Writes the shortest round-trip representation; non-finite values fail.
-    pub fun writeFloat64(&mut self, value: f64) Error!() {
-        self.writeFloat64Spec(value, FormatSpec::display())
+    // Shortest round-trip output for a finite IEEE value.
+    pub fun writeFloat[F](&mut self, value: F) Error!() where F: BinaryFloat {
+        self.writeFloatSpec(value, FormatSpec::display())
     }
 
-    pub fun writeFloat32(&mut self, value: f32) Error!() {
-        self.writeFloat32Spec(value, FormatSpec::display())
-    }
-
-    // Precision is fractional decimal digits with ties-to-even rounding.
-    // Non-finite input returns NonFinite; unsupported presentations return InvalidTemplate.
-    pub fun writeFloat64Spec(&mut self, value: f64, spec: FormatSpec) Error!() {
-        validate(spec, ieee::isFinite64(value)).?;
-        let bits = ieee::toBits64(value) & 0x7fffffffffffffffu64;
-        let exact = decimal::exact64(bits);
+    // Precision counts fractional digits, rounded to nearest, ties to even.
+    // Value/spec errors are detected before writing; writer errors can leave
+    // partial output, just like other Formatter methods.
+    pub fun writeFloatSpec[F](&mut self, value: F, spec: FormatSpec) Error!()
+    where F: BinaryFloat
+    {
+        validate(spec, value.isFinite()).?;
+        let bits = value.magnitudeBits();
+        let exact = decimal::exact[F](bits);
         let digits = if spec.precision() is ?precision {
             candidate::fixedPrecision(exact, precision)
         } else {
-            let lower = decimal::midpoint64(bits - if bits == 0 { 0u64 } else { 1u64 });
-            let upper = decimal::midpoint64(bits);
-            candidate::shortest(exact, lower, upper, bits, 17)
+            let lower = decimal::midpoint[F](bits - if bits == 0 { 0u64 } else { 1u64 });
+            let upper = decimal::midpoint[F](bits);
+            candidate::shortest(
+                exact,
+                lower,
+                upper,
+                bits,
+                [F as BinaryFloat]::shortestDigits,
+            )
         };
-        render::write(self, digits, ieee::signBit64(value), spec)
-    }
-
-    pub fun writeFloat32Spec(&mut self, value: f32, spec: FormatSpec) Error!() {
-        validate(spec, ieee::isFinite32(value)).?;
-        let bits = ieee::toBits32(value) & 0x7fffffffu32;
-        let exact = decimal::exact32(bits);
-        let digits = if spec.precision() is ?precision {
-            candidate::fixedPrecision(exact, precision)
-        } else {
-            let lower = decimal::midpoint32(bits - if bits == 0 { 0u32 } else { 1u32 });
-            let upper = decimal::midpoint32(bits);
-            candidate::shortest(exact, lower, upper, bits as u64, 9)
-        };
-        render::write(self, digits, ieee::signBit32(value), spec)
+        render::write(self, digits, value.signBit(), spec)
     }
 }
 
 extend f64 : Format {
     fun format(&self, formatter: &mut Formatter) Error!() {
-        formatter.writeFloat64(self.*)
+        formatter.writeFloat(self.*)
     }
 
     fun formatSpec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
-        formatter.writeFloat64Spec(self.*, spec)
+        formatter.writeFloatSpec(self.*, spec)
     }
 }
 
 extend f32 : Format {
     fun format(&self, formatter: &mut Formatter) Error!() {
-        formatter.writeFloat32(self.*)
+        formatter.writeFloat(self.*)
     }
 
     fun formatSpec(&self, formatter: &mut Formatter, spec: FormatSpec) Error!() {
-        formatter.writeFloat32Spec(self.*, spec)
+        formatter.writeFloatSpec(self.*, spec)
     }
 }

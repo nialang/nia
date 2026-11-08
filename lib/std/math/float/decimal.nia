@@ -1,40 +1,40 @@
-// Shared exact decimal magnitudes and rounding boundaries for IEEE conversion.
-// Parsing syntax belongs to std::parse; integer storage is independent.
+// Exact decimal magnitudes and ties-to-even intervals shared by parsing and
+// formatting. Syntax and rendering depend on this layer, never on each other.
 
 module big_uint;
 
-using root::cmp;
 using root::iter;
-using root::slice;
+using root::math::float::BinaryFloat;
+using root::math::float::BinaryFloatRepresentation;
 using root::math::float::decimal::big_uint::{BigUInt, Digits};
 
 pub(root) using big_uint::digitCapacity;
 
-pub(root) struct Exact {
-    digits: Digits,
+// Digits contain ASCII bytes with an implicit trailing sequence of zeros.
+// The same representation holds exact values and rounded output candidates.
+pub(root) struct Decimal {
+    digits: [u8; digitCapacity],
+    len: usize,
     exponent10: i32,
 }
 
-extend Exact {
-    pub(root) fun len(&self) usize { self.digits.len }
-    pub(root) fun digit(&self, index: usize) u8 { self.digits.bytes[index] }
+extend Decimal {
+    pub(root) fun zero() Decimal {
+        let digits = Digits::zero();
+        .{ digits: digits.bytes, len: digits.len, exponent10: 0 }
+    }
+
+    pub(root) fun len(&self) usize { self.len }
+    pub(root) fun digit(&self, index: usize) u8 { self.digits[index] }
     pub(root) fun exponent10(&self) i32 { self.exponent10 }
-
-    pub(root) fun asSlice(&self) &[u8] {
-        &self.digits.bytes[0..self.digits.len]
-    }
-
-    pub(root) fun isZero(&self) bool {
-        self.digits.len == 1 and self.digits.bytes[0] == b'0'
-    }
+    pub(root) fun point(&self) i64 { self.len as i64 + self.exponent10 as i64 }
+    pub(root) fun exponent(&self) i32 { (self.point() - 1) as i32 }
+    pub(root) fun asSlice(&self) &[u8] { &self.digits[..self.len] }
+    pub(root) fun isZero(&self) bool { self.len == 1 and self.digits[0] == b'0' }
 }
 
-pub(root) fun fromBinary(significand: u64, exponent2: i32) Exact {
-    if significand == 0 {
-        let mut digits: Digits = .{ bytes: [0u8; digitCapacity], len: 1 };
-        digits.bytes[0] = b'0';
-        return .{ digits, exponent10: 0 };
-    }
+pub(root) fun fromBinary(significand: u64, exponent2: i32) Decimal {
+    if significand == 0 { return Decimal::zero(); }
     let mut value = BigUInt::fromU64(significand);
     let mut exponent10: i32 = 0;
     if exponent2 >= 0 {
@@ -43,7 +43,8 @@ pub(root) fun fromBinary(significand: u64, exponent2: i32) Exact {
         value.multiplyPowerOfFive(-exponent2);
         exponent10 = exponent2;
     }
-    .{ digits: value.toDigits(), exponent10 }
+    let digits = value.toDigits();
+    .{ digits: digits.bytes, len: digits.len, exponent10 }
 }
 
 struct Binary {
@@ -51,59 +52,59 @@ struct Binary {
     exponent2: i32,
 }
 
-fun decode32(bits: u32) Binary {
-    let exponent = (bits >> 23) & 0xffu32;
-    let fraction = bits & 0x007fffffu32;
+fun decode[F](bits: u64) Binary where F: BinaryFloat {
+    let fractionBits = [F as BinaryFloat]::fractionBits;
+    let exponentBits = [F as BinaryFloat]::exponentBits;
+    let hidden = 1u64 << fractionBits;
+    let exponent = (bits >> fractionBits) & ((1u64 << exponentBits) - 1);
+    let fraction = bits & (hidden - 1);
+    let bias = ((1u32 << (exponentBits - 1)) - 1) as i32;
     .{
-        significand: if exponent == 0 { fraction as u64 } else { (0x00800000u32 | fraction) as u64 },
-        exponent2: if exponent == 0 { -149 } else { exponent as i32 - 150 },
+        significand: if exponent == 0 { fraction } else { hidden | fraction },
+        exponent2: (if exponent == 0 { 1 } else { exponent as i32 }) - bias - fractionBits as i32,
     }
 }
 
-fun decode64(bits: u64) Binary {
-    let exponent = ((bits >> 52) & 0x7ffu64) as u32;
-    let fraction = bits & 0x000fffffffffffffu64;
-    .{
-        significand: if exponent == 0 { fraction } else { 0x0010000000000000u64 | fraction },
-        exponent2: if exponent == 0 { -1074 } else { exponent as i32 - 1075 },
-    }
-}
-
-pub(root) fun exact32(bits: u32) Exact {
-    let binary = decode32(bits);
+pub(root) fun exact[F](bits: u64) Decimal where F: BinaryFloat {
+    let binary = decode[F](bits);
     fromBinary(binary.significand, binary.exponent2)
 }
 
-pub(root) fun exact64(bits: u64) Exact {
-    let binary = decode64(bits);
-    fromBinary(binary.significand, binary.exponent2)
-}
-
-// The upper neighbour of the largest finite value is the conceptual power of
-// two beyond it. The same midpoint construction handles the overflow tie.
-pub(root) fun midpoint32(lowerBits: u32) Exact {
-    let binary = decode32(lowerBits);
+// The conceptual neighbour after max finite is the next power of two.
+// This midpoint also decides whether a decimal overflows at the halfway tie.
+pub(root) fun midpoint[F](lowerBits: u64) Decimal where F: BinaryFloat {
+    let binary = decode[F](lowerBits);
     fromBinary(binary.significand * 2 + 1, binary.exponent2 - 1)
 }
 
-pub(root) fun midpoint64(lowerBits: u64) Exact {
-    let binary = decode64(lowerBits);
-    fromBinary(binary.significand * 2 + 1, binary.exponent2 - 1)
+// Comparisons are input - midpoint. Only even representations own a tie;
+// zero has no lower boundary in the nonnegative magnitude search.
+pub(root) fun intervalContains(bits: u64, lower: i32, upper: i32) bool {
+    let even = (bits & 1) == 0;
+    (bits == 0 or lower > 0 or (lower == 0 and even))
+        and (upper < 0 or (upper == 0 and even))
 }
 
-pub(root) fun compareDigits(input: &[u8], exponent10: i32, exact: &Exact) i32 {
-    if input.iter().position(\byte -> byte.* != b'0') is null {
-        return if exact.isZero() { 0 } else { -1 };
-    }
-    let leftOrder = input.len() as i64 + exponent10 as i64;
-    let rightOrder = exact.len() as i64 + exact.exponent10() as i64;
-    if leftOrder < rightOrder { return -1; }
-    if leftOrder > rightOrder { return 1; }
-    for index in 0..cmp::max(input.len(), exact.len()) {
-        let left = if index < input.len() { input[index] } else { b'0' };
-        let right = if index < exact.len() { exact.digit(index) } else { b'0' };
+pub(root) fun compare[I](input: I, order: i128, zero: bool, exact: &Decimal) i32
+where I: Iterator[Item = u8]
+{
+    if zero { return if exact.isZero() { 0 } else { -1 }; }
+    if exact.isZero() { return 1; }
+    let rightOrder = exact.point() as i128;
+    if order < rightOrder { return -1; }
+    if order > rightOrder { return 1; }
+    let mut digits = input;
+    for &right in exact.asSlice() {
+        let left = match digits.next() { ?digit => digit, null => b'0' };
         if left < right { return -1; }
         if left > right { return 1; }
     }
+    for left in digits {
+        if left != b'0' { return 1; }
+    }
     0
+}
+
+pub(root) fun compareDigits(input: &Decimal, exact: &Decimal) i32 {
+    compare(input.asSlice().iter().map(\byte -> byte.*), input.point() as i128, input.isZero(), exact)
 }

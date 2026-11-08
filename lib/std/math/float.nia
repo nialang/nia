@@ -1,7 +1,64 @@
 // IEEE-754 classification and representation-preserving bit access.
 
 pub(root) module decimal;
-using root::math::float::decimal;
+
+// Only the built-in IEEE layouts satisfy this package-internal conversion
+// contract. Its constants and approximation hook are implementation details;
+// downstream code uses the smaller public BinaryFloat interface below.
+pub(root) trait BinaryFloatRepresentation : Sized {
+    const maxFiniteBits: u64;
+    const minDecimalOrder: i32;
+    const maxDecimalOrder: i32;
+
+    // Parser fast-path hook. A candidate is accepted only after exact interval
+    // checks, so this conversion never determines the final rounded value.
+    fun fromApproximateF64(value: f64) Self;
+}
+
+// This public trait describes the IEEE value operations users need. Decimal
+// conversion details stay in BinaryFloatRepresentation; the parser validates
+// every approximation against exact rounding intervals.
+pub trait BinaryFloat : BinaryFloatRepresentation {
+    const fractionBits: u32;
+    const exponentBits: u32;
+    const shortestDigits: usize;
+
+    fun toBits(self) u64;
+    fun fromBits(bits: u64) Self;
+
+    fun fractionField(self) u64 {
+        self.toBits() & ((1u64 << [Self as BinaryFloat]::fractionBits) - 1)
+    }
+
+    fun magnitudeBits(self) u64 {
+        self.toBits() & ((1u64 << ([Self as BinaryFloat]::fractionBits
+            + [Self as BinaryFloat]::exponentBits)) - 1)
+    }
+
+    fun signBit(self) bool {
+        (self.toBits() >> [Self as BinaryFloat]::fractionBits
+            >> [Self as BinaryFloat]::exponentBits) != 0
+    }
+
+    fun exponentField(self) u64 {
+        (self.toBits() >> [Self as BinaryFloat]::fractionBits)
+            & ((1u64 << [Self as BinaryFloat]::exponentBits) - 1)
+    }
+
+    fun isNan(self) bool {
+        self.exponentField() == (1u64 << [Self as BinaryFloat]::exponentBits) - 1
+            and self.fractionField() != 0
+    }
+
+    fun isInfinite(self) bool {
+        self.exponentField() == (1u64 << [Self as BinaryFloat]::exponentBits) - 1
+            and self.fractionField() == 0
+    }
+
+    fun isFinite(self) bool {
+        self.exponentField() != (1u64 << [Self as BinaryFloat]::exponentBits) - 1
+    }
+}
 
 union F32Representation {
     value: f32,
@@ -13,58 +70,50 @@ union F64Representation {
     bits: u64,
 }
 
-pub fun toBits32(value: f32) u32 {
-    let representation = F32Representation { value };
-    representation.bits
+extend f32 : BinaryFloatRepresentation {
+    const maxFiniteBits: u64 = 0x7f7fffff;
+    const minDecimalOrder: i32 = -45;
+    const maxDecimalOrder: i32 = 39;
+
+    fun fromApproximateF64(value: f64) f32 { value as f32 }
 }
 
-pub fun fromBits32(bits: u32) f32 {
-    let representation = F32Representation { bits };
-    representation.value
+extend f32 : BinaryFloat {
+    const fractionBits: u32 = 23;
+    const exponentBits: u32 = 8;
+    const shortestDigits: usize = 9;
+
+    fun toBits(self) u64 {
+        let representation = F32Representation { value: self };
+        representation.bits as u64
+    }
+
+    fun fromBits(bits: u64) f32 {
+        let representation = F32Representation { bits: bits as u32 };
+        representation.value
+    }
 }
 
-pub fun toBits64(value: f64) u64 {
-    let representation = F64Representation { value };
-    representation.bits
+extend f64 : BinaryFloatRepresentation {
+    const maxFiniteBits: u64 = 0x7fefffffffffffff;
+    const minDecimalOrder: i32 = -323;
+    const maxDecimalOrder: i32 = 309;
+
+    fun fromApproximateF64(value: f64) f64 { value }
 }
 
-pub fun fromBits64(bits: u64) f64 {
-    let representation = F64Representation { bits };
-    representation.value
-}
+extend f64 : BinaryFloat {
+    const fractionBits: u32 = 52;
+    const exponentBits: u32 = 11;
+    const shortestDigits: usize = 17;
 
-pub fun isNan32(value: f32) bool {
-    let bits = toBits32(value);
-    (bits & 0x7f800000u32) == 0x7f800000u32 and (bits & 0x007fffffu32) != 0
-}
+    fun toBits(self) u64 {
+        let representation = F64Representation { value: self };
+        representation.bits
+    }
 
-pub fun isInfinite32(value: f32) bool {
-    (toBits32(value) & 0x7fffffffu32) == 0x7f800000u32
+    fun fromBits(bits: u64) f64 {
+        let representation = F64Representation { bits };
+        representation.value
+    }
 }
-
-pub fun isFinite32(value: f32) bool {
-    (toBits32(value) & 0x7f800000u32) != 0x7f800000u32
-}
-
-pub fun signBit32(value: f32) bool {
-    (toBits32(value) & 0x80000000u32) != 0
-}
-
-pub fun isNan64(value: f64) bool {
-    let bits = toBits64(value);
-    (bits & 0x7ff0000000000000u64) == 0x7ff0000000000000u64
-        and (bits & 0x000fffffffffffffu64) != 0
-}
-
-pub fun isInfinite64(value: f64) bool {
-    (toBits64(value) & 0x7fffffffffffffffu64) == 0x7ff0000000000000u64
-}
-
-pub fun isFinite64(value: f64) bool {
-    (toBits64(value) & 0x7ff0000000000000u64) != 0x7ff0000000000000u64
-}
-
-pub fun signBit64(value: f64) bool {
-    (toBits64(value) & 0x8000000000000000u64) != 0
-}
-

@@ -28,19 +28,58 @@ fn emit_and_run(name: &str, source: &str, expected: i32) {
 }
 
 #[test]
+fn binary_float_is_sealed_to_supported_primitive_representations() {
+    let root = test_dir("binary_float_is_sealed");
+    let input = root.join("main.nia");
+    std::fs::write(
+        &input,
+        r#"
+using std::{math::BinaryFloat, process};
+
+struct ApproximateFloat {}
+
+extend ApproximateFloat : BinaryFloat {
+    const fractionBits: u32 = 23;
+    const exponentBits: u32 = 8;
+    const shortestDigits: usize = 9;
+    fun toBits(self) u64 { 0 }
+    fun fromBits(bits: u64) ApproximateFloat { _ = bits; .{} }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    !()
+}
+"#,
+    )
+    .expect("write sealed float implementation");
+    let output = support::nia_command()
+        .args(["check", "--runtime", "freestanding"])
+        .arg(&input)
+        .output_timeout_for_compiler("check sealed BinaryFloat contract");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr
+            .contains("requires explicit implementation of supertrait `BinaryFloatRepresentation`"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn numeric_parsing_shares_text_bytes_and_error_contracts() {
     emit_and_run(
         "numeric_parse_contracts",
         r#"
-using std::{parse, process, math::float};
+using std::{parse, process};
 
 fun same(text: &[char], bytes: &[u8], bits64: u64, bits32: u32) bool {
     let a = match text.parse[f64]() { !value => value, _ => return false };
     let b = match bytes.parse[f64]() { !value => value, _ => return false };
     let c = match text.parse[f32]() { !value => value, _ => return false };
     let d = match bytes.parse[f32]() { !value => value, _ => return false };
-    float::toBits64(a) == bits64 and float::toBits64(b) == bits64
-        and float::toBits32(c) == bits32 and float::toBits32(d) == bits32
+    (a).toBits() == bits64 and (b).toBits() == bits64
+        and ((c).toBits() as u32) == bits32 and ((d).toBits() as u32) == bits32
 }
 
 fun rejects(text: &[char], bytes: &[u8], expected: parse::Error) bool {
@@ -80,10 +119,10 @@ fn nonfinite_formatting_preserves_its_value_error_through_process_conversion() {
     emit_and_run(
         "nonfinite_format_exit",
         r#"
-using std::{io, math::float, process};
+using std::{io, process};
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let value = float::fromBits64(0x7ff8000000000001u64);
+    let value = [f64]::fromBits((0x7ff8000000000001u64) as u64);
     io::debugPrint("{}", [value]).?;
     !()
 }

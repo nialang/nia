@@ -1267,9 +1267,24 @@ fn emit_exe_std_io_read_to_end_is_bounded_and_allocator_failures_are_retryable()
         r#"
 using std::{collections, io, mem, process, test};
 
+enum ReadFault { End, Invalid, Source(u32) }
+struct FaultReader { calls: usize, invalidCount: bool }
+extend FaultReader : io::Reader {
+    type Error = ReadFault;
+    fun endOfStream(&self) ReadFault { .End }
+    fun invalidRead(&self) ReadFault { .Invalid }
+    fun read(&mut self, bytes: &mut [u8]) ReadFault!usize {
+        self.calls += 1;
+        if self.invalidCount { return !(bytes.len() + 1); }
+        if self.calls > 1 { return .Source(123)!; }
+        bytes[0] = b'x';
+        !1usize
+    }
+}
+
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let mut outputStorage: [u8; 64] = [0; 64];
+    let mut outputStorage: [u8; 8192] = [0; 8192];
     let mut backing = mem::FixedBufferAllocator::init(&mut outputStorage[..]);
     let allocator: &mut mem::Allocator = &mut backing;
     let mut output = collections::ArrayList[u8]::init();
@@ -1303,6 +1318,30 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if output.len() != 3usize or output.asSlice()[2] != b'c' or limitedReader.remaining() != 2usize {
         return process::ExitCode(5)!;
     }
+
+    output.clear();
+    let mut unlimited = io::FixedBufferReader::init(b"ok");
+    match io::readToEnd(&mut unlimited, allocator, usize::MAX, &mut output) {
+        !() => {},
+        _ => return process::ExitCode(21)!,
+    }
+    if output.len() != 2usize { return process::ExitCode(22)!; }
+    output.clear();
+    let mut faulty: FaultReader = .{ calls: 0, invalidCount: false };
+    match io::readToEnd(&mut faulty, allocator, 4, &mut output) {
+        io::ReadToEndError[ReadFault]::Read(ReadFault::Source(123))! => {},
+        _ => return process::ExitCode(23)!,
+    }
+    if output.len() != 1usize or output.asSlice()[0] != b'x' {
+        return process::ExitCode(24)!;
+    }
+    output.clear();
+    let mut invalid: FaultReader = .{ calls: 0, invalidCount: true };
+    match io::readToEnd(&mut invalid, allocator, 4, &mut output) {
+        io::ReadToEndError[ReadFault]::Read(ReadFault::Invalid)! => {},
+        _ => return process::ExitCode(25)!,
+    }
+    if output.len() != 0usize { return process::ExitCode(26)!; }
 
     let mut smallStorage: [u8; 8] = [0; 8];
     let mut smallBacking = mem::FixedBufferAllocator::init(&mut smallStorage[..]);

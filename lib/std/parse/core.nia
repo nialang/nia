@@ -1,5 +1,6 @@
 using super::ascii::AsciiUnit;
 using root::slice;
+using root::option;
 
 pub enum Error: i32 {
     Empty = 1,
@@ -49,18 +50,12 @@ where Unit: Sized
     }
 }
 
-fun asciiIs[U](unit: U, ch: char) bool
-where U: AsciiUnit
-{
-    unit.asciiCode() == (ch as u32)
-}
-
 fun digitValue[U](unit: U) ?u32
 where U: AsciiUnit
 {
     let code = unit.asciiCode();
-    if code >= ('0' as u32) and code <= ('9' as u32) {
-        ?(code - ('0' as u32))
+    if unit.digit() is ?digit {
+        ?(digit as u32)
     } else if code >= ('a' as u32) and code <= ('z' as u32) {
         ?((code - ('a' as u32)) + 10)
     } else if code >= ('A' as u32) and code <= ('Z' as u32) {
@@ -73,19 +68,19 @@ where U: AsciiUnit
 fun isHexPrefix[U](unit: U) bool
 where U: AsciiUnit
 {
-    asciiIs[U](unit, 'x') or asciiIs[U](unit, 'X')
+    unit.isAscii('x') or unit.isAscii('X')
 }
 
 fun isBinaryPrefix[U](unit: U) bool
 where U: AsciiUnit
 {
-    asciiIs[U](unit, 'b') or asciiIs[U](unit, 'B')
+    unit.isAscii('b') or unit.isAscii('B')
 }
 
 fun isOctalPrefix[U](unit: U) bool
 where U: AsciiUnit
 {
-    asciiIs[U](unit, 'o') or asciiIs[U](unit, 'O')
+    unit.isAscii('o') or unit.isAscii('O')
 }
 
 fun asciiEquals[U](input: &[U], text: &[char]) bool
@@ -96,7 +91,7 @@ where U: AsciiUnit
     }
     let mut index = 0;
     for &unit in input {
-        if not asciiIs[U](unit, text[index]) {
+        if not unit.isAscii(text[index]) {
             return false;
         }
         index += 1;
@@ -112,11 +107,11 @@ where U: AsciiUnit
     }
 
     let first = input[0];
-    if asciiIs[U](first, '-') or asciiIs[U](first, '+') {
+    if first.isAscii('-') or first.isAscii('+') {
         if not allowSign {
             return .InvalidSign!;
         }
-        !.{ negative: asciiIs[U](first, '-'), digitsStart: 1 }
+        !.{ negative: first.isAscii('-'), digitsStart: 1 }
     } else {
         !.{ negative: false, digitsStart: 0 }
     }
@@ -131,12 +126,7 @@ where U: AsciiUnit
     let mut value: u128 = 0;
     let wideRadix = radix as u128;
     for &unit in &input[start..] {
-        let mut digit: u32;
-        if digitValue[U](unit) is ?value {
-            digit = value;
-        } else {
-            return .InvalidDigit!;
-        }
+        let digit = digitValue[U](unit).okOr(Error::InvalidDigit).?;
         if digit >= radix {
             return .InvalidDigit!;
         }
@@ -166,7 +156,7 @@ where U: AsciiUnit
     let sign = parseSign[U](input, allowSign).?;
     let mut digitsStart = sign.digitsStart;
     let mut radix: u32 = 10;
-    if digitsStart + 1 < input.len() and asciiIs[U](input[digitsStart], '0') {
+    if digitsStart + 1 < input.len() and input[digitsStart].isAscii('0') {
         let marker = input[digitsStart + 1];
         if isHexPrefix[U](marker) {
             radix = 16;

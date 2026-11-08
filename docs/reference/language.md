@@ -775,13 +775,13 @@ parameters are substituted in every variant payload and each concrete
 instantiation has its own representation:
 
 ```nia
-enum Result[T, N: usize] {
+enum Packet[T, N: usize] {
     Value(T),
     Bytes([u8; N]),
     Empty,
 }
 
-fun example() Result[i32, 4] {
+fun example() Packet[i32, 4] {
     .Value(7)
 }
 ```

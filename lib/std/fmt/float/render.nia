@@ -1,153 +1,131 @@
-// Decimal layout, sign, alignment, and streaming writer dispatch.
+// A layout is planned once, then measured and streamed from the same pieces.
+// Width/precision overflow is rejected before the writer sees any bytes.
 
 using root::cmp;
-using root::math::checked;
 using root::option;
+using root::math::float::decimal::Decimal;
 using root::fmt::formatter::Formatter;
-using root::fmt::integer;
 using root::fmt::spec::{FormatAlignment, FormatSpec};
 using root::fmt::traits::Error;
-using super::candidate::Candidate;
 
-enum RenderMode {
-    Shortest,
-    Scientific,
-    Fixed(usize),
+enum Piece {
+    Digits(usize, usize),
+    Zeros(usize),
+    Byte(u8),
+    Exponent(i32),
 }
 
-fun decimalExponentDigits(exponent: i32) usize {
-    let mut magnitude = if exponent < 0 { -exponent } else { exponent } as u32;
-    let mut count: usize = 1;
-    while magnitude >= 10 {
-        magnitude /= 10;
-        count += 1;
+// Fixed layout: integer digits/zeros, dot, then leading zeros/digits/trailing
+// zeros (at most six pieces). Scientific layout uses at most five pieces.
+const layoutCapacity: usize = 6;
+
+struct Layout {
+    pieces: [Piece; layoutCapacity],
+    used: usize,
+    length: usize,
+}
+
+extend Piece {
+    fun len(self) usize {
+        match self {
+            .Digits(start, end) => end - start,
+            .Zeros(count) => count,
+            .Byte(_) => 1,
+            .Exponent(exponent) => {
+                let mut magnitude = if exponent < 0 { -exponent } else { exponent } as u32;
+                let mut length: usize = if exponent < 0 { 2 } else { 1 };
+                while magnitude >= 10 {
+                    magnitude /= 10;
+                    length += 1;
+                }
+                length
+            },
+        }
     }
-    count
-}
 
-fun fixedShortestLength(candidate: &Candidate, alternate: bool) usize {
-    let point = candidate.len as i32 + candidate.exponent10;
-    if point <= 0 {
-        2 + (-point) as usize + candidate.len
-    } else if point >= candidate.len as i32 {
-        point as usize + if alternate { 1usize } else { 0usize }
-    } else {
-        candidate.len + 1
+    fun write(self, formatter: &mut Formatter, candidate: &Decimal) Error!() {
+        match self {
+            .Digits(start, end) => formatter.writeBytes(&candidate.asSlice()[start..end]),
+            .Zeros(count) => formatter.writeFill('0', count),
+            .Byte(byte) => formatter.writeByte(byte),
+            .Exponent(exponent) => {
+                if exponent < 0 { formatter.writeByte(b'-').?; }
+                let magnitude = if exponent < 0 { -exponent } else { exponent };
+                formatter.writeUnsigned(magnitude as u128)
+            },
+        }
     }
 }
 
-fun scientificShortestLength(candidate: &Candidate, alternate: bool) usize {
-    let exponent = candidate.len as i32 + candidate.exponent10 - 1;
-    1usize + (if candidate.len > 1 or alternate { 1usize } else { 0usize })
-        + candidate.len - 1usize
-        + 1usize
-        + (if exponent < 0 { 1usize } else { 0usize })
-        + decimalExponentDigits(exponent)
-}
+extend Layout {
+    fun init() Layout { .{ pieces: [Piece::Zeros(0); layoutCapacity], used: 0, length: 0 } }
 
-fun fixedPrecisionLength(candidate: &Candidate, precision: usize, alternate: bool) Error!usize {
-    let point = candidate.len as i64 + candidate.exponent10 as i64;
-    let integerLength = if point <= 0 { 1usize } else { point as usize };
-    let decimalPointLength = if precision != 0 or alternate { 1usize } else { 0usize };
-    match integerLength.checkedAdd(decimalPointLength) {
-        ?length => length.checkedAdd(precision).okOr(Error::InvalidTemplate),
-        null => .InvalidTemplate!,
+    fun push(&mut self, piece: Piece) Error!() {
+        self.length = self.length.checkedAdd(piece.len()).okOr(Error::InvalidTemplate).?;
+        self.pieces[self.used] = piece;
+        self.used += 1;
+        !()
     }
-}
 
-fun writeSign(formatter: &mut Formatter, negative: bool, signPlus: bool) Error!() {
-    if negative {
-        formatter.writeByte(b'-')
-    } else if signPlus {
-        formatter.writeByte(b'+')
-    } else {
+    fun write(&self, formatter: &mut Formatter, candidate: &Decimal) Error!() {
+        for &piece in &self.pieces[..self.used] { piece.write(formatter, candidate).?; }
         !()
     }
 }
 
-fun writeCandidateDigits(formatter: &mut Formatter, candidate: &Candidate, start: usize, end: usize) Error!() {
-    formatter.writeBytes(&candidate.digits[start..end])
-}
-
-fun writeZeros(formatter: &mut Formatter, count: usize) Error!() {
-    formatter.writeFill('0', count)
-}
-
-fun writeFixedShortest(formatter: &mut Formatter, candidate: &Candidate, alternate: bool) Error!() {
-    let point = candidate.len as i32 + candidate.exponent10;
+fun fixedLayout(candidate: &Decimal, precision: ?usize, alternate: bool) Error!Layout {
+    let mut layout = Layout::init();
+    let point = candidate.point();
     if point <= 0 {
-        formatter.writeByte(b'0').?;
-        formatter.writeByte(b'.').?;
-        writeZeros(formatter, (-point) as usize).?;
-        writeCandidateDigits(formatter, candidate, 0, candidate.len)
+        layout.push(.Byte(b'0')).?;
     } else {
-        let integerDigits = if point < candidate.len as i32 { point as usize } else { candidate.len };
-        writeCandidateDigits(formatter, candidate, 0, integerDigits).?;
-        if point > candidate.len as i32 {
-            writeZeros(formatter, (point - candidate.len as i32) as usize).?;
-        }
-        if point < candidate.len as i32 {
-            formatter.writeByte(b'.').?;
-            writeCandidateDigits(formatter, candidate, integerDigits, candidate.len)
-        } else if alternate {
-            formatter.writeByte(b'.')
-        } else {
-            !()
+        layout.push(.Digits(0, cmp::min(point as usize, candidate.len()))).?;
+        if point > candidate.len() as i64 {
+            layout.push(.Zeros(point as usize - candidate.len())).?;
         }
     }
+    let fraction = match precision {
+        ?count => count,
+        null => if point < candidate.len() as i64 { (candidate.len() as i64 - point) as usize } else { 0usize },
+    };
+    if fraction != 0 or alternate { layout.push(.Byte(b'.')).?; }
+    if fraction != 0 {
+        let leading = if point < 0 { cmp::min((-point) as usize, fraction) } else { 0usize };
+        if leading != 0 { layout.push(.Zeros(leading)).?; }
+        let start = if point > 0 { cmp::min(point as usize, candidate.len()) } else { 0usize };
+        let count = cmp::min(candidate.len() - start, fraction - leading);
+        if count != 0 { layout.push(.Digits(start, start + count)).?; }
+        if fraction > leading + count { layout.push(.Zeros(fraction - leading - count)).?; }
+    }
+    !layout
 }
 
-fun writeScientificShortest(formatter: &mut Formatter, candidate: &Candidate, alternate: bool) Error!() {
-    formatter.writeByte(candidate.digits[0]).?;
-    if candidate.len > 1 or alternate {
-        formatter.writeByte(b'.').?;
-        writeCandidateDigits(formatter, candidate, 1, candidate.len).?;
+fun scientificLayout(candidate: &Decimal, alternate: bool) Error!Layout {
+    let mut layout = Layout::init();
+    layout.push(.Digits(0, 1)).?;
+    if candidate.len() > 1 or alternate {
+        layout.push(.Byte(b'.')).?;
+        layout.push(.Digits(1, candidate.len())).?;
     }
-    formatter.writeByte(b'e').?;
-    let exponent = candidate.len as i32 + candidate.exponent10 - 1;
-    if exponent < 0 { formatter.writeByte(b'-').?; }
-    let magnitude = if exponent < 0 { -exponent } else { exponent };
-    formatter.writeUnsigned(magnitude as u128)
+    layout.push(.Byte(b'e')).?;
+    layout.push(.Exponent(candidate.exponent())).?;
+    !layout
 }
 
-fun writeFixedPrecision(formatter: &mut Formatter, candidate: &Candidate, precision: usize, alternate: bool) Error!() {
-    let point = candidate.len as i64 + candidate.exponent10 as i64;
-    if point <= 0 {
-        formatter.writeByte(b'0').?;
-    } else {
-        let integerDigits = if point < candidate.len as i64 { point as usize } else { candidate.len };
-        writeCandidateDigits(formatter, candidate, 0, integerDigits).?;
-        if point > candidate.len as i64 {
-            writeZeros(formatter, (point - candidate.len as i64) as usize).?;
-        }
-    }
-    if precision != 0 or alternate { formatter.writeByte(b'.').?; }
-    if precision == 0 { return !(); }
-
-    let mut written: usize = 0;
-    if point < 0 {
-        let leadingZeros = cmp::min((-point) as usize, precision);
-        writeZeros(formatter, leadingZeros).?;
-        written += leadingZeros;
-    }
-    let start = if point > 0 { cmp::min(point as usize, candidate.len) } else { 0usize };
-    let available = candidate.len - start;
-    let count = cmp::min(available, precision - written);
-    writeCandidateDigits(formatter, candidate, start, start + count).?;
-    written += count;
-    writeZeros(formatter, precision - written)
+fun writeSign(formatter: &mut Formatter, negative: bool, signPlus: bool) Error!() {
+    if negative { formatter.writeByte(b'-') }
+    else if signPlus { formatter.writeByte(b'+') }
+    else { !() }
 }
 
-fun writeValue(
-    formatter: &mut Formatter,
-    candidate: &Candidate,
-    negative: bool,
-    spec: FormatSpec,
-    mode: RenderMode,
-    contentLength: usize,
-) Error!() {
+pub(super) fun write(formatter: &mut Formatter, candidate: &Decimal, negative: bool, spec: FormatSpec) Error!() {
+    let fixed = fixedLayout(candidate, spec.precision(), spec.alternate()).?;
+    let layout = if spec.precision().isPresent() { fixed } else {
+        let scientific = scientificLayout(candidate, spec.alternate()).?;
+        if scientific.length < fixed.length { scientific } else { fixed }
+    };
     let signLength: usize = if negative or spec.signPlus() { 1 } else { 0 };
-    let totalLength = contentLength.checkedAdd(signLength).okOr(Error::InvalidTemplate).?;
+    let totalLength = layout.length.checkedAdd(signLength).okOr(Error::InvalidTemplate).?;
     let padding = if spec.width() > totalLength { spec.width() - totalLength } else { 0 };
     let zeroPad = spec.fill() == '0' and spec.alignment() == FormatAlignment::Right;
     if zeroPad {
@@ -157,30 +135,6 @@ fun writeValue(
         formatter.writePaddingBefore(totalLength, spec).?;
         writeSign(formatter, negative, spec.signPlus()).?;
     }
-    match mode {
-        .Fixed(precision) => writeFixedPrecision(formatter, candidate, precision, spec.alternate()).?,
-        .Scientific => writeScientificShortest(formatter, candidate, spec.alternate()).?,
-        .Shortest => writeFixedShortest(formatter, candidate, spec.alternate()).?,
-    }
+    layout.write(formatter, candidate).?;
     if zeroPad { !() } else { formatter.writePaddingAfter(totalLength, spec) }
-}
-
-pub(super) fun write(
-    formatter: &mut Formatter,
-    candidate: &Candidate,
-    negative: bool,
-    spec: FormatSpec,
-) Error!() {
-    let (mode, contentLength) = if spec.precision() is ?precision {
-        (RenderMode::Fixed(precision), fixedPrecisionLength(candidate, precision, spec.alternate()).?)
-    } else {
-        let fixedLength = fixedShortestLength(candidate, spec.alternate());
-        let scientificLength = scientificShortestLength(candidate, spec.alternate());
-        if scientificLength < fixedLength {
-            (RenderMode::Scientific, scientificLength)
-        } else {
-            (RenderMode::Shortest, fixedLength)
-        }
-    };
-    writeValue(formatter, candidate, negative, spec, mode, contentLength)
 }

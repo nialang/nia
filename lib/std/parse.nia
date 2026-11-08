@@ -1,9 +1,7 @@
 pub(root) module core;
 pub(root) module ascii;
-pub module float;
+module float;
 
 using root::parse::core;
-using root::parse::float;
 
 pub using core::{Error, From, FromRadix};
-pub using float::{parse32, parse64};

@@ -13,53 +13,56 @@ fn float_bit_access_and_classification_follow_ieee754_fields() {
     std::fs::write(
         &source,
         r#"
-using std::{math::float, process};
-using std::parse as floatParse;
+using std::process;
+using std::parse;
+using std::math::BinaryFloat;
 using std::{fmt, io};
 
+fun isFiniteFloat[F](value: F) bool where F: BinaryFloat { value.isFinite() }
+
 fun parsesNegativeZero(input: &[u8]) bool {
-    match floatParse::parse64(input) {
-        !value => float::toBits64(value) == 0x8000000000000000u64,
+    match input.parse[f64]() {
+        !value => value.toBits() == 0x8000000000000000u64,
         error! => { _ = error; false },
     }
 }
 
 fun parsesOneTenth(input: &[u8]) bool {
-    match floatParse::parse64(input) {
-        !value => float::toBits64(value) == 0x3fb999999999999au64,
+    match input.parse[f64]() {
+        !value => value.toBits() == 0x3fb999999999999au64,
         error! => { _ = error; false },
     }
 }
 
 fun parses32As(input: &[u8], bits: u32) bool {
-    match floatParse::parse32(input) {
-        !value => float::toBits32(value) == bits,
+    match input.parse[f32]() {
+        !value => (value.toBits() as u32) == bits,
         error! => { _ = error; false },
     }
 }
 
 fun parses64As(input: &[u8], bits: u64) bool {
-    match floatParse::parse64(input) {
-        !value => float::toBits64(value) == bits,
+    match input.parse[f64]() {
+        !value => value.toBits() == bits,
         error! => { _ = error; false },
     }
 }
 
 fun rejectsFloat(input: &[u8]) bool {
-    match floatParse::parse64(input) {
+    match input.parse[f64]() {
         !value => { _ = value; false },
-        floatParse::Error::InvalidDigit! => true,
-        floatParse::Error::Empty! => true,
-        floatParse::Error::InvalidSign! => true,
-        floatParse::Error::Overflow! => true,
+        parse::Error::InvalidDigit! => true,
+        parse::Error::Empty! => true,
+        parse::Error::InvalidSign! => true,
+        parse::Error::Overflow! => true,
         error! => { _ = error; false },
     }
 }
 
 fun overflows64(input: &[u8]) bool {
-    match floatParse::parse64(input) {
+    match input.parse[f64]() {
         !value => { _ = value; false },
-        floatParse::Error::Overflow! => true,
+        parse::Error::Overflow! => true,
         error! => { _ = error; false },
     }
 }
@@ -68,7 +71,7 @@ fun writeFloat(value: f64, buffer: &mut [u8]) fmt::Error!usize {
     let mut output = io::FixedBufferWriter::init(buffer);
     let writer: &mut fmt::FormatWriter = &mut output;
     let mut formatter = fmt::Formatter::init(writer);
-    formatter.writeFloat64(value).?;
+    formatter.writeFloat(value).?;
     !output.len()
 }
 
@@ -76,7 +79,7 @@ fun writeFloat32(value: f32, buffer: &mut [u8]) fmt::Error!usize {
     let mut output = io::FixedBufferWriter::init(buffer);
     let writer: &mut fmt::FormatWriter = &mut output;
     let mut formatter = fmt::Formatter::init(writer);
-    formatter.writeFloat32(value).?;
+    formatter.writeFloat(value).?;
     !output.len()
 }
 
@@ -168,25 +171,25 @@ fun rejectsUnrepresentableFloatPrecision(buffer: &mut [u8]) bool {
 }
 
 fun float64RoundTrips(bits: u64, buffer: &mut [u8]) bool {
-    let value = float::fromBits64(bits);
+    let value = [f64]::fromBits((bits) as u64);
     let length = match writeFloat(value, buffer) {
         !length => length,
         error! => { _ = error; return false; },
     };
-    match floatParse::parse64(&buffer[0..length]) {
-        !parsed => float::toBits64(parsed) == bits,
+    match (&buffer[0..length]).parse[f64]() {
+        !parsed => (parsed).toBits() == bits,
         error! => { _ = error; false },
     }
 }
 
 fun float32RoundTrips(bits: u32, buffer: &mut [u8]) bool {
-    let value = float::fromBits32(bits);
+    let value = [f32]::fromBits((bits) as u64);
     let length = match writeFloat32(value, buffer) {
         !length => length,
         error! => { _ = error; return false; },
     };
-    match floatParse::parse32(&buffer[0..length]) {
-        !parsed => float::toBits32(parsed) == bits,
+    match (&buffer[0..length]).parse[f32]() {
+        !parsed => ((parsed).toBits() as u32) == bits,
         error! => { _ = error; false },
     }
 }
@@ -258,9 +261,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if not rejectsFloat(b"+1") or not rejectsFloat(b"NaN") or not rejectsFloat(b" 1") {
         return process::ExitCode(17)!;
     }
-    match floatParse::parse64(b"1.7976931348623159e308") {
+    match (b"1.7976931348623159e308").parse[f64]() {
         !value => { _ = value; return process::ExitCode(18)!; },
-        floatParse::Error::Overflow! => {},
+        parse::Error::Overflow! => {},
         error! => { _ = error; return process::ExitCode(19)!; },
     }
     if not parses64As(b"1e-999999999999999999999", 0u64)
@@ -360,7 +363,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
         floatIndex += 1;
     }
-    let minSubnormalLen = writeFloat(float::fromBits64(1u64), &mut rendered[..]).?;
+    let minSubnormalLen = writeFloat([f64]::fromBits((1u64) as u64), &mut rendered[..]).?;
     if minSubnormalLen != 6usize
         or rendered[0] != b'5'
         or rendered[1] != b'e'
@@ -371,7 +374,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     {
         return process::ExitCode(24)!;
     }
-    let minSubnormal32Len = writeFloat32(float::fromBits32(1u32), &mut rendered[..]).?;
+    let minSubnormal32Len = writeFloat32([f32]::fromBits((1u32) as u64), &mut rendered[..]).?;
     if minSubnormal32Len != 5usize
         or rendered[0] != b'1'
         or rendered[1] != b'e'
@@ -397,7 +400,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         or not floatSpecEquals(0.5, ?0usize, false, b"0", &mut rendered[..])
         or not floatSpecEquals(1.5, ?0usize, false, b"2", &mut rendered[..])
         or not floatSpecEquals(-0.5, ?0usize, false, b"-0", &mut rendered[..])
-        or not floatSpecEquals(float::fromBits64(1u64), ?0usize, false, b"0", &mut rendered[..])
+        or not floatSpecEquals([f64]::fromBits((1u64) as u64), ?0usize, false, b"0", &mut rendered[..])
         or not floatSpecEquals(0.05, ?1usize, false, b"0.1", &mut rendered[..])
         or not floatSpecEquals(0.15, ?1usize, false, b"0.1", &mut rendered[..])
         or not floatSpecEquals(9.999, ?2usize, false, b"10.00", &mut rendered[..])
@@ -438,37 +441,37 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if rounded32IntegerLen != 1usize or rendered[0] != b'2' {
         return process::ExitCode(39)!;
     }
-    let negativeZero32 = float::fromBits32(0x80000000u32);
-    if float::toBits32(negativeZero32) != 0x80000000u32 or not float::signBit32(negativeZero32) {
+    let negativeZero32 = [f32]::fromBits((0x80000000u32) as u64);
+    if ((negativeZero32).toBits() as u32) != 0x80000000u32 or not (negativeZero32).signBit() {
         return process::ExitCode(1)!;
     }
-    let subnormal32 = float::fromBits32(1u32);
-    if not float::isFinite32(subnormal32) or float::isNan32(subnormal32) or float::isInfinite32(subnormal32) {
+    let subnormal32 = [f32]::fromBits((1u32) as u64);
+    if not isFiniteFloat(subnormal32) or (subnormal32).isNan() or (subnormal32).isInfinite() {
         return process::ExitCode(2)!;
     }
-    let infinity32 = float::fromBits32(0x7f800000u32);
-    if not float::isInfinite32(infinity32) or float::isFinite32(infinity32) or float::isNan32(infinity32) {
+    let infinity32 = [f32]::fromBits((0x7f800000u32) as u64);
+    if not (infinity32).isInfinite() or (infinity32).isFinite() or (infinity32).isNan() {
         return process::ExitCode(3)!;
     }
-    let nan32 = float::fromBits32(0x7fc00000u32);
-    if not float::isNan32(nan32) or float::isFinite32(nan32) or float::isInfinite32(nan32) {
+    let nan32 = [f32]::fromBits((0x7fc00000u32) as u64);
+    if not (nan32).isNan() or (nan32).isFinite() or (nan32).isInfinite() {
         return process::ExitCode(4)!;
     }
 
-    let negativeZero64 = float::fromBits64(0x8000000000000000u64);
-    if float::toBits64(negativeZero64) != 0x8000000000000000u64 or not float::signBit64(negativeZero64) {
+    let negativeZero64 = [f64]::fromBits((0x8000000000000000u64) as u64);
+    if (negativeZero64).toBits() != 0x8000000000000000u64 or not (negativeZero64).signBit() {
         return process::ExitCode(5)!;
     }
-    let subnormal64 = float::fromBits64(1u64);
-    if not float::isFinite64(subnormal64) or float::isNan64(subnormal64) or float::isInfinite64(subnormal64) {
+    let subnormal64 = [f64]::fromBits((1u64) as u64);
+    if not (subnormal64).isFinite() or (subnormal64).isNan() or (subnormal64).isInfinite() {
         return process::ExitCode(6)!;
     }
-    let infinity64 = float::fromBits64(0x7ff0000000000000u64);
-    if not float::isInfinite64(infinity64) or float::isFinite64(infinity64) or float::isNan64(infinity64) {
+    let infinity64 = [f64]::fromBits((0x7ff0000000000000u64) as u64);
+    if not (infinity64).isInfinite() or (infinity64).isFinite() or (infinity64).isNan() {
         return process::ExitCode(7)!;
     }
-    let nan64 = float::fromBits64(0x7ff8000000000000u64);
-    if not float::isNan64(nan64) or float::isFinite64(nan64) or float::isInfinite64(nan64) {
+    let nan64 = [f64]::fromBits((0x7ff8000000000000u64) as u64);
+    if not (nan64).isNan() or (nan64).isFinite() or (nan64).isInfinite() {
         return process::ExitCode(8)!;
     }
     !()
@@ -501,7 +504,7 @@ fn float_formatter_validates_before_output_and_propagates_short_writer_failure()
     std::fs::write(
         &source,
         r#"
-using std::{fmt, io, math::float, process};
+using std::{fmt, io, process};
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
@@ -509,20 +512,20 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let mut output = io::FixedBufferWriter::init(&mut bytes[..]);
     let writer: &mut fmt::FormatWriter = &mut output;
     let mut formatter = fmt::Formatter::init(writer);
-    match formatter.writeFloat64(float::fromBits64(0x7ff0000000000000u64)) {
+    match formatter.writeFloat([f64]::fromBits((0x7ff0000000000000u64) as u64)) {
         fmt::Error::NonFinite! => {},
         _ => return process::ExitCode(1)!,
     }
-    match formatter.writeFloat32(float::fromBits32(0xffc00000u32)) {
+    match formatter.writeFloat([f32]::fromBits((0xffc00000u32) as u64)) {
         fmt::Error::NonFinite! => {},
         _ => return process::ExitCode(2)!,
     }
-    match formatter.writeFloat64Spec(1.0, fmt::FormatSpec::lowerHex()) {
+    match formatter.writeFloatSpec(1.0, fmt::FormatSpec::lowerHex()) {
         fmt::Error::InvalidTemplate! => {},
         _ => return process::ExitCode(3)!,
     }
     if output.len() != 0 { return process::ExitCode(4)!; }
-    match formatter.writeFloat64(1.25) {
+    match formatter.writeFloat(1.25) {
         fmt::Error::Write! => {},
         _ => return process::ExitCode(5)!,
     }
@@ -559,20 +562,20 @@ fn float_decimal_parser_matches_host_round_trip_samples() {
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     let mut program = String::from(
         r#"
-using std::{math::float, process};
-using std::parse as floatParse;
+using std::process;
+using std::parse;
 using std::{fmt, io};
 
 fun matches64(input: &[u8], expected: u64) bool {
-    match floatParse::parse64(input) {
-        !value => float::toBits64(value) == expected,
+    match input.parse[f64]() {
+        !value => value.toBits() == expected,
         error! => { _ = error; false },
     }
 }
 
 fun matches32(input: &[u8], expected: u32) bool {
-    match floatParse::parse32(input) {
-        !value => float::toBits32(value) == expected,
+    match input.parse[f32]() {
+        !value => (value.toBits() as u32) == expected,
         error! => { _ = error; false },
     }
 }
@@ -690,7 +693,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
             if index < 8 {
                 writeln!(
                     program,
-                    "    if shortestDigits64(float::fromBits64(0x{:016x}u64)) != {shortest_digits}usize {{ return process::ExitCode(3)!; }}",
+                    "    if shortestDigits64([f64]::fromBits((0x{:016x}u64) as u64)) != {shortest_digits}usize {{ return process::ExitCode(3)!; }}",
                     state
                 )
                 .expect("append f64 shortestness sample");
@@ -749,7 +752,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
             if index < 8 {
                 writeln!(
                     program,
-                    "    if shortestDigits32(float::fromBits32(0x{:08x}u32)) != {shortest_digits}usize {{ return process::ExitCode(4)!; }}",
+                    "    if shortestDigits32([f32]::fromBits((0x{:08x}u32) as u64)) != {shortest_digits}usize {{ return process::ExitCode(4)!; }}",
                     bits
                 )
                 .expect("append f32 shortestness sample");
@@ -786,61 +789,61 @@ fn float_decimal_parser_fuzzes_random_host_decimals() {
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     let mut program = String::from(
         r#"
-using std::{math::float, process};
-using std::parse as floatParse;
+using std::process;
+using std::parse;
 
 fun matches64(input: &[u8], expected: u64) bool {
-    match floatParse::parse64(input) {
-        !value => float::toBits64(value) == expected,
+    match input.parse[f64]() {
+        !value => value.toBits() == expected,
         error! => { _ = error; false },
     }
 }
 
 fun matches32(input: &[u8], expected: u32) bool {
-    match floatParse::parse32(input) {
-        !value => float::toBits32(value) == expected,
+    match input.parse[f32]() {
+        !value => (value.toBits() as u32) == expected,
         error! => { _ = error; false },
     }
 }
 
 fun overflows64(input: &[u8]) bool {
-    match floatParse::parse64(input) {
+    match input.parse[f64]() {
         !value => { _ = value; false },
-        floatParse::Error::Overflow! => true,
+        parse::Error::Overflow! => true,
         error! => { _ = error; false },
     }
 }
 
 fun overflows32(input: &[u8]) bool {
-    match floatParse::parse32(input) {
+    match input.parse[f32]() {
         !value => { _ = value; false },
-        floatParse::Error::Overflow! => true,
+        parse::Error::Overflow! => true,
         error! => { _ = error; false },
     }
 }
 
 fun textMatches64(input: &[char], expected: u64) bool {
     match input.parse[f64]() {
-        !value => float::toBits64(value) == expected,
+        !value => value.toBits() == expected,
         _ => false,
     }
 }
 fun textOverflows64(input: &[char]) bool {
     match input.parse[f64]() {
-        floatParse::Error::Overflow! => true,
+        parse::Error::Overflow! => true,
         _ => false,
     }
 }
 
 fun textMatches32(input: &[char], expected: u32) bool {
     match input.parse[f32]() {
-        !value => float::toBits32(value) == expected,
+        !value => (value.toBits() as u32) == expected,
         _ => false,
     }
 }
 fun textOverflows32(input: &[char]) bool {
     match input.parse[f32]() {
-        floatParse::Error::Overflow! => true,
+        parse::Error::Overflow! => true,
         _ => false,
     }
 }
@@ -948,7 +951,7 @@ fn float_fixed_precision_matches_host_formatting_samples() {
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     let mut program = String::from(
         r#"
-using std::{fmt, io, math::float, process};
+using std::{fmt, io, process};
 
 fun matches64(value: f64, precision: usize, alternate: bool, expected: &[u8]) bool {
     let mut bytes: [u8; 1600] = [0; 1600];
@@ -1030,7 +1033,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
         writeln!(
             program,
-            "    if not matches64(float::fromBits64(0x{:016x}u64), {precision}usize, {alternate}, b\"{expected64}\") {{ return process::ExitCode({})!; }}",
+            "    if not matches64([f64]::fromBits((0x{:016x}u64) as u64), {precision}usize, {alternate}, b\"{expected64}\") {{ return process::ExitCode({})!; }}",
             bits64,
             index + 51,
         )
@@ -1051,7 +1054,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
         writeln!(
             program,
-            "    if not matches32(float::fromBits32(0x{:08x}u32), {precision32}usize, {alternate32}, b\"{expected32}\") {{ return process::ExitCode({})!; }}",
+            "    if not matches32([f32]::fromBits((0x{:08x}u32) as u64), {precision32}usize, {alternate32}, b\"{expected32}\") {{ return process::ExitCode({})!; }}",
             bits32,
             index + 1,
         )
@@ -1095,7 +1098,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
         writeln!(
             program,
-            "    if not matches64(float::fromBits64(0x{bits:016x}u64), {precision}usize, {alternate}, b\"{expected}\") {{ return process::ExitCode({})!; }}",
+            "    if not matches64([f64]::fromBits((0x{bits:016x}u64) as u64), {precision}usize, {alternate}, b\"{expected}\") {{ return process::ExitCode({})!; }}",
             101 + case_index
         )
         .expect("append f64 boundary formatting case");
@@ -1136,7 +1139,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
         writeln!(
             program,
-            "    if not matches32(float::fromBits32(0x{bits:08x}u32), {precision}usize, {alternate}, b\"{expected}\") {{ return process::ExitCode({})!; }}",
+            "    if not matches32([f32]::fromBits((0x{bits:08x}u32) as u64), {precision}usize, {alternate}, b\"{expected}\") {{ return process::ExitCode({})!; }}",
             151 + case_index
         )
         .expect("append f32 boundary formatting case");

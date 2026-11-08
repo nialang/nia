@@ -23,6 +23,14 @@ pub(super) struct Digits {
     len: usize,
 }
 
+extend Digits {
+    pub(super) fun zero() Digits {
+        let mut digits: Digits = .{ bytes: [0u8; digitCapacity], len: 1 };
+        digits.bytes[0] = b'0';
+        digits
+    }
+}
+
 extend BigUInt {
     pub(super) fun fromU64(value: u64) BigUInt {
         let mut result: BigUInt = .{ limbs: [0u32; limbCapacity], used: 0 };
@@ -40,7 +48,8 @@ extend BigUInt {
 
     fun multiplySmall(&mut self, factor: u32) () {
         let mut carry: u64 = 0;
-        // The carry flows from low limbs to high limbs.
+        // Carry flows low to high. Keep an indexed loop here: the measured
+        // iterMut version doubled conversion time on this hot limb pass.
         let mut index: usize = 0;
         while index < self.used {
             let product = self.limbs[index] as u64 * factor as u64 + carry;
@@ -79,7 +88,8 @@ extend BigUInt {
 
     fun divideSmall(&mut self, divisor: u32) u32 {
         let mut remainder: u64 = 0;
-        // Long division consumes the highest limb and passes its remainder down.
+        // Remainders flow high to low. As with multiplySmall, indexing avoids
+        // the measured iterMut overhead in this conversion hot loop.
         let mut index = self.used;
         while index != 0 {
             index -= 1;
@@ -95,9 +105,7 @@ extend BigUInt {
         let mut value = self.*;
         let mut result: Digits = .{ bytes: [0u8; digitCapacity], len: 0 };
         if value.used == 0 {
-            result.bytes[0] = b'0';
-            result.len = 1;
-            return result;
+            return Digits::zero();
         }
         // Base 10^9 turns hundreds of single-digit divisions into a small chunk pass.
         let mut chunks: [u32; chunkCapacity] = [0; chunkCapacity];

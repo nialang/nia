@@ -5,6 +5,7 @@
 
 using root::collections::ArrayList;
 using root::mem;
+using root::cmp;
 using root::result;
 using root::io::traits::Reader;
 
@@ -28,30 +29,22 @@ where R: Reader
     let mut chunk: [u8; 4096] = [0; 4096];
     loop {
         let remaining = maxBytes - output.len();
-        let request = if remaining < chunk.len() { remaining + 1 } else { chunk.len() };
+        // Probe one byte past the limit without overflowing even at usize::MAX.
+        let request = cmp::min(remaining, chunk.len() - 1) + 1;
         if remaining != 0 {
-            let additional = if remaining < chunk.len() { remaining } else { chunk.len() };
-            match output.reserveExact(allocator, additional) {
-                !() => {},
-                error! => return .Memory(error)!,
-            }
+            let additional = cmp::min(remaining, chunk.len());
+            output.reserveExact(allocator, additional).mapError(.Memory).?;
         }
         let bytes = &mut chunk[0..request];
-        let count = match reader.read(bytes) {
-            !count => count,
-            error! => return .Read(error)!,
-        };
+        let count = reader.read(bytes).mapError(.Read).?;
         if count > request {
             return .Read(reader.invalidRead())!;
         }
         if count == 0 {
             return !();
         }
-        let accepted = if count > remaining { remaining } else { count };
-        match output.appendSlice(allocator, &chunk[0..accepted]) {
-            !() => {},
-            error! => return .Memory(error)!,
-        }
+        let accepted = cmp::min(count, remaining);
+        output.appendSlice(allocator, &chunk[0..accepted]).mapError(.Memory).?;
         if count > remaining {
             return .LimitExceeded!;
         }

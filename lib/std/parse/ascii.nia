@@ -2,6 +2,19 @@
 
 pub(root) trait AsciiUnit : Sized {
     fun asciiCode(self) u32;
+
+    fun isAscii(self, character: char) bool {
+        self.asciiCode() == character as u32
+    }
+
+    fun digit(self) ?u8 {
+        let code = self.asciiCode();
+        if code >= ('0' as u32) and code <= ('9' as u32) {
+            ?((code - ('0' as u32)) as u8)
+        } else {
+            null
+        }
+    }
 }
 
 extend char : AsciiUnit {

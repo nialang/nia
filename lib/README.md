@@ -33,7 +33,7 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
 | `std::hash` | `Hash` and `Hasher` traits and the non-cryptographic hashers `Wyhash`, `SipHash13`, `SipHash24`, `XxHash64`, `Fnv1a32`, and `Fnv1a64` |
 | `std::io` | `Reader`/`Writer` traits, fixed and buffered adapters, file readers/writers, bounded `readToEnd`, `debugPrint` |
 | `std::iter` | Iterator adapters, ranges, and eager consumers such as `forEach` and `fold` |
-| `std::math` | Checked arithmetic traits (`CheckedAdd`, `CheckedMul`, ...); `math::float` for IEEE-754 bit access and classification |
+| `std::math` | Checked arithmetic traits (`CheckedAdd`, `CheckedMul`, ...); `BinaryFloat` for IEEE-754 bit access and classification |
 | `std::mem` | `Allocator` trait, `Block`/`Layout`, page, fixed-buffer, arena, general-purpose, and pool allocators, typed owners |
 | `std::os` | Low-level operating-system services, and the native interfaces `os::linux::syscall`, `os::windows::bindings`, and `os::macos::bindings` with their platform calling conventions and error results |
 | `std::option` | Operations on optional values (`?T`) |
@@ -115,9 +115,9 @@ placeholder keeps `{{` and `}}` unambiguous: they always mean literal braces.
 | a pointer `ptr`, passed as `&ptr` | alignment, fill, width, and `p`; prints the address. Passing `ptr` itself formats the value it points to |
 | a type of your own | `{}` only, unless the type implements `formatSpec` to accept more |
 
-`Formatter::writeFloat32` and `writeFloat64` write a finite value in its shortest
-round-trip form. `writeFloat32Spec` and `writeFloat64Spec` take a `FormatSpec`
-with the same float options as templates. These methods let custom formatters
+`Formatter::writeFloat` writes a finite value in its shortest
+round-trip form. `writeFloatSpec` takes a `FormatSpec`
+with the same float options as templates. These generic methods let custom formatters
 write float fields directly. Non-finite values return `NonFinite` (exit status
 33), while unsupported specifications return `InvalidTemplate`. Both fail before
 writing; a writer failure can leave partial output.
@@ -136,12 +136,20 @@ nothing. Implementing `fmt::Format` for a type of your own is shown in
 
 Import `std::parse` to use `"1.5".parse[f64]()` or `b"1.5".parse[f32]()`,
 just as for integers. All numeric `From` implementations use `parse::Error`.
-The byte entry points `parse32` and `parse64` use the same conversion.
 Float syntax accepts `[-]digits[.digits][e[+-]digits]` and `[-].digits`.
 An empty input returns `Empty`, a leading `+` returns `InvalidSign`, malformed
 syntax (including whitespace, non-ASCII digits, NaN and infinity spellings)
 returns `InvalidDigit`, and overflow returns `Overflow`. Underflow rounds to a
 subnormal or signed zero. Both widths round to nearest, ties to even.
+
+`math::BinaryFloat` is the public abstraction for generic IEEE-754 code.
+Built-in `f32` and `f64` values expose `isNan()`, `isInfinite()`, `isFinite()`,
+`signBit()`, and `toBits()` directly; `[f32]::fromBits(bits)` and
+`[f64]::fromBits(bits)` preserve the representation, including NaN payloads.
+Raw bits use `u64`; binary32 uses the low 32 bits and `fromBits` discards the
+upper bits. The trait's conversion representation is sealed inside the standard
+library so its generic parsing and formatting algorithms only accept supported
+IEEE layouts.
 
 ## Testing
 
