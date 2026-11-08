@@ -8,6 +8,7 @@ using root::option;
 using root::math::float as ieee;
 using root::math::float::decimal;
 using super::formatter::Formatter;
+using super::integer;
 using super::spec::{FormatAlignment, FormatPresentation, FormatSpec};
 using super::traits::{Error, Format};
 
@@ -239,12 +240,7 @@ fun writeSign(formatter: &mut Formatter, negative: bool, signPlus: bool) Error!(
 }
 
 fun writeCandidateDigits(formatter: &mut Formatter, candidate: Candidate, start: usize, end: usize) Error!() {
-    let mut index = start;
-    while index < end {
-        formatter.writeByte(candidate.digits[index]).?;
-        index += 1;
-    }
-    !()
+    formatter.writeBytes(&candidate.digits[start..end])
 }
 
 fun writeZeros(formatter: &mut Formatter, count: usize) Error!() {
@@ -284,20 +280,8 @@ fun writeScientificShortest(formatter: &mut Formatter, candidate: Candidate, alt
     formatter.writeByte(b'e').?;
     let exponent = candidate.len as i32 + candidate.exponent10 - 1;
     if exponent < 0 { formatter.writeByte(b'-').?; }
-    let mut magnitude = if exponent < 0 { -exponent } else { exponent } as u32;
-    let mut reversed: [u8; 12] = [0u8; 12];
-    let mut count: usize = 0;
-    while magnitude != 0 {
-        reversed[count] = b'0' + (magnitude % 10) as u8;
-        magnitude /= 10;
-        count += 1;
-    }
-    if count == 0 { return formatter.writeByte(b'0'); }
-    while count != 0 {
-        count -= 1;
-        formatter.writeByte(reversed[count]).?;
-    }
-    !()
+    let magnitude = if exponent < 0 { -exponent } else { exponent };
+    formatter.writeUnsigned(magnitude as u128)
 }
 
 fun writeFixedPrecision(formatter: &mut Formatter, candidate: Candidate, precision: usize, alternate: bool) Error!() {
