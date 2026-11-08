@@ -862,10 +862,8 @@ impl<'a> TypeResolver<'a> {
         match namespace {
             ResolvedNamespace::Module(module_id) => {
                 if let Some(surfaces) = self.public_surfaces {
-                    if let Some(child_module) = surfaces.visible_module(
-                        module_id,
-                        type_segment_name(segment)?,
-                        &|restriction| {
+                    if let Some(child_module) = surfaces
+                        .lookup_module(module_id, type_segment_name(segment)?, &|restriction| {
                             self.graph.is_some_and(|graph| {
                                 nia_imports::access_restriction_allows(
                                     restriction,
@@ -873,14 +871,13 @@ impl<'a> TypeResolver<'a> {
                                     self.defs.module_id,
                                 )
                             })
-                        },
-                    ) {
+                        })
+                        .into_visible()
+                    {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    if let Some(item) = surfaces.visible_type(
-                        module_id,
-                        type_segment_name(segment)?,
-                        &|restriction| {
+                    if let Some(item) = surfaces
+                        .lookup_type(module_id, type_segment_name(segment)?, &|restriction| {
                             self.graph.is_some_and(|graph| {
                                 nia_imports::access_restriction_allows(
                                     restriction,
@@ -888,8 +885,9 @@ impl<'a> TypeResolver<'a> {
                                     self.defs.module_id,
                                 )
                             })
-                        },
-                    ) {
+                        })
+                        .into_visible()
+                    {
                         return Some(ResolvedNamespace::Type(GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
@@ -922,8 +920,8 @@ impl<'a> TypeResolver<'a> {
         segment: &TypePathSegment,
     ) -> Option<TypeNameResolution> {
         if let Some(surfaces) = self.public_surfaces
-            && let Some(item) =
-                surfaces.visible_type(module_id, type_segment_name(segment)?, &|restriction| {
+            && let Some(item) = surfaces
+                .lookup_type(module_id, type_segment_name(segment)?, &|restriction| {
                     self.graph.is_some_and(|graph| {
                         nia_imports::access_restriction_allows(
                             restriction,
@@ -932,6 +930,7 @@ impl<'a> TypeResolver<'a> {
                         )
                     })
                 })
+                .into_visible()
         {
             let global = GlobalDefId {
                 module_id: item.target_module,
@@ -1199,8 +1198,8 @@ impl<'a> TypeResolver<'a> {
     ) -> Option<ResolvedNamespace> {
         match namespace {
             ResolvedNamespace::Module(module_id) => {
-                if let Some(surfaces) = self.public_surfaces {
-                    if let Some(child_module) = surfaces.visible_module(
+                let export_denial = if let Some(surfaces) = self.public_surfaces {
+                    let module_lookup = surfaces.lookup_module(
                         module_id,
                         type_segment_name(segment)?,
                         &|restriction| {
@@ -1212,10 +1211,11 @@ impl<'a> TypeResolver<'a> {
                                 )
                             })
                         },
-                    ) {
+                    );
+                    if let nia_defs::ExportLookup::Visible(child_module) = module_lookup {
                         return Some(ResolvedNamespace::Module(child_module));
                     }
-                    if let Some(item) = surfaces.visible_type(
+                    let type_lookup = surfaces.lookup_type(
                         module_id,
                         type_segment_name(segment)?,
                         &|restriction| {
@@ -1227,13 +1227,21 @@ impl<'a> TypeResolver<'a> {
                                 )
                             })
                         },
-                    ) {
+                    );
+                    if let nia_defs::ExportLookup::Visible(item) = type_lookup {
                         return Some(ResolvedNamespace::Type(GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
                         }));
                     }
-                }
+
+                    module_lookup
+                        .denial()
+                        .or_else(|| type_lookup.denial())
+                        .cloned()
+                } else {
+                    None
+                };
                 if let Some((child_module, visibility)) =
                     self.child_module_declaration(module_id, type_segment_name(segment)?)
                 {
@@ -1306,6 +1314,15 @@ impl<'a> TypeResolver<'a> {
                         None
                     }
                     DirectMember::Missing => {
+                        if let Some(denial) = export_denial {
+                            self.diagnostics.push(denial.diagnostic(
+                                "namespace",
+                                &self.symbol_name(*type_segment_name(segment)?),
+                                path_span,
+                            ));
+                            return None;
+                        }
+
                         let name = self.symbol_name(*type_segment_name(segment)?);
                         self.diagnostics.push(
                             Diagnostic::user_error(
@@ -1355,24 +1372,31 @@ impl<'a> TypeResolver<'a> {
             ));
             return TypeNameResolution::Error;
         };
-        if let Some(surfaces) = self.public_surfaces
-            && let Some(item) = surfaces.visible_type(module_id, &name, &|restriction| {
+        let export_denial = if let Some(surfaces) = self.public_surfaces {
+            let lookup = surfaces.lookup_type(module_id, &name, &|restriction| {
                 self.graph.is_some_and(|graph| {
                     nia_imports::access_restriction_allows(restriction, graph, self.defs.module_id)
                 })
-            })
-        {
-            let global = GlobalDefId {
-                module_id: item.target_module,
-                def_id: item.target_def_id,
-            };
-            if let Some(trait_id) = self.canonical_builtin_trait(global, &name) {
-                return TypeNameResolution::BuiltinTrait(trait_id);
+            });
+            match lookup {
+                nia_defs::ExportLookup::Visible(item) => {
+                    let global = GlobalDefId {
+                        module_id: item.target_module,
+                        def_id: item.target_def_id,
+                    };
+                    if let Some(trait_id) = self.canonical_builtin_trait(global, &name) {
+                        return TypeNameResolution::BuiltinTrait(trait_id);
+                    }
+                    self.node_qualified_type_names
+                        .insert(node_key.site().clone(), global);
+                    return TypeNameResolution::External(global);
+                }
+                nia_defs::ExportLookup::Inaccessible(denial) => Some(denial),
+                nia_defs::ExportLookup::Missing => None,
             }
-            self.node_qualified_type_names
-                .insert(node_key.site().clone(), global);
-            return TypeNameResolution::External(global);
-        }
+        } else {
+            None
+        };
         let def_id = match self.direct_type_member(module_id, &name) {
             DirectMember::Visible(def_id) => def_id,
             DirectMember::Inaccessible(def_id, visibility) => {
@@ -1394,6 +1418,12 @@ impl<'a> TypeResolver<'a> {
                 return TypeNameResolution::Error;
             }
             DirectMember::Missing => {
+                if let Some(denial) = export_denial {
+                    self.diagnostics
+                        .push(denial.diagnostic("type", path_text, span));
+                    return TypeNameResolution::Error;
+                }
+
                 let name_text = self.symbol_name(name);
                 let mut diagnostic = Diagnostic::user_error(
                     codes::NAME_RESOLUTION,

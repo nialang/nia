@@ -1189,21 +1189,8 @@ impl<'a> ValueResolver<'a> {
                     ));
                     return None;
                 };
-                if let Some(surfaces) = self.public_surfaces {
-                    if let Some(child_module) =
-                        surfaces.visible_module(module_id, &name, &|restriction| {
-                            self.graph.is_some_and(|graph| {
-                                nia_imports::access_restriction_allows(
-                                    restriction,
-                                    graph,
-                                    self.defs.module_id,
-                                )
-                            })
-                        })
-                    {
-                        return Some(ResolvedNamespace::Module(child_module));
-                    }
-                    if let Some(item) = surfaces.visible_type(module_id, &name, &|restriction| {
+                let export_denial = if let Some(surfaces) = self.public_surfaces {
+                    let module_lookup = surfaces.lookup_module(module_id, &name, &|restriction| {
                         self.graph.is_some_and(|graph| {
                             nia_imports::access_restriction_allows(
                                 restriction,
@@ -1211,7 +1198,20 @@ impl<'a> ValueResolver<'a> {
                                 self.defs.module_id,
                             )
                         })
-                    }) {
+                    });
+                    if let nia_defs::ExportLookup::Visible(child_module) = module_lookup {
+                        return Some(ResolvedNamespace::Module(child_module));
+                    }
+                    let type_lookup = surfaces.lookup_type(module_id, &name, &|restriction| {
+                        self.graph.is_some_and(|graph| {
+                            nia_imports::access_restriction_allows(
+                                restriction,
+                                graph,
+                                self.defs.module_id,
+                            )
+                        })
+                    });
+                    if let nia_defs::ExportLookup::Visible(item) = type_lookup {
                         let type_id = GlobalDefId {
                             module_id: item.target_module,
                             def_id: item.target_def_id,
@@ -1219,7 +1219,14 @@ impl<'a> ValueResolver<'a> {
                         self.insert_qualified_type_prefix(segment.node_key, type_id);
                         return Some(ResolvedNamespace::Type(type_id));
                     }
-                }
+
+                    module_lookup
+                        .denial()
+                        .or_else(|| type_lookup.denial())
+                        .cloned()
+                } else {
+                    None
+                };
                 if let Some((child_module, visibility)) =
                     self.child_module_declaration(module_id, &name)
                 {
@@ -1295,6 +1302,15 @@ impl<'a> ValueResolver<'a> {
                         None
                     }
                     DirectMember::Missing => {
+                        if let Some(denial) = export_denial {
+                            self.diagnostics.push(denial.diagnostic(
+                                "namespace",
+                                &self.symbol_name(name),
+                                segment.span,
+                            ));
+                            return None;
+                        }
+
                         let name = self.symbol_name(name);
                         self.diagnostics.push(
                             Diagnostic::user_error(codes::NAME_RESOLUTION, format!("unknown namespace `{name}`"))
@@ -1341,12 +1357,13 @@ impl<'a> ValueResolver<'a> {
             ));
             return;
         };
-        if let Some(surfaces) = self.public_surfaces {
-            if let Some(item) = surfaces.visible_value(module_id, &symbol, &|restriction| {
+        let export_denial = if let Some(surfaces) = self.public_surfaces {
+            let value_lookup = surfaces.lookup_value(module_id, &symbol, &|restriction| {
                 self.graph.is_some_and(|graph| {
                     nia_imports::access_restriction_allows(restriction, graph, self.defs.module_id)
                 })
-            }) {
+            });
+            if let nia_defs::ExportLookup::Visible(item) = value_lookup {
                 self.insert_qualified_value(
                     node_key,
                     GlobalDefId {
@@ -1359,11 +1376,12 @@ impl<'a> ValueResolver<'a> {
                 }
                 return;
             }
-            if let Some(item) = surfaces.visible_type(module_id, &symbol, &|restriction| {
+            let type_lookup = surfaces.lookup_type(module_id, &symbol, &|restriction| {
                 self.graph.is_some_and(|graph| {
                     nia_imports::access_restriction_allows(restriction, graph, self.defs.module_id)
                 })
-            }) {
+            });
+            if let nia_defs::ExportLookup::Visible(item) = type_lookup {
                 self.insert_qualified_type_prefix(
                     node_key,
                     GlobalDefId {
@@ -1373,21 +1391,23 @@ impl<'a> ValueResolver<'a> {
                 );
                 return;
             }
-            if surfaces
-                .visible_module(module_id, &symbol, &|restriction| {
-                    self.graph.is_some_and(|graph| {
-                        nia_imports::access_restriction_allows(
-                            restriction,
-                            graph,
-                            self.defs.module_id,
-                        )
-                    })
+            let module_lookup = surfaces.lookup_module(module_id, &symbol, &|restriction| {
+                self.graph.is_some_and(|graph| {
+                    nia_imports::access_restriction_allows(restriction, graph, self.defs.module_id)
                 })
-                .is_some()
-            {
+            });
+            if matches!(module_lookup, nia_defs::ExportLookup::Visible(_)) {
                 return;
             }
-        }
+
+            value_lookup
+                .denial()
+                .or_else(|| type_lookup.denial())
+                .or_else(|| module_lookup.denial())
+                .cloned()
+        } else {
+            None
+        };
         if let Some((_child_module, visibility)) = self.child_module_declaration(module_id, &symbol)
         {
             if self.module_declaration_visible(module_id, visibility) {
@@ -1487,6 +1507,12 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
             DirectMember::Missing => {
+                if let Some(denial) = export_denial {
+                    self.diagnostics
+                        .push(denial.diagnostic("value", path_text, span));
+                    return;
+                }
+
                 let symbol_text = self.symbol_name(symbol);
                 let mut diagnostic = Diagnostic::user_error(
                     codes::NAME_RESOLUTION,

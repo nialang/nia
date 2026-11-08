@@ -107,6 +107,7 @@ pub(crate) fn add_public_reexport_source_module(
         return Ok(None);
     };
     let facts = fact_memo.module_facade_facts(&node.path)?;
+    let mut selected = None;
     for source_path in facts.reexport_source_paths(name) {
         let source_path = processing.as_ref().map_or_else(
             || source_path.clone(),
@@ -132,9 +133,14 @@ pub(crate) fn add_public_reexport_source_module(
             fact_memo,
         );
         reexports.pop();
-        return source;
+        // Every matching route contributes declarations to the public surface.
+        // Taking the first route here would hide broader alternate routes.
+        let source = source?;
+        if selected.is_none() {
+            selected = source;
+        }
     }
-    Ok(None)
+    Ok(selected)
 }
 
 fn add_public_reexport_trait_method_provider_modules(

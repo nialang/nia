@@ -92,7 +92,7 @@ fun main(values: collections::TreeMap[i32, i32]) usize {
     assert_module_loaded(&program, "lib/std/collections/tree_map.nia");
     assert_module_loaded(&program, "lib/std/collections/tree_map/map.nia");
     assert_module_loaded(&program, "lib/std/collections/tree_map/storage.nia");
-    assert_module_loaded(&program, "lib/std/collections/tree_map/iterators.nia");
+    assert_module_not_loaded(&program, "lib/std/collections/tree_map/iterators.nia");
 }
 
 #[test]
@@ -114,7 +114,16 @@ fun main(values: collections::TreeMap[i32, i32]) usize {
 "#,
     );
 
-    let program = load_program(main_path.to_string_lossy().into_owned());
+    // Loading names does not infer the loop's trait obligation. The compiler
+    // requests its provider after resolving the nominal receiver type.
+    let program = load_program_with_trait_provider_demand_at_module(
+        &main_path,
+        ModuleMap::default(),
+        Some("TreeMap"),
+        "Iterable",
+        &[],
+        vec![sym("collections"), sym("tree_map"), sym("map")],
+    );
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(&program, "lib/std/collections/tree_map/map.nia");

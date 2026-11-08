@@ -106,7 +106,6 @@ pub fn compute_lexical_using_scopes_with_symbols<D: Borrow<DefCollection>>(
             accessing_module: current.module_id,
             surfaces,
             symbols,
-            mode: UsingLookupMode::Visible,
             imported_types: None,
             imported_scopes: None,
             lexical_namespaces: None,

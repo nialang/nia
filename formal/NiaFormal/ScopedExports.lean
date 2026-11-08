@@ -62,6 +62,39 @@ def restrict (scope : Scope) (restriction : Restriction) : Scope :=
 def intersect (left right : Scope) : Scope :=
   left.flatMap fun l => right.map (fun r => l ++ r)
 
+inductive LookupResult where
+  | missing | visible | inaccessible
+  deriving DecidableEq, Repr
+
+-- Classification consumes existence and the decision supplied by the access
+-- algebra. A reporting resolver must retain all three outcomes.
+def classify (present permitted : Bool) : LookupResult :=
+  if present then (if permitted then .visible else .inaccessible) else .missing
+
+theorem inaccessible_iff_present_and_denied (present permitted : Bool) :
+    Iff (classify present permitted = .inaccessible)
+      (And (present = true) (permitted = false)) := by
+  cases present <;> cases permitted <;> simp [classify]
+
+theorem missing_iff_absent (present permitted : Bool) :
+    Iff (classify present permitted = .missing) (present = false) := by
+  cases present <;> cases permitted <;> simp [classify]
+
+-- Providers carry directive restrictions, independently of the permission to
+-- spell the implementation namespace. Earlier directives still apply.
+def providerScope (scope : Scope) : Scope :=
+  scope.map fun route => route.filter fun r => r.kind == .item
+
+theorem provider_preserves_directive (scope : Scope) (owner : Nat) (v : Visibility) :
+    providerScope (restrict scope (Restriction.mk owner v .item)) =
+      restrict (providerScope scope) (Restriction.mk owner v .item) := by
+  simp [providerScope, restrict, List.map_map]
+
+theorem provider_drops_namespace (scope : Scope) (owner : Nat) (v : Visibility) :
+    providerScope (restrict scope (Restriction.mk owner v .moduleName)) =
+      providerScope scope := by
+  simp [providerScope, restrict, List.map_map]
+
 theorem union_routes (grant : Restriction -> Prop) (left right : Scope) :
     Iff (allows grant (left ++ right)) (Or (allows grant left) (allows grant right)) := by
   simp only [allows, List.mem_append]
@@ -174,13 +207,15 @@ example : names "rules" = [
   "alternate_routes", "restriction_preserved", "intersection_requires_both",
   "subsumed_route", "enum_variant_scope", "namespace_member_separation",
   "provider_publication_separation", "declaration_access_kind",
-  "guarded_provider_reachability"] := by native_decide
+  "guarded_provider_reachability", "export_access_classification",
+  "provider_scope_projection"] := by native_decide
 
 example : names "compiler_cases" = [
   "restricted_reexport_facades_work_inside_the_package_without_leaking",
   "facade_public_items_and_providers_do_not_publish_private_namespaces",
   "restricted_provider_publication_stays_within_its_scope",
   "restricted_reexport_alias_chains_do_not_widen_access",
-  "restricted_module_aliases_preserve_parent_and_package_boundaries"] := by native_decide
+  "restricted_module_aliases_preserve_parent_and_package_boundaries",
+  "restricted_export_diagnostics_cover_values_types_namespaces_and_selectors"] := by native_decide
 
 end NiaFormal.ScopedExports

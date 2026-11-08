@@ -36,7 +36,7 @@ mod using_expansion;
 pub use index::TypeExposureIndex;
 pub use lexical::{LexicalUsingScopes, compute_lexical_using_scopes_with_symbols};
 use using_expansion::{
-    ResolvedEntryKind, UsingExpansionContext, UsingFailure, UsingFailureCause, UsingLookupMode,
+    ResolvedEntryKind, UsingExpansionContext, UsingFailure, UsingFailureCause,
     collect_module_aliases, entry_already_present, expand_using, insert_into_surface,
     namespace_for, record_unresolved_using_names, root_module_for_segment,
 };
@@ -157,6 +157,12 @@ fn using_failure_diagnostic(
 ) -> Option<Diagnostic> {
     let (reason, failure_span, declaration_span, declaration_path) = match &failure.cause {
         UsingFailureCause::Invalid(diagnostic) => return Some(diagnostic.clone()),
+        UsingFailureCause::Inaccessible {
+            denial,
+            name,
+            kind,
+            span,
+        } => return Some(denial.diagnostic(kind, name, *span)),
         UsingFailureCause::Unresolved {
             reason: UnresolvedUsingReason::ModuleUnavailable,
             ..
@@ -191,9 +197,7 @@ fn using_failure_diagnostic(
     if let Some(declaration_span) = declaration_span {
         let message = match reason {
             UnresolvedUsingReason::Private => "the private item is declared here",
-            UnresolvedUsingReason::NotPublic => {
-                "the item is declared here and needs public visibility"
-            }
+            UnresolvedUsingReason::RestrictedExport => "the restricting export is here",
             UnresolvedUsingReason::NamespaceNotVisible => {
                 "the module is declared here without public visibility"
             }
@@ -353,37 +357,30 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                     accessing_module: defs.module_id,
                     surfaces: &surfaces,
                     symbols,
-                    mode: if using.visibility == Visibility::Public {
-                        UsingLookupMode::PublicOnly
-                    } else {
-                        UsingLookupMode::Visible
-                    },
                     imported_types: Some(&local_modules.types),
                     imported_scopes: Some(&local_modules),
                     lexical_namespaces: None,
                 };
                 let expansion = expand_using(&context, defs, using, &local_modules.modules);
-                // A public facade may intentionally publish an extension
-                // provider whose module namespace is package-private. Resolve
-                // the same directive in the local visible scope and retain
-                // only module entries as provider facts; item and namespace
-                // exports continue to use the public-only expansion below.
-                let provider_context = UsingExpansionContext {
-                    mode: UsingLookupMode::Visible,
-                    ..context
-                };
-                let provider_expansion =
-                    expand_using(&provider_context, defs, using, &local_modules.modules);
+                // Namespace and provider publication share source selection.
+                // A provider keeps the directive's capability scope while a
+                // namespace also retains its declaration's access restriction.
                 iteration_unresolved += expansion
                     .failures
                     .iter()
-                    .filter(|failure| matches!(failure.cause, UsingFailureCause::Unresolved { .. }))
+                    .filter(|failure| {
+                        matches!(
+                            failure.cause,
+                            UsingFailureCause::Unresolved { .. }
+                                | UsingFailureCause::Inaccessible { .. }
+                        )
+                    })
                     .count();
                 let mut surface = surfaces
                     .get(defs.module_id)
                     .cloned()
                     .unwrap_or_else(|| ModulePublicSurface::new(defs.module_id));
-                for entry in provider_expansion.entries {
+                for entry in &expansion.entries {
                     if let ResolvedEntryKind::Module(target_module) = entry.kind
                         && !surface.reexported_provider_modules.contains(&target_module)
                     {
@@ -397,7 +394,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                             target_module,
                             // Publishing a provider is an explicit capability;
                             // it does not publish its private namespace.
-                            nia_defs::ExportScope::declaration(defs.module_id, using.visibility),
+                            entry.scope.provider_publication(),
                         );
                     }
                 }
@@ -482,11 +479,6 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                 accessing_module: defs.module_id,
                 surfaces: &surfaces,
                 symbols,
-                mode: if using.visibility == Visibility::Public {
-                    UsingLookupMode::PublicOnly
-                } else {
-                    UsingLookupMode::Visible
-                },
                 imported_types: Some(&local_modules.types),
                 imported_scopes: Some(&local_modules),
                 lexical_namespaces: None,
@@ -501,7 +493,8 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                 && !using_host_waits_on_unprocessed_module(graph, defs.module_id, &using.host);
             for failure in &expansion.failures {
                 let report = match failure.cause {
-                    UsingFailureCause::Unresolved { .. } => lookup_final,
+                    UsingFailureCause::Unresolved { .. }
+                    | UsingFailureCause::Inaccessible { .. } => lookup_final,
                     UsingFailureCause::Invalid(_) => process_used_paths,
                 };
                 if report
@@ -590,18 +583,12 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
             .is_some_and(|node| node.process_used_paths);
         let mut scope = ModuleUsingScope::default();
         for using in &defs.module_usings {
-            let mode = if using.visibility == Visibility::Public {
-                UsingLookupMode::PublicOnly
-            } else {
-                UsingLookupMode::Visible
-            };
             let context = UsingExpansionContext {
                 defs_by_module: &defs_by_id,
                 graph,
                 accessing_module: defs.module_id,
                 surfaces,
                 symbols,
-                mode,
                 imported_types: Some(&scope.types),
                 imported_scopes: Some(&scope),
                 lexical_namespaces: None,

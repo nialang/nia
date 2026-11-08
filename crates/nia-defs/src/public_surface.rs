@@ -6,6 +6,8 @@ use nia_ids::ModuleId;
 
 mod export_scope;
 pub use export_scope::{ExportScope, SCOPED_EXPORT_RULE_NAMES};
+mod access;
+pub use access::{ExportDenial, ExportLookup};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
 
@@ -148,43 +150,46 @@ pub trait PublicSurfaceLookup {
         .unwrap_or_default()
     }
 
-    /// Looks up a module through export routes accessible to the caller.
-    fn visible_module(
+    /// Looks up an exported module, preserving access denial evidence.
+    fn lookup_module(
         &self,
         module: ModuleId,
         name: &SymbolId,
         allows: &dyn Fn(nia_ids::AccessRestriction) -> bool,
-    ) -> Option<ModuleId> {
-        let target = self.public_module(module, name)?;
-        self.export_scope(module, None, name)
-            .allows(allows)
-            .then_some(target)
+    ) -> ExportLookup<ModuleId> {
+        ExportLookup::with_access(
+            self.public_module(module, name),
+            || self.export_scope(module, None, name),
+            allows,
+        )
     }
 
-    /// Looks up a value through export routes accessible to the caller.
-    fn visible_value(
+    /// Looks up an exported value, preserving access denial evidence.
+    fn lookup_value(
         &self,
         module: ModuleId,
         name: &SymbolId,
         allows: &dyn Fn(nia_ids::AccessRestriction) -> bool,
-    ) -> Option<PublicItem> {
-        let item = self.public_value(module, name)?;
-        self.export_scope(module, Some(PublicNamespace::Value), name)
-            .allows(allows)
-            .then_some(item)
+    ) -> ExportLookup<PublicItem> {
+        ExportLookup::with_access(
+            self.public_value(module, name),
+            || self.export_scope(module, Some(PublicNamespace::Value), name),
+            allows,
+        )
     }
 
-    /// Looks up a type through export routes accessible to the caller.
-    fn visible_type(
+    /// Looks up an exported type, preserving access denial evidence.
+    fn lookup_type(
         &self,
         module: ModuleId,
         name: &SymbolId,
         allows: &dyn Fn(nia_ids::AccessRestriction) -> bool,
-    ) -> Option<PublicItem> {
-        let item = self.public_type(module, name)?;
-        self.export_scope(module, Some(PublicNamespace::Type), name)
-            .allows(allows)
-            .then_some(item)
+    ) -> ExportLookup<PublicItem> {
+        ExportLookup::with_access(
+            self.public_type(module, name),
+            || self.export_scope(module, Some(PublicNamespace::Type), name),
+            allows,
+        )
     }
 
     /// Looks up an exported child module.
@@ -284,8 +289,8 @@ pub enum UnresolvedUsingReason {
     UnknownName,
     /// The item exists but is private to another module.
     Private,
-    /// A public re-export requires the target item to be public.
-    NotPublic,
+    /// Every route to an exported name rejects the accessing module.
+    RestrictedExport,
     /// The selected namespace exists but is not visible from this module.
     NamespaceNotVisible,
     /// The host module is declared but its source could not be loaded; the
@@ -309,9 +314,10 @@ impl UnresolvedUsingReason {
                     "make `{name}` public in its defining module, or use it from an allowed scope"
                 ),
             ),
-            Self::NotPublic => (
-                format!("name `{name}` is unavailable because the imported item is not public"),
-                format!("add `pub` to `{name}` in its defining module"),
+            Self::RestrictedExport => (
+                format!("name `{name}` is unavailable because its export path restricts access"),
+                "use an allowed scope or change the restricting declaration or re-export"
+                    .to_string(),
             ),
             Self::NamespaceNotVisible => (
                 format!("name `{name}` is unavailable because its module is not visible here"),

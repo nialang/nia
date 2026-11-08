@@ -48,9 +48,9 @@ pub use extensions::{
     VisibleExtensionMethods, VisibleExtensionTarget, WhereBoundSignature, WherePredicateSignature,
 };
 pub use public_surface::{
-    ExportScope, ModulePublicSurface, ModuleUsingScope, PublicItem, PublicNamespace, PublicSource,
-    PublicSurfaceLookup, PublicSurfaces, SCOPED_EXPORT_RULE_NAMES, UnresolvedUsing,
-    UnresolvedUsingReason, UsingEntry, UsingScopeLookup,
+    ExportDenial, ExportLookup, ExportScope, ModulePublicSurface, ModuleUsingScope, PublicItem,
+    PublicNamespace, PublicSource, PublicSurfaceLookup, PublicSurfaces, SCOPED_EXPORT_RULE_NAMES,
+    UnresolvedUsing, UnresolvedUsingReason, UsingEntry, UsingScopeLookup,
 };
 
 /// Complete declaration and scope product for one module.

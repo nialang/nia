@@ -1,6 +1,54 @@
 use super::*;
 
 #[test]
+fn cached_reexport_selections_preserve_source_names_and_wildcard_requests() {
+    let root = temp_dir("cached_reexport_selections_preserve_source_names");
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let facade = SourcePath::new("facade.nia");
+    sources
+        .set_source(main.clone(), "fun main() () {}")
+        .expect("store main");
+    sources.set_source(facade.clone(), "pub using dep::source::Original as Renamed; pub using dep::{nested::{Member as Other}}; pub using dep::wild::*;").expect("store facade");
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert("dep", SourcePath::new("dep/root.nia"))
+        .expect("map dependency");
+    let cache = Arc::new(crate::frontend_cache::PersistentFrontendCache::new(
+        root.join("cache"),
+    ));
+    let first = frontend_cache_database(&main, &sources, module_map.clone(), cache.clone(), false);
+    let expected = first.expect_get(module_facade_facts_query(&first, &facade));
+    let reused = frontend_cache_database(&main, &sources, module_map, cache, false);
+    let actual = reused.expect_get(module_facade_facts_query(&reused, &facade));
+    assert_eq!(actual, expected);
+    for (name, exact, wildcard) in [
+        (
+            "Renamed",
+            vec![sym("source"), sym("Original")],
+            vec![sym("wild"), sym("Renamed")],
+        ),
+        (
+            "Other",
+            vec![sym("nested"), sym("Member")],
+            vec![sym("wild"), sym("Other")],
+        ),
+    ] {
+        let paths = actual
+            .reexport_source_paths(&sym(name))
+            .map(|path| path.segments().to_vec())
+            .collect::<Vec<_>>();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.contains(&exact), "{name}: {paths:?}");
+        assert!(paths.contains(&wildcard), "{name}: {paths:?}");
+    }
+    assert_eq!(
+        query_executions(&reused.query_trace().expect("query trace"), "parsed_module"),
+        0
+    );
+}
+
+#[test]
 fn persistent_facade_facts_reuse_body_stable_entries_and_recover_from_corruption() {
     let root = temp_dir("persistent_facade_facts_reuse_body_stable_entries_and_recover");
     let sources = SourceDatabase::new();

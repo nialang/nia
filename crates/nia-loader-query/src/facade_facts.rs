@@ -15,6 +15,10 @@ pub(crate) struct ModuleFacadeFacts {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct PublicReexportSource {
     pub(crate) exposed_name: Option<SymbolId>,
+    /// Complete source selection, including the original name of a renamed
+    /// member. For a wildcard this is its host; lookup appends the requested
+    /// name. Header-only traversal can therefore follow re-export chains
+    /// without selecting the facade's unrelated semantic dependencies.
     pub(crate) source: UsedModulePath,
 }
 
@@ -132,11 +136,19 @@ impl ModuleFacadeFacts {
     pub(crate) fn reexport_source_paths<'a>(
         &'a self,
         name: &'a SymbolId,
-    ) -> impl Iterator<Item = &'a UsedModulePath> + 'a {
+    ) -> impl Iterator<Item = UsedModulePath> + 'a {
         self.public_reexports
             .iter()
             .filter(move |reexport| reexport.exposes_name(name))
-            .map(|reexport| &reexport.source)
+            .map(move |reexport| {
+                if reexport.exposed_name.is_none() {
+                    reexport
+                        .source
+                        .with_appended_segments(std::slice::from_ref(name), false)
+                } else {
+                    reexport.source.clone()
+                }
+            })
     }
 
     pub(crate) fn provider_source_paths(&self) -> &[ProviderSource] {
@@ -203,7 +215,7 @@ fn collect_public_reexport_sources(
         UsingSelector::Single(name) => {
             sources.push(PublicReexportSource::exact(
                 name.alias.unwrap_or(name.name),
-                host_path.clone(),
+                host_path.with_appended_segments(std::slice::from_ref(&name.name), false),
             ));
         }
         UsingSelector::Group(items) => {
@@ -223,7 +235,7 @@ fn collect_public_reexport_sources_for_group_item(
         UsingGroupItem::Name(name) => {
             sources.push(PublicReexportSource::exact(
                 name.alias.unwrap_or(name.name),
-                host_path.clone(),
+                host_path.with_appended_segments(std::slice::from_ref(&name.name), false),
             ));
         }
         UsingGroupItem::Nested { host, selector } => {

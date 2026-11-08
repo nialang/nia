@@ -80,6 +80,13 @@ pub(super) struct UsingFailure {
 }
 
 pub(super) enum UsingFailureCause {
+    /// An exported name exists, but every route rejects the accessing module.
+    Inaccessible {
+        denial: nia_defs::ExportDenial,
+        name: String,
+        kind: &'static str,
+        span: Span,
+    },
     /// Lookup found no visible item for the selected name.
     Unresolved {
         reason: UnresolvedUsingReason,
@@ -166,16 +173,9 @@ pub(super) struct UsingExpansionContext<'a> {
     pub(super) accessing_module: ModuleId,
     pub(super) surfaces: &'a PublicSurfaces,
     pub(super) symbols: &'a dyn SymbolText,
-    pub(super) mode: UsingLookupMode,
     pub(super) imported_types: Option<&'a SymbolMap<UsingEntry>>,
     pub(super) imported_scopes: Option<&'a ModuleUsingScope>,
     pub(super) lexical_namespaces: Option<&'a std::collections::HashSet<SymbolId>>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum UsingLookupMode {
-    PublicOnly,
-    Visible,
 }
 
 #[derive(Clone)]
@@ -388,41 +388,14 @@ pub(super) fn visible_child_module(
     .then_some(target)
 }
 
-fn module_declaration_visible_for_wildcard(
-    mode: UsingLookupMode,
-    visibility: Visibility,
-    graph: &ModuleGraph,
-    declaring_module: ModuleId,
-    accessing_module: ModuleId,
-) -> bool {
-    match mode {
-        UsingLookupMode::PublicOnly => visibility == Visibility::Public,
-        UsingLookupMode::Visible => module_declaration_visibility_allows(
-            visibility,
-            graph,
-            declaring_module,
-            accessing_module,
-        ),
-    }
-}
-
 fn item_visibility_allows(
-    mode: UsingLookupMode,
     graph: &ModuleGraph,
     defining_module: ModuleId,
     accessing_module: ModuleId,
     visibility: Visibility,
 ) -> bool {
-    // `PublicOnly` is used while closing re-export surfaces. `Visible` is for
-    // local scopes and additionally permits private items in the accessing
-    // module, matching ordinary module name lookup.
-    match mode {
-        UsingLookupMode::PublicOnly => visibility == Visibility::Public,
-        UsingLookupMode::Visible => {
-            defining_module == accessing_module
-                || visibility_allows(visibility, graph, defining_module, accessing_module)
-        }
-    }
+    defining_module == accessing_module
+        || visibility_allows(visibility, graph, defining_module, accessing_module)
 }
 
 fn direct_item_entry(
@@ -436,7 +409,6 @@ fn direct_item_entry(
     let def = defs.defs.get(def_id)?;
     let namespace = namespace_for(def.kind)?;
     if !item_visibility_allows(
-        context.mode,
         context.graph,
         defs.module_id,
         context.accessing_module,
@@ -465,13 +437,12 @@ fn visible_direct_enum_namespace(
     accessing_module: ModuleId,
     module_id: ModuleId,
     name: &SymbolId,
-    mode: UsingLookupMode,
 ) -> Option<GlobalDefId> {
     let target_defs = defs_by_module.get(&module_id).copied()?;
     let def_id = target_defs.module_scope.types.get(name)?;
     let def = target_defs.defs.get(def_id)?;
     if def.kind != DefKind::Enum
-        || !item_visibility_allows(mode, graph, module_id, accessing_module, def.visibility)
+        || !item_visibility_allows(graph, module_id, accessing_module, def.visibility)
     {
         return None;
     }
@@ -582,6 +553,9 @@ pub(super) fn record_unresolved_using_names(
             declaration_path.clone(),
             *unavailable_module,
         ),
+        UsingFailureCause::Inaccessible { .. } => {
+            (UnresolvedUsingReason::RestrictedExport, None, None, None)
+        }
         UsingFailureCause::Invalid(_) => (UnresolvedUsingReason::UnknownName, None, None, None),
     };
     // A hidden declaration explains one selected name; a failed host path
@@ -696,9 +670,12 @@ fn expand_root_group_item(
                     kind: ResolvedEntryKind::Module(module_id),
                 }]);
             }
-            if let Some(module_id) =
-                visible_child_module_for_mode(context, current.module_id, &name.name)
-            {
+            if let Some(module_id) = visible_child_module(
+                context.graph,
+                context.accessing_module,
+                current.module_id,
+                &name.name,
+            ) {
                 return UsingExpansion::resolved(vec![ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
@@ -739,27 +716,6 @@ fn expand_root_group_item(
     }
 }
 
-pub(super) fn visible_child_module_for_mode(
-    context: &UsingExpansionContext<'_>,
-    parent_module: ModuleId,
-    name: &SymbolId,
-) -> Option<ModuleId> {
-    let parent = context.graph.get(parent_module)?;
-    let target = parent.children.get(name).copied()?;
-    let declaration = parent
-        .declarations
-        .iter()
-        .find(|declaration| &declaration.name == name && declaration.target == target)?;
-    module_declaration_visible_for_wildcard(
-        context.mode,
-        declaration.visibility,
-        context.graph,
-        parent_module,
-        context.accessing_module,
-    )
-    .then_some(target)
-}
-
 fn expand_module_host(
     context: &UsingExpansionContext<'_>,
     target_module: ModuleId,
@@ -778,8 +734,7 @@ fn expand_module_host(
             let mut entries = Vec::new();
             if let Some(parent) = context.graph.get(target_module) {
                 for declaration in &parent.declarations {
-                    if module_declaration_visible_for_wildcard(
-                        context.mode,
+                    if module_declaration_visibility_allows(
                         declaration.visibility,
                         context.graph,
                         target_module,
@@ -1019,7 +974,6 @@ fn resolve_public_namespace_segment(
     let graph = context.graph;
     let accessing_module = context.accessing_module;
     let surfaces = context.surfaces;
-    let mode = context.mode;
     let symbols = context.symbols;
     let Some(segment_name) = path_segment_name(segment) else {
         return match segment.kind {
@@ -1108,7 +1062,6 @@ fn resolve_public_namespace_segment(
         accessing_module,
         module_id,
         &segment_name,
-        mode,
     ) {
         let visibility = defs_by_module[&enum_id.module_id]
             .defs
@@ -1121,6 +1074,11 @@ fn resolve_public_namespace_segment(
         ));
     }
     if let Some(hidden) = hidden_namespace_failure(context, module_id, &segment_name, segment.span)
+    {
+        return Err(hidden);
+    }
+    if let Some(hidden) =
+        hidden_export_failure(context, surface, &segment_name, segment.span, false)
     {
         return Err(hidden);
     }
@@ -1238,6 +1196,11 @@ fn resolve_module_single(
         {
             return UsingExpansion::failed(hidden);
         }
+        if let Some(hidden) =
+            hidden_export_failure(context, target_surface, &name.name, name.name_span, true)
+        {
+            return UsingExpansion::failed(hidden);
+        }
         let (reason, declaration_span) = context
             .defs_by_module
             .get(&target_module)
@@ -1249,19 +1212,12 @@ fn resolve_module_single(
                     .or_else(|| target_defs.module_scope.types.get(&name.name))?;
                 let def = target_defs.defs.get(def_id)?;
                 (!item_visibility_allows(
-                    context.mode,
                     context.graph,
                     target_module,
                     context.accessing_module,
                     def.visibility,
                 ))
-                .then_some((
-                    match context.mode {
-                        UsingLookupMode::PublicOnly => UnresolvedUsingReason::NotPublic,
-                        UsingLookupMode::Visible => UnresolvedUsingReason::Private,
-                    },
-                    Some(def.span),
-                ))
+                .then_some((UnresolvedUsingReason::Private, Some(def.span)))
             })
             .unwrap_or((UnresolvedUsingReason::UnknownName, None));
         let declaration_path = declaration_span.and_then(|_| {
@@ -1497,15 +1453,42 @@ fn public_item_name_span(item: &PublicItem) -> Span {
     item.name_span
 }
 
-fn scope_visible(context: &UsingExpansionContext<'_>, scope: &nia_defs::ExportScope) -> bool {
-    scope.allows(&|restriction| match context.mode {
-        UsingLookupMode::PublicOnly => false,
-        UsingLookupMode::Visible => nia_imports::access_restriction_allows(
-            restriction,
-            context.graph,
-            context.accessing_module,
-        ),
-    })
+fn restriction_visible(
+    context: &UsingExpansionContext<'_>,
+    restriction: nia_ids::AccessRestriction,
+) -> bool {
+    nia_imports::access_restriction_allows(restriction, context.graph, context.accessing_module)
+}
+
+fn surface_module_lookup(
+    context: &UsingExpansionContext<'_>,
+    surface: &ModulePublicSurface,
+    name: &SymbolId,
+) -> nia_defs::ExportLookup<ModuleId> {
+    nia_defs::ExportLookup::with_access(
+        surface.lookup_module(name),
+        || surface.module_scopes.get(name).cloned().unwrap_or_default(),
+        &|restriction| restriction_visible(context, restriction),
+    )
+}
+
+fn surface_item_lookup<'a>(
+    context: &UsingExpansionContext<'_>,
+    surface: &'a ModulePublicSurface,
+    namespace: PublicNamespace,
+    name: &SymbolId,
+) -> nia_defs::ExportLookup<&'a PublicItem> {
+    nia_defs::ExportLookup::with_access(
+        surface.lookup(namespace, name),
+        || {
+            surface
+                .item_scopes
+                .get(&(namespace, *name))
+                .cloned()
+                .unwrap_or_default()
+        },
+        &|restriction| restriction_visible(context, restriction),
+    )
 }
 
 pub(super) fn visible_surface_module(
@@ -1513,12 +1496,7 @@ pub(super) fn visible_surface_module(
     surface: &ModulePublicSurface,
     name: &SymbolId,
 ) -> Option<ModuleId> {
-    surface
-        .module_scopes
-        .get(name)
-        .is_none_or(|scope| scope_visible(context, scope))
-        .then(|| surface.lookup_module(name))
-        .flatten()
+    surface_module_lookup(context, surface, name).into_visible()
 }
 
 fn visible_surface_item<'a>(
@@ -1527,12 +1505,38 @@ fn visible_surface_item<'a>(
     namespace: PublicNamespace,
     name: &SymbolId,
 ) -> Option<&'a PublicItem> {
-    surface
-        .item_scopes
-        .get(&(namespace, *name))
-        .is_none_or(|scope| scope_visible(context, scope))
-        .then(|| surface.lookup(namespace, name))
-        .flatten()
+    surface_item_lookup(context, surface, namespace, name).into_visible()
+}
+
+// Called only after the candidate namespaces and direct declarations have all
+// failed. Wildcard selectors deliberately skip inaccessible exports silently.
+fn hidden_export_failure(
+    context: &UsingExpansionContext<'_>,
+    surface: &ModulePublicSurface,
+    name: &SymbolId,
+    span: Span,
+    include_values: bool,
+) -> Option<UsingFailureCause> {
+    let module = surface_module_lookup(context, surface, name);
+    let ty = surface_item_lookup(context, surface, PublicNamespace::Type, name);
+    let value =
+        include_values.then(|| surface_item_lookup(context, surface, PublicNamespace::Value, name));
+    let (denial, kind) = module
+        .denial()
+        .map(|denial| (denial, "module namespace"))
+        .or_else(|| ty.denial().map(|denial| (denial, "type")))
+        .or_else(|| {
+            value
+                .as_ref()
+                .and_then(|lookup| lookup.denial())
+                .map(|denial| (denial, "value"))
+        })?;
+    Some(UsingFailureCause::Inaccessible {
+        denial: denial.clone(),
+        name: symbol_text(context.symbols, *name),
+        kind,
+        span,
+    })
 }
 
 fn child_scope(

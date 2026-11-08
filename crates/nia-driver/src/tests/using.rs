@@ -3,6 +3,87 @@ use super::common::*;
 use nia_imports::{ModuleMap, SourcePath};
 
 #[test]
+fn restricted_export_diagnostics_cover_values_types_namespaces_and_selectors() {
+    let root = temp_dir("restricted_export_diagnostics");
+    write(
+        &root.join("root.nia"),
+        "pub module facade; pub module source; pub module relay;",
+    );
+    write(
+        &root.join("source.nia"),
+        "pub fun answer() i32 { 42 } pub struct Number {} pub enum Choice { Yes } pub module sub;",
+    );
+    write(&root.join("source/sub.nia"), "pub fun answer() i32 { 42 }");
+    write(
+        &root.join("facade.nia"),
+        "pub(root) using root::source::{answer as value, Number, Choice, sub as Scoped};",
+    );
+    // A public directive preserves the earlier restriction; it does not reject
+    // the declaration or silently drop the selected name.
+    write(
+        &root.join("relay.nia"),
+        "pub using root::facade::{value, Number, Choice, Scoped};",
+    );
+    let mut map = ModuleMap::new();
+    map.insert(
+        "dep",
+        SourcePath::new(root.join("root.nia").to_string_lossy()),
+    )
+    .unwrap();
+    let external = root.join("external.nia");
+    for source in [
+        "using dep::relay; fun main() i32 { relay::value() }",
+        "using dep::relay; fun main(x: relay::Number) i32 { _ = x; 0 }",
+        "using dep::relay; fun main() i32 { _ = relay::Choice::Yes; 0 }",
+        "using dep::relay; fun main() i32 { relay::Scoped::answer() }",
+        "using dep::relay::value; fun main() i32 { value() }",
+        "using dep::relay::{Number, Scoped}; fun main() i32 { 0 }",
+        "using dep::relay::Scoped::answer; fun main() i32 { answer() }",
+        "using dep::relay; fun main() i32 { using relay::value; value() }",
+    ] {
+        write(&external, source);
+        let program = check_program_with_map(external.to_string_lossy().into_owned(), map.clone());
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+            .collect::<Vec<_>>();
+        assert!(!errors.is_empty(), "{source}");
+        for error in errors {
+            if error.diagnostic.cause.is_some() {
+                assert!(
+                    error
+                        .diagnostic
+                        .summary
+                        .contains("export path restricts access"),
+                    "{source}: {error:?}"
+                );
+                continue;
+            }
+            assert!(
+                error
+                    .diagnostic
+                    .summary
+                    .contains("is restricted by its export path"),
+                "{source}: {error:?}"
+            );
+            assert!(
+                error
+                    .diagnostic
+                    .notes
+                    .iter()
+                    .any(|note| note.contains("pub(root)")),
+                "{source}: {error:?}"
+            );
+            assert!(
+                error.path.as_str().ends_with("external.nia"),
+                "re-export declarations must remain valid: {error:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn restricted_reexport_facades_work_inside_the_package_without_leaking() {
     let root = temp_dir("restricted_reexport_facades");
     write(
@@ -102,6 +183,7 @@ fn restricted_provider_publication_stays_within_its_scope() {
         &root.join("root.nia"),
         r#"
 pub module api;
+pub module relay;
 module types;
 module methods;
 module client;
@@ -125,6 +207,10 @@ extend Number { pub fun answer(&self) i32 { self.value } }
         &root.join("client.nia"),
         "using root::api; pub fun run() i32 { let n: api::Number = .{ value: 42 }; n.answer() }",
     );
+    write(
+        &root.join("relay.nia"),
+        "pub using root::api::{Number, methods};",
+    );
     let program = check_program(root.join("root.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program.diagnostics);
 
@@ -139,16 +225,22 @@ extend Number { pub fun answer(&self) i32 { self.value } }
         SourcePath::new(root.join("root.nia").to_string_lossy()),
     )
     .unwrap();
-    let program = check_program_with_map(external.to_string_lossy().into_owned(), map);
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .starts_with("unknown method")
-            && diagnostic.diagnostic.summary.contains("answer")),
-        "{:?}",
-        program.diagnostics
-    );
+    for facade in ["api", "relay"] {
+        write(
+            &external,
+            &format!("using dep::{facade}; fun main(n: {facade}::Number) i32 {{ n.answer() }}"),
+        );
+        let program = check_program_with_map(external.to_string_lossy().into_owned(), map.clone());
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .starts_with("unknown method")
+                && diagnostic.diagnostic.summary.contains("answer")),
+            "{:?}",
+            program.diagnostics
+        );
+    }
 }
 
 #[test]
@@ -296,6 +388,7 @@ fn formal_export_scope_manifest_matches_compiler_cases() {
             "restricted_provider_publication_stays_within_its_scope",
             "restricted_reexport_alias_chains_do_not_widen_access",
             "restricted_module_aliases_preserve_parent_and_package_boundaries",
+            "restricted_export_diagnostics_cover_values_types_namespaces_and_selectors",
         ])
     );
 }
@@ -443,7 +536,7 @@ pub fun add(a: i32, b: i32) i32 { a + b }
 }
 
 #[test]
-fn pub_using_wildcard_does_not_reexport_non_public_child_modules() {
+fn pub_using_wildcard_preserves_non_public_child_module_restrictions() {
     let root = temp_dir("pub_using_wildcard_does_not_reexport_non_public_child_modules");
     write(
         &root.join("main.nia"),
@@ -488,14 +581,17 @@ pub fun secret() i32 { 42 }
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("unknown namespace `internal`")
-            || diagnostic
+        program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
                 .diagnostic
                 .summary
-                .contains("unknown value `internal`")),
+                .contains("is restricted by its export path")
+                && diagnostic
+                    .diagnostic
+                    .notes
+                    .iter()
+                    .any(|note| note.contains("pub(super)"))
+        }),
         "{:?}",
         program.diagnostics
     );

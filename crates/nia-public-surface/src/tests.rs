@@ -56,7 +56,8 @@ fn private_module_export_scopes_preserve_descendant_access_for_every_selector() 
             assert_eq!(
                 result
                     .surfaces
-                    .visible_module(api, &name(alias), &allows)
+                    .lookup_module(api, &name(alias), &allows)
+                    .into_visible()
                     .is_some(),
                 caller != root,
                 "{directive}"
@@ -121,14 +122,16 @@ fn restricted_reexports_preserve_access_across_namespaces_and_chains() {
             assert_eq!(
                 result
                     .surfaces
-                    .visible_value(facade, &name("value"), &allows)
+                    .lookup_value(facade, &name("value"), &allows)
+                    .into_visible()
                     .is_some(),
                 caller == client
             );
             assert_eq!(
                 result
                     .surfaces
-                    .visible_type(facade, &name("Widget"), &allows)
+                    .lookup_type(facade, &name("Widget"), &allows)
+                    .into_visible()
                     .is_some(),
                 caller == client
             );
@@ -169,14 +172,16 @@ fn parent_reexports_stay_within_the_parent_subtree() {
         assert_eq!(
             result
                 .surfaces
-                .visible_value(api, &name("value"), &allows)
+                .lookup_value(api, &name("value"), &allows)
+                .into_visible()
                 .is_some(),
             caller == group || caller == child
         );
         assert_eq!(
             result
                 .surfaces
-                .visible_type(api, &name("Widget"), &allows)
+                .lookup_type(api, &name("Widget"), &allows)
+                .into_visible()
                 .is_some(),
             caller == group || caller == child
         );

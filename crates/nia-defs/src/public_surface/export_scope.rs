@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use super::ExportDenial;
 use nia_ids::{AccessRestriction, ModuleId, Visibility};
 
 /// Alternative export routes, each bounded by the selected name and its re-exports.
@@ -21,6 +22,8 @@ pub const SCOPED_EXPORT_RULE_NAMES: &[&str] = &[
     "provider_publication_separation",
     "declaration_access_kind",
     "guarded_provider_reachability",
+    "export_access_classification",
+    "provider_scope_projection",
 ];
 
 impl Default for ExportScope {
@@ -74,6 +77,48 @@ impl ExportScope {
         self.routes
             .iter()
             .any(|route| route.iter().all(|&restriction| allows(restriction)))
+    }
+
+    /// Checks every route, retaining the failed conditions only on denial.
+    pub fn check_access(
+        &self,
+        allows: &dyn Fn(AccessRestriction) -> bool,
+    ) -> Result<(), ExportDenial> {
+        if self.allows(allows) {
+            return Ok(());
+        }
+        Err(ExportDenial {
+            blocked_routes: self
+                .routes
+                .iter()
+                .map(|route| {
+                    route
+                        .iter()
+                        .copied()
+                        .filter(|&restriction| !allows(restriction))
+                        .collect()
+                })
+                .collect(),
+        })
+    }
+
+    /// Publishing a module's extensions does not publish its namespace.
+    /// Namespace declaration restrictions therefore do not constrain this
+    /// capability, but every earlier re-export directive still does.
+    pub fn provider_publication(&self) -> Self {
+        let mut result = Self { routes: Vec::new() };
+        for route in &self.routes {
+            result.merge(Self {
+                routes: vec![
+                    route
+                        .iter()
+                        .copied()
+                        .filter(|restriction| matches!(restriction, AccessRestriction::Item(..)))
+                        .collect(),
+                ],
+            });
+        }
+        result
     }
 
     /// Requires both scopes, combining their alternative routes.
@@ -171,6 +216,37 @@ mod tests {
                         intersection.allows(&grant),
                         left.allows(&grant) && right.allows(&grant)
                     );
+                    for present in [false, true] {
+                        let lookup = super::super::ExportLookup::with_access(
+                            present.then_some(7),
+                            || intersection.clone(),
+                            &grant,
+                        );
+                        match lookup {
+                            super::super::ExportLookup::Missing => assert!(!present),
+                            super::super::ExportLookup::Visible(value) => {
+                                assert_eq!(value, 7);
+                                assert!(present && intersection.allows(&grant));
+                            }
+                            super::super::ExportLookup::Inaccessible(denial) => {
+                                assert!(present && !intersection.allows(&grant));
+                                assert_eq!(denial.blocked_routes.len(), intersection.routes.len());
+                                for (blocked, route) in
+                                    denial.blocked_routes.iter().zip(&intersection.routes)
+                                {
+                                    assert!(!blocked.is_empty());
+                                    assert_eq!(
+                                        *blocked,
+                                        route
+                                            .iter()
+                                            .copied()
+                                            .filter(|&r| !grant(r))
+                                            .collect::<Vec<_>>()
+                                    );
+                                }
+                            }
+                        }
+                    }
                     let restricted = union.clone().restricted(owners[0], Visibility::PublicRoot);
                     assert_eq!(
                         restricted.allows(&grant),
@@ -218,5 +294,33 @@ mod tests {
         assert!(union.merge(ExportScope::default()));
         assert_eq!(union, ExportScope::default());
         assert!(!union.merge(a));
+    }
+
+    #[test]
+    fn provider_projection_preserves_directive_limits_and_drops_namespace_limits() {
+        let allocator = nia_ids::ModuleIdAllocator::new().unwrap();
+        let owner = allocator.allocate().unwrap();
+        let relay = allocator.allocate().unwrap();
+        let scope = ExportScope::module_declaration(owner, Visibility::Private)
+            .restricted(relay, Visibility::PublicRoot);
+        assert!(!scope.allows(&|r| matches!(r, AccessRestriction::Item(..))));
+        assert_eq!(
+            scope.provider_publication(),
+            ExportScope::declaration(relay, Visibility::PublicRoot)
+        );
+        assert!(!scope.provider_publication().allows(&|_| false));
+        assert!(
+            ExportScope::module_declaration(owner, Visibility::Private)
+                .provider_publication()
+                .allows(&|_| false)
+        );
+        assert!(matches!(
+            super::super::ExportLookup::<()>::with_access(
+                None,
+                || panic!("missing name must not query scope"),
+                &|_| panic!("missing name must not check access")
+            ),
+            super::super::ExportLookup::Missing
+        ));
     }
 }

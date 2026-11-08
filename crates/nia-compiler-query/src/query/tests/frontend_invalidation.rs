@@ -37,13 +37,15 @@ fn restricted_export_edits_invalidate_name_scopes_without_replacing_targets() {
         let lookup = QueryPublicSurfaceLookup::new(&database.db);
         assert_eq!(
             lookup
-                .visible_type(api, &sym("Number"), &deny_restricted)
+                .lookup_type(api, &sym("Number"), &deny_restricted)
+                .into_visible()
                 .is_some(),
             expected
         );
         assert_eq!(
             lookup
-                .visible_value(api, &sym("answer"), &deny_restricted)
+                .lookup_value(api, &sym("answer"), &deny_restricted)
+                .into_visible()
                 .is_some(),
             expected
         );

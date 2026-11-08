@@ -17,7 +17,6 @@ pub(crate) fn collect_module_aliases(
             accessing_module: current.module_id,
             surfaces,
             symbols,
-            mode: UsingLookupMode::Visible,
             imported_types: Some(&scope.types),
             imported_scopes: Some(&scope),
             lexical_namespaces: None,

@@ -10,6 +10,31 @@ use std::{fs, path::Path, sync::Arc};
 const VISIBILITY_MATRIX: &str = include_str!("../../../../formal/NiaFormal/visibility_matrix.json");
 
 #[test]
+fn reexported_nominal_loop_discovers_its_iterator_provider_on_semantic_demand() {
+    let root = temp_dir("reexported_nominal_loop_provider_demand");
+    let main = root.join("main.nia");
+    write(
+        &main,
+        r#"
+using std::collections::TreeMap;
+fun count(values: TreeMap[i32, i32]) usize {
+    let mut count = 0usize;
+    for _ in values { count += 1; }
+    count
+}
+"#,
+    );
+    let program = check_program(main.to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+    assert!(program.graph.modules().any(|module| {
+        module
+            .path
+            .as_str()
+            .ends_with("collections/tree_map/iterators.nia")
+    }));
+}
+
+#[test]
 fn formal_visibility_manifest_matches_import_regression_groups() {
     let matrix: serde_json::Value =
         serde_json::from_str(VISIBILITY_MATRIX).expect("formal visibility matrix is valid JSON");

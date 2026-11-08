@@ -8,13 +8,16 @@
     "namespace_member_separation",
     "provider_publication_separation",
     "declaration_access_kind",
-    "guarded_provider_reachability"
+    "guarded_provider_reachability",
+    "export_access_classification",
+    "provider_scope_projection"
   ],
   "compiler_cases": [
     "restricted_reexport_facades_work_inside_the_package_without_leaking",
     "facade_public_items_and_providers_do_not_publish_private_namespaces",
     "restricted_provider_publication_stays_within_its_scope",
     "restricted_reexport_alias_chains_do_not_widen_access",
-    "restricted_module_aliases_preserve_parent_and_package_boundaries"
+    "restricted_module_aliases_preserve_parent_and_package_boundaries",
+    "restricted_export_diagnostics_cover_values_types_namespaces_and_selectors"
   ]
 }

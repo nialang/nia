@@ -102,12 +102,17 @@ name cannot remove that name's earlier restriction. It proves that intersecting
 routes requires both scopes, removing subsumed routes preserves access, and
 enum variants retain their enum's scope. It distinguishes item/module access
 restrictions and proves that provider reachability requires a permitted incoming
-publication route or a direct import.
+publication route or a direct import. Lookup classification distinguishes absent
+names from access denial. Provider scope projection removes namespace declaration
+restrictions while preserving every earlier re-export directive restriction.
 
 A host namespace only needs to be accessible to the exporting module. A public
 member selected from a private implementation module retains the member's own
 scope. Publishing a provider grants an explicit capability under the publishing
-directive's scope; it does not grant access to the private module namespace.
+directive's scope and earlier publication restrictions; it does not grant access
+to the private module namespace. Source selection uses the exporting module's
+ordinary access permissions for every selector; publishing a name retains its
+access routes instead of requiring unrestricted visibility.
 
 [export_scope_matrix.json](NiaFormal/export_scope_matrix.json)
 connects these rules to cross-package driver regressions in
