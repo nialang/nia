@@ -49,7 +49,7 @@ use nia_node_id::VersionedNodeKey;
 use nia_span::Span;
 use nia_symbol::SymbolId;
 use nia_ty::{PrimitiveTy, RangeTyKind, TyKind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 type InferId = usize;
 type CallableTerms = (Vec<InferId>, InferId);
@@ -273,6 +273,9 @@ struct FunctionInference {
     closure_uses: HashMap<LocalId, ClosureUse>,
     default_numeric_terms: Vec<(InferId, NumericLiteralKind)>,
     obligations: Vec<InferenceObligation>,
+    // Propagation supplies a spelling context, not a type equality: source
+    // errors may convert to a different target through IntoError.
+    error_contexts: Vec<(InferId, InferId)>,
     return_stack: Vec<InferId>,
 }
 
@@ -296,8 +299,7 @@ impl BodyChecker<'_> {
 
         for (key, term) in std::mem::take(&mut inference.call_results) {
             if let Some(ty) = inference.resolve(self, term)
-                && !self.type_contains_generic_param(ty)
-                && !self.type_contains_const_generic_param(ty)
+                && self.type_is_bound_in_body(ty)
                 && !self.is_error_recovery_ty(ty)
             {
                 self.inferred_call_results.insert(key, ty);
@@ -370,16 +372,7 @@ impl FunctionInference {
             _ => return None,
         }
         let expected_ty = self.resolve(checker, expected);
-        let variant_id = checker.enum_constructor_variant(expr, expected_ty);
-        let (enum_id, variant) = checker.resolved_enum_variant(variant_id?)?;
-        let params = match variant.payload {
-            nia_item_signatures::EnumVariantPayloadSignature::Tuple(params) => params,
-            nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
-                fields.into_iter().map(|field| field.ty).collect()
-            }
-            nia_item_signatures::EnumVariantPayloadSignature::Unit => return None,
-        };
-        Some((params, checker.enum_ty(enum_id, &[], &[])))
+        checker.enum_constructor_signature(expr, expected_ty)
     }
 
     fn closure_local(&self, checker: &BodyChecker<'_>, expr: &Expr) -> Option<LocalId> {
@@ -2201,15 +2194,37 @@ impl FunctionInference {
         else {
             return false;
         };
-        let known_return = self
-            .resolve(checker, return_type)
-            .and_then(|return_type| checker.enum_global_def_id(return_type));
+        let known_return =
+            self.resolve(checker, return_type).and_then(|return_type| {
+                match checker.interner.get(return_type).cloned() {
+                    Some(TyKind::Nominal {
+                        def_id,
+                        args,
+                        const_args,
+                    }) if checker.is_enum_def(def_id) => Some((def_id, args, const_args)),
+                    _ => None,
+                }
+            });
+        // Only the error term actually propagated by `.?` inherits the
+        // target's constructor context. An unrelated callback in the same
+        // function must not acquire the enclosing return type.
+        let boundary_instance = self
+            .propagated_error_context(checker, return_type)
+            .and_then(|ty| match checker.interner.get(ty).cloned() {
+                Some(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                }) if checker.is_enum_def(def_id) => Some((def_id, args, const_args)),
+                _ => None,
+            });
+        let known_return = known_return.or(boundary_instance);
         let expected_params = expected_params
             .into_iter()
             .map(|param| self.resolve(checker, param))
             .collect::<Vec<_>>();
-        let enum_ids = if let Some(enum_id) = known_return {
-            vec![enum_id]
+        let enum_ids = if let Some((enum_id, _, _)) = &known_return {
+            vec![*enum_id]
         } else {
             checker
                 .defs
@@ -2241,12 +2256,23 @@ impl FunctionInference {
             let Some((_, variant)) = checker.resolved_enum_variant(variant_id) else {
                 continue;
             };
-            let params = match variant.payload {
-                nia_item_signatures::EnumVariantPayloadSignature::Tuple(params) => params,
-                nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
-                    fields.into_iter().map(|field| field.ty).collect()
-                }
-                nia_item_signatures::EnumVariantPayloadSignature::Unit => continue,
+            let (enum_args, enum_const_args) = known_return
+                .as_ref()
+                .filter(|(known_enum, _, _)| known_enum == &enum_id)
+                .map(|(_, args, const_args)| (args.clone(), const_args.clone()))
+                .unwrap_or_default();
+            if enum_args.is_empty()
+                && enum_const_args.is_empty()
+                && checker
+                    .generic_params_for_nominal_def(enum_id)
+                    .is_some_and(|params| !params.is_empty())
+            {
+                continue;
+            }
+            let Some(params) =
+                checker.enum_variant_payload_types(enum_id, variant, &enum_args, &enum_const_args)
+            else {
+                continue;
             };
             if params.len() != expected_params.len()
                 || params
@@ -2258,12 +2284,12 @@ impl FunctionInference {
             {
                 continue;
             }
-            candidates.push((enum_id, params));
+            candidates.push((enum_id, enum_args, enum_const_args, params));
         }
-        let [(enum_id, params)] = candidates.as_slice() else {
+        let [(enum_id, enum_args, enum_const_args, params)] = candidates.as_slice() else {
             return false;
         };
-        let return_ty = checker.enum_ty(*enum_id, &[], &[]);
+        let return_ty = checker.enum_ty(*enum_id, enum_args, enum_const_args);
         let return_term = self.known(return_ty);
         let compatible = params
             .iter()
@@ -2276,6 +2302,38 @@ impl FunctionInference {
                 })
             });
         compatible && self.unify(checker, return_type, return_term)
+    }
+
+    /// Follow contextual propagation edges without merging their type terms.
+    /// Multiple uses must agree; visitation order must never choose an enum.
+    fn propagated_error_context(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        source: InferId,
+    ) -> Option<InternedTyId> {
+        let mut pending = vec![source];
+        let mut visited = HashSet::new();
+        let mut context = None;
+        while let Some(term) = pending.pop() {
+            let root = self.find(term);
+            if !visited.insert(root) {
+                continue;
+            }
+            for (source, target) in self.error_contexts.clone() {
+                if self.find(source) != root {
+                    continue;
+                }
+                if let Some(ty) = self.resolve(checker, target) {
+                    if context.is_some_and(|previous| !checker.types_match(previous, ty)) {
+                        return None;
+                    }
+                    context = Some(ty);
+                } else {
+                    pending.push(target);
+                }
+            }
+        }
+        context
     }
 
     /// Discharge an operator obligation through the canonical trait solver.
@@ -2344,13 +2402,17 @@ impl FunctionInference {
                 self.unify(checker, obligation.operand, optional);
                 true
             }
-            Some(InferShape::ErrorUnion { .. }) => {
-                let error = self.fresh();
+            Some(InferShape::ErrorUnion {
+                error: target_error,
+                ..
+            }) => {
+                let source_error = self.fresh();
                 let union = self.with_shape(InferShape::ErrorUnion {
-                    error,
+                    error: source_error,
                     value: obligation.value,
                 });
                 self.unify(checker, obligation.operand, union);
+                self.error_contexts.push((source_error, target_error));
                 true
             }
             _ => match self.expanded_shape(checker, obligation.operand) {

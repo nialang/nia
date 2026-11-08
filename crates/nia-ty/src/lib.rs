@@ -456,6 +456,80 @@ pub struct ClosureOwnerInstance {
 }
 
 impl TyKind {
+    /// Visits parameter uses stored directly in this node. Combine with
+    /// `visit_referenced_types` to inspect a complete type, including const
+    /// arguments on nominal, callable, projection, and trait-object nodes.
+    pub fn visit_generic_parameters(
+        &self,
+        mut visit_type: impl FnMut(SymbolId),
+        mut visit_const: impl FnMut(SymbolId),
+    ) {
+        fn const_args(args: &[ConstGenericArg], visit: &mut impl FnMut(SymbolId)) {
+            for arg in args {
+                if let ConstGenericValue::GenericParam(name) = arg.value {
+                    visit(name);
+                }
+            }
+        }
+        match self {
+            Self::GenericParam(name) => visit_type(*name),
+            Self::Array {
+                len: ArrayLenTy::GenericParam(name),
+                ..
+            } => visit_const(*name),
+            Self::Nominal {
+                const_args: args, ..
+            }
+            | Self::FunctionItem {
+                const_args: args, ..
+            }
+            | Self::Projection {
+                trait_const_args: args,
+                ..
+            } => const_args(args, &mut visit_const),
+            Self::ClosureState { owner_instance, .. } => {
+                if let Some(owner) = owner_instance {
+                    const_args(&owner.const_args, &mut visit_const);
+                }
+            }
+            Self::TraitObject {
+                trait_const_args,
+                associated_type_bindings,
+                ..
+            }
+            | Self::TraitObjectPointee {
+                trait_const_args,
+                associated_type_bindings,
+                ..
+            } => {
+                const_args(trait_const_args, &mut visit_const);
+                for binding in associated_type_bindings {
+                    const_args(&binding.trait_const_args, &mut visit_const);
+                }
+            }
+            Self::Error
+            | Self::ConstOnly
+            | Self::Opaque
+            | Self::Primitive(_)
+            | Self::Tuple(_)
+            | Self::Pointer { .. }
+            | Self::VolatilePointer { .. }
+            | Self::Slice { .. }
+            | Self::SlicePointee { .. }
+            | Self::Array { .. }
+            | Self::Vector { .. }
+            | Self::Range { .. }
+            | Self::FunctionPointer { .. }
+            | Self::Callable { .. }
+            | Self::CallablePointee { .. }
+            | Self::Optional { .. }
+            | Self::ErrorUnion { .. }
+            | Self::BuiltinType(_)
+            | Self::BuiltinTrait { .. }
+            | Self::SelfParam => {}
+        }
+    }
+
     /// Returns whether this is the zero-element tuple/unit type.
     pub fn is_unit(&self) -> bool {
         matches!(self, Self::Tuple(elems) if elems.is_empty())

@@ -114,6 +114,7 @@ pub enum Packet[T, N: usize] {
     Bytes { data: [u8; N] },
     Empty,
 }
+
 "#,
     );
     let source = root.join("main.nia");
@@ -175,5 +176,120 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let status = std::process::Command::new(&artifact.path)
         .status()
         .expect("run imported generic enum executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn generic_enum_error_constructors_keep_instances_through_propagation() {
+    let root = temp_dir("generic_enum_error_constructors_through_propagation");
+    write(
+        &root.join("errors.nia"),
+        r#"
+pub enum Failure[E] {
+    Memory(u32),
+    Read(E),
+}
+"#,
+    );
+    let source = root.join("main.nia");
+    write(
+        &source,
+        r#"
+module errors;
+using root::errors;
+using root::errors::Failure;
+using std::process;
+
+extend[Value, Source, Target] Source!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun omitted(value: u32!i32) Failure[u8]!i32 {
+    let mapped = value.mapError(.Memory).?;
+    !mapped
+}
+
+fun explicit(value: u32!i32) Failure[u8]!i32 {
+    let mapped = value.mapError(Failure[u8]::Memory).?;
+    !mapped
+}
+
+fun readValue(value: u8) Failure[u8] {
+    let constructor: &fun(u8) Failure[u8] = &Failure[u8]::Read;
+    constructor(value)
+}
+
+fun generic[E](value: E!i32) Failure[E]!i32 {
+    let mapped = value.mapError(.Read).?;
+    !mapped
+}
+
+struct Outer { value: u32 }
+extend Failure[u8] : std::builtin::IntoError[Outer] {
+    fun intoError(self) Outer {
+        match self { .Memory(value) => .{ value }, .Read(value) => .{ value: value as u32 }, }
+    }
+}
+
+fun converted(value: u32!i32) Outer!i32 {
+    let mapped = value.mapError(Failure[u8]::Memory).?;
+    !mapped
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    match omitted(!1) {
+        !value => { if value != 1 { return process::ExitCode(1)!; } },
+        error! => return process::ExitCode(2)!,
+    }
+    match explicit(!2) {
+        !value => { if value != 2 { return process::ExitCode(3)!; } },
+        error! => return process::ExitCode(4)!,
+    }
+    match omitted(41u32!) {
+        Failure[u8]::Memory(value)! => { if value != 41 { return process::ExitCode(7)!; } },
+        _ => return process::ExitCode(8)!,
+    }
+    match explicit(42u32!) {
+        Failure[u8]::Memory(value)! => { if value != 42 { return process::ExitCode(9)!; } },
+        _ => return process::ExitCode(10)!,
+    }
+    match generic[u8](43u8!) {
+        Failure[u8]::Read(value)! => { if value != 43 { return process::ExitCode(11)!; } },
+        _ => return process::ExitCode(12)!,
+    }
+    match generic[u64](12345678900u64!) {
+        Failure[u64]::Read(value)! => { if value != 12345678900 { return process::ExitCode(13)!; } },
+        _ => return process::ExitCode(14)!,
+    }
+    match converted(44u32!) {
+        error! => { if error.value != 44 { return process::ExitCode(15)!; } },
+        _ => return process::ExitCode(16)!,
+    }
+    match readValue(7) {
+        Failure[u8]::Read(value) => { if value != 7 { return process::ExitCode(5)!; } },
+        _ => return process::ExitCode(6)!,
+    }
+    !()
+}
+"#,
+    );
+
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("generic enum constructors must preserve error instances");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run generic enum error constructor executable");
     assert_eq!(status.code(), Some(0));
 }

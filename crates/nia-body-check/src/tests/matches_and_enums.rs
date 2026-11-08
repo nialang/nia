@@ -168,6 +168,134 @@ fun convertExplicit(value: SourceError!i32) ReallocError!i32 {
 }
 
 #[test]
+fn generic_enum_variant_values_keep_the_concrete_enum_instance() {
+    let checked = pipeline(
+        r#"
+enum Failure[E] {
+    Memory(u32),
+    Read(E),
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun inferred(value: u32!i32) Failure[u8]!i32 {
+    let mapped = value.mapError(.Memory).?;
+    !mapped
+}
+
+fun qualified(value: u32!i32) Failure[u8]!i32 {
+    let mapped = value.mapError(Failure[u8]::Memory).?;
+    !mapped
+}
+
+fun read_constructor(value: u8) Failure[u8] {
+    let constructor: &Fun(u8) Failure[u8] = &Failure[u8]::Read;
+    constructor(value)
+}
+
+fun generic[E](value: u32!i32) Failure[E]!i32 {
+    let mapped = value.mapError(.Memory).?;
+    !mapped
+}
+
+fun direct[E](value: E!i32) Failure[E]!i32 {
+    value.mapError(.Read)
+}
+
+fun mapValue[S, T](source: S, mapper: &Fun(S) T) T { mapper(source) }
+fun directCall[E](value: E) Failure[E] { mapValue(value, .Read) }
+
+fun genericRead[E](value: E!i32) Failure[E]!i32 {
+    let mapped = value.mapError(.Read).?;
+    !mapped
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
+}
+
+#[test]
+fn generic_enum_callbacks_retain_const_parameters() {
+    let checked = pipeline(
+        r#"
+enum Failure[E, N: usize] { Memory(u32), Read(E), Bytes([u8; N]) }
+extend[V, S, T] S!V {
+    fun mapError(self, mapper: &Fun(S) T) T!V {
+        match self { !value => !value, error! => mapper(error)!, }
+    }
+}
+fun generic[E, N: usize](value: [u8; N]!i32) Failure[E, N]!i32 {
+    let mapped = value.mapError(.Bytes).?;
+    !mapped
+}
+fun qualified[E, N: usize](value: E!i32) Failure[E, N]!i32 {
+    let mapped = value.mapError(Failure[E, N]::Read).?;
+    !mapped
+}
+
+fun mapValue[S, T](source: S, mapper: &Fun(S) T) T { mapper(source) }
+fun direct[N: usize](value: [u8; N]) Failure[u8, N] { mapValue(value, .Bytes) }
+trait Wrap : Sized {
+    fun wrap(self) Failure[Self, 3]!i32 {
+        let source: Self!i32 = self!;
+        source.mapError(.Read)
+    }
+}
+struct Token {}
+extend Token : Wrap {}
+
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
+}
+
+#[test]
+fn unrelated_enum_callback_does_not_inherit_propagation_context() {
+    let checked = pipeline(
+        r#"
+enum Failure[E] { Memory(u32), Read(E) }
+extend[V, S, T] S!V {
+    fun mapError(self, mapper: &Fun(S) T) T!V {
+        match self { !value => !value, error! => mapper(error)!, }
+    }
+}
+fun invalid(value: u32!i32, other: Failure[u8]!i32) Failure[u8]!i32 {
+    let unrelated = value.mapError(.Memory);
+    _ = unrelated;
+    let result = other.?;
+    !result
+}
+"#,
+    );
+    assert!(
+        !checked.diagnostics.is_empty(),
+        "unrelated generic arguments must remain unresolved"
+    );
+}
+
+#[test]
+fn enum_callback_cannot_change_an_explicit_generic_instance() {
+    let checked = pipeline(
+        r#"
+enum Failure[E] { Read(E) }
+fun consume(callback: &Fun(u32) Failure[u8]) () { _ = callback; }
+fun invalid() () { consume(Failure[u32]::Read); }
+"#,
+    );
+    assert!(
+        !checked.diagnostics.is_empty(),
+        "explicit enum instances must be preserved"
+    );
+}
+
+#[test]
 fn rejects_enum_constructor_callable_signature_mismatches() {
     let checked = pipeline(
         r#"

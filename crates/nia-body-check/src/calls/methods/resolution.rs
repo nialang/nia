@@ -2058,6 +2058,7 @@ impl<'a> BodyChecker<'a> {
                 callable_pattern.filter(|_| matches!(arg.kind, ExprKind::Closure { .. })),
                 generic_params,
                 substitutions,
+                const_substitutions,
             );
             let actual = if let Some(expected) = expected {
                 self.check_expr_with_expected(arg, Some(expected))

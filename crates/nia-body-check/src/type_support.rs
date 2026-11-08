@@ -65,6 +65,78 @@ struct ProjectionNormalizationKey {
 }
 
 impl<'a> BodyChecker<'a> {
+    /// A canonical expected type may use declaration-bound parameters of the
+    /// calling body, including `Self` in a method. These are rigid types, not
+    /// fresh unknowns belonging to a generic callee.
+    pub(crate) fn type_is_bound_in_body(&self, ty: InternedTyId) -> bool {
+        let mut types = HashSet::new();
+        let mut consts = HashSet::new();
+        let mut self_is_bound = false;
+        let mut owner = self.current_def_id.map(|id| id.def_id);
+        while let Some(id) = owner {
+            let Some(def) = self.defs.defs.get(id) else {
+                break;
+            };
+            self_is_bound |= matches!(
+                def.kind,
+                DefKind::Method | DefKind::TraitMethod | DefKind::Trait
+            );
+            for param in &def.generic_params {
+                match param.kind {
+                    nia_ast::GenericParamKind::Type => {
+                        types.insert(param.name);
+                    }
+                    nia_ast::GenericParamKind::Const { .. } => {
+                        consts.insert(param.name);
+                    }
+                }
+            }
+            owner = def.parent;
+        }
+        self.type_parameters_are_bound(
+            ty,
+            |name| types.contains(&name),
+            |name| consts.contains(&name),
+            self_is_bound,
+        )
+    }
+
+    /// Contextual types may contain rigid parameters of the calling body.
+    /// Only parameters still unresolved for this particular inference context
+    /// must be excluded; a blanket generic-type check loses valid contexts.
+    pub(crate) fn type_parameters_are_bound(
+        &self,
+        ty: InternedTyId,
+        type_is_bound: impl Fn(SymbolId) -> bool,
+        const_is_bound: impl Fn(SymbolId) -> bool,
+        self_is_bound: bool,
+    ) -> bool {
+        let mut pending = vec![self.normalization.normalize(ty)];
+        let mut visited = HashSet::new();
+        while let Some(current) = pending.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+            let Some(kind) = self.interner.get(current) else {
+                return false;
+            };
+            if !self_is_bound && matches!(kind, TyKind::SelfParam) {
+                return false;
+            }
+            let mut types_bound = true;
+            let mut consts_bound = true;
+            kind.visit_generic_parameters(
+                |name| types_bound &= type_is_bound(name),
+                |name| consts_bound &= const_is_bound(name),
+            );
+            if !types_bound || !consts_bound {
+                return false;
+            }
+            kind.visit_referenced_types(|child| pending.push(self.normalization.normalize(child)));
+        }
+        true
+    }
+
     pub(crate) fn check_contextual_expr(
         &mut self,
         expr: &Expr,

@@ -1215,6 +1215,7 @@ impl<'a> BodyChecker<'a> {
                 callable_pattern.filter(|_| matches!(arg.kind, ExprKind::Closure { .. })),
                 &signature.generic_params,
                 &substitutions.types,
+                &substitutions.consts,
             );
             let actual = if let Some(expected) = expected {
                 self.check_expr_with_expected(arg, Some(expected))
@@ -2740,11 +2741,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(in crate::calls) fn generic_call_expected(&self, ty: InternedTyId) -> Option<InternedTyId> {
-        if self.type_contains_generic_param(ty) || self.type_contains_const_generic_param(ty) {
-            None
-        } else {
-            Some(ty)
-        }
+        self.type_is_bound_in_body(ty).then_some(ty)
     }
 
     pub(in crate::calls) fn generic_argument_expected(
@@ -2753,47 +2750,37 @@ impl<'a> BodyChecker<'a> {
         callable_pattern: Option<InternedTyId>,
         generic_params: &[nia_item_signatures::GenericParamSignature],
         substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<InternedTyId> {
-        substituted_param
-            .and_then(|param| self.generic_call_expected(param))
-            .or_else(|| {
-                let pattern = callable_pattern?;
-                let unresolved_type_params = generic_params
-                    .iter()
-                    .filter(|param| {
-                        matches!(param.kind, GenericParamSignatureKind::Type)
-                            && !substitutions.contains_key(&param.name)
-                    })
-                    .map(|param| param.name)
-                    .collect::<Vec<_>>();
-                self.callable_pattern_expected(pattern, &unresolved_type_params)
+        // Solved callee parameters may be substituted with rigid caller
+        // parameters. Those remain valid context for every expression form.
+        let unresolved_types = generic_params
+            .iter()
+            .filter_map(|param| {
+                (matches!(param.kind, GenericParamSignatureKind::Type)
+                    && !substitutions.contains_key(&param.name))
+                .then_some(param.name)
             })
-    }
-
-    // Enclosing function generics are rigid types. Only parameters still
-    // being inferred for this call must stay out of the closure's context.
-    fn callable_pattern_expected(
-        &self,
-        ty: InternedTyId,
-        unresolved_type_params: &[SymbolId],
-    ) -> Option<InternedTyId> {
-        if self.type_contains_const_generic_param(ty) {
-            return None;
-        }
-        let mut pending = vec![self.normalization.normalize(ty)];
-        while let Some(current) = pending.pop() {
-            let kind = self.interner.get(current)?;
-            match kind {
-                TyKind::GenericParam(name) if unresolved_type_params.contains(name) => {
-                    return None;
-                }
-                TyKind::SelfParam => return None,
-                _ => kind.visit_referenced_types(|referenced| {
-                    pending.push(self.normalization.normalize(referenced));
-                }),
-            }
-        }
-        Some(ty)
+            .collect::<Vec<_>>();
+        let unresolved_consts = generic_params
+            .iter()
+            .filter_map(|param| {
+                (matches!(param.kind, GenericParamSignatureKind::Const { .. })
+                    && !const_substitutions.contains_key(&param.name))
+                .then_some(param.name)
+            })
+            .collect::<Vec<_>>();
+        let complete = |ty| {
+            self.type_parameters_are_bound(
+                ty,
+                |name| !unresolved_types.contains(&name),
+                |name| !unresolved_consts.contains(&name),
+                self.type_is_bound_in_body(ty),
+            )
+        };
+        substituted_param
+            .filter(|ty| complete(*ty))
+            .or_else(|| callable_pattern.filter(|ty| complete(*ty)))
     }
 
     /// Returns whether a canonical type still contains a const parameter that

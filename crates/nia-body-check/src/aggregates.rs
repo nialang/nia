@@ -915,26 +915,46 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
+    /// Resolve one constructor signature from its nominal instance. Both the
+    /// local constraint solver and ordinary expression checking consume this
+    /// contract, so payload substitution and result identity cannot diverge.
+    pub(crate) fn enum_constructor_signature(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> Option<(Vec<InternedTyId>, InternedTyId)> {
+        let variant_id = self.enum_constructor_variant(expr, expected)?;
+        let (enum_id, variant) = self.resolved_enum_variant(variant_id)?;
+        let (args, const_args) = self.enum_constructor_instance(expr, enum_id, expected);
+        let params = self.enum_variant_payload_types(enum_id, variant, &args, &const_args)?;
+        Some((params, self.enum_ty(enum_id, &args, &const_args)))
+    }
+
+    pub(crate) fn enum_variant_payload_types(
+        &mut self,
+        enum_id: GlobalDefId,
+        variant: EnumVariantSignature,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> Option<Vec<InternedTyId>> {
+        let fields = match variant.payload {
+            // Unit variants remain ordinary values, including address taking.
+            EnumVariantPayloadSignature::Unit => return None,
+            EnumVariantPayloadSignature::Tuple(fields) => fields,
+            EnumVariantPayloadSignature::Named(fields) => {
+                fields.into_iter().map(|field| field.ty).collect()
+            }
+        };
+        Some(self.substitute_enum_payload_types(enum_id, args, const_args, fields))
+    }
+
     pub(crate) fn check_enum_constructor_ref(
         &mut self,
         expr: &Expr,
         is_readonly: bool,
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        let variant_id = self.enum_constructor_variant(expr, expected)?;
-        let (enum_id, variant) = self.resolved_enum_variant(variant_id)?;
-        let (enum_args, enum_const_args) = self.enum_constructor_instance(expr, enum_id, expected);
-        let params = match variant.payload {
-            // Unit variants remain ordinary values, including their address-taking rules.
-            EnumVariantPayloadSignature::Unit => return None,
-            EnumVariantPayloadSignature::Tuple(params) => {
-                self.substitute_enum_payload_types(enum_id, &enum_args, &enum_const_args, params)
-            }
-            EnumVariantPayloadSignature::Named(fields) => {
-                let fields = fields.into_iter().map(|field| field.ty).collect::<Vec<_>>();
-                self.substitute_enum_payload_types(enum_id, &enum_args, &enum_const_args, fields)
-            }
-        };
+        let (params, return_type) = self.enum_constructor_signature(expr, expected)?;
         if !is_readonly {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -943,7 +963,6 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         }
-        let return_type = self.enum_type_from_expected(enum_id, expected);
         let ty = self.interner.intern(TyKind::FunctionPointer {
             params,
             return_type,
@@ -960,29 +979,7 @@ impl<'a> BodyChecker<'a> {
         expected: InternedTyId,
     ) -> Option<InternedTyId> {
         self.callable_signature(expected)?;
-        let variant_id = self.enum_constructor_variant(expr, Some(expected))?;
-        let (enum_id, variant) = self.resolved_enum_variant(variant_id)?;
-        let (enum_args, enum_const_args) =
-            self.enum_constructor_instance(expr, enum_id, Some(expected));
-        let params = match variant.payload {
-            EnumVariantPayloadSignature::Unit => return None,
-            EnumVariantPayloadSignature::Tuple(params) => {
-                self.substitute_enum_payload_types(enum_id, &enum_args, &enum_const_args, params)
-            }
-            EnumVariantPayloadSignature::Named(fields) => {
-                let fields = fields.into_iter().map(|field| field.ty).collect::<Vec<_>>();
-                self.substitute_enum_payload_types(enum_id, &enum_args, &enum_const_args, fields)
-            }
-        };
-        let return_type = self.enum_type_from_expected(enum_id, Some(expected));
-        let ty = self.interner.intern(TyKind::FunctionPointer {
-            params,
-            return_type,
-            is_variadic: false,
-            abi: nia_ty::FunctionPointerAbi::Nia,
-        });
-        self.record_expr_node_type(expr, ty);
-        Some(ty)
+        self.check_enum_constructor_ref(expr, true, Some(expected))
     }
 
     pub(crate) fn check_enum_variant_call(
@@ -1342,39 +1339,6 @@ impl<'a> BodyChecker<'a> {
             args: args.to_vec(),
             const_args: const_args.to_vec(),
         })
-    }
-
-    fn enum_type_from_expected(
-        &mut self,
-        enum_id: GlobalDefId,
-        expected: Option<InternedTyId>,
-    ) -> InternedTyId {
-        if let Some(expected) = expected {
-            let expected = self.normalize_aliases_in_type(expected);
-            let candidate = match self.interner.get(expected).cloned() {
-                Some(TyKind::Nominal {
-                    def_id,
-                    args,
-                    const_args,
-                }) if def_id == enum_id => Some((args, const_args)),
-                _ => self
-                    .callable_signature(expected)
-                    .and_then(
-                        |(_, return_type)| match self.interner.get(return_type).cloned() {
-                            Some(TyKind::Nominal {
-                                def_id,
-                                args,
-                                const_args,
-                            }) if def_id == enum_id => Some((args, const_args)),
-                            _ => None,
-                        },
-                    ),
-            };
-            if let Some((args, const_args)) = candidate {
-                return self.enum_ty(enum_id, &args, &const_args);
-            }
-        }
-        self.enum_ty(enum_id, &[], &[])
     }
 
     fn enum_constructor_instance(
