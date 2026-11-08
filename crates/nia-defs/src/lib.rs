@@ -49,8 +49,8 @@ pub use extensions::{
 };
 pub use public_surface::{
     ExportScope, ModulePublicSurface, ModuleUsingScope, PublicItem, PublicNamespace, PublicSource,
-    PublicSurfaceLookup, PublicSurfaces, UnresolvedUsing, UnresolvedUsingReason, UsingEntry,
-    UsingScopeLookup,
+    PublicSurfaceLookup, PublicSurfaces, SCOPED_EXPORT_RULE_NAMES, UnresolvedUsing,
+    UnresolvedUsingReason, UsingEntry, UsingScopeLookup,
 };
 
 /// Complete declaration and scope product for one module.

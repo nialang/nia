@@ -117,6 +117,11 @@ provider publication. The algebra accepts an arbitrary grant predicate; it does
 not prove the Rust ancestry predicate, loader scheduling, or query implementation.
 Those remain covered by compiler unit, integration, and invalidation tests.
 
+The rule inventory is also exported by `nia-defs::ExportScope` and compared with
+the same JSON in the driver test. Adding a scoped-export rule therefore requires
+updating the implementation inventory, the Rust manifest assertion, and the Lean
+inventory check together.
+
 ### Incremental reachability retraction
 
 `ReachabilityRetraction.lean` models an edge graph whose changed outgoing

@@ -1082,6 +1082,7 @@ dependencies = [
  "nia-codegen-llvm",
  "nia-compat",
  "nia-compiler-query",
+ "nia-defs",
  "nia-diagnostic",
  "nia-function-ir",
  "nia-ice",

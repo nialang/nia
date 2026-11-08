@@ -281,6 +281,13 @@ fn formal_export_scope_manifest_matches_compiler_cases() {
         "../../../../formal/NiaFormal/export_scope_matrix.json"
     ))
     .unwrap();
+    let rules = matrix["rules"]
+        .as_array()
+        .expect("scoped export rule inventory")
+        .iter()
+        .map(|rule| rule.as_str().expect("scoped export rule name"))
+        .collect::<Vec<_>>();
+    assert_eq!(rules, nia_defs::SCOPED_EXPORT_RULE_NAMES);
     assert_eq!(
         matrix["compiler_cases"],
         serde_json::json!([

@@ -5,7 +5,7 @@ use crate::DefId;
 use nia_ids::ModuleId;
 
 mod export_scope;
-pub use export_scope::ExportScope;
+pub use export_scope::{ExportScope, SCOPED_EXPORT_RULE_NAMES};
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
 

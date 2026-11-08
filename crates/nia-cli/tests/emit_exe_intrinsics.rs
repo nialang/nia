@@ -777,6 +777,142 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn float_decimal_parser_fuzzes_random_host_decimals() {
+    use std::fmt::Write as _;
+
+    let root = temp_dir("float_decimal_parser_matches_random_host_decimals");
+    let source = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    let mut program = String::from(
+        r#"
+using std::{math::float, process};
+using std::parse::float as floatParse;
+
+fun matches64(input: &[u8], expected: u64) bool {
+    match floatParse::parse64(input) {
+        !value => float::toBits64(value) == expected,
+        error! => { _ = error; false },
+    }
+}
+
+fun matches32(input: &[u8], expected: u32) bool {
+    match floatParse::parse32(input) {
+        !value => float::toBits32(value) == expected,
+        error! => { _ = error; false },
+    }
+}
+
+fun overflows64(input: &[u8]) bool {
+    match floatParse::parse64(input) {
+        !value => { _ = value; false },
+        floatParse::ParseError::Overflow! => true,
+        error! => { _ = error; false },
+    }
+}
+
+fun overflows32(input: &[u8]) bool {
+    match floatParse::parse32(input) {
+        !value => { _ = value; false },
+        floatParse::ParseError::Overflow! => true,
+        error! => { _ = error; false },
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+"#,
+    );
+
+    // Generate decimal inputs independently of the compiler under test. The
+    // host parser supplies the correctly rounded oracle for both widths.
+    let mut state = 0x243f6a8885a308d3u64;
+    for index in 0..384usize {
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let negative = state & 1 != 0;
+        let digit_count = 1 + ((state >> 8) % 19) as usize;
+        let mut digits = String::with_capacity(digit_count + 24);
+        for digit_index in 0..digit_count {
+            state = state
+                .wrapping_mul(2862933555777941757)
+                .wrapping_add(3037000493);
+            let digit = if digit_index == 0 {
+                b'1' + ((state >> 17) % 9) as u8
+            } else {
+                b'0' + ((state >> 17) % 10) as u8
+            };
+            digits.push(char::from(digit));
+        }
+        let mut exponent = ((state >> 32) % 801) as i32 - 400;
+        if index % 4 == 0 {
+            // Equivalent spellings with long discarded tails exercise exact
+            // midpoint certification after the fast candidate path.
+            digits.push_str(&"0".repeat(24));
+            exponent -= 24;
+        }
+        let mantissa = if digits.len() == 1 {
+            digits
+        } else {
+            format!("{}.{}", &digits[..1], &digits[1..])
+        };
+        let leading_zeroes = if index % 3 == 0 { "000" } else { "" };
+        let text = format!(
+            "{}{}{mantissa}e{exponent:+}",
+            if negative { "-" } else { "" },
+            leading_zeroes,
+        );
+        let value64 = text.parse::<f64>().expect("host f64 decimal");
+        if value64.is_finite() {
+            writeln!(
+                program,
+                "    if not matches64(b\"{text}\", 0x{:016x}u64) {{ return process::ExitCode(1)!; }}",
+                value64.to_bits()
+            )
+            .expect("append random f64 decimal");
+        } else {
+            writeln!(
+                program,
+                "    if not overflows64(b\"{text}\") {{ return process::ExitCode(2)!; }}"
+            )
+            .expect("append random f64 overflow decimal");
+        }
+        let value32 = text.parse::<f32>().expect("host f32 decimal");
+        if value32.is_finite() {
+            writeln!(
+                program,
+                "    if not matches32(b\"{text}\", 0x{:08x}u32) {{ return process::ExitCode(3)!; }}",
+                value32.to_bits()
+            )
+            .expect("append random f32 decimal");
+        } else {
+            writeln!(
+                program,
+                "    if not overflows32(b\"{text}\") {{ return process::ExitCode(4)!; }}"
+            )
+            .expect("append random f32 overflow decimal");
+        }
+    }
+
+    program.push_str("    !()\n}\n");
+    std::fs::write(&source, program).expect("write random float parser test");
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit random float parser differential test");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run random float parser differential test");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn float_fixed_precision_matches_host_formatting_samples() {
     use std::fmt::Write as _;
 

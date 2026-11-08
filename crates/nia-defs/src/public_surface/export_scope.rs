@@ -8,6 +8,21 @@ pub struct ExportScope {
     routes: Vec<Vec<AccessRestriction>>,
 }
 
+/// Rule identifiers shared by the Rust contract tests and the Lean model.
+/// Keeping this inventory beside the implementation makes a new algebra rule
+/// require an explicit update to both verification sides.
+pub const SCOPED_EXPORT_RULE_NAMES: &[&str] = &[
+    "alternate_routes",
+    "restriction_preserved",
+    "intersection_requires_both",
+    "subsumed_route",
+    "enum_variant_scope",
+    "namespace_member_separation",
+    "provider_publication_separation",
+    "declaration_access_kind",
+    "guarded_provider_reachability",
+];
+
 impl Default for ExportScope {
     fn default() -> Self {
         Self {
