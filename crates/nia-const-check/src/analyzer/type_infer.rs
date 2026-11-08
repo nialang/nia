@@ -1345,15 +1345,20 @@ impl Analyzer<'_> {
     }
 
     fn resolved_const_enum_variant_value_type(
-        &self,
-        variant: &ResolvedConstExpr,
+        &mut self,
+        variant_expr: &ResolvedConstExpr,
     ) -> Option<ConstValueType> {
-        let (enum_id, variant) = self.resolved_const_enum_variant(variant)?;
+        let (enum_id, variant) = self.resolved_const_enum_variant(variant_expr)?;
         matches!(
             variant.payload,
             nia_item_signatures::EnumVariantPayloadSignature::Unit
         )
-        .then(|| ConstValueType::Runtime(self.enum_ty_in_current_module(enum_id)))
+        .then(|| {
+            ConstValueType::Runtime(
+                self.resolved_const_enum_target_type(variant_expr)
+                    .unwrap_or_else(|| self.enum_ty_in_current_module(enum_id)),
+            )
+        })
     }
 
     fn resolved_const_tuple_enum_literal_type(
@@ -1363,8 +1368,9 @@ impl Analyzer<'_> {
         args: &[ResolvedConstExpr],
     ) -> Option<InternedTyId> {
         let (enum_id, variant) = self.resolved_const_enum_variant(callee)?;
-        let nia_item_signatures::EnumVariantPayloadSignature::Tuple(field_tys) = variant.payload
-        else {
+        let enum_ty = self.resolved_const_enum_target_type(callee)?;
+        let payload = self.const_enum_variant_payload_types(enum_id, &variant.payload, enum_ty)?;
+        let nia_item_signatures::EnumVariantPayloadSignature::Tuple(field_tys) = payload else {
             for arg in args {
                 let _ = self.resolved_const_expr_type(arg, None);
             }
@@ -1409,7 +1415,7 @@ impl Analyzer<'_> {
                 types_match = false;
             }
         }
-        (arity_matches && types_match).then(|| self.enum_ty_in_current_module(enum_id))
+        (arity_matches && types_match).then_some(enum_ty)
     }
 
     fn resolved_const_named_enum_literal_type(
@@ -1419,8 +1425,9 @@ impl Analyzer<'_> {
         fields: &[ResolvedConstFieldInit],
     ) -> Option<InternedTyId> {
         let (enum_id, variant) = self.resolved_const_enum_variant(target)?;
-        let nia_item_signatures::EnumVariantPayloadSignature::Named(expected) = variant.payload
-        else {
+        let enum_ty = self.resolved_const_enum_target_type(target)?;
+        let payload = self.const_enum_variant_payload_types(enum_id, &variant.payload, enum_ty)?;
+        let nia_item_signatures::EnumVariantPayloadSignature::Named(expected) = payload else {
             for field in fields {
                 let _ = self.resolved_const_expr_type(field.value(), None);
             }
@@ -1477,7 +1484,7 @@ impl Analyzer<'_> {
                 types_match = false;
             }
         }
-        (fields_are_valid && types_match).then(|| self.enum_ty_in_current_module(enum_id))
+        (fields_are_valid && types_match).then_some(enum_ty)
     }
 
     fn resolved_const_tuple_struct_literal_type(
@@ -1534,7 +1541,7 @@ impl Analyzer<'_> {
         })
     }
 
-    fn resolve_const_aggregate_generic_args(
+    pub(super) fn resolve_const_aggregate_generic_args(
         &mut self,
         span: Span,
         signature_module_id: ModuleId,
@@ -1553,7 +1560,7 @@ impl Analyzer<'_> {
             self.push_const_type_error(
                 span,
                 &format!(
-                    "tuple struct generic argument count mismatch: expected {}, got {}",
+                    "generic argument count mismatch: expected {}, got {}",
                     generic_params.len(),
                     actual
                 ),
@@ -1583,17 +1590,11 @@ impl Analyzer<'_> {
                     const_args.push(ConstGenericArg { ty, value });
                 }
                 (GenericParamSignatureKind::Type, _) => {
-                    self.push_const_type_error(
-                        span,
-                        "tuple struct generic argument must be a type",
-                    );
+                    self.push_const_type_error(span, "generic argument must be a type");
                     return None;
                 }
                 (GenericParamSignatureKind::Const { .. }, _) => {
-                    self.push_const_type_error(
-                        span,
-                        "tuple struct generic argument must be a const value",
-                    );
+                    self.push_const_type_error(span, "generic argument must be a const value");
                     return None;
                 }
             }
@@ -1608,13 +1609,14 @@ impl Analyzer<'_> {
         target_ty: InternedTyId,
     ) -> Option<Vec<(&'a ResolvedConstPattern, InternedTyId)>> {
         let (enum_id, variant) = self.resolved_const_enum_variant(variant_expr)?;
-        let (target_enum, target_args, target_const_args) =
-            self.expected_nominal_parts(target_ty)?;
-        if target_enum != enum_id || !target_args.is_empty() || !target_const_args.is_empty() {
+        let (target_enum, _, _) = self.expected_nominal_parts(target_ty)?;
+        if target_enum != enum_id {
             return None;
         }
+        let payload =
+            self.const_enum_variant_payload_types(enum_id, &variant.payload, target_ty)?;
         let current_module = self.current_execution_module_id();
-        match (fields, variant.payload) {
+        match (fields, payload) {
             (
                 ConstEnumPatternFields::Tuple(patterns),
                 nia_item_signatures::EnumVariantPayloadSignature::Tuple(expected),

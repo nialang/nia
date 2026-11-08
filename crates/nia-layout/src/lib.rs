@@ -139,10 +139,10 @@ pub struct StructLayoutKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct GlobalStructLayoutKey {
-    def_id: GlobalDefId,
-    args: Vec<InternedTyId>,
-    const_args: Vec<ConstGenericArg>,
+pub struct GlobalStructLayoutKey {
+    pub def_id: GlobalDefId,
+    pub args: Vec<InternedTyId>,
+    pub const_args: Vec<ConstGenericArg>,
 }
 
 /// Physical placement of one nominal aggregate field.
@@ -209,6 +209,10 @@ pub struct Layouts {
     pub unions: HashMap<DefId, StructLayout>,
     /// Local enum layouts keyed by definition.
     pub enums: HashMap<DefId, EnumLayout>,
+    /// Concrete generic enum instances.
+    pub enum_instances: HashMap<StructLayoutKey, EnumLayout>,
+    /// Concrete generic enum layouts owned by foreign modules.
+    pub external_enum_instances: HashMap<GlobalStructLayoutKey, EnumLayout>,
     /// Concrete generic struct instances.
     pub struct_instances: HashMap<StructLayoutKey, StructLayout>,
     /// Concrete generic union instances.
@@ -293,6 +297,11 @@ impl Layouts {
                 .map(|layout| layout.layout.clone())
                 .or_else(|| {
                     self.union_instances
+                        .get(&key)
+                        .map(|layout| layout.layout.clone())
+                })
+                .or_else(|| {
+                    self.enum_instances
                         .get(&key)
                         .map(|layout| layout.layout.clone())
                 })
@@ -596,8 +605,10 @@ struct LayoutComputer<'a> {
     enums: HashMap<DefId, EnumLayout>,
     struct_instances: HashMap<StructLayoutKey, StructLayout>,
     union_instances: HashMap<StructLayoutKey, StructLayout>,
+    enum_instances: HashMap<StructLayoutKey, EnumLayout>,
     external_struct_instances: HashMap<GlobalStructLayoutKey, StructLayout>,
     external_union_instances: HashMap<GlobalStructLayoutKey, StructLayout>,
+    external_enum_instances: HashMap<GlobalStructLayoutKey, EnumLayout>,
     diagnostics: Vec<Diagnostic>,
     internal_error: Option<nia_ice::Ice>,
     visiting: HashSet<InternedTyId>,
@@ -626,6 +637,8 @@ impl<'a> LayoutComputer<'a> {
             enums: HashMap::new(),
             struct_instances: HashMap::new(),
             union_instances: HashMap::new(),
+            enum_instances: HashMap::new(),
+            external_enum_instances: HashMap::new(),
             external_struct_instances: HashMap::new(),
             external_union_instances: HashMap::new(),
             diagnostics: Vec::new(),
@@ -672,7 +685,7 @@ impl<'a> LayoutComputer<'a> {
             .map(|(def_id, signature)| (*def_id, signature.clone()))
             .collect();
         for (def_id, signature) in enum_signatures {
-            self.enum_layout(signature.span, Some(def_id), &signature);
+            self.enum_layout(signature.span, Some(def_id), &signature, &[], &[]);
         }
         self.finish()
     }
@@ -718,6 +731,8 @@ impl<'a> LayoutComputer<'a> {
             structs: self.structs,
             unions: self.unions,
             enums: self.enums,
+            enum_instances: self.enum_instances,
+            external_enum_instances: self.external_enum_instances,
             struct_instances: self.struct_instances,
             union_instances: self.union_instances,
             diagnostics: self.diagnostics,
@@ -1182,7 +1197,7 @@ impl<'a> LayoutComputer<'a> {
             return self.union_layout(span, def_id.def_id, &signature, args, const_args);
         }
         if let Some(signature) = self.signatures.enums.get(&def_id.def_id).cloned() {
-            return self.enum_layout(span, Some(def_id.def_id), &signature);
+            return self.enum_layout(span, Some(def_id.def_id), &signature, args, const_args);
         }
         if let Some(signature) = self.signatures.type_aliases.get(&def_id.def_id).cloned() {
             // Layout may run on semantic roots before normalization has replaced
@@ -1310,13 +1325,12 @@ impl<'a> LayoutComputer<'a> {
             && let Some(signature) = program_enums.get(&def_id).cloned()
         {
             let signature = signature.signature;
-            return self.enum_layout(span, None, &signature);
+            return self.external_enum_layout(span, def_id, &signature, args, const_args);
         }
         if let Some(program_enum) = self.program.enum_
             && let Some(signature) = program_enum(def_id)
         {
-            let signature = signature.signature;
-            return self.enum_layout(span, None, &signature);
+            return self.external_enum_layout(span, def_id, &signature.signature, args, const_args);
         }
         if let Some(program_type_aliases) = self.program.type_aliases
             && let Some(signature) = program_type_aliases.get(&def_id).cloned()
@@ -1484,13 +1498,42 @@ impl<'a> LayoutComputer<'a> {
         span: Span,
         def_id: Option<DefId>,
         signature: &EnumSignature,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
     ) -> Option<TypeLayout> {
-        if let Some(def_id) = def_id
-            && let Some(existing) = self.enums.get(&def_id)
+        let key = def_id.map(|def_id| StructLayoutKey {
+            def_id,
+            args: args.to_vec(),
+            const_args: const_args.to_vec(),
+        });
+        if let Some(key) = &key
+            && let Some(existing) = self.enum_instances.get(key)
         {
             return Some(existing.layout.clone());
         }
-        let tag = self.layout_ty(signature.backing_type, span)?;
+        let enum_layout = self.build_enum_layout(span, signature, args, const_args)?;
+        let layout = enum_layout.layout.clone();
+        if let Some(key) = key {
+            if key.args.is_empty() && key.const_args.is_empty() {
+                self.enums.insert(key.def_id, enum_layout.clone());
+            }
+            self.enum_instances.insert(key, enum_layout);
+        }
+        Some(layout)
+    }
+
+    fn build_enum_layout(
+        &mut self,
+        span: Span,
+        signature: &EnumSignature,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<EnumLayout> {
+        let (substitutions, const_substitutions) =
+            generic_argument_substitutions(&signature.generic_params, args, const_args)?;
+        let tag_ty =
+            self.substitute_ty(signature.backing_type, &substitutions, &const_substitutions);
+        let tag = self.layout_ty(tag_ty, span)?;
         let mut variants = Vec::with_capacity(signature.variants.len());
         for variant in &signature.variants {
             let pending = match &variant.payload {
@@ -1498,18 +1541,20 @@ impl<'a> LayoutComputer<'a> {
                 EnumVariantPayloadSignature::Tuple(fields) => fields
                     .iter()
                     .map(|ty| {
+                        let ty = self.substitute_ty(*ty, &substitutions, &const_substitutions);
                         Some(PendingEnumFieldLayout {
                             def_id: None,
-                            layout: self.layout_ty(*ty, variant.span)?,
+                            layout: self.layout_ty(ty, variant.span)?,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?,
                 EnumVariantPayloadSignature::Named(fields) => fields
                     .iter()
                     .map(|field| {
+                        let ty = self.substitute_ty(field.ty, &substitutions, &const_substitutions);
                         Some(PendingEnumFieldLayout {
                             def_id: Some(field.def_id),
-                            layout: self.layout_ty(field.ty, field.span)?,
+                            layout: self.layout_ty(ty, field.span)?,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?,
@@ -1557,9 +1602,28 @@ impl<'a> LayoutComputer<'a> {
             payload_offset,
             variants,
         };
-        if let Some(def_id) = def_id {
-            self.enums.insert(def_id, enum_layout);
+        Some(enum_layout)
+    }
+
+    fn external_enum_layout(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        signature: &EnumSignature,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<TypeLayout> {
+        let key = GlobalStructLayoutKey {
+            def_id,
+            args: args.to_vec(),
+            const_args: const_args.to_vec(),
+        };
+        if let Some(existing) = self.external_enum_instances.get(&key) {
+            return Some(existing.layout.clone());
         }
+        let product = self.build_enum_layout(span, signature, args, const_args)?;
+        let layout = product.layout.clone();
+        self.external_enum_instances.insert(key, product);
         Some(layout)
     }
 
@@ -1883,6 +1947,8 @@ mod tests {
             structs: HashMap::from([(def_id, struct_layout.clone())]),
             unions: HashMap::new(),
             enums: HashMap::from([(def_id, enum_layout)]),
+            enum_instances: HashMap::new(),
+            external_enum_instances: HashMap::new(),
             struct_instances: HashMap::new(),
             union_instances: HashMap::new(),
             diagnostics: Vec::new(),

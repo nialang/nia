@@ -303,6 +303,91 @@ impl Analyzer<'_> {
         expected_const_args: &[ConstGenericArg],
     ) -> Option<SymbolMap<InternedTyId>> {
         let current_module = self.current_execution_module_id();
+        let (substitutions, const_substitutions) =
+            self.const_generic_substitutions(generic_params, expected_args, expected_const_args)?;
+        let mut fields = SymbolMap::default();
+        for field in signature_fields {
+            let canonical = self.type_for_module_or_none(field.ty, current_module)?;
+            let ty = {
+                let types = self.type_context(current_module);
+                types.substitute(
+                    canonical,
+                    &|generic| substitutions.get(generic).copied(),
+                    &|generic| const_substitutions.get(generic).cloned(),
+                    None,
+                )
+            };
+            fields.insert(field.name, ty);
+        }
+        Some(fields)
+    }
+
+    pub(super) fn const_enum_variant_payload_types(
+        &mut self,
+        enum_id: GlobalDefId,
+        payload: &nia_item_signatures::EnumVariantPayloadSignature,
+        enum_ty: InternedTyId,
+    ) -> Option<nia_item_signatures::EnumVariantPayloadSignature> {
+        let (def_id, expected_args, expected_const_args) = self.expected_nominal_parts(enum_ty)?;
+        if def_id != enum_id {
+            return None;
+        }
+        let signature = self.signatures_for_module(enum_id.module_id)?;
+        let generic_params = signature
+            .as_ref()
+            .enums
+            .get(&enum_id.def_id)?
+            .generic_params
+            .clone();
+        let (substitutions, const_substitutions) = self.const_generic_substitutions(
+            &generic_params,
+            &expected_args,
+            &expected_const_args,
+        )?;
+        let current_module = self.current_execution_module_id();
+        let substitute = |ty: InternedTyId, this: &mut Self| {
+            let canonical = this.type_for_module_or_none(ty, current_module)?;
+            Some(this.type_context(current_module).substitute(
+                canonical,
+                &|generic| substitutions.get(generic).copied(),
+                &|generic| const_substitutions.get(generic).cloned(),
+                None,
+            ))
+        };
+        match payload {
+            nia_item_signatures::EnumVariantPayloadSignature::Unit => Some(payload.clone()),
+            nia_item_signatures::EnumVariantPayloadSignature::Tuple(fields) => {
+                Some(nia_item_signatures::EnumVariantPayloadSignature::Tuple(
+                    fields
+                        .iter()
+                        .copied()
+                        .map(|ty| substitute(ty, self))
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
+            nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                Some(nia_item_signatures::EnumVariantPayloadSignature::Named(
+                    fields
+                        .iter()
+                        .map(|field| {
+                            Some(nia_item_signatures::FieldSignature {
+                                ty: substitute(field.ty, self)?,
+                                ..field.clone()
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?,
+                ))
+            }
+        }
+    }
+
+    fn const_generic_substitutions(
+        &mut self,
+        generic_params: &[nia_item_signatures::GenericParamSignature],
+        expected_args: &[InternedTyId],
+        expected_const_args: &[ConstGenericArg],
+    ) -> Option<(SymbolMap<InternedTyId>, SymbolMap<ConstGenericArg>)> {
+        let current_module = self.current_execution_module_id();
         let expected_args = expected_args
             .iter()
             .copied()
@@ -333,24 +418,8 @@ impl Analyzer<'_> {
                 }
             }
         }
-        if type_index != expected_args.len() || const_index != expected_const_args.len() {
-            return None;
-        }
-        let mut fields = SymbolMap::default();
-        for field in signature_fields {
-            let canonical = self.type_for_module_or_none(field.ty, current_module)?;
-            let ty = {
-                let types = self.type_context(current_module);
-                types.substitute(
-                    canonical,
-                    &|generic| substitutions.get(generic).copied(),
-                    &|generic| const_substitutions.get(generic).cloned(),
-                    None,
-                )
-            };
-            fields.insert(field.name, ty);
-        }
-        Some(fields)
+        (type_index == expected_args.len() && const_index == expected_const_args.len())
+            .then_some((substitutions, const_substitutions))
     }
 
     fn substitute_nominal_args(

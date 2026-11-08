@@ -832,7 +832,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Err(self.error(expr.span, "missing enum variant"));
         };
         let enum_item = variant_info.owner;
-        let Some(layout) = self.module.program.enum_layout(enum_item.def_id) else {
+        let Some(layout) = self
+            .module
+            .program
+            .enum_layout_for_type(enum_item.def_id, expr.ty)
+        else {
             return Err(self.error(expr.span, "missing enum layout"));
         };
         if layout.payload_offset.is_none() {
@@ -941,7 +945,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let Some(variant_info) = self.module.program.enum_variant_info(variant) else {
             return Err(self.error(expr.span, "missing enum variant"));
         };
-        let Some(layout) = self.module.program.enum_layout(variant_info.owner.def_id) else {
+        let Some(layout) = self
+            .module
+            .program
+            .enum_layout_for_type(variant_info.owner.def_id, value.ty)
+        else {
             return Err(self.error(expr.span, "missing enum layout"));
         };
         let payload_offset = layout

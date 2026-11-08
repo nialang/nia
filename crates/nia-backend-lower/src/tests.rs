@@ -332,6 +332,7 @@ fn vtable_owner_deduplicates_semantically_equal_rebuilt_keys() {
         structs: Vec::new(),
         unions: Vec::new(),
         enums: Vec::new(),
+        enum_instances: Vec::new(),
         struct_instances: Vec::new(),
         union_instances: Vec::new(),
     };
@@ -440,6 +441,7 @@ fn aggregate_owner_deduplicates_semantically_equal_instance_keys() {
         structs: Vec::new(),
         unions: Vec::new(),
         enums: Vec::new(),
+        enum_instances: Vec::new(),
         struct_instances: Vec::new(),
         union_instances: Vec::new(),
     };

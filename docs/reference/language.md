@@ -770,6 +770,26 @@ enum Event {
 }
 ```
 
+Enums use the same type and const generic model as structs and unions. Generic
+parameters are substituted in every variant payload and each concrete
+instantiation has its own representation:
+
+```nia
+enum Result[T, N: usize] {
+    Value(T),
+    Bytes([u8; N]),
+    Empty,
+}
+
+fun example() Result[i32, 4] {
+    .Value(7)
+}
+```
+
+The enum declaration and its variants may be defined in one module and used
+from another; the complete type and const argument list identifies the
+instance for layout, ABI, construction, and pattern matching.
+
 An enum lists variants. A variant is unit-like, carries a tuple payload
 (`Data(i32)`), or carries named fields (`Resize { ... }`). Any variant may have
 an explicit integer value (`Red = 10`); otherwise values start at 0 and
@@ -806,7 +826,12 @@ payload fields in order and returning the enum; `&Event::Data` forms it
 explicitly. `&mut` cannot form a constructor pointer, unit variants are not
 constructors, and constructor pointers cannot be used in constant evaluation.
 
-```nia continued
+```nia
+enum Event {
+    Data(i32),
+    Resize { width: i32, height: i32 },
+}
+
 fun constructors() Event {
     let data: &fun(i32) Event = Event::Data;
     let resize: &fun(i32, i32) Event = .Resize;
@@ -1703,7 +1728,8 @@ limit is reported as an error and never changes a result.
 
 Functions, structs, unions, type aliases, and traits take generic parameters in
 brackets after the name, and `extend` takes them after the keyword
-(`extend[T] Box[T]`). Enums are not generic.
+(`extend[T] Box[T]`). Enums use the same type and const generic model as
+structs and unions, including generic payload variants.
 
 ```nia
 fun identity[T](x: T) T {

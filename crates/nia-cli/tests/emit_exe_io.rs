@@ -1279,10 +1279,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
     match io::readToEnd(&mut exactReader, allocator, 6, &mut output) {
         !() => {},
         error! => {
-            if error.kind() == io::ReadToEndErrorKind::Memory {
-                return process::ExitCode(12)!;
+            match error {
+                .Memory(_) => return process::ExitCode(12)!,
+                _ => return process::ExitCode(13)!,
             }
-            return process::ExitCode(13)!;
         },
     }
     if output.len() != 6usize or output.asSlice()[0] != b'a' or output.asSlice()[5] != b'f' {
@@ -1294,8 +1294,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     match io::readToEnd(&mut limitedReader, allocator, 3, &mut output) {
         !() => return process::ExitCode(3)!,
         error! => {
-            if error.kind() != io::ReadToEndErrorKind::LimitExceeded {
-                return process::ExitCode(4)!;
+            match error {
+                .LimitExceeded => {},
+                _ => return process::ExitCode(4)!,
             }
         },
     }
@@ -1352,8 +1353,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     match io::readToEnd(&mut retryReader, allocator, 3, &mut retryOutput) {
         !() => return process::ExitCode(14)!,
         error! => {
-            if error.kind() != io::ReadToEndErrorKind::Memory {
-                return process::ExitCode(15)!;
+            match error {
+                .Memory(_) => {},
+                _ => return process::ExitCode(15)!,
             }
         },
     }

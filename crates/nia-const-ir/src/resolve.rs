@@ -163,7 +163,17 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
                             def_id,
                             args: args
                                 .into_iter()
-                                .map(resolve_type_arg)
+                                .map(|arg| match arg {
+                                    EarlyConstGenericArg::Infer(span) => {
+                                        Ok(ResolvedConstGenericArg::Infer(span))
+                                    }
+                                    EarlyConstGenericArg::Type(arg) => {
+                                        resolve_type_arg(arg).map(ResolvedConstGenericArg::Type)
+                                    }
+                                    EarlyConstGenericArg::Const(expr) => {
+                                        resolve_expr(expr).map(ResolvedConstGenericArg::Const)
+                                    }
+                                })
                                 .collect::<Result<Vec<_>, _>>()?,
                         }
                     }

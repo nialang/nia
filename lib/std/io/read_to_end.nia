@@ -8,43 +8,10 @@ using root::mem;
 using root::result;
 using root::io::traits::Reader;
 
-pub enum ReadToEndErrorKind: i32 {
-    Read = 1,
-    Memory = 2,
-    LimitExceeded = 3,
-    _,
-}
-
-pub struct ReadToEndError[E] {
-    kind: ReadToEndErrorKind,
-    readerError: ?E,
-    memoryError: ?mem::Error,
-}
-
-extend[E] ReadToEndError[E] {
-    fun fromReader(error: E) ReadToEndError[E] {
-        .{ kind: .Read, readerError: ?error, memoryError: null }
-    }
-
-    fun fromMemory(error: mem::Error) ReadToEndError[E] {
-        .{ kind: .Memory, readerError: null, memoryError: ?error }
-    }
-
-    fun limitExceeded() ReadToEndError[E] {
-        .{ kind: .LimitExceeded, readerError: null, memoryError: null }
-    }
-
-    pub fun kind(&self) ReadToEndErrorKind {
-        self.kind
-    }
-
-    pub fun readerError(&self) ?E {
-        self.readerError
-    }
-
-    pub fun memoryError(&self) ?mem::Error {
-        self.memoryError
-    }
+pub enum ReadToEndError[E] {
+    Read(E),
+    Memory(mem::Error),
+    LimitExceeded,
 }
 
 pub fun readToEnd[R](
@@ -56,7 +23,7 @@ pub fun readToEnd[R](
 where R: Reader
 {
     if output.len() > maxBytes {
-        return ReadToEndError[[R as Reader]::Error]::limitExceeded()!;
+        return .LimitExceeded!;
     }
     let mut chunk: [u8; 4096] = [0; 4096];
     loop {
@@ -66,16 +33,16 @@ where R: Reader
             let additional = if remaining < chunk.len() { remaining } else { chunk.len() };
             match output.reserveExact(allocator, additional) {
                 !() => {},
-                error! => return ReadToEndError[[R as Reader]::Error]::fromMemory(error)!,
+                error! => return .Memory(error)!,
             }
         }
         let bytes = &mut chunk[0..request];
         let count = match reader.read(bytes) {
             !count => count,
-            error! => return ReadToEndError[[R as Reader]::Error]::fromReader(error)!,
+            error! => return .Read(error)!,
         };
         if count > request {
-            return ReadToEndError[[R as Reader]::Error]::fromReader(reader.invalidRead())!;
+            return .Read(reader.invalidRead())!;
         }
         if count == 0 {
             return !();
@@ -83,10 +50,10 @@ where R: Reader
         let accepted = if count > remaining { remaining } else { count };
         match output.appendSlice(allocator, &chunk[0..accepted]) {
             !() => {},
-            error! => return ReadToEndError[[R as Reader]::Error]::fromMemory(error)!,
+            error! => return .Memory(error)!,
         }
         if count > remaining {
-            return ReadToEndError[[R as Reader]::Error]::limitExceeded()!;
+            return .LimitExceeded!;
         }
     }
 }

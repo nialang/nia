@@ -744,6 +744,8 @@ fn enum_decl(p: &mut Parser<'_>) -> Option<Parsed> {
     p.node(|p| {
         let start = p.bump().start;
         p.expect_name("expected enum name")?;
+        types::generic_params(p);
+        types::where_clause(p);
         if p.eat(TokenKind::Colon).is_some() {
             types::type_until(p, &[TokenKind::LBrace])?;
         }

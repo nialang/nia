@@ -201,6 +201,9 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
         enums: HashMap::from([(
             DefId(5),
             item_signatures::EnumSignature {
+                generics: Vec::new(),
+                generic_params: Vec::new(),
+                where_predicates: Vec::new(),
                 backing_type: primitive,
                 is_open: true,
                 variants: vec![item_signatures::EnumVariantSignature {

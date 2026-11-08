@@ -1585,7 +1585,7 @@ impl<'a> Collector<'a> {
             item.vis,
             item.span,
             item.node_key.clone(),
-            Vec::new(),
+            item_enum.generics.clone(),
         )?;
         let mut members = EnumScope::default();
         for variant in &item_enum.variants {

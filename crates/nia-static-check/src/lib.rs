@@ -708,6 +708,35 @@ impl ConstCommonEnv for StaticConstEnv<'_> {
     fn is_enum_variant(&self, def_id: GlobalDefId) -> bool {
         self.global_def_kind(def_id) == Some(DefKind::EnumVariant)
     }
+
+    fn enum_variant_for_associated_target(
+        &self,
+        target: &nia_const_ir::ResolvedConstAssociatedTarget,
+        name: SymbolId,
+    ) -> Option<GlobalDefId> {
+        let nia_const_ir::ResolvedConstAssociatedTarget::Nominal { def_id, .. } = target else {
+            return None;
+        };
+        let find = |defs: &DefCollection| {
+            defs.defs.iter().find_map(|(variant_id, candidate)| {
+                (candidate.kind == DefKind::EnumVariant
+                    && candidate.parent == Some(def_id.def_id)
+                    && candidate.name == name)
+                    .then_some(variant_id)
+            })
+        };
+        let variant_id = if def_id.module_id == self.defs.module_id {
+            find(self.defs)
+        } else {
+            (self.program_defs)(def_id.module_id)
+                .as_deref()
+                .and_then(find)
+        }?;
+        Some(GlobalDefId {
+            module_id: def_id.module_id,
+            def_id: variant_id,
+        })
+    }
 }
 
 impl ResolvedConstEnv for StaticConstEnv<'_> {

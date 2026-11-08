@@ -171,8 +171,11 @@ pub(super) fn resolved_enum_variant_id(
     expr: &ResolvedConstExpr,
     env: &impl ConstCommonEnv,
 ) -> Option<GlobalDefId> {
-    let ConstNameResolution::Global(variant) = expr.name_resolution()? else {
+    if let Some(ConstNameResolution::Global(variant)) = expr.name_resolution() {
+        return env.is_enum_variant(variant).then_some(variant);
+    }
+    let ResolvedConstExprKind::AssociatedFunction { target, name } = expr.kind() else {
         return None;
     };
-    env.is_enum_variant(variant).then_some(variant)
+    env.enum_variant_for_associated_target(target, *name)
 }

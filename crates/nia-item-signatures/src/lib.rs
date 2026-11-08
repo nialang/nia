@@ -708,6 +708,12 @@ pub struct FieldSignature {
 /// Lowered enum declaration signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumSignature {
+    /// Compact generic names.
+    pub generics: Vec<SymbolId>,
+    /// Kind-aware generic metadata.
+    pub generic_params: Vec<GenericParamSignature>,
+    /// Where predicates.
+    pub where_predicates: Vec<WherePredicateSignature>,
     /// Lowered backing type.
     pub backing_type: InternedTyId,
     /// Whether external variants may exist.

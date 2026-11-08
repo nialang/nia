@@ -31,7 +31,7 @@ impl BackendValidator<'_> {
         let owner = info.owner.def_id;
         let backing_type = info.owner.backing_type;
         let payload = info.variant.payload.clone();
-        let Some(layout) = self.index.enum_layout(owner) else {
+        let Some(layout) = self.index.enum_layout_for_type(owner, result_ty) else {
             self.invalid_enum(span, "variant owner has no enum layout");
             return;
         };
@@ -70,7 +70,8 @@ impl BackendValidator<'_> {
             );
         }
         for (field, expected_ty) in fields.iter().zip(expected_fields) {
-            if !self.same_type(field.ty, expected_ty) {
+            let generic_expected = self.generic_contract_type(expected_ty);
+            if !generic_expected && !self.same_type(field.ty, expected_ty) {
                 self.invalid_enum(
                     field.span,
                     "variant payload field type does not match its declaration",
@@ -216,7 +217,8 @@ impl BackendValidator<'_> {
                 return;
             }
         };
-        if !self.same_type(result_ty, expected_ty) {
+        let generic_expected = self.generic_contract_type(expected_ty);
+        if !generic_expected && !self.same_type(result_ty, expected_ty) {
             self.invalid_enum(span, "tag result does not match the enum backing type");
         }
     }
@@ -249,12 +251,16 @@ impl BackendValidator<'_> {
                 "payload projection input does not match the variant owner",
             );
         }
-        if !self.index.enum_layout(owner).is_some_and(|layout| {
-            layout
-                .variants
-                .iter()
-                .any(|variant| !variant.fields.is_empty())
-        }) {
+        if !self
+            .index
+            .enum_layout_for_type(owner, value.ty)
+            .is_some_and(|layout| {
+                layout
+                    .variants
+                    .iter()
+                    .any(|variant| !variant.fields.is_empty())
+            })
+        {
             self.invalid_enum(span, "payload projection enum has no payload storage");
         }
         let fields = Self::enum_payload_types(&payload);
@@ -262,7 +268,8 @@ impl BackendValidator<'_> {
             self.invalid_enum(span, "payload projection field index is out of bounds");
             return;
         };
-        if !self.same_type(result_ty, expected_ty) {
+        let generic_expected = self.generic_contract_type(expected_ty);
+        if !generic_expected && !self.same_type(result_ty, expected_ty) {
             self.invalid_enum(
                 span,
                 "payload projection result does not match its field type",
@@ -288,5 +295,24 @@ impl BackendValidator<'_> {
             span,
             format!("backend IR enum expression has an invalid contract: {message}"),
         ));
+    }
+
+    fn generic_contract_type(&self, ty: nia_ids::InternedTyId) -> bool {
+        match self.index.ty_kind(ty) {
+            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::Array { len, elem }) => {
+                matches!(len, nia_ty::ArrayLenTy::GenericParam(_))
+                    || self.generic_contract_type(*elem)
+            }
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => {
+                args.iter().any(|arg| self.generic_contract_type(*arg))
+                    || const_args
+                        .iter()
+                        .any(|arg| self.generic_contract_type(arg.ty))
+            }
+            _ => false,
+        }
     }
 }

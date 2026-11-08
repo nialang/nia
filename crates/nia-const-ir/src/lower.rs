@@ -600,7 +600,7 @@ fn lower_associated_function_target(
             .probe_type_prefix(&nominal.node_key)
             .or_else(|| context.probe_type_prefix(&lhs.node_key))
             .map(|def_id| {
-                lower_type_args_with_context(args, context)
+                lower_generic_args_with_context(args, context)
                     .map(|args| EarlyConstAssociatedTarget::Nominal { def_id, args })
             }),
         _ => None,
@@ -691,27 +691,6 @@ fn lower_slice_range_with_context(
         end: range.end,
         inclusive: range.inclusive,
     })
-}
-
-fn lower_type_args_with_context(
-    args: &[nia_ast::BracketArg],
-    context: &dyn ConstLowerContext,
-) -> Result<Vec<EarlyConstTypeArg>, ConstLowerError> {
-    args.iter()
-        .map(|arg| {
-            let Some(ty) = &arg.ty else {
-                return Err(ConstLowerError {
-                    span: arg.span,
-                    message: "const generic function arguments must be types".to_string(),
-                });
-            };
-            Ok(EarlyConstTypeArg {
-                span: arg.span,
-                ty_span: ty.span,
-                ty: lower_type_id(context, &ty.node_key, ty.span)?,
-            })
-        })
-        .collect()
 }
 
 fn lower_type_arg(

@@ -378,6 +378,10 @@ pub struct Field {
 pub struct EnumItem {
     /// Enum name identity.
     pub name: SymbolId,
+    /// Generic parameters.
+    pub generics: Vec<GenericParam>,
+    /// Where-clause predicates.
+    pub where_clause: WhereClause,
     /// Optional explicit backing type.
     pub backing_type: Option<TypeRef>,
     /// Whether downstream extensions may add variants.

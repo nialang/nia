@@ -188,6 +188,7 @@ fn validates_enum_expression_contracts_before_llvm() {
                 structs: Vec::new(),
                 unions: Vec::new(),
                 enums: vec![(enum_id, enum_layout)],
+                enum_instances: Vec::new(),
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },

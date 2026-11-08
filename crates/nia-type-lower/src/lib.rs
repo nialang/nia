@@ -164,6 +164,8 @@ impl VersionedTypeUseCollector<'_> {
                 }
             }
             ItemTreeNodeKind::Enum(item_enum) => {
+                nia_ast_walk::walk_generic_params(self, &item_enum.generics);
+                self.visit_where_clause(&item_enum.where_clause);
                 if let Some(backing_type) = &item_enum.backing_type {
                     self.visit_type(backing_type);
                 }

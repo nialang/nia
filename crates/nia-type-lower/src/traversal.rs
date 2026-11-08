@@ -137,31 +137,34 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_, '_> {
                 });
             }
             ItemKind::Enum(item_enum) => {
-                if let Some(backing_type) = &item_enum.backing_type {
-                    let ty = self.lower_type_in_context(backing_type, TypeContext::Value);
-                    if !self.is_integer(ty) {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::TYPE_NORMALIZATION,
-                            backing_type.span,
-                            "enum backing type must be an integer type",
-                        ));
-                    }
-                }
-                for variant in &item_enum.variants {
-                    match &variant.payload {
-                        nia_ast::EnumVariantPayload::Unit => {}
-                        nia_ast::EnumVariantPayload::Tuple(fields) => {
-                            for field in fields {
-                                self.lower_type_in_context(field, TypeContext::Value);
-                            }
-                        }
-                        nia_ast::EnumVariantPayload::Named(fields) => {
-                            for field in fields {
-                                self.lower_type_in_context(&field.ty, TypeContext::Value);
-                            }
+                self.with_generics(&item_enum.generics, |lowerer| {
+                    lowerer.lower_where_clause(&item_enum.where_clause);
+                    if let Some(backing_type) = &item_enum.backing_type {
+                        let ty = lowerer.lower_type_in_context(backing_type, TypeContext::Value);
+                        if !lowerer.is_integer(ty) {
+                            lowerer.diagnostics.push(Diagnostic::user_error_at(
+                                codes::TYPE_NORMALIZATION,
+                                backing_type.span,
+                                "enum backing type must be an integer type",
+                            ));
                         }
                     }
-                }
+                    for variant in &item_enum.variants {
+                        match &variant.payload {
+                            nia_ast::EnumVariantPayload::Unit => {}
+                            nia_ast::EnumVariantPayload::Tuple(fields) => {
+                                for field in fields {
+                                    lowerer.lower_type_in_context(field, TypeContext::Value);
+                                }
+                            }
+                            nia_ast::EnumVariantPayload::Named(fields) => {
+                                for field in fields {
+                                    lowerer.lower_type_in_context(&field.ty, TypeContext::Value);
+                                }
+                            }
+                        }
+                    }
+                });
             }
             ItemKind::TypeAlias(alias) => {
                 self.with_generics(&alias.generics, |lowerer| {
@@ -384,31 +387,34 @@ impl TypeLowerer<'_, '_> {
                 });
             }
             ItemTreeNodeKind::Enum(item_enum) => {
-                if let Some(backing_type) = &item_enum.backing_type {
-                    let ty = self.lower_type_in_context(backing_type, TypeContext::Value);
-                    if !self.is_integer(ty) {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::TYPE_NORMALIZATION,
-                            backing_type.span,
-                            "enum backing type must be an integer type",
-                        ));
-                    }
-                }
-                for variant in &item_enum.variants {
-                    match &variant.payload {
-                        nia_ast::EnumVariantPayload::Unit => {}
-                        nia_ast::EnumVariantPayload::Tuple(fields) => {
-                            for field in fields {
-                                self.lower_type_in_context(field, TypeContext::Value);
-                            }
-                        }
-                        nia_ast::EnumVariantPayload::Named(fields) => {
-                            for field in fields {
-                                self.lower_type_in_context(&field.ty, TypeContext::Value);
-                            }
+                self.with_generics(&item_enum.generics, |lowerer| {
+                    lowerer.lower_where_clause(&item_enum.where_clause);
+                    if let Some(backing_type) = &item_enum.backing_type {
+                        let ty = lowerer.lower_type_in_context(backing_type, TypeContext::Value);
+                        if !lowerer.is_integer(ty) {
+                            lowerer.diagnostics.push(Diagnostic::user_error_at(
+                                codes::TYPE_NORMALIZATION,
+                                backing_type.span,
+                                "enum backing type must be an integer type",
+                            ));
                         }
                     }
-                }
+                    for variant in &item_enum.variants {
+                        match &variant.payload {
+                            nia_ast::EnumVariantPayload::Unit => {}
+                            nia_ast::EnumVariantPayload::Tuple(fields) => {
+                                for field in fields {
+                                    lowerer.lower_type_in_context(field, TypeContext::Value);
+                                }
+                            }
+                            nia_ast::EnumVariantPayload::Named(fields) => {
+                                for field in fields {
+                                    lowerer.lower_type_in_context(&field.ty, TypeContext::Value);
+                                }
+                            }
+                        }
+                    }
+                });
             }
             ItemTreeNodeKind::TypeAlias(alias) => {
                 self.with_generics(&alias.generics, |lowerer| {

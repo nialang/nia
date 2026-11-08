@@ -76,6 +76,55 @@ impl ModuleSignatures<'_> {
 }
 
 impl Analyzer<'_> {
+    pub(super) fn resolved_const_associated_target_type(
+        &mut self,
+        target: &ResolvedConstAssociatedTarget,
+        span: Span,
+    ) -> Option<InternedTyId> {
+        let module_id = self.current_execution_module_id();
+        match target {
+            ResolvedConstAssociatedTarget::Type(target) => {
+                let target_ty = self.substitute_ty_generics(target.ty());
+                self.type_for_module_or_none(target_ty, module_id)
+            }
+            ResolvedConstAssociatedTarget::Nominal { def_id, args } => {
+                let signatures = self.signatures_for_module(def_id.module_id)?;
+                let generic_params = match self.def_kind_of(*def_id)? {
+                    DefKind::Struct => signatures
+                        .as_ref()
+                        .structs
+                        .get(&def_id.def_id)?
+                        .generic_params
+                        .clone(),
+                    DefKind::Union => signatures
+                        .as_ref()
+                        .unions
+                        .get(&def_id.def_id)?
+                        .generic_params
+                        .clone(),
+                    DefKind::Enum => signatures
+                        .as_ref()
+                        .enums
+                        .get(&def_id.def_id)?
+                        .generic_params
+                        .clone(),
+                    _ => return None,
+                };
+                let (type_args, const_args) = self.resolve_const_aggregate_generic_args(
+                    span,
+                    def_id.module_id,
+                    &generic_params,
+                    args,
+                )?;
+                Some(self.type_context(module_id).intern(TyKind::Nominal {
+                    def_id: *def_id,
+                    args: type_args,
+                    const_args,
+                }))
+            }
+        }
+    }
+
     pub(super) fn with_execution_module<T>(
         &mut self,
         module_id: ModuleId,
@@ -430,31 +479,10 @@ impl Analyzer<'_> {
                 (target_ty, *name, Some(receiver.as_ref().clone()))
             }
             ResolvedConstExprKind::AssociatedFunction { target, name } => {
-                let module_id = self.current_execution_module_id();
-                let target_ty = match target {
-                    ResolvedConstAssociatedTarget::Type(target) => {
-                        let target_ty = self.substitute_ty_generics(target.ty());
-                        let Some(target_ty) = self.type_for_module_or_none(target_ty, module_id)
-                        else {
-                            return ResolvedConstCalleeSelection::NoMatch;
-                        };
-                        target_ty
-                    }
-                    ResolvedConstAssociatedTarget::Nominal { def_id, args } => {
-                        self.type_context(module_id);
-                        let Some(args) = args
-                            .iter()
-                            .map(|arg| self.type_for_module_or_none(arg.ty(), module_id))
-                            .collect::<Option<Vec<_>>>()
-                        else {
-                            return ResolvedConstCalleeSelection::NoMatch;
-                        };
-                        self.type_context(module_id).intern(TyKind::Nominal {
-                            def_id: *def_id,
-                            args,
-                            const_args: Vec::new(),
-                        })
-                    }
+                let Some(target_ty) =
+                    self.resolved_const_associated_target_type(target, callee.span())
+                else {
+                    return ResolvedConstCalleeSelection::NoMatch;
                 };
                 (target_ty, *name, None)
             }
@@ -890,10 +918,43 @@ impl Analyzer<'_> {
         &self,
         expr: &ResolvedConstExpr,
     ) -> Option<(GlobalDefId, nia_item_signatures::EnumVariantSignature)> {
-        let ConstNameResolution::Global(variant_id) = expr.name_resolution()? else {
+        if let Some(ConstNameResolution::Global(variant_id)) = expr.name_resolution() {
+            return self.const_enum_variant_signature(variant_id);
+        }
+        let ResolvedConstExprKind::AssociatedFunction { target, name } = expr.kind() else {
             return None;
         };
-        self.const_enum_variant_signature(variant_id)
+        let enum_id = match target {
+            ResolvedConstAssociatedTarget::Nominal { def_id, .. } => *def_id,
+            ResolvedConstAssociatedTarget::Type(target) => {
+                let TyKind::Nominal { def_id, .. } = self.ty_kind(target.ty())? else {
+                    return None;
+                };
+                def_id
+            }
+        };
+        (self.def_kind_of(enum_id) == Some(DefKind::Enum)).then_some(())?;
+        let variant = self
+            .signatures_for_module(enum_id.module_id)?
+            .as_ref()
+            .enums
+            .get(&enum_id.def_id)?
+            .variants
+            .iter()
+            .find(|variant| variant.name == *name)?
+            .clone();
+        Some((enum_id, variant))
+    }
+
+    pub(super) fn resolved_const_enum_target_type(
+        &mut self,
+        expr: &ResolvedConstExpr,
+    ) -> Option<InternedTyId> {
+        if let ResolvedConstExprKind::AssociatedFunction { target, .. } = expr.kind() {
+            return self.resolved_const_associated_target_type(target, expr.span());
+        }
+        self.resolved_const_enum_variant(expr)
+            .map(|(enum_id, _)| self.enum_ty_in_current_module(enum_id))
     }
 
     pub(super) fn const_enum_variant_signature(

@@ -108,7 +108,7 @@ pub fn classify_nia_signature(
     return_type: nia_ids::InternedTyId,
     tracks_caller: bool,
     mut layout_of: impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
-    mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId) -> bool,
+    mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId, nia_ids::InternedTyId) -> bool,
 ) -> AbiSignature {
     let return_mode = classify_return(
         type_store,
@@ -145,7 +145,7 @@ pub fn classify_nia_param(
     type_store: &TypeStore,
     ty: nia_ids::InternedTyId,
     mut layout_of: impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
-    mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId) -> bool,
+    mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId, nia_ids::InternedTyId) -> bool,
 ) -> AbiParam {
     classify_param(type_store, ty, &mut layout_of, &mut payloadless_enum)
 }
@@ -155,7 +155,7 @@ pub fn classify_nia_return(
     type_store: &TypeStore,
     ty: nia_ids::InternedTyId,
     mut layout_of: impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
-    mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId) -> bool,
+    mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId, nia_ids::InternedTyId) -> bool,
 ) -> AbiReturn {
     classify_return(type_store, ty, &mut layout_of, &mut payloadless_enum)
 }
@@ -171,7 +171,7 @@ fn classify_param(
     store: &TypeStore,
     ty: nia_ids::InternedTyId,
     layout_of: &mut impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
-    payloadless_enum: &mut impl FnMut(nia_ids::GlobalDefId) -> bool,
+    payloadless_enum: &mut impl FnMut(nia_ids::GlobalDefId, nia_ids::InternedTyId) -> bool,
 ) -> AbiParam {
     if is_zst(layout_of, ty) {
         return AbiParam::IgnoreZst;
@@ -188,7 +188,7 @@ fn classify_param(
             | TyKind::Callable { .. }
             | TyKind::Range { .. },
         ) => AbiParam::Direct { ty },
-        Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id) => {
+        Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id, ty) => {
             AbiParam::Direct { ty }
         }
         Some(
@@ -216,7 +216,7 @@ fn classify_return(
     store: &TypeStore,
     ty: nia_ids::InternedTyId,
     layout_of: &mut impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
-    payloadless_enum: &mut impl FnMut(nia_ids::GlobalDefId) -> bool,
+    payloadless_enum: &mut impl FnMut(nia_ids::GlobalDefId, nia_ids::InternedTyId) -> bool,
 ) -> AbiReturn {
     match store.get(ty) {
         Some(TyKind::Primitive(PrimitiveTy::Never)) => return AbiReturn::Never,
@@ -238,7 +238,7 @@ fn classify_return(
             | TyKind::Callable { .. }
             | TyKind::Range { .. },
         ) => AbiReturn::Direct { ty },
-        Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id) => {
+        Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id, ty) => {
             AbiReturn::Direct { ty }
         }
         Some(
@@ -1541,7 +1541,7 @@ extern fun bad_return() (i32, bool);
                 Some(kind) if kind.is_unit() => Some(TypeLayout { size: 0, align: 1 }),
                 _ => Some(TypeLayout { size: 4, align: 4 }),
             },
-            |_| false,
+            |_, _| false,
         );
         assert_eq!(signature.parameters[0], AbiParam::IgnoreZst);
         assert!(matches!(signature.parameters[1], AbiParam::Direct { ty } if ty == i32_ty));
@@ -1574,7 +1574,7 @@ extern fun bad_return() (i32, bool);
             aggregate,
             false,
             |_| Some(TypeLayout { size: 8, align: 8 }),
-            |def_id: GlobalDefId| {
+            |def_id: GlobalDefId, _| {
                 def_id
                     == GlobalDefId {
                         module_id: module,

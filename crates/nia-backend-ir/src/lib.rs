@@ -1303,6 +1303,8 @@ pub struct BackendLayouts {
     pub unions: Vec<(GlobalDefId, StructLayout)>,
     /// Layouts for enum definitions.
     pub enums: Vec<(GlobalDefId, nia_layout::EnumLayout)>,
+    /// Layouts for concrete generic enum instances.
+    pub enum_instances: Vec<(BackendStructInstanceKey, nia_layout::EnumLayout)>,
     /// Layouts for materialized struct instances.
     pub struct_instances: Vec<(BackendStructInstanceKey, StructLayout)>,
     /// Layouts for materialized union instances.
@@ -1369,6 +1371,26 @@ impl BackendLayouts {
                         layout.clone(),
                     )
                 })
+                .collect(),
+            enum_instances: layouts
+                .enum_instances
+                .iter()
+                .map(|(key, layout)| {
+                    (
+                        BackendStructInstanceKey::from_module_key(module_id, key),
+                        layout.clone(),
+                    )
+                })
+                .chain(layouts.external_enum_instances.iter().map(|(key, layout)| {
+                    (
+                        BackendStructInstanceKey {
+                            def_id: key.def_id,
+                            args: key.args.clone(),
+                            const_args: key.const_args.clone(),
+                        },
+                        layout.clone(),
+                    )
+                }))
                 .collect(),
             struct_instances: layouts
                 .struct_instances

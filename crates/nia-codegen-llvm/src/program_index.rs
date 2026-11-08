@@ -98,6 +98,8 @@ struct ProgramIndexTables {
     struct_layouts: HashMap<GlobalDefId, LayoutPosition>,
     union_layouts: HashMap<GlobalDefId, LayoutPosition>,
     enum_layouts: HashMap<GlobalDefId, LayoutPosition>,
+    enum_instance_layouts: AggregateLayoutIndex,
+    enum_instance_layouts_by_def: HashMap<GlobalDefId, Vec<LayoutPosition>>,
     struct_instance_layouts: AggregateLayoutIndex,
     union_instance_layouts: AggregateLayoutIndex,
     struct_instance_layouts_by_def: HashMap<GlobalDefId, Vec<LayoutPosition>>,
@@ -398,6 +400,22 @@ impl ProgramIndexPublisher {
                 .insert((key.args.clone(), key.const_args.clone()), position);
             index
                 .union_instance_layouts_by_def
+                .entry(key.def_id)
+                .or_default()
+                .push(position);
+        }
+        for (layout_index, (key, _)) in module.layouts.enum_instances.iter().enumerate() {
+            let position = LayoutPosition {
+                module: module.id,
+                layout: layout_index,
+            };
+            index
+                .enum_instance_layouts
+                .entry(key.def_id)
+                .or_default()
+                .insert((key.args.clone(), key.const_args.clone()), position);
+            index
+                .enum_instance_layouts_by_def
                 .entry(key.def_id)
                 .or_default()
                 .push(position);
@@ -821,6 +839,56 @@ impl ProgramIndex {
         let position =
             owned_layout_position(def_id, self.tables().enum_layouts.get(&def_id).copied())?;
         Some(&self.module_at(position.module)?.layouts.enums[position.layout].1)
+    }
+
+    pub(super) fn enum_instance_layout(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> Option<&nia_layout::EnumLayout> {
+        let position = self
+            .tables()
+            .enum_instance_layouts
+            .get(&def_id)
+            .and_then(|layouts| layouts.get(&(args.to_vec(), const_args.to_vec())))
+            .copied()
+            .or_else(|| {
+                self.tables()
+                    .enum_instance_layouts_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .find_map(|position| {
+                        let (key, _) = &self.module_at(position.module)?.layouts.enum_instances
+                            [position.layout];
+                        self.instance_args_match(args, const_args, &key.args, &key.const_args)
+                            .then_some(*position)
+                    })
+            });
+        let position = position?;
+        Some(&self.module_at(position.module)?.layouts.enum_instances[position.layout].1)
+    }
+
+    pub(super) fn enum_layout_for_type(
+        &self,
+        def_id: GlobalDefId,
+        ty: InternedTyId,
+    ) -> Option<&nia_layout::EnumLayout> {
+        match self.ty_kind(ty) {
+            Some(TyKind::Nominal {
+                def_id: ty_def,
+                args,
+                const_args,
+            }) if *ty_def == def_id => {
+                if args.is_empty() && const_args.is_empty() {
+                    self.enum_layout(def_id)
+                } else {
+                    self.enum_instance_layout(def_id, args, const_args)
+                }
+            }
+            _ => self.enum_layout(def_id),
+        }
     }
 
     pub(super) fn struct_instance_layout(
@@ -1341,6 +1409,7 @@ mod tests {
                 structs: Vec::new(),
                 unions: Vec::new(),
                 enums: Vec::new(),
+                enum_instances: Vec::new(),
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },
@@ -1625,6 +1694,7 @@ mod tests {
                     structs: Vec::new(),
                     unions: Vec::new(),
                     enums: Vec::new(),
+                    enum_instances: Vec::new(),
                     struct_instances: vec![(struct_key.clone(), struct_layout.clone())],
                     union_instances: Vec::new(),
                 },
@@ -1828,6 +1898,7 @@ mod tests {
                 structs: Vec::new(),
                 unions: Vec::new(),
                 enums: Vec::new(),
+                enum_instances: Vec::new(),
                 struct_instances: vec![(
                     BackendStructInstanceKey {
                         def_id: struct_def,

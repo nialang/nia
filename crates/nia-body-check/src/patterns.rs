@@ -726,6 +726,15 @@ impl<'a> BodyChecker<'a> {
             self.check_invalid_enum_pattern_fields(fields, context);
             return;
         };
+        let normalized_target = self.normalize_aliases_in_type(target_ty);
+        let (enum_args, enum_const_args) = match self.interner.get(normalized_target).cloned() {
+            Some(nia_ty::TyKind::Nominal {
+                args, const_args, ..
+            }) => (args, const_args),
+            _ => (Vec::new(), Vec::new()),
+        };
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(enum_id, &enum_args, &enum_const_args);
         let mut field_coverages = Vec::new();
         match (&variant.payload, fields) {
             (
@@ -748,10 +757,15 @@ impl<'a> BodyChecker<'a> {
                     && actual.len() == 1
                     && let Some(coverage) = coverage
                 {
+                    let field_ty = self.substitute_generics_and_consts(
+                        expected[0],
+                        &substitutions,
+                        &const_substitutions,
+                    );
                     self.check_single_field_enum_payload_coverage(
                         variant_def,
                         span,
-                        expected[0],
+                        field_ty,
                         &actual[0],
                         coverage,
                         context,
@@ -759,7 +773,17 @@ impl<'a> BodyChecker<'a> {
                     return;
                 }
                 for (index, pattern) in actual.iter().enumerate() {
-                    let ty = expected.get(index).copied().unwrap_or_else(|| self.error());
+                    let ty = expected
+                        .get(index)
+                        .copied()
+                        .map(|ty| {
+                            self.substitute_generics_and_consts(
+                                ty,
+                                &substitutions,
+                                &const_substitutions,
+                            )
+                        })
+                        .unwrap_or_else(|| self.error());
                     let mut child = PatternCoverage::default();
                     self.check_pattern(pattern, ty, Some(&mut child), context);
                     field_coverages.push((ty, child));
@@ -783,10 +807,15 @@ impl<'a> BodyChecker<'a> {
                     && actual[0].name == expected[0].name
                     && let Some(coverage) = coverage
                 {
+                    let field_ty = self.substitute_generics_and_consts(
+                        expected[0].ty,
+                        &substitutions,
+                        &const_substitutions,
+                    );
                     self.check_single_field_enum_payload_coverage(
                         variant_def,
                         span,
-                        expected[0].ty,
+                        field_ty,
                         &actual[0].pattern,
                         coverage,
                         context,
@@ -797,7 +826,13 @@ impl<'a> BodyChecker<'a> {
                     let ty = expected
                         .iter()
                         .find(|expected| expected.name == field.name)
-                        .map(|expected| expected.ty)
+                        .map(|expected| {
+                            self.substitute_generics_and_consts(
+                                expected.ty,
+                                &substitutions,
+                                &const_substitutions,
+                            )
+                        })
                         .unwrap_or_else(|| self.error());
                     let mut child = PatternCoverage::default();
                     self.check_pattern(&field.pattern, ty, Some(&mut child), context);

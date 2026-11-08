@@ -365,8 +365,8 @@ impl<'a> BodyChecker<'a> {
         if let Some(resolved) = self.resolved_union_signature(def_id) {
             return Some(resolved.signature.generics);
         }
-        if self.resolved_enum_signature(def_id).is_some() {
-            return Some(Vec::new());
+        if let Some(resolved) = self.resolved_enum_signature(def_id) {
+            return Some(resolved.signature.generics);
         }
         None
     }
@@ -384,6 +384,9 @@ impl<'a> BodyChecker<'a> {
         if let Some(resolved) = self.resolved_union_signature(def_id) {
             return Some(resolved.signature.generic_params);
         }
+        if let Some(resolved) = self.resolved_enum_signature(def_id) {
+            return Some(resolved.signature.generic_params);
+        }
         if def_id.module_id == self.defs.module_id
             && let Some(signature) = self.signatures.type_aliases.get(&def_id.def_id)
         {
@@ -395,7 +398,7 @@ impl<'a> BodyChecker<'a> {
         if let Some(resolved) = self.resolved_trait_signature(def_id) {
             return Some(resolved.generic_params);
         }
-        self.resolved_enum_signature(def_id).map(|_| Vec::new())
+        None
     }
 
     pub(crate) fn expand_type_alias_instance(

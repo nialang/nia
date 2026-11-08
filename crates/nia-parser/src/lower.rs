@@ -669,6 +669,8 @@ impl Lower<'_> {
         let backing_type = self.child_type(node);
         let mut item = EnumItem {
             name,
+            generics: self.generic_params(node),
+            where_clause: self.where_clause(node),
             backing_type,
             is_open: false,
             variants: Vec::new(),

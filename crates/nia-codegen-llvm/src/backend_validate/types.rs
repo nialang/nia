@@ -823,6 +823,7 @@ mod tests {
                 structs: Vec::new(),
                 unions: Vec::new(),
                 enums: Vec::new(),
+                enum_instances: Vec::new(),
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },

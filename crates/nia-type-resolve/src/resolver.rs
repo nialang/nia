@@ -599,31 +599,32 @@ impl TypeResolver<'_> {
                 });
             }
             ItemTreeNodeKind::Enum(item_enum) => {
-                if let Some(backing_type) = &item_enum.backing_type {
-                    self.visit_type(backing_type);
-                }
-                for variant in &item_enum.variants {
-                    match &variant.payload {
-                        nia_ast::EnumVariantPayload::Unit => {}
-                        nia_ast::EnumVariantPayload::Tuple(fields) => {
-                            for field in fields {
-                                self.visit_type(field);
-                            }
-                        }
-                        nia_ast::EnumVariantPayload::Named(fields) => {
-                            for field in fields {
-                                self.visit_type(&field.ty);
-                            }
-                        }
+                self.with_generics(&item_enum.generics, |resolver| {
+                    resolver.visit_where_clause(&item_enum.where_clause);
+                    if let Some(backing_type) = &item_enum.backing_type {
+                        resolver.visit_type(backing_type);
                     }
-                }
-                if self.mode == TypeResolveMode::All {
                     for variant in &item_enum.variants {
-                        if let Some(value) = &variant.value {
-                            self.visit_expr(value);
+                        match &variant.payload {
+                            nia_ast::EnumVariantPayload::Unit => {}
+                            nia_ast::EnumVariantPayload::Tuple(fields) => {
+                                for field in fields {
+                                    resolver.visit_type(field);
+                                }
+                            }
+                            nia_ast::EnumVariantPayload::Named(fields) => {
+                                for field in fields {
+                                    resolver.visit_type(&field.ty);
+                                }
+                            }
+                        }
+                        if resolver.mode == TypeResolveMode::All
+                            && let Some(value) = &variant.value
+                        {
+                            resolver.visit_expr(value);
                         }
                     }
-                }
+                });
             }
             ItemTreeNodeKind::Binding(binding) => {
                 if let Some(ty) = &binding.ty {

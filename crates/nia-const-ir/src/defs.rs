@@ -2482,8 +2482,10 @@ pub enum EarlyConstAssociatedTarget {
     Nominal {
         /// Definition identity.
         def_id: GlobalDefId,
-        /// Type arguments.
-        args: Vec<EarlyConstTypeArg>,
+        /// Generic arguments in declaration order, retaining type versus
+        /// const kind. Nominal targets use the same representation as calls
+        /// so const-generic instances cannot lose their value arguments.
+        args: Vec<EarlyConstGenericArg>,
     },
 }
 
@@ -2496,8 +2498,8 @@ pub enum ResolvedConstAssociatedTarget {
     Nominal {
         /// Definition identity.
         def_id: GlobalDefId,
-        /// Resolved type arguments.
-        args: Vec<ResolvedConstTypeArg>,
+        /// Resolved generic arguments in declaration order.
+        args: Vec<ResolvedConstGenericArg>,
     },
 }
 

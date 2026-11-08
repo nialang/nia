@@ -18,6 +18,12 @@ use nia_node_id::NodeMap;
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
 };
+
+struct EnumInstance<'a> {
+    id: GlobalDefId,
+    args: &'a [InternedTyId],
+    const_args: &'a [nia_ty::ConstGenericArg],
+}
 use nia_sema_ir::{AssociatedConstProjection, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_symbol::SymbolId;
@@ -823,7 +829,7 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         name: &SymbolId,
     ) -> Option<InternedTyId> {
-        let enum_id = self.type_prefix_def_id(lhs)?;
+        let (enum_id, args, const_args) = self.type_prefix_instance(lhs)?;
         if !self.is_enum_def(enum_id) {
             return None;
         }
@@ -862,7 +868,7 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
-        Some(self.enum_ty(enum_id))
+        Some(self.enum_ty(enum_id, &args, &const_args))
     }
 
     pub(crate) fn resolved_enum_variant(
@@ -917,12 +923,16 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let variant_id = self.enum_constructor_variant(expr, expected)?;
         let (enum_id, variant) = self.resolved_enum_variant(variant_id)?;
+        let (enum_args, enum_const_args) = self.enum_constructor_instance(expr, enum_id, expected);
         let params = match variant.payload {
             // Unit variants remain ordinary values, including their address-taking rules.
             EnumVariantPayloadSignature::Unit => return None,
-            EnumVariantPayloadSignature::Tuple(params) => params,
+            EnumVariantPayloadSignature::Tuple(params) => {
+                self.substitute_enum_payload_types(enum_id, &enum_args, &enum_const_args, params)
+            }
             EnumVariantPayloadSignature::Named(fields) => {
-                fields.into_iter().map(|field| field.ty).collect()
+                let fields = fields.into_iter().map(|field| field.ty).collect::<Vec<_>>();
+                self.substitute_enum_payload_types(enum_id, &enum_args, &enum_const_args, fields)
             }
         };
         if !is_readonly {
@@ -933,7 +943,7 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         }
-        let return_type = self.enum_ty(enum_id);
+        let return_type = self.enum_type_from_expected(enum_id, expected);
         let ty = self.interner.intern(TyKind::FunctionPointer {
             params,
             return_type,
@@ -952,14 +962,19 @@ impl<'a> BodyChecker<'a> {
         self.callable_signature(expected)?;
         let variant_id = self.enum_constructor_variant(expr, Some(expected))?;
         let (enum_id, variant) = self.resolved_enum_variant(variant_id)?;
+        let (enum_args, enum_const_args) =
+            self.enum_constructor_instance(expr, enum_id, Some(expected));
         let params = match variant.payload {
             EnumVariantPayloadSignature::Unit => return None,
-            EnumVariantPayloadSignature::Tuple(params) => params,
+            EnumVariantPayloadSignature::Tuple(params) => {
+                self.substitute_enum_payload_types(enum_id, &enum_args, &enum_const_args, params)
+            }
             EnumVariantPayloadSignature::Named(fields) => {
-                fields.into_iter().map(|field| field.ty).collect()
+                let fields = fields.into_iter().map(|field| field.ty).collect::<Vec<_>>();
+                self.substitute_enum_payload_types(enum_id, &enum_args, &enum_const_args, fields)
             }
         };
-        let return_type = self.enum_ty(enum_id);
+        let return_type = self.enum_type_from_expected(enum_id, Some(expected));
         let ty = self.interner.intern(TyKind::FunctionPointer {
             params,
             return_type,
@@ -977,14 +992,28 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
     ) -> Option<InternedTyId> {
         let (enum_id, variant_def) = self.enum_variant_info(callee)?;
+        let (_, enum_args, enum_const_args) = self.type_prefix_instance(match &callee.kind {
+            nia_ast::ExprKind::Qualified { lhs, .. } => lhs,
+            _ => return None,
+        })?;
         let variant_id = GlobalDefId {
             module_id: enum_id.module_id,
             def_id: variant_def,
         };
         let (_, variant) = self.resolved_enum_variant(variant_id)?;
         if let EnumVariantPayloadSignature::Tuple(fields) = &variant.payload {
-            self.check_enum_tuple_payload(expr.span, &variant, fields, args);
-            return Some(self.enum_ty(enum_id));
+            self.check_enum_tuple_payload(
+                expr.span,
+                &variant,
+                fields,
+                args,
+                EnumInstance {
+                    id: enum_id,
+                    args: &enum_args,
+                    const_args: &enum_const_args,
+                },
+            );
+            return Some(self.enum_ty(enum_id, &enum_args, &enum_const_args));
         }
         for arg in args {
             self.check_expr(arg);
@@ -1002,7 +1031,7 @@ impl<'a> BodyChecker<'a> {
                 self.symbol_name(variant.name)
             ),
         ));
-        Some(self.enum_ty(enum_id))
+        Some(self.enum_ty(enum_id, &enum_args, &enum_const_args))
     }
 
     pub(crate) fn check_omitted_enum_variant_call(
@@ -1013,6 +1042,13 @@ impl<'a> BodyChecker<'a> {
         expected: InternedTyId,
     ) -> Option<InternedTyId> {
         let enum_id = self.enum_global_def_id(expected)?;
+        let normalized_expected = self.normalize_aliases_in_type(expected);
+        let (enum_args, enum_const_args) = match self.interner.get(normalized_expected).cloned() {
+            Some(TyKind::Nominal {
+                args, const_args, ..
+            }) => (args, const_args),
+            _ => (Vec::new(), Vec::new()),
+        };
         let variant_def = self
             .enum_variant_scope(enum_id)?
             .into_iter()
@@ -1025,7 +1061,17 @@ impl<'a> BodyChecker<'a> {
         let (_, variant) = self.resolved_enum_variant(variant_id)?;
         match &variant.payload {
             EnumVariantPayloadSignature::Tuple(fields) => {
-                self.check_enum_tuple_payload(expr.span, &variant, fields, args);
+                self.check_enum_tuple_payload(
+                    expr.span,
+                    &variant,
+                    fields,
+                    args,
+                    EnumInstance {
+                        id: enum_id,
+                        args: &enum_args,
+                        const_args: &enum_const_args,
+                    },
+                );
             }
             EnumVariantPayloadSignature::Unit => {
                 for arg in args {
@@ -1111,6 +1157,7 @@ impl<'a> BodyChecker<'a> {
         variant: &EnumVariantSignature,
         fields: &[InternedTyId],
         args: &[Expr],
+        instance: EnumInstance<'_>,
     ) {
         if fields.len() != args.len() {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -1124,11 +1171,18 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
+        let (substitutions, const_substitutions) = self.generic_substitutions_and_consts_for_def(
+            instance.id,
+            instance.args,
+            instance.const_args,
+        );
         for (index, arg) in args.iter().enumerate() {
             let Some(expected) = fields.get(index).copied() else {
                 self.check_expr(arg);
                 continue;
             };
+            let expected =
+                self.substitute_generics_and_consts(expected, &substitutions, &const_substitutions);
             let actual = self.check_expr_with_expected(arg, Some(expected));
             self.expect_expr_type(arg, expected, actual, "enum variant payload");
         }
@@ -1164,10 +1218,35 @@ impl<'a> BodyChecker<'a> {
                         self.symbol_name(variant.name)
                     ),
                 ));
-                return self.enum_ty(enum_id);
+                return self.enum_ty(enum_id, &[], &[]);
             };
-            self.check_named_enum_payload(expr.span, &variant, expected_fields, fields);
-            return self.enum_ty(enum_id);
+            let (enum_args, enum_const_args) = self
+                .type_prefix_instance(target)
+                .map(|(_, args, const_args)| (args, const_args))
+                .or_else(|| {
+                    expected.and_then(|ty| {
+                        let normalized = self.normalize_aliases_in_type(ty);
+                        match self.interner.get(normalized).cloned() {
+                            Some(TyKind::Nominal {
+                                args, const_args, ..
+                            }) => Some((args, const_args)),
+                            _ => None,
+                        }
+                    })
+                })
+                .unwrap_or_default();
+            self.check_named_enum_payload(
+                expr.span,
+                &variant,
+                expected_fields,
+                fields,
+                EnumInstance {
+                    id: enum_id,
+                    args: &enum_args,
+                    const_args: &enum_const_args,
+                },
+            );
+            return self.enum_ty(enum_id, &enum_args, &enum_const_args);
         }
         if let Some((def_id, args, const_args)) = self.type_prefix_instance(target) {
             let ty = self.interner.intern(TyKind::Nominal {
@@ -1194,6 +1273,7 @@ impl<'a> BodyChecker<'a> {
         variant: &EnumVariantSignature,
         expected_fields: &[nia_item_signatures::FieldSignature],
         fields: &[nia_ast::FieldInit],
+        instance: EnumInstance<'_>,
     ) {
         let field_set = check_required_field_set(
             fields
@@ -1201,11 +1281,22 @@ impl<'a> BodyChecker<'a> {
                 .map(|field| NamedField::new(field.span, field.name)),
             expected_fields.iter().map(|field| field.name),
         );
+        let (substitutions, const_substitutions) = self.generic_substitutions_and_consts_for_def(
+            instance.id,
+            instance.args,
+            instance.const_args,
+        );
         for field in fields {
             if let Some(expected) = expected_fields
                 .iter()
                 .find(|expected| expected.name == field.name)
-                .map(|field| field.ty)
+                .map(|field| {
+                    self.substitute_generics_and_consts(
+                        field.ty,
+                        &substitutions,
+                        &const_substitutions,
+                    )
+                })
             {
                 let actual = self.check_expr_with_expected(&field.value, Some(expected));
                 self.expect_expr_type(&field.value, expected, actual, "enum variant payload field");
@@ -1240,12 +1331,103 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn enum_ty(&mut self, enum_id: GlobalDefId) -> InternedTyId {
+    pub(crate) fn enum_ty(
+        &mut self,
+        enum_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> InternedTyId {
         self.interner.intern(TyKind::Nominal {
             def_id: enum_id,
-            args: Vec::new(),
-            const_args: Vec::new(),
+            args: args.to_vec(),
+            const_args: const_args.to_vec(),
         })
+    }
+
+    fn enum_type_from_expected(
+        &mut self,
+        enum_id: GlobalDefId,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        if let Some(expected) = expected {
+            let expected = self.normalize_aliases_in_type(expected);
+            let candidate = match self.interner.get(expected).cloned() {
+                Some(TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                }) if def_id == enum_id => Some((args, const_args)),
+                _ => self
+                    .callable_signature(expected)
+                    .and_then(
+                        |(_, return_type)| match self.interner.get(return_type).cloned() {
+                            Some(TyKind::Nominal {
+                                def_id,
+                                args,
+                                const_args,
+                            }) if def_id == enum_id => Some((args, const_args)),
+                            _ => None,
+                        },
+                    ),
+            };
+            if let Some((args, const_args)) = candidate {
+                return self.enum_ty(enum_id, &args, &const_args);
+            }
+        }
+        self.enum_ty(enum_id, &[], &[])
+    }
+
+    fn enum_constructor_instance(
+        &mut self,
+        expr: &Expr,
+        enum_id: GlobalDefId,
+        expected: Option<InternedTyId>,
+    ) -> (Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>) {
+        if let ExprKind::Qualified { lhs, .. } = &expr.kind
+            && let Some((candidate, args, const_args)) = self.type_prefix_instance(lhs)
+            && candidate == enum_id
+        {
+            return (args, const_args);
+        }
+        let Some(expected) = expected else {
+            return (Vec::new(), Vec::new());
+        };
+        let expected = self.normalize_aliases_in_type(expected);
+        let expected = match self.interner.get(expected).cloned() {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) if def_id == enum_id => return (args, const_args),
+            Some(TyKind::FunctionPointer { .. } | TyKind::Callable { .. }) => self
+                .callable_signature(expected)
+                .map(|(_, return_type)| return_type)
+                .unwrap_or(expected),
+            _ => expected,
+        };
+        match self.interner.get(expected).cloned() {
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) if def_id == enum_id => (args, const_args),
+            _ => (Vec::new(), Vec::new()),
+        }
+    }
+
+    fn substitute_enum_payload_types(
+        &mut self,
+        enum_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+        fields: Vec<InternedTyId>,
+    ) -> Vec<InternedTyId> {
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(enum_id, args, const_args);
+        fields
+            .into_iter()
+            .map(|ty| self.substitute_generics_and_consts(ty, &substitutions, &const_substitutions))
+            .collect()
     }
 
     pub(crate) fn enum_global_def_id(&self, ty: InternedTyId) -> Option<GlobalDefId> {

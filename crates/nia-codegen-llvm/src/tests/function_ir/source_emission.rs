@@ -251,6 +251,7 @@ fn rejects_aggregate_field_with_foreign_owner_before_llvm() {
                 struct_instances: Vec::new(),
                 unions: Vec::new(),
                 enums: Vec::new(),
+                enum_instances: Vec::new(),
                 union_instances: Vec::new(),
             },
             structs: vec![BackendStruct {

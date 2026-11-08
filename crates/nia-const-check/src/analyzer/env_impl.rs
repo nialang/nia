@@ -63,6 +63,34 @@ impl ConstCommonEnv for Analyzer<'_> {
         self.def_kind_of(def_id) == Some(DefKind::EnumVariant)
     }
 
+    fn enum_variant_for_associated_target(
+        &self,
+        target: &nia_const_ir::ResolvedConstAssociatedTarget,
+        name: SymbolId,
+    ) -> Option<GlobalDefId> {
+        let enum_id = match target {
+            nia_const_ir::ResolvedConstAssociatedTarget::Nominal { def_id, .. } => *def_id,
+            nia_const_ir::ResolvedConstAssociatedTarget::Type(target) => {
+                let TyKind::Nominal { def_id, .. } = self.ty_kind(target.ty())? else {
+                    return None;
+                };
+                def_id
+            }
+        };
+        let signatures = self.signatures_for_module(enum_id.module_id)?;
+        let variant = signatures
+            .as_ref()
+            .enums
+            .get(&enum_id.def_id)?
+            .variants
+            .iter()
+            .find(|variant| variant.name == name)?;
+        Some(GlobalDefId {
+            module_id: enum_id.module_id,
+            def_id: variant.def_id,
+        })
+    }
+
     fn global_value_restriction(
         &self,
         def_id: GlobalDefId,

@@ -530,6 +530,62 @@ fun main() i32 {
 }
 
 #[test]
+fn generic_payload_enums_preserve_concrete_arguments() {
+    let checked = pipeline(
+        r#"
+enum Option[T] {
+    Some(T),
+    None,
+}
+
+fun main() i32 {
+    let value: Option[i32] = Option[i32]::Some(7);
+    match value {
+        Option[i32]::Some(number) => number,
+        Option[i32]::None => 0,
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn generic_enums_cover_named_const_and_constructor_function_instances() {
+    let checked = pipeline(
+        r#"
+enum Packet[T, N: usize] {
+    Value(T),
+    Bytes { data: [u8; N] },
+    Empty,
+}
+
+fun value() Packet[i32, 3] {
+    Packet[i32, 3]::Value(7)
+}
+
+fun bytes() Packet[i32, 3] {
+    Packet[i32, 3]::Bytes { data: [1, 2, 3] }
+}
+
+fun read(packet: Packet[i32, 3]) i32 {
+    match packet {
+        Packet[i32, 3]::Value(number) => number,
+        Packet[i32, 3]::Bytes { data } => data[0] as i32,
+        Packet[i32, 3]::Empty => 0,
+    }
+}
+
+fun constructor() Packet[i32, 3] {
+    let make: &fun(i32) Packet[i32, 3] = &Packet[i32, 3]::Value;
+    make(9)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:#?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_enum_variants_and_match_exhaustiveness() {
     let checked = pipeline(
         r#"

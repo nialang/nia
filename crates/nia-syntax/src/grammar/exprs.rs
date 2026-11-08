@@ -751,6 +751,16 @@ pub(crate) fn qualified_value_path(p: &mut Parser<'_>) -> Option<Parsed> {
         };
         Done::shaped(SyntaxKind::NameExpr, span, shape)
     })?;
+    if p.at(TokenKind::LBracket) {
+        let lhs = expr.clone();
+        let start = lhs.span.start;
+        expr = p.node_preceding(&lhs, |p| {
+            p.bump();
+            bracket_suffix_after_open(p)?;
+            p.expect(TokenKind::RBracket, "expected `]` after bracket suffix")?;
+            Done::new(SyntaxKind::BracketExpr, Span::new(start, p.previous_end()))
+        })?;
+    }
     let mut qualified = false;
     while p.at(TokenKind::ColonColon) {
         let lhs = expr.clone();

@@ -454,6 +454,20 @@ impl<'a> BodyChecker<'a> {
                             })
                     })
                     .map(|(variant_id, backing_type, signature)| {
+                        let (enum_id, args, const_args) = match self
+                            .interner
+                            .get(self.normalization.normalize(target_ty))
+                            .cloned()
+                        {
+                            Some(TyKind::Nominal {
+                                def_id,
+                                args,
+                                const_args,
+                            }) => (def_id, args, const_args),
+                            _ => (variant_id, Vec::new(), Vec::new()),
+                        };
+                        let (substitutions, const_substitutions) = self
+                            .generic_substitutions_and_consts_for_def(enum_id, &args, &const_args);
                         let fields = match (signature.payload, fields) {
                             (
                                 nia_item_signatures::EnumVariantPayloadSignature::Tuple(types),
@@ -461,7 +475,14 @@ impl<'a> BodyChecker<'a> {
                             ) => patterns
                                 .iter()
                                 .zip(types)
-                                .map(|(pattern, ty)| self.lower_pattern(pattern, ty))
+                                .map(|(pattern, ty)| {
+                                    let ty = self.substitute_generics_and_consts(
+                                        ty,
+                                        &substitutions,
+                                        &const_substitutions,
+                                    );
+                                    self.lower_pattern(pattern, ty)
+                                })
                                 .collect(),
                             (
                                 nia_item_signatures::EnumVariantPayloadSignature::Named(expected),
@@ -477,12 +498,21 @@ impl<'a> BodyChecker<'a> {
                                         .find(|pattern| pattern.name == expected.name)
                                         .map_or(
                                             TypedPattern {
-                                                ty: expected.ty,
+                                                ty: self.substitute_generics_and_consts(
+                                                    expected.ty,
+                                                    &substitutions,
+                                                    &const_substitutions,
+                                                ),
                                                 span: rest.unwrap_or(pattern.span),
                                                 kind: TypedPatternKind::Wildcard,
                                             },
                                             |pattern| {
-                                                self.lower_pattern(&pattern.pattern, expected.ty)
+                                                let ty = self.substitute_generics_and_consts(
+                                                    expected.ty,
+                                                    &substitutions,
+                                                    &const_substitutions,
+                                                );
+                                                self.lower_pattern(&pattern.pattern, ty)
                                             },
                                         )
                                 })
@@ -1142,12 +1172,35 @@ impl<'a> BodyChecker<'a> {
                             _ => None,
                         })
                         .map(|expected| {
+                            let (enum_id, args, const_args) = self
+                                .interner
+                                .get(self.normalization.normalize(ty))
+                                .and_then(|kind| match kind {
+                                    TyKind::Nominal {
+                                        def_id,
+                                        args,
+                                        const_args,
+                                    } => Some((*def_id, args.clone(), const_args.clone())),
+                                    _ => None,
+                                })
+                                .unwrap_or((enum_id, Vec::new(), Vec::new()));
+                            let (substitutions, const_substitutions) = self
+                                .generic_substitutions_and_consts_for_def(
+                                    enum_id,
+                                    &args,
+                                    &const_args,
+                                );
                             expected
                                 .into_iter()
                                 .filter_map(|expected| {
                                     let field =
                                         fields.iter().find(|field| field.name == expected.name)?;
-                                    Some(self.lower_expr_with_ty(&field.value, Some(expected.ty)))
+                                    let field_ty = self.substitute_generics_and_consts(
+                                        expected.ty,
+                                        &substitutions,
+                                        &const_substitutions,
+                                    );
+                                    Some(self.lower_expr_with_ty(&field.value, Some(field_ty)))
                                 })
                                 .collect()
                         })
@@ -1440,12 +1493,55 @@ impl<'a> BodyChecker<'a> {
                     .enum_variant_info(callee)
                     .or_else(|| self.omitted_enum_variant_info(callee, ty))
                 {
+                    let payload_types = self
+                        .resolved_enum_variant(nia_ids::GlobalDefId {
+                            module_id: enum_id.module_id,
+                            def_id: variant_def,
+                        })
+                        .map(|(_, signature)| match signature.payload {
+                            nia_item_signatures::EnumVariantPayloadSignature::Tuple(types) => {
+                                let (args, const_args) = match self
+                                    .interner
+                                    .get(self.normalization.normalize(ty))
+                                    .cloned()
+                                {
+                                    Some(TyKind::Nominal {
+                                        args, const_args, ..
+                                    }) => (args, const_args),
+                                    _ => (Vec::new(), Vec::new()),
+                                };
+                                let (substitutions, const_substitutions) = self
+                                    .generic_substitutions_and_consts_for_def(
+                                        enum_id,
+                                        &args,
+                                        &const_args,
+                                    );
+                                types
+                                    .into_iter()
+                                    .map(|ty| {
+                                        self.substitute_generics_and_consts(
+                                            ty,
+                                            &substitutions,
+                                            &const_substitutions,
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                            }
+                            _ => Vec::new(),
+                        })
+                        .unwrap_or_default();
                     TypedExprKind::EnumVariant {
                         variant: nia_ids::GlobalDefId {
                             module_id: enum_id.module_id,
                             def_id: variant_def,
                         },
-                        fields: args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                        fields: args
+                            .iter()
+                            .enumerate()
+                            .map(|(index, arg)| {
+                                self.lower_expr_with_ty(arg, payload_types.get(index).copied())
+                            })
+                            .collect(),
                     }
                 } else if let Some(ResolvedCall::BuiltinFunction { builtin, type_arg }) =
                     self.resolved_call(expr)

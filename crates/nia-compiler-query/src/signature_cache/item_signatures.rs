@@ -623,6 +623,9 @@ pub(crate) fn write_enum_signature(
     signature: &item_signatures::EnumSignature,
     graph: &mut TypeGraphEncoder<'_>,
 ) -> io::Result<()> {
+    write_symbols(encoded, &signature.generics, graph)?;
+    write_generic_params(encoded, &signature.generic_params, graph)?;
+    write_where_predicates(encoded, &signature.where_predicates, graph)?;
     write_type_index(encoded, graph.intern(signature.backing_type)?);
     write_bool(encoded, signature.is_open);
     write_u64(encoded, signature.variants.len() as u64);
@@ -655,6 +658,9 @@ pub(crate) fn read_enum_signature(
     symbols: &SymbolTable,
     source_len: usize,
 ) -> Option<item_signatures::EnumSignature> {
+    let generics = read_symbols(cursor, symbols)?;
+    let generic_params = read_generic_params(cursor, types, symbols)?;
+    let where_predicates = read_where_predicates(cursor, types, symbols, source_len)?;
     let backing_type = read_type_index(cursor, types)?;
     let is_open = read_bool(cursor)?;
     let variant_len = read_len(cursor, MAX_SEQUENCE_LEN)?;
@@ -690,6 +696,9 @@ pub(crate) fn read_enum_signature(
         variants.push(variant);
     }
     Some(item_signatures::EnumSignature {
+        generics,
+        generic_params,
+        where_predicates,
         backing_type,
         is_open,
         variants,

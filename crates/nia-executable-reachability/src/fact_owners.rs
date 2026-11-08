@@ -842,6 +842,9 @@ mod tests {
             };
             Some(ProgramEnumSignature {
                 signature: nia_item_signatures::EnumSignature {
+                    generics: Vec::new(),
+                    generic_params: Vec::new(),
+                    where_predicates: Vec::new(),
                     backing_type: backing,
                     is_open: false,
                     variants: payload,

@@ -358,9 +358,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return_type,
             tracks_caller,
             |ty| self.layout_of(ty),
-            |def_id| {
+            |def_id, ty| {
                 self.program
-                    .enum_layout(def_id)
+                    .enum_layout_for_type(def_id, ty)
                     .is_some_and(|layout| layout.payload_offset.is_none())
             },
         )
@@ -371,9 +371,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.program.type_store(),
             ty,
             |ty| self.layout_of(ty),
-            |def_id| {
+            |def_id, ty| {
                 self.program
-                    .enum_layout(def_id)
+                    .enum_layout_for_type(def_id, ty)
                     .is_some_and(|layout| layout.payload_offset.is_none())
             },
         ) {
@@ -389,9 +389,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.program.type_store(),
             ty,
             |ty| self.layout_of(ty),
-            |def_id| {
+            |def_id, ty| {
                 self.program
-                    .enum_layout(def_id)
+                    .enum_layout_for_type(def_id, ty)
                     .is_some_and(|layout| layout.payload_offset.is_none())
             },
         ) {
@@ -546,7 +546,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     return Ok(union_ty.into());
                 }
                 if let Some(item) = self.program.enum_item(*def_id) {
-                    return self.enum_type(item, span);
+                    return self.enum_type(item, args, const_args, span);
                 }
                 Err(self.error(span, "unknown nominal type during LLVM lowering"))
             }
@@ -616,10 +616,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn enum_type(
         &self,
         item: &nia_backend_ir::BackendEnum,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
         span: Span,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
         let tag = self.llvm_basic_type_in(item.backing_type, span)?;
-        let Some(layout) = self.program.enum_layout(item.def_id) else {
+        let layout = if args.is_empty() && const_args.is_empty() {
+            self.program.enum_layout(item.def_id)
+        } else {
+            self.program
+                .enum_instance_layout(item.def_id, args, const_args)
+        };
+        let Some(layout) = layout else {
             return Err(self.error(span, "missing enum layout during LLVM lowering"));
         };
         let Some(payload_offset) = layout.payload_offset else {

@@ -382,6 +382,8 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
         enums: HashMap::new(),
         struct_instances: HashMap::new(),
         union_instances: HashMap::new(),
+        enum_instances: HashMap::new(),
+        external_enum_instances: HashMap::new(),
         diagnostics: Vec::new(),
     };
     let normalization = TypeNormalization {
@@ -478,6 +480,8 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
         enums: HashMap::new(),
         struct_instances: HashMap::new(),
         union_instances: HashMap::new(),
+        enum_instances: HashMap::new(),
+        external_enum_instances: HashMap::new(),
         diagnostics: Vec::new(),
     };
     let normalization = TypeNormalization {
@@ -539,6 +543,9 @@ fn enum_classification_reads_new_types_from_canonical_store() {
     local_enums.insert(
         local_enum_id,
         EnumSignature {
+            generics: Vec::new(),
+            generic_params: Vec::new(),
+            where_predicates: Vec::new(),
             backing_type: append.test_intern(TyKind::Primitive(PrimitiveTy::I32)),
             is_open: false,
             variants: Vec::new(),
@@ -623,6 +630,8 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
         enums: HashMap::new(),
         struct_instances: HashMap::new(),
         union_instances: HashMap::new(),
+        enum_instances: HashMap::new(),
+        external_enum_instances: HashMap::new(),
         diagnostics: Vec::new(),
     };
     let normalization = TypeNormalization {
@@ -783,6 +792,8 @@ fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
         enums: HashMap::new(),
         struct_instances: HashMap::new(),
         union_instances: HashMap::new(),
+        enum_instances: HashMap::new(),
+        external_enum_instances: HashMap::new(),
         diagnostics: Vec::new(),
     };
     let normalization = TypeNormalization {
@@ -842,6 +853,8 @@ fn sized_lookup_matches_layout_tuple_elements_structurally() {
         enums: HashMap::new(),
         struct_instances: HashMap::new(),
         union_instances: HashMap::new(),
+        enum_instances: HashMap::new(),
+        external_enum_instances: HashMap::new(),
         diagnostics: Vec::new(),
     };
     let normalization = TypeNormalization {
@@ -2369,6 +2382,8 @@ fn sized_queries_only_the_nominal_owner_and_preserves_instance_identity() {
             structure,
         )]),
         union_instances: HashMap::new(),
+        enum_instances: HashMap::new(),
+        external_enum_instances: HashMap::new(),
         diagnostics: Vec::new(),
     });
     let local_layouts = Layouts {

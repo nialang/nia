@@ -134,11 +134,18 @@ impl BodyChecker<'_> {
     }
 
     fn inference_enum_variant_type(&mut self, expr: &Expr) -> Option<InternedTyId> {
-        let def_id = self.variant_enum(expr)?;
+        let (def_id, args, const_args) = match &expr.kind {
+            ExprKind::Qualified { lhs, .. } => {
+                let (def_id, args, const_args) = self.type_prefix_instance(lhs)?;
+                self.is_enum_def(def_id)
+                    .then_some((def_id, args, const_args))?
+            }
+            _ => (self.variant_enum(expr)?, Vec::new(), Vec::new()),
+        };
         Some(self.interner.intern(TyKind::Nominal {
             def_id,
-            args: Vec::new(),
-            const_args: Vec::new(),
+            args,
+            const_args,
         }))
     }
 }
@@ -372,7 +379,7 @@ impl FunctionInference {
             }
             nia_item_signatures::EnumVariantPayloadSignature::Unit => return None,
         };
-        Some((params, checker.enum_ty(enum_id)))
+        Some((params, checker.enum_ty(enum_id, &[], &[])))
     }
 
     fn closure_local(&self, checker: &BodyChecker<'_>, expr: &Expr) -> Option<LocalId> {
@@ -1433,7 +1440,66 @@ impl FunctionInference {
                 self.unify(checker, start, end);
                 Some(start)
             }
-            PatternKind::Wildcard | PatternKind::Nominal { .. } => None,
+            PatternKind::Nominal {
+                constructor,
+                fields,
+            } => {
+                let Some(enum_ty) = checker.inference_enum_variant_type(constructor) else {
+                    return term;
+                };
+                let enum_term = self.known(enum_ty);
+                self.unify(checker, term, enum_term);
+                let Some((enum_id, variant_def)) = checker.enum_variant_info(constructor) else {
+                    return term;
+                };
+                let variant_id = nia_ids::GlobalDefId {
+                    module_id: enum_id.module_id,
+                    def_id: variant_def,
+                };
+                let Some((_, variant)) = checker.resolved_enum_variant(variant_id) else {
+                    return term;
+                };
+                let (args, const_args) = match checker.interner.get(enum_ty).cloned() {
+                    Some(nia_ty::TyKind::Nominal {
+                        args, const_args, ..
+                    }) => (args, const_args),
+                    _ => (Vec::new(), Vec::new()),
+                };
+                let (substitutions, const_substitutions) =
+                    checker.generic_substitutions_and_consts_for_def(enum_id, &args, &const_args);
+                let field_types = match variant.payload {
+                    nia_item_signatures::EnumVariantPayloadSignature::Tuple(types) => types,
+                    nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                        fields.into_iter().map(|field| field.ty).collect()
+                    }
+                    nia_item_signatures::EnumVariantPayloadSignature::Unit => Vec::new(),
+                };
+                let field_types = field_types
+                    .into_iter()
+                    .map(|ty| {
+                        checker.substitute_generics_and_consts(
+                            ty,
+                            &substitutions,
+                            &const_substitutions,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                if let nia_ast::NominalPatternFields::Tuple(patterns) = fields {
+                    for (pattern, ty) in patterns.iter().zip(field_types) {
+                        let field_term = self.pattern_term(checker, pattern, Some(ty));
+                        let field_type_term = self.known(ty);
+                        self.unify(checker, field_term, field_type_term);
+                    }
+                } else if let nia_ast::NominalPatternFields::Named { fields, .. } = fields {
+                    for (field, ty) in fields.iter().zip(field_types) {
+                        let field_term = self.pattern_term(checker, &field.pattern, Some(ty));
+                        let field_type_term = self.known(ty);
+                        self.unify(checker, field_term, field_type_term);
+                    }
+                }
+                None
+            }
+            PatternKind::Wildcard => None,
         };
         if let Some(shape) = shape {
             self.unify(checker, term, shape);
@@ -2197,7 +2263,7 @@ impl FunctionInference {
         let [(enum_id, params)] = candidates.as_slice() else {
             return false;
         };
-        let return_ty = checker.enum_ty(*enum_id);
+        let return_ty = checker.enum_ty(*enum_id, &[], &[]);
         let return_term = self.known(return_ty);
         let compatible = params
             .iter()

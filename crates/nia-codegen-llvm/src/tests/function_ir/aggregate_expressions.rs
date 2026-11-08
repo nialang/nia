@@ -45,6 +45,7 @@ fn validates_aggregate_products_with_structurally_equal_const_args() {
                 structs: Vec::new(),
                 unions: Vec::new(),
                 enums: Vec::new(),
+                enum_instances: Vec::new(),
                 struct_instances: vec![(
                     nia_backend_ir::BackendStructInstanceKey {
                         def_id,
@@ -194,6 +195,7 @@ fn emits_bitmask_with_32_bit_usize_result() {
             structs: Vec::new(),
             unions: Vec::new(),
             enums: Vec::new(),
+            enum_instances: Vec::new(),
             struct_instances: Vec::new(),
             union_instances: Vec::new(),
         },
@@ -235,6 +237,7 @@ fn validates_terminator_type_contracts_before_llvm() {
         structs: Vec::new(),
         unions: Vec::new(),
         enums: Vec::new(),
+        enum_instances: Vec::new(),
         struct_instances: Vec::new(),
         union_instances: Vec::new(),
     };
@@ -438,6 +441,7 @@ fn validates_switch_case_constants_and_uniqueness_before_llvm() {
                 structs: Vec::new(),
                 unions: Vec::new(),
                 enums: Vec::new(),
+                enum_instances: Vec::new(),
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },
@@ -547,6 +551,7 @@ fn validates_literal_payloads_before_llvm() {
                 structs: Vec::new(),
                 unions: Vec::new(),
                 enums: Vec::new(),
+                enum_instances: Vec::new(),
                 struct_instances: Vec::new(),
                 union_instances: Vec::new(),
             },
@@ -966,6 +971,7 @@ fn validates_projection_and_field_initializer_types_before_llvm() {
             )],
             unions: Vec::new(),
             enums: Vec::new(),
+            enum_instances: Vec::new(),
             struct_instances: Vec::new(),
             union_instances: Vec::new(),
         },

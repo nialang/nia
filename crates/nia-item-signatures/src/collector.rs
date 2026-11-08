@@ -581,6 +581,9 @@ impl<'a> SignatureCollector<'a> {
         signatures.enums.insert(
             def_id,
             EnumSignature {
+                generics: generic_signature_names(&item_enum.generics),
+                generic_params: self.generic_param_signatures(&item_enum.generics),
+                where_predicates: self.where_predicate_signatures(&item_enum.where_clause),
                 backing_type,
                 is_open: item_enum.is_open,
                 variants,

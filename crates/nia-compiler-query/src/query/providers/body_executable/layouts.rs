@@ -56,6 +56,20 @@ pub(super) fn rooted_layouts_for_checked_module(
                     .map(|layouts| Arc::clone(&layouts.semantic))
             })
     };
+    let enum_query = |def_id: GlobalDefId| {
+        capture_query_failure(
+            &query_failure,
+            db.get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )?
+        .semantic
+        .enums
+        .get(&def_id.def_id)
+        .cloned()
+        .map(|signature| nia_item_signatures::ProgramEnumSignature { signature })
+    };
     let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
         program_array_lengths_override
             .and_then(|array_lengths| array_lengths(id.clone()))
@@ -77,6 +91,7 @@ pub(super) fn rooted_layouts_for_checked_module(
                 symbols: Some(&symbols),
                 layouts: Some(&layout_query),
                 array_lengths: Some(&program_array_lengths),
+                enum_: Some(&enum_query),
                 ..Default::default()
             },
         },

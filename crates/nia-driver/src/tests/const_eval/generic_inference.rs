@@ -2,6 +2,37 @@
 use super::*;
 
 #[test]
+fn generic_enum_const_and_type_arguments_survive_const_evaluation() {
+    let root = temp_dir("generic_enum_const_and_type_arguments_survive_const_evaluation");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum Packet[T, N: usize] {
+    Value(T),
+    Bytes { data: [u8; N] },
+}
+
+const fun first(packet: Packet[i32, 3]) i32 {
+    match packet {
+        Packet[i32, 3]::Value(value) => value,
+        Packet[i32, 3]::Bytes { data } => data[0] as i32,
+    }
+}
+
+const value: i32 = first(Packet[i32, 3]::Value(7));
+const first_byte: i32 = first(Packet[i32, 3]::Bytes { data: [4, 5, 6] });
+
+fun main() i32 {
+    value + first_byte
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_const_function_explicit_type_args_drive_array_lengths() {
     let root = temp_dir("generic_const_function_explicit_type_args_drive_array_lengths");
     write(

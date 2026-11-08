@@ -26,5 +26,5 @@ pub using fixed_buffer::{DiscardingWriter, FixedBufferReader, FixedBufferWriter}
 pub using buffered::{BufferedReader, BufferedWriter};
 pub using file_adapter::{FileReader, FileWriter};
 pub using limit::{Limit, LimitedReader};
-pub using read_to_end::{ReadToEndError, ReadToEndErrorKind, readToEnd};
+pub using read_to_end::{ReadToEndError, readToEnd};
 pub using debug::{DebugPrintError, debugPrint};
