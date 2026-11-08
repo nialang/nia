@@ -1420,6 +1420,8 @@ mod tests {
             enums: vec![BackendEnum {
                 def_id,
                 name: sym(name),
+                generics: Vec::new(),
+                const_generics: Vec::new(),
                 backing_type: ty,
                 variants: Vec::new(),
                 span: Span::default(),
@@ -1714,6 +1716,8 @@ mod tests {
                 enums: vec![BackendEnum {
                     def_id: enum_def,
                     name: sym("Choice"),
+                    generics: Vec::new(),
+                    const_generics: Vec::new(),
                     backing_type: i32_ty,
                     variants: vec![
                         BackendEnumVariant {

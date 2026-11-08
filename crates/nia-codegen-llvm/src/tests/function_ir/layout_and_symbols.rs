@@ -1300,6 +1300,8 @@ fn rejects_malformed_layout_contracts_before_llvm() {
             enums: vec![BackendEnum {
                 def_id: enum_id,
                 name: sym("Word"),
+                generics: Vec::new(),
+                const_generics: Vec::new(),
                 backing_type: usize_ty,
                 variants: vec![BackendEnumVariant {
                     def_id: GlobalDefId {

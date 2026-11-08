@@ -19,6 +19,12 @@ enum Option[T] {
     None,
 }
 
+enum Packet[T, N: usize] {
+    Value(T),
+    Bytes { data: [u8; N] },
+    Empty,
+}
+
 extend[T] Option[T] : Extract[T] {
     fun extract(&self, fallback: T) T {
         match self.* {
@@ -32,11 +38,24 @@ fun read[T](value: Option[T], fallback: T) T where Option[T]: Extract[T] {
     value.extract(fallback)
 }
 
+fun packet_value(value: Packet[i32, 3]) i32 {
+    match value {
+        Packet[i32, 3]::Value(number) => number,
+        Packet[i32, 3]::Bytes { data } => data[0] as i32,
+        Packet[i32, 3]::Empty => 0,
+    }
+}
+
 pub fun main(init: process::Init) process::ExitCode!() {
-    let some = read[i32](Option[i32]::Some(9), 0);
+    let make: &fun(i32) Option[i32] = &Option[i32]::Some;
+    let some = read[i32](make(9), 0);
     let none = read[i32](Option[i32]::None, 7);
+    let packet_make: &fun(i32) Packet[i32, 3] = &Packet[i32, 3]::Value;
+    let packet = packet_value(packet_make(8));
+    let bytes_make: &fun([u8; 3]) Packet[i32, 3] = &Packet[i32, 3]::Bytes;
+    let bytes = packet_value(bytes_make([4, 5, 6]));
     _ = init;
-    if some != 9 or none != 7 {
+    if some != 9 or none != 7 or packet != 8 or bytes != 4 {
         return process::ExitCode(1)!;
     }
     !()

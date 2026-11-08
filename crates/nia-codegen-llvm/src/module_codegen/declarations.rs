@@ -71,7 +71,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let Some(info) = self.program.enum_variant_info(variant_id) else {
             return Err(self.error(span, "missing enum constructor variant"));
         };
-        let payload_types = match &info.variant.payload {
+        let payload_types_template = match &info.variant.payload {
             nia_backend_ir::BackendEnumVariantPayload::Unit => {
                 return Err(self.error(span, "unit enum variant has no constructor function"));
             }
@@ -92,6 +92,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         else {
             return Err(self.error(span, "enum constructor is not a function pointer"));
         };
+        let payload_types = self.instantiate_enum_payload_types(
+            &info.owner.generics,
+            &info.owner.const_generics,
+            &payload_types_template,
+            *return_type,
+            span,
+        )?;
         if params.len() != payload_types.len()
             || !params
                 .iter()
@@ -109,7 +116,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         let layout = self
             .program
-            .enum_layout(owner_id)
+            .enum_layout_for_type(owner_id, *return_type)
             .cloned()
             .ok_or_else(|| self.error(span, "missing enum constructor layout"))?;
         let variant_layout = layout
@@ -267,6 +274,53 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .borrow_mut()
             .insert(variant_id, function);
         Ok(function)
+    }
+
+    fn instantiate_enum_payload_types(
+        &self,
+        generics: &[nia_symbol::SymbolId],
+        const_generics: &[nia_symbol::SymbolId],
+        fields: &[InternedTyId],
+        result_ty: InternedTyId,
+        span: Span,
+    ) -> Result<Vec<InternedTyId>, Diagnostic> {
+        let Some(TyKind::Nominal {
+            args, const_args, ..
+        }) = self.ty_kind(result_ty)
+        else {
+            return Ok(fields.to_vec());
+        };
+        let store = self.program.type_store();
+        let append = store.append_for_module(self.source.id);
+        fields
+            .iter()
+            .map(|field| {
+                nia_ty::substitute_ty(
+                    store,
+                    &append,
+                    *field,
+                    &|name| {
+                        generics
+                            .iter()
+                            .position(|generic| generic == name)
+                            .and_then(|i| args.get(i).copied())
+                    },
+                    &|name| {
+                        const_generics
+                            .iter()
+                            .position(|generic| generic == name)
+                            .and_then(|index| const_args.get(index).cloned())
+                    },
+                    None,
+                )
+                .map_err(|error| {
+                    self.error(
+                        span,
+                        format!("failed to instantiate enum payload type: {error}"),
+                    )
+                })
+            })
+            .collect()
     }
 
     pub(crate) fn closure_function_pointer_adapter(

@@ -2,6 +2,7 @@
 //! Enum expression and payload validation contracts.
 
 use super::*;
+use std::collections::HashMap;
 
 impl BackendValidator<'_> {
     pub(super) fn validate_enum_variant_expr(
@@ -70,8 +71,7 @@ impl BackendValidator<'_> {
             );
         }
         for (field, expected_ty) in fields.iter().zip(expected_fields) {
-            let generic_expected = self.generic_contract_type(expected_ty);
-            if !generic_expected && !self.same_type(field.ty, expected_ty) {
+            if !self.enum_field_type_matches(owner, result_ty, expected_ty, field.ty) {
                 self.invalid_enum(
                     field.span,
                     "variant payload field type does not match its declaration",
@@ -125,7 +125,9 @@ impl BackendValidator<'_> {
             || !params
                 .iter()
                 .zip(expected_params)
-                .all(|(actual, expected)| self.same_type(*actual, expected))
+                .all(|(actual, expected)| {
+                    self.enum_field_type_matches(owner_id, return_type, expected, *actual)
+                })
         {
             self.invalid_enum(
                 span,
@@ -200,15 +202,15 @@ impl BackendValidator<'_> {
         span: Span,
     ) {
         self.validate_expr(value);
-        let expected_ty = match self.index.ty_kind(value.ty) {
+        let (owner, expected_ty) = match self.index.ty_kind(value.ty) {
             Some(TyKind::Nominal { def_id, .. }) => {
                 let Some(item) = self.index.enum_item(*def_id) else {
                     self.invalid_enum(span, "tag input nominal type is not an enum");
                     return;
                 };
-                item.backing_type
+                (Some(*def_id), item.backing_type)
             }
-            Some(TyKind::Primitive(primitive)) if primitive.is_integer() => value.ty,
+            Some(TyKind::Primitive(primitive)) if primitive.is_integer() => (None, value.ty),
             _ => {
                 self.invalid_enum(
                     span,
@@ -217,9 +219,14 @@ impl BackendValidator<'_> {
                 return;
             }
         };
-        let generic_expected = self.generic_contract_type(expected_ty);
-        if !generic_expected && !self.same_type(result_ty, expected_ty) {
-            self.invalid_enum(span, "tag result does not match the enum backing type");
+        if let Some(owner) = owner {
+            if !self.enum_field_type_matches(owner, value.ty, expected_ty, result_ty) {
+                self.invalid_enum(span, "tag result does not match the enum backing type");
+            }
+        } else {
+            if !self.same_type(result_ty, expected_ty) {
+                self.invalid_enum(span, "tag result does not match the enum backing type");
+            }
         }
     }
 
@@ -268,8 +275,7 @@ impl BackendValidator<'_> {
             self.invalid_enum(span, "payload projection field index is out of bounds");
             return;
         };
-        let generic_expected = self.generic_contract_type(expected_ty);
-        if !generic_expected && !self.same_type(result_ty, expected_ty) {
+        if !self.enum_field_type_matches(owner, value.ty, expected_ty, result_ty) {
             self.invalid_enum(
                 span,
                 "payload projection result does not match its field type",
@@ -289,30 +295,154 @@ impl BackendValidator<'_> {
         }
     }
 
+    fn enum_field_type_matches(
+        &self,
+        owner: nia_ids::GlobalDefId,
+        instance_ty: nia_ids::InternedTyId,
+        expected: nia_ids::InternedTyId,
+        actual: nia_ids::InternedTyId,
+    ) -> bool {
+        let (substitutions, const_substitutions) = self
+            .index
+            .enum_item(owner)
+            .and_then(|item| {
+                self.index.ty_kind(instance_ty).and_then(|kind| {
+                    let TyKind::Nominal {
+                        def_id,
+                        args,
+                        const_args,
+                    } = kind
+                    else {
+                        return None;
+                    };
+                    (*def_id == owner).then(|| {
+                        let types = item
+                            .generics
+                            .iter()
+                            .copied()
+                            .zip(args.iter().copied())
+                            .collect::<HashMap<_, _>>();
+                        let consts = item
+                            .const_generics
+                            .iter()
+                            .copied()
+                            .zip(const_args.iter().cloned())
+                            .collect::<HashMap<_, _>>();
+                        (types, consts)
+                    })
+                })
+            })
+            .unwrap_or_default();
+        self.same_type_after_substitution(expected, actual, &substitutions, &const_substitutions)
+    }
+
+    fn same_type_after_substitution(
+        &self,
+        expected: nia_ids::InternedTyId,
+        actual: nia_ids::InternedTyId,
+        substitutions: &HashMap<nia_symbol::SymbolId, nia_ids::InternedTyId>,
+        const_substitutions: &HashMap<nia_symbol::SymbolId, nia_ty::ConstGenericArg>,
+    ) -> bool {
+        let Some(expected_kind) = self.index.ty_kind(expected) else {
+            return false;
+        };
+        if let TyKind::GenericParam(name) = expected_kind {
+            return substitutions
+                .get(name)
+                .is_some_and(|resolved| self.same_type(*resolved, actual));
+        }
+        match (expected_kind, self.index.ty_kind(actual)) {
+            (
+                TyKind::Nominal {
+                    def_id: expected_def,
+                    args: expected_args,
+                    const_args: expected_consts,
+                },
+                Some(TyKind::Nominal {
+                    def_id: actual_def,
+                    args: actual_args,
+                    const_args: actual_consts,
+                }),
+            ) if expected_def == actual_def
+                && expected_consts.len() == actual_consts.len()
+                && expected_args.len() == actual_args.len() =>
+            {
+                expected_args
+                    .iter()
+                    .zip(actual_args)
+                    .all(|(expected, actual)| {
+                        self.same_type_after_substitution(
+                            *expected,
+                            *actual,
+                            substitutions,
+                            const_substitutions,
+                        )
+                    })
+                    && expected_consts == actual_consts
+            }
+            (
+                TyKind::Pointer {
+                    is_readonly: expected_readonly,
+                    elem: expected_elem,
+                },
+                Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }),
+            ) => {
+                expected_readonly == actual_readonly
+                    && self.same_type_after_substitution(
+                        *expected_elem,
+                        *actual_elem,
+                        substitutions,
+                        const_substitutions,
+                    )
+            }
+            (
+                TyKind::Array {
+                    len: expected_len,
+                    elem: expected_elem,
+                },
+                Some(TyKind::Array {
+                    len: actual_len,
+                    elem: actual_elem,
+                }),
+            ) => {
+                self.same_array_len_after_substitution(
+                    expected_len,
+                    actual_len,
+                    const_substitutions,
+                ) && self.same_type_after_substitution(
+                    *expected_elem,
+                    *actual_elem,
+                    substitutions,
+                    const_substitutions,
+                )
+            }
+            _ => self.same_type(expected, actual),
+        }
+    }
+
+    fn same_array_len_after_substitution(
+        &self,
+        expected: &nia_ty::ArrayLenTy,
+        actual: &nia_ty::ArrayLenTy,
+        substitutions: &HashMap<nia_symbol::SymbolId, nia_ty::ConstGenericArg>,
+    ) -> bool {
+        match expected {
+            nia_ty::ArrayLenTy::GenericParam(name) => substitutions
+                .get(name)
+                .and_then(nia_ty::array_len_from_const_arg)
+                .is_some_and(|resolved| self.same_array_len(&resolved, actual)),
+            _ => expected == actual,
+        }
+    }
+
     pub(super) fn invalid_enum(&mut self, span: Span, message: &'static str) {
         self.diagnostics.push(Diagnostic::internal_error_at(
             nia_diagnostic::codes::INVALID_BACKEND_IR,
             span,
             format!("backend IR enum expression has an invalid contract: {message}"),
         ));
-    }
-
-    fn generic_contract_type(&self, ty: nia_ids::InternedTyId) -> bool {
-        match self.index.ty_kind(ty) {
-            Some(TyKind::GenericParam(_)) => true,
-            Some(TyKind::Array { len, elem }) => {
-                matches!(len, nia_ty::ArrayLenTy::GenericParam(_))
-                    || self.generic_contract_type(*elem)
-            }
-            Some(TyKind::Nominal {
-                args, const_args, ..
-            }) => {
-                args.iter().any(|arg| self.generic_contract_type(*arg))
-                    || const_args
-                        .iter()
-                        .any(|arg| self.generic_contract_type(arg.ty))
-            }
-            _ => false,
-        }
     }
 }

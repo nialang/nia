@@ -40,6 +40,8 @@ fn rejects_enum_variant_with_foreign_owner_before_llvm() {
                     def_id: DefId(0),
                 },
                 name: sym("Mode"),
+                generics: Vec::new(),
+                const_generics: Vec::new(),
                 backing_type: i32_ty,
                 variants: vec![BackendEnumVariant {
                     def_id: foreign_variant,

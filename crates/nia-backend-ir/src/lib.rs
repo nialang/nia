@@ -1525,6 +1525,10 @@ pub struct BackendEnum {
     pub def_id: GlobalDefId,
     /// Interned source name.
     pub name: SymbolId,
+    /// Declared generic parameters in source order.
+    pub generics: Vec<SymbolId>,
+    /// Declared const generic parameters in source order.
+    pub const_generics: Vec<SymbolId>,
     /// Integer type used to encode discriminants.
     pub backing_type: InternedTyId,
     /// Variants in declaration order.

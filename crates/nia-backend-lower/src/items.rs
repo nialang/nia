@@ -84,7 +84,17 @@ impl<'a> ModuleLowerer<'a> {
         Some(BackendStruct {
             def_id: self.global_def_id(def_id),
             name: item.name,
-            generics: signature.generics.clone(),
+            generics: signature
+                .generic_params
+                .iter()
+                .filter(|param| {
+                    matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Type
+                    )
+                })
+                .map(|param| param.name)
+                .collect(),
             fields: signature
                 .fields
                 .iter()
@@ -140,6 +150,28 @@ impl<'a> ModuleLowerer<'a> {
         Some(BackendEnum {
             def_id: self.global_def_id(def_id),
             name: item.name,
+            generics: signature
+                .generic_params
+                .iter()
+                .filter(|param| {
+                    matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Type
+                    )
+                })
+                .map(|param| param.name)
+                .collect(),
+            const_generics: signature
+                .generic_params
+                .iter()
+                .filter(|param| {
+                    matches!(
+                        param.kind,
+                        nia_item_signatures::GenericParamSignatureKind::Const { .. }
+                    )
+                })
+                .map(|param| param.name)
+                .collect(),
             backing_type: self.instantiate_ty(signature.backing_type, &substitutions),
             variants: signature
                 .variants

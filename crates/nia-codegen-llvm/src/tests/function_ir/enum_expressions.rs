@@ -199,6 +199,8 @@ fn validates_enum_expression_contracts_before_llvm() {
             enums: vec![BackendEnum {
                 def_id: enum_id,
                 name: sym("Mode"),
+                generics: Vec::new(),
+                const_generics: Vec::new(),
                 backing_type: i32_ty,
                 variants: vec![
                     BackendEnumVariant {

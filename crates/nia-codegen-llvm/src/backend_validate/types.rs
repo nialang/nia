@@ -731,7 +731,7 @@ impl BackendValidator<'_> {
         same
     }
 
-    fn same_array_len(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+    pub(super) fn same_array_len(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
         match (left, right) {
             (ArrayLenTy::Infer, ArrayLenTy::Infer) => true,
             (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstValue(right)) => left == right,
