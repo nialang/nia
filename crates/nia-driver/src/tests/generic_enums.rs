@@ -139,13 +139,24 @@ fun read64(value: Packet[i64, 3], fallback: i64) i64 {
     }
 }
 
+fun read64_4(value: Packet[i64, 4], fallback: i64) i64 {
+    match value {
+        Packet[i64, 4]::Value(number) => number,
+        _ => fallback,
+    }
+}
+
 pub fun main(init: process::Init) process::ExitCode!() {
     let make32: &fun(i32) Packet[i32, 3] = &Packet[i32, 3]::Value;
     let make64: &fun(i64) Packet[i64, 3] = &Packet[i64, 3]::Value;
+    let bytes32: &fun([u8; 3]) Packet[i32, 3] = &Packet[i32, 3]::Bytes;
+    let bytes64: &fun([u8; 4]) Packet[i64, 4] = &Packet[i64, 4]::Bytes;
     let value32 = read32(make32(21), 0);
     let value64 = read64(make64(34), 0);
+    let byte_value32 = read32(bytes32([1, 2, 3]), 0);
+    let byte_value64 = read64_4(bytes64([4, 5, 6, 7]), 0);
     _ = init;
-    if value32 != 21 or value64 != 34 {
+    if value32 != 21 or value64 != 34 or byte_value32 != 0 or byte_value64 != 0 {
         return process::ExitCode(1)!;
     }
     !()

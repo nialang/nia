@@ -354,3 +354,180 @@ impl BackendValidator<'_> {
         ));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use nia_backend_ir::{
+        BackendConstFacts, BackendEnum, BackendEnumVariant, BackendEnumVariantPayload,
+        BackendLayouts, BackendModule, BackendModuleStore,
+    };
+    use nia_ids::{DefId, ModuleIdAllocator};
+    use nia_layout::TargetDataLayout;
+    use nia_source::SourceIdentity;
+    use nia_symbol::{SymbolId, stable_hash};
+    use nia_ty::{
+        ArrayLenTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TyKind, TypeStore,
+    };
+
+    use crate::program_index::ProgramIndex;
+
+    use super::BackendValidator;
+
+    #[test]
+    fn enum_payload_contract_substitutes_nested_types_and_const_lengths() {
+        let module_id = ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
+        let type_store = Arc::new(TypeStore::new().expect("create type store"));
+        let interner = type_store.append_for_module(module_id);
+        let i32_ty = interner.primitive(PrimitiveTy::I32).expect("intern i32");
+        let i64_ty = interner.primitive(PrimitiveTy::I64).expect("intern i64");
+        let usize_ty = interner
+            .primitive(PrimitiveTy::Usize)
+            .expect("intern usize");
+        let type_param = SymbolId::from_stable_hash(stable_hash("T"));
+        let const_param = SymbolId::from_stable_hash(stable_hash("N"));
+        let generic_ty = interner
+            .intern(TyKind::GenericParam(type_param))
+            .expect("intern generic parameter");
+        let generic_pointer = interner
+            .intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: generic_ty,
+            })
+            .expect("intern generic pointer");
+        let generic_array = interner
+            .intern(TyKind::Array {
+                len: ArrayLenTy::GenericParam(const_param),
+                elem: generic_ty,
+            })
+            .expect("intern generic array");
+        let expected_payload = interner
+            .intern(TyKind::Tuple(vec![generic_pointer, generic_array]))
+            .expect("intern generic nested payload");
+        let enum_id = nia_ids::GlobalDefId {
+            module_id,
+            def_id: DefId(0),
+        };
+        let variant_id = nia_ids::GlobalDefId {
+            module_id,
+            def_id: DefId(1),
+        };
+        let enum_instance = interner
+            .intern(TyKind::Nominal {
+                def_id: enum_id,
+                args: vec![i32_ty],
+                const_args: vec![ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::Int(IntConst::unsigned(3)),
+                }],
+            })
+            .expect("intern concrete enum instance");
+        let pointer_i32 = interner
+            .intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: i32_ty,
+            })
+            .expect("intern concrete pointer");
+        let pointer_i64 = interner
+            .intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: i64_ty,
+            })
+            .expect("intern mismatched pointer");
+        let array_i32_3 = interner
+            .intern(TyKind::Array {
+                len: ArrayLenTy::ConstValue(3),
+                elem: i32_ty,
+            })
+            .expect("intern concrete array");
+        let array_i32_4 = interner
+            .intern(TyKind::Array {
+                len: ArrayLenTy::ConstValue(4),
+                elem: i32_ty,
+            })
+            .expect("intern mismatched array length");
+        let matching_payload = interner
+            .intern(TyKind::Tuple(vec![pointer_i32, array_i32_3]))
+            .expect("intern matching payload");
+        let mismatched_element = interner
+            .intern(TyKind::Tuple(vec![pointer_i64, array_i32_3]))
+            .expect("intern mismatched nested element");
+        let mismatched_length = interner
+            .intern(TyKind::Tuple(vec![pointer_i32, array_i32_4]))
+            .expect("intern mismatched payload length");
+        drop(interner);
+
+        let module = BackendModule {
+            id: module_id,
+            source_identity: SourceIdentity::new("generic-enum-contract.nia"),
+            symbol_package_identity: "test/generic-enum@0".into(),
+            name: "generic-enum-contract".to_string(),
+            const_eval: BackendConstFacts::default(),
+            layouts: BackendLayouts {
+                target: TargetDataLayout::LP64,
+                types: Vec::new(),
+                structs: Vec::new(),
+                unions: Vec::new(),
+                enums: Vec::new(),
+                enum_instances: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: vec![BackendEnum {
+                def_id: enum_id,
+                name: SymbolId::from_stable_hash(stable_hash("Packet")),
+                generics: vec![type_param],
+                const_generics: vec![const_param],
+                backing_type: i32_ty,
+                variants: vec![BackendEnumVariant {
+                    def_id: variant_id,
+                    name: SymbolId::from_stable_hash(stable_hash("Nested")),
+                    value: None,
+                    payload: BackendEnumVariantPayload::Tuple(vec![expected_payload]),
+                    span: nia_span::Span::default(),
+                }],
+                span: nia_span::Span::default(),
+            }],
+            globals: Vec::new(),
+            global_instances: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            closure_entries: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        };
+        let store =
+            Arc::new(BackendModuleStore::new([module_id]).expect("create backend module store"));
+        store.publish(module).expect("publish backend module");
+        let (index, mut publisher) = ProgramIndex::new(store, type_store);
+        publisher.publish(module_id).expect("publish module index");
+        let validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+
+        assert!(validator.enum_field_type_matches(
+            enum_id,
+            enum_instance,
+            expected_payload,
+            matching_payload,
+        ));
+        assert!(!validator.enum_field_type_matches(
+            enum_id,
+            enum_instance,
+            expected_payload,
+            mismatched_element,
+        ));
+        assert!(!validator.enum_field_type_matches(
+            enum_id,
+            enum_instance,
+            expected_payload,
+            mismatched_length,
+        ));
+    }
+}
