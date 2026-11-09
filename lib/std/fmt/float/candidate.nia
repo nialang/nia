@@ -5,24 +5,20 @@ using root::cmp;
 using root::iter;
 using root::option;
 using root::slice;
-using root::math::float::decimal::{Decimal, Interval, digitCapacity};
+using root::math::float::decimal::{Decimal, Interval};
 
-// suffix[i] records whether a nonzero digit follows position i, so each
-// shortest-search candidate rounds without rescanning the tail.
-fun nonZeroSuffix(exact: &Decimal) [bool; digitCapacity] {
-    let mut suffix: [bool; digitCapacity] = [false; digitCapacity];
-    let mut found = false;
-    for index in (0..exact.len()).iter().rev() {
-        suffix[index] = found;
-        if exact.digit(index) != b'0' {
-            found = true;
-        }
+// The index of the last nonzero digit. A nonzero digit follows position i
+// exactly when this index is greater than i, so rounding at any precision
+// learns about the discarded tail without rescanning it.
+fun lastNonZero(exact: &Decimal) usize {
+    match exact.asSlice().iter().rev().position(\byte -> byte.* != b'0') {
+        ?fromEnd => exact.len() - 1 - fromEnd,
+        null => 0,
     }
-    suffix
 }
 
 fun hasNonZeroAfter(exact: &Decimal, index: usize) bool {
-    (&exact.asSlice()[index + 1..]).iter().position(\byte -> byte.* != b'0').isPresent()
+    lastNonZero(exact) > index
 }
 
 // The first `precision` digits of `exact`, rounded to nearest, ties to even,
@@ -30,11 +26,9 @@ fun hasNonZeroAfter(exact: &Decimal, index: usize) bool {
 // first discarded one.
 fun rounded(exact: &Decimal, precision: usize, tailNonZero: bool) Decimal {
     let len = cmp::min(exact.len(), precision);
-    let mut result: Decimal = .{
-        digits: [0u8; digitCapacity],
-        len,
-        exponent10: exact.exponent10() + (exact.len() - len) as i32,
-    };
+    let mut result: Decimal;
+    result.len = len;
+    result.exponent10 = exact.exponent10() + (exact.len() - len) as i32;
     _ = (&mut result.digits[..len]).copyFrom(&exact.asSlice()[..len]);
     if len < exact.len() {
         let next = exact.digit(len);
@@ -74,14 +68,14 @@ fun unitAt(exponent10: i32) Decimal {
 // The fewest digits that round back to the value `interval` describes.
 // `maxPrecision` digits always suffice for the format.
 pub(super) fun shortest(exact: &Decimal, interval: &Interval, maxPrecision: usize) Decimal {
-    let suffix = nonZeroSuffix(exact);
+    let last = lastNonZero(exact);
     for precision in 1usize..maxPrecision {
-        let candidate = rounded(exact, precision, suffix[precision]);
+        let candidate = rounded(exact, precision, last > precision);
         if interval.contains(\[&candidate] bound -> candidate.compare(bound)) {
             return candidate;
         }
     }
-    rounded(exact, maxPrecision, suffix[maxPrecision])
+    rounded(exact, maxPrecision, last > maxPrecision)
 }
 
 // `exact` rounded to `precision` digits after the decimal point.

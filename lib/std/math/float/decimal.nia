@@ -7,12 +7,14 @@ using root::cmp;
 using root::iter;
 using root::slice;
 using root::math::float::BinaryFormat;
-using root::math::float::decimal::big_uint::{BigUInt, Digits};
+using root::math::float::decimal::big_uint::BigUInt;
 
 pub(root) using big_uint::digitCapacity;
 
 // ASCII digits followed by an implicit run of zeros, scaled by 10^exponent10.
 // The same representation holds exact values and rounded output candidates.
+// Only the first `len` digits are meaningful; the rest of the buffer is never
+// read, so constructors leave it uninitialized.
 pub(root) struct Decimal {
     digits: [u8; digitCapacity],
     len: usize,
@@ -21,11 +23,11 @@ pub(root) struct Decimal {
 
 extend Decimal {
     pub(root) fun zero() Decimal {
-        Decimal::fromDigits(Digits::zero(), 0)
-    }
-
-    fun fromDigits(digits: Digits, exponent10: i32) Decimal {
-        .{ digits: digits.bytes, len: digits.len, exponent10 }
+        let mut zero: Decimal;
+        zero.digits[0] = b'0';
+        zero.len = 1;
+        zero.exponent10 = 0;
+        zero
     }
 
     pub(root) fun len(&self) usize { self.len }
@@ -45,18 +47,23 @@ extend Decimal {
     }
 }
 
+// significand * 2^exponent2, written out in full.
 pub(root) fun fromBinary(significand: u64, exponent2: i32) Decimal {
-    if significand == 0 {
-        return Decimal::zero();
-    }
     let mut value = BigUInt::fromU64(significand);
+    let mut result: Decimal;
     if exponent2 >= 0 {
         value.shiftLeft(exponent2 as u32);
-        Decimal::fromDigits(value.toDigits(), 0)
+        result.exponent10 = 0;
     } else {
+        // m * 2^-k = m * 5^k * 10^-k.
         value.multiplyPowerOfFive(-exponent2);
-        Decimal::fromDigits(value.toDigits(), exponent2)
+        result.exponent10 = exponent2;
     }
+    result.len = value.drainDecimal(&mut result.digits[..]);
+    if result.isZero() {
+        result.exponent10 = 0;
+    }
+    result
 }
 
 struct Binary {
@@ -99,10 +106,10 @@ where F: BinaryFormat
 
 // The decimals that round to one binary value: everything between the
 // midpoints to its neighbours, including the midpoints when the value's
-// significand is even (ties to even). Zero has no lower neighbour in the
-// nonnegative magnitudes that conversion works with.
+// significand is even (ties to even). Conversion works with nonnegative
+// magnitudes, where zero has no lower neighbour; its interval starts at zero.
 pub(root) struct Interval {
-    lower: ?Decimal,
+    lower: Decimal,
     upper: Decimal,
     closed: bool,
 }
@@ -111,27 +118,36 @@ pub(root) fun interval[F](bits: u64) Interval
 where F: BinaryFormat
 {
     .{
-        lower: if bits == 0 { null } else { ?midpoint[F](bits - 1) },
+        lower: if bits == 0 { Decimal::zero() } else { midpoint[F](bits - 1) },
         upper: midpoint[F](bits),
         closed: (bits & 1) == 0,
     }
 }
 
 extend Interval {
-    // `compare` orders the candidate against a boundary.
-    pub(root) fun contains(&self, compare: &Fun(&Decimal) cmp::Ordering) bool {
-        let aboveLower = match self.lower {
-            ?lower => match compare(lower) {
-                .Greater => true,
-                .Equal => self.closed,
-                .Less => false,
-            },
-            null => true,
-        };
-        aboveLower and match compare(self.upper) {
+    // Where a decimal lies relative to the interval: `.Less` below it,
+    // `.Equal` inside, `.Greater` above. `compare` orders that decimal against
+    // a boundary.
+    pub(root) fun locate(&self, compare: &Fun(&Decimal) cmp::Ordering) cmp::Ordering {
+        let belowLower = match compare(self.lower) {
             .Less => true,
-            .Equal => self.closed,
+            .Equal => not self.closed,
             .Greater => false,
+        };
+        if belowLower {
+            return .Less;
+        }
+        match compare(self.upper) {
+            .Less => .Equal,
+            .Equal => if self.closed { .Equal } else { .Greater },
+            .Greater => .Greater,
+        }
+    }
+
+    pub(root) fun contains(&self, compare: &Fun(&Decimal) cmp::Ordering) bool {
+        match self.locate(compare) {
+            .Equal => true,
+            .Less, .Greater => false,
         }
     }
 }

@@ -18,19 +18,6 @@ pub(super) struct BigUInt {
     used: usize,
 }
 
-pub(super) struct Digits {
-    bytes: [u8; digitCapacity],
-    len: usize,
-}
-
-extend Digits {
-    pub(super) fun zero() Digits {
-        let mut digits: Digits = .{ bytes: [0u8; digitCapacity], len: 1 };
-        digits.bytes[0] = b'0';
-        digits
-    }
-}
-
 extend BigUInt {
     pub(super) fun fromU64(value: u64) BigUInt {
         let mut result: BigUInt = .{ limbs: [0u32; limbCapacity], used: 0 };
@@ -101,39 +88,41 @@ extend BigUInt {
         remainder as u32
     }
 
-    pub(super) fun toDigits(&self) Digits {
-        let mut value = self.*;
-        let mut result: Digits = .{ bytes: [0u8; digitCapacity], len: 0 };
-        if value.used == 0 {
-            return Digits::zero();
+    // Writes the decimal digits, most significant first, and returns their
+    // count. The value is consumed: it is zero afterwards.
+    pub(super) fun drainDecimal(&mut self, out: &mut [u8]) usize {
+        if self.used == 0 {
+            out[0] = b'0';
+            return 1;
         }
         // Base 10^9 turns hundreds of single-digit divisions into a small chunk pass.
-        let mut chunks: [u32; chunkCapacity] = [0; chunkCapacity];
+        let mut chunks: [u32; chunkCapacity];
         let mut chunkCount: usize = 0;
-        while value.used != 0 {
-            chunks[chunkCount] = value.divideSmall(decimalChunkBase);
+        while self.used != 0 {
+            chunks[chunkCount] = self.divideSmall(decimalChunkBase);
             chunkCount += 1;
         }
-        let mostSignificantChunk = chunkCount - 1;
-        while chunkCount != 0 {
-            chunkCount -= 1;
-            let mut chunk = chunks[chunkCount];
-            let mut width = decimalChunkDigits;
-            if chunkCount == mostSignificantChunk {
-                width = 1;
-                let mut remaining = chunk;
-                while remaining >= 10 {
-                    remaining /= 10;
-                    width += 1;
-                }
+        let mut len: usize = 0;
+        for &chunk in (&chunks[..chunkCount]).iter().rev() {
+            // Leading zeros only pad the lower chunks to their full width.
+            let width = if len == 0 { decimalWidth(chunk) } else { decimalChunkDigits };
+            let mut remaining = chunk;
+            for digit in (&mut out[len..len + width]).iterMut().rev() {
+                digit.* = b'0' + (remaining % 10) as u8;
+                remaining /= 10;
             }
-            let end = result.len + width;
-            for digit in (&mut result.bytes[result.len..end]).iterMut().rev() {
-                digit.* = b'0' + (chunk % 10) as u8;
-                chunk /= 10;
-            }
-            result.len = end;
+            len += width;
         }
-        result
+        len
     }
+}
+
+fun decimalWidth(value: u32) usize {
+    let mut width: usize = 1;
+    let mut remaining = value;
+    while remaining >= 10 {
+        remaining /= 10;
+        width += 1;
+    }
+    width
 }

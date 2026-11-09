@@ -1,6 +1,6 @@
 // Correctly rounded decimal-to-binary conversion for f32 and f64, from bytes
-// or Unicode text through the same scanner. An f64 approximation proposes a
-// result; exact comparisons with rounding midpoints decide it.
+// or Unicode text through the same scanner. An f64 approximation starts the
+// search; exact comparisons with rounding midpoints decide the result.
 
 module syntax;
 
@@ -12,77 +12,66 @@ using root::parse::ascii::AsciiUnit;
 using root::parse::float::syntax;
 using super::core::{Error, From};
 
-// Binary search for the smallest magnitude whose upper midpoint the input
-// does not exceed; a tie belongs to the even magnitude.
+// Correct rounding picks the smallest magnitude whose rounding interval does
+// not lie below the input. The approximation starts the walk one or a few
+// steps from it, so only that many intervals are written out exactly.
 fun roundedBits[F, U](input: &[U], parsed: syntax::Parsed) u64
 where F: BinaryFormat, U: AsciiUnit
 {
-    let mut low: u64 = 0;
-    let mut high = [F]::maxFiniteBits() + 1;
-    while low < high {
-        let middle = low + (high - low) / 2;
-        let roundsDown = match syntax::compareParsed(input, parsed, decimal::midpoint[F](middle)) {
-            .Less => true,
-            .Equal => (middle & 1) == 0,
-            .Greater => false,
-        };
-        if roundsDown {
-            high = middle;
+    let maxFinite = [F]::maxFiniteBits();
+    let mut bits = cmp::min([F]::fromApproximation(approximateMagnitude(input, parsed)).rawBits(), maxFinite);
+    loop {
+        match decimal::interval[F](bits).locate(\[input, parsed] bound -> syntax::compareParsed(input, parsed, bound)) {
+            .Equal => return bits,
+            // A positive input never lies below the interval of zero.
+            .Less => bits -= 1,
+            .Greater => {
+                // Above the largest finite value's interval the input overflows.
+                if bits == maxFinite {
+                    return maxFinite + 1;
+                }
+                bits += 1;
+            },
+        }
+    }
+}
+
+// Powers of ten up to 10^22 are exact in f64. Larger magnitudes multiply
+// exact factors of 10^22, so each step adds at most half an ulp of error
+// instead of the error that repeated squaring compounds.
+const exactPowers: [f64; 23] = [
+    1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11,
+    1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
+];
+
+fun scaleByPowerOfTen(value: f64, exponent: i32) f64 {
+    let mut result = value;
+    let mut remaining = if exponent < 0 { -exponent } else { exponent } as usize;
+    while remaining != 0 {
+        let step = cmp::min(remaining, exactPowers.len() - 1);
+        if exponent < 0 {
+            result /= exactPowers[step];
         } else {
-            low = middle + 1;
+            result *= exactPowers[step];
         }
+        remaining -= step;
     }
-    low
+    result
 }
 
-fun powerOfTen(exponent: i32) f64 {
-    let mut power = if exponent < 0 { -exponent } else { exponent } as u32;
-    let mut factor: f64 = 10.0;
-    let mut result: f64 = 1.0;
-    while power != 0 {
-        if (power & 1u32) != 0 {
-            result *= factor;
-        }
-        power >>= 1;
-        if power != 0 {
-            factor *= factor;
-        }
-    }
-    if exponent < 0 { 1.0 / result } else { result }
-}
-
-fun approximateMagnitude[U](input: &[U], parsed: syntax::Parsed) ?f64
+// The leading nineteen digits, which fit in u64, scaled by their power of ten.
+// Only its closeness matters: it may underflow to zero or overflow to
+// infinity, and the exact walk corrects any error.
+fun approximateMagnitude[U](input: &[U], parsed: syntax::Parsed) f64
 where U: AsciiUnit
 {
-    // Nineteen digits fit in u64; the exact checks account for the rest.
     let digitCount = cmp::min(parsed.significantDigits, 19usize);
     let significand = parsed.digits(input).take(digitCount).fold(
         0u64,
         \value, digit -> value * 10 + (digit - b'0') as u64,
     );
     let exponent = parsed.exponent10 + (parsed.significantDigits - digitCount) as i128;
-    if exponent < -308 or exponent > 308 {
-        return null;
-    }
-    let value = significand as f64 * powerOfTen(exponent as i32);
-    if value.isFinite() and value != 0.0 { ?value } else { null }
-}
-
-// The approximation is only a candidate: it is accepted when the input lies in
-// its rounding interval, and otherwise the exact search decides.
-fun approximateBits[F, U](input: &[U], parsed: syntax::Parsed) ?u64
-where F: BinaryFormat, U: AsciiUnit
-{
-    let bits = [F]::fromApproximation(approximateMagnitude(input, parsed).?).rawBits();
-    if bits > [F]::maxFiniteBits() {
-        return null;
-    }
-    let interval = decimal::interval[F](bits);
-    if interval.contains(\[input, parsed] bound -> syntax::compareParsed(input, parsed, bound)) {
-        ?bits
-    } else {
-        null
-    }
+    scaleByPowerOfTen(significand as f64, exponent as i32)
 }
 
 fun parseFloat[F, U](input: &[U]) Error!F
@@ -94,8 +83,6 @@ where F: BinaryFormat, U: AsciiUnit
         0u64
     } else if order > [F as BinaryFormat]::maxDecimalOrder as i128 {
         return .Overflow!;
-    } else if approximateBits[F, U](input, parsed) is ?bits {
-        bits
     } else {
         roundedBits[F, U](input, parsed)
     };
