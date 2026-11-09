@@ -23,8 +23,8 @@ use nia_backend_ir::{BackendClosureEntryOwner, BackendFunction, BackendParam};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionBitIntrinsicOp, FunctionBody, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
-    FunctionExpr, FunctionExprKind, FunctionLocal, FunctionLocalKind, FunctionRange,
-    FunctionScopeId,
+    FunctionExpr, FunctionExprKind, FunctionLocal, FunctionLocalKind, FunctionOp, FunctionRange,
+    FunctionScopeId, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
@@ -131,8 +131,67 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn alloc_function_locals(&mut self, body: &FunctionBody) -> Result<(), Diagnostic> {
-        let caller_owned = self.indirect_param_locals();
-        self.alloc_local_list(&body.locals, &caller_owned)
+        let mut preassigned = self.indirect_param_locals();
+        if let Some(local) = self.returned_local(body) {
+            let slot = self.return_slot(body.span)?;
+            self.locals.insert(local, slot);
+            preassigned.insert(local);
+        }
+        self.alloc_local_list(&body.locals, &preassigned)
+    }
+
+    /// The local whose storage can be the function's result slot: a binding
+    /// of the result type that every value-returning exit returns.
+    ///
+    /// The value is then built where the caller wants it instead of being
+    /// copied there at the return, which matters for large results. Callers
+    /// always pass fresh storage, so writing it before the return cannot be
+    /// observed. Deferred code and `.?` are the other writers and readers of
+    /// the result slot: deferred code may change the local after the return
+    /// has taken its value, and a propagated failure is written into the slot
+    /// while the local is live. Functions with either keep separate storage.
+    fn returned_local(&self, body: &FunctionBody) -> Option<LocalId> {
+        let return_type = self.function.return_type;
+        if !self.is_memory_value(return_type) {
+            return None;
+        }
+        let mut returned = None;
+        for block in &body.blocks {
+            if block
+                .ops
+                .iter()
+                .any(|op| matches!(op, FunctionOp::Defer(_)))
+            {
+                return None;
+            }
+            let value = match &block.terminator {
+                FunctionTerminator::Try { .. } => return None,
+                FunctionTerminator::Return { value, .. }
+                | FunctionTerminator::Tail { value, .. } => value.as_ref(),
+                _ => None,
+            };
+            let Some(value) = value else {
+                continue;
+            };
+            let FunctionExprKind::Local(local) = value.kind else {
+                return None;
+            };
+            if returned.is_some_and(|returned| returned != local) {
+                return None;
+            }
+            returned = Some(local);
+        }
+        let local = returned?;
+        body.locals
+            .iter()
+            .find(|candidate| candidate.id == local)
+            .filter(|candidate| {
+                matches!(
+                    candidate.kind,
+                    FunctionLocalKind::MutableBinding | FunctionLocalKind::ImmutableBinding
+                ) && self.module.same_type(candidate.ty, return_type)
+            })
+            .map(|candidate| candidate.id)
     }
 
     /// Parameters passed indirectly: the caller's copy is their storage.
@@ -180,10 +239,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(ptr)
     }
 
+    /// Allocates frame storage for every local except those in
+    /// `preassigned`, whose storage is already known.
     fn alloc_local_list(
         &mut self,
         locals: &[FunctionLocal],
-        caller_owned: &HashSet<LocalId>,
+        preassigned: &HashSet<LocalId>,
     ) -> Result<(), Diagnostic> {
         for local in locals {
             if matches!(
@@ -193,7 +254,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     | FunctionLocalKind::ImmutableBinding
             ) {
                 self.local_tys.insert(local.id, local.ty);
-                if self.is_zero_sized(local.ty) || caller_owned.contains(&local.id) {
+                if self.is_zero_sized(local.ty) || preassigned.contains(&local.id) {
                     continue;
                 }
                 let name = self.local_storage_name(local);

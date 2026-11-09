@@ -838,3 +838,64 @@ fun main() i32 {
     assert!(ir.contains("Flags Align\\0A\\00"));
     assert!(ir.contains("@printf"));
 }
+
+#[test]
+fn returned_local_is_built_in_the_result_slot_unless_deferred_code_runs() {
+    let root = temp_dir("returned_local_is_built_in_the_result_slot_unless_deferred_code_runs");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Big {
+    words: [u64; 64],
+    len: usize,
+}
+
+fun filled(seed: u64) Big {
+    let mut big: Big;
+    big.len = 1;
+    big.words[0] = seed;
+    big
+}
+
+fun deferred() Big {
+    let mut big: Big;
+    big.len = 1;
+    defer big.len = 2;
+    big
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    let function = |name: &str| {
+        let symbol = mangled_symbol(ir, '@', name);
+        let start = ir
+            .find(&format!("define hidden void {symbol}("))
+            .unwrap_or_else(|| panic!("missing {name}:\n{ir}"));
+        let end = ir[start..].find("\n}").expect("function end") + start;
+        ir[start..end].to_owned()
+    };
+    // `big` is the caller's result slot, so the return copies nothing.
+    let filled = function("filled");
+    assert!(!filled.contains("%big = alloca"), "{filled}");
+    assert!(!filled.contains("llvm.memcpy"), "{filled}");
+    // The deferred write must not reach the result, so `big` keeps its own
+    // storage and the return copies it before the deferred code runs.
+    let deferred = function("deferred");
+    assert_substrings_in_order(
+        &deferred,
+        &[
+            "%big = alloca",
+            "call void @llvm.memcpy.p0.p0.i64(ptr align 8 %0, ptr align 8 %big, i64 520",
+            "store i64 2",
+            "ret void",
+        ],
+    );
+}

@@ -109,7 +109,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .module
             .layout_of(ty)
             .ok_or_else(|| self.error(span, "copied value has no layout"))?;
-        if layout.size == 0 {
+        // A returned local that lives in the result slot is its own copy.
+        if layout.size == 0 || dest == src {
             return Ok(());
         }
         let align = u32::try_from(layout.align)

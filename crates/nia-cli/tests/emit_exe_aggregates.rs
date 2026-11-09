@@ -238,3 +238,79 @@ pub fun main(init: process::Init) process::ExitCode!() {
 "#,
     );
 }
+
+#[test]
+fn emit_exe_returned_locals_keep_value_semantics() {
+    run_at_each_level(
+        "emit_exe_returned_locals_keep_value_semantics",
+        r#"
+using std::process;
+
+struct Big {
+    words: [u64; 100],
+    len: usize,
+}
+
+fun fill(big: &mut Big, seed: u64) () {
+    big.words[99] = seed;
+    big.len = 100;
+}
+
+// The returned local is written through a pointer before it is returned.
+fun filled(seed: u64) Big {
+    let mut big: Big;
+    big.len = 0;
+    fill(&mut big, seed);
+    big
+}
+
+// Deferred code runs after the return has taken the value.
+fun deferred(seed: u64) Big {
+    let mut big = filled(seed);
+    defer big.len = 7;
+    big
+}
+
+// The result depends on the argument, which the caller assigns back to.
+fun next(previous: &Big) Big {
+    let mut big = previous.*;
+    big.words[99] += 1;
+    big
+}
+
+// Each iteration rebinds the returned local.
+fun last(rounds: u64) Big {
+    let mut round: u64 = 0;
+    loop {
+        let big = filled(round);
+        round += 1;
+        if round == rounds {
+            return big;
+        }
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let first = filled(5);
+    if first.words[99] != 5 or first.len != 100 {
+        return process::ExitCode(1)!;
+    }
+    let kept = deferred(6);
+    if kept.words[99] != 6 or kept.len != 100 {
+        return process::ExitCode(2)!;
+    }
+    let mut counter = filled(10);
+    counter = next(&counter);
+    counter = next(&counter);
+    if counter.words[99] != 12 {
+        return process::ExitCode(3)!;
+    }
+    if last(4).words[99] != 3 {
+        return process::ExitCode(4)!;
+    }
+    !()
+}
+"#,
+    );
+}
