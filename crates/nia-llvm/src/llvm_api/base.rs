@@ -422,6 +422,27 @@ pub enum OptimizationLevel {
     Aggressive,
 }
 
+impl OptimizationLevel {
+    /// The tier's stable name, for reports and fingerprints.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Less => "less",
+            Self::Default => "default",
+            Self::Aggressive => "aggressive",
+        }
+    }
+
+    pub(super) fn tag(self) -> u32 {
+        match self {
+            Self::None => 0,
+            Self::Less => 1,
+            Self::Default => 2,
+            Self::Aggressive => 3,
+        }
+    }
+}
+
 impl From<AtomicRMWBinOp> for LLVMAtomicRMWBinOp {
     fn from(value: AtomicRMWBinOp) -> Self {
         match value {

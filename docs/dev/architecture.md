@@ -195,9 +195,16 @@ matrix.
 | `Os` | Size-oriented, with conservative inlining and specialization. |
 | `Oz` | Most size-constrained; avoids specialization and inlining unless required or clearly size-reducing. |
 
-LLVM's optimization enum controls only LLVM codegen choices. Size and
-performance decisions in monomorphization, backend lowering, specialization,
-and inlining are made by Nia before LLVM sees the program.
+Nia decides what reaches LLVM: monomorphization, specialization, backend
+lowering, and Nia's own inlining run first, under the policy above. Every
+module then goes through LLVM's per-module pipeline for the same level, in one
+place: `nia_llvm::pipeline`, with `nia_codegen_llvm::llvm_pipeline_level` as
+the only mapping from Nia levels. `O0` only promotes stack slots. `Os` and `Oz`
+run the `O2` pipeline with every function marked `optsize`, plus `minsize` for
+`Oz`. LTO pre-link bitcode uses the same level, and the LTO backend runs the
+whole-program pipeline at it. Modules are always optimized as freestanding
+code: Nia never relies on a hosted C library, so LLVM may not assume library
+functions or introduce calls to them.
 
 The policy is data passed to optimization owners, not a second execution graph:
 
@@ -217,11 +224,12 @@ OptimizationPolicy
        │
        ├── nia-function-opt: function-local passes
        ├── nia-backend-lower: module-level passes
-       └── nia-codegen-llvm: LLVM codegen mapping
+       └── nia-codegen-llvm: LLVM pipeline level and codegen tier
 ```
 
 The policy changes optional transformations. It does not change type layout,
-calling convention, symbol identity, or static-data meaning.
+calling convention, symbol identity, or static-data meaning; neither does the
+LLVM pipeline.
 
 ### 2.2 Query Execution And Invalidation
 
@@ -629,7 +637,7 @@ crate-level rustdoc is the detailed reference.
 | `nia-loader-contract` | Data contract between loading and compilation: loader facts, module snapshots, provider demands. |
 | **Native backend** | |
 | `nia-codegen-llvm` | Backend IR validation and LLVM IR, object, and LTO bitcode emission. |
-| `nia-llvm` | Typed, fallible wrappers over the LLVM C API, including the LTO coordinator. |
+| `nia-llvm` | Typed, fallible wrappers over the LLVM C API, including the module pipeline and the LTO coordinator. |
 | `nia-linker` | Typed linker and archiver invocation, LLD flavor selection, link cache identity. |
 | **Backend model** | |
 | `nia-backend-ir` | Validated, target-independent program representation consumed by codegen. |

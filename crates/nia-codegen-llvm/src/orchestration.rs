@@ -226,7 +226,7 @@ pub(super) fn emit_lto_modules(
     type_store: Arc<TypeStore>,
     session: &QuerySession,
     options: LlvmCodegenOptions,
-    pre_link: LtoPreLinkConfig,
+    pre_link: LtoMode,
     cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
 ) -> LlvmLtoModuleOutput {
     let timings = options.timings;

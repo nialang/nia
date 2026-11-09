@@ -80,7 +80,7 @@ fn run_check_report(source: &Path, levels: &[String]) {
                     "dedup_monomorphized_instances=true",
                     "prefer_size=false",
                     "llvm_codegen=default",
-                    "llvm_size=default",
+                    "llvm_pipeline=O2",
                     "enabled_module_passes=",
                     "inline-leaf-functions",
                     "remove-unused-functions",
@@ -105,7 +105,7 @@ fn run_check_report(source: &Path, levels: &[String]) {
                     "dedup_monomorphized_instances=true",
                     "prefer_size=true",
                     "llvm_codegen=default",
-                    "llvm_size=small",
+                    "llvm_pipeline=Os",
                 ] {
                     assert_contains(&stdout, expected, level);
                 }
@@ -134,7 +134,7 @@ fn run_emit_reports(source: &Path, backend_level: &str, llvm_level: &str, object
         backend_level,
         &[
             "llvm_codegen=less",
-            "llvm_size=default",
+            "llvm_pipeline=O1",
             "enabled_module_passes=",
             "enabled_function_passes=",
             "changes=",
@@ -162,7 +162,7 @@ fn run_emit_reports(source: &Path, backend_level: &str, llvm_level: &str, object
             "policy level=O1",
             "inline=small",
             "llvm_codegen=less",
-            "llvm_size=default",
+            "llvm_pipeline=O1",
             "enabled_module_passes=",
             "enabled_function_passes=",
             "changes=",
@@ -210,7 +210,11 @@ fn run_object_reports(source: &Path, level: &str) {
         assert_report_on_stderr(
             &output,
             placement,
-            &["policy level=Os", "llvm_codegen=default", "llvm_size=small"],
+            &[
+                "policy level=Os",
+                "llvm_codegen=default",
+                "llvm_pipeline=Os",
+            ],
         );
         assert!(
             std::fs::metadata(&object)

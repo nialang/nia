@@ -229,7 +229,7 @@ fn run_option_placement(source: &Path, mapped_entry: &Path, mapped: &Path) {
     // The optimization report is diagnostic output on stderr.
     assert_contains(
         &trailing.stderr,
-        &["policy level=Oz", "prefer_size=true", "llvm_size=tiny"],
+        &["policy level=Oz", "prefer_size=true", "llvm_pipeline=Oz"],
     );
 
     let alias = command(["-O", "check", "--opt-report"], source);
@@ -241,7 +241,7 @@ fn run_option_placement(source: &Path, mapped_entry: &Path, mapped: &Path) {
             "inline=normal",
             "specialize=normal",
             "llvm_codegen=default",
-            "llvm_size=default",
+            "llvm_pipeline=O2",
         ],
     );
 

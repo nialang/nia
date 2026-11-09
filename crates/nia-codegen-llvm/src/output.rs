@@ -37,8 +37,8 @@ pub struct LlvmModuleOutput {
 #[derive(Debug, Clone, PartialEq)]
 /// LLVM pre-link modules ready for one whole-program coordination run.
 pub struct LlvmLtoModuleOutput {
-    /// Pre-link policy used to produce every module in this linkage unit.
-    pub pre_link: LtoPreLinkConfig,
+    /// LTO mode whose pre-link pipeline produced every module in this linkage unit.
+    pub pre_link: LtoMode,
     /// Exact target identity shared by every successfully emitted module.
     pub target: Option<TargetMachineIdentity>,
     /// Deterministically ordered LTO pre-link inputs.
@@ -73,15 +73,6 @@ pub enum LtoMode {
     Thin,
     /// Monolithic IR merge and whole-program optimization.
     Full,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Policy that determines the contents and cache identity of LTO pre-link bitcode.
-pub struct LtoPreLinkConfig {
-    /// Whole-program optimization model used after pre-link emission.
-    pub mode: LtoMode,
-    /// Exclude assumptions about hosted target-library functions.
-    pub freestanding: bool,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -306,14 +306,12 @@ impl Driver {
                 lto_mode: nia_codegen_llvm::LtoMode::Thin,
                 linkage_source_identity: &linkage_source_identity,
                 preserved_symbols: &preserved_symbols,
-                freestanding: runtime.source().is_some(),
                 backend_cache_directory: thin_lto_backend_cache_directory,
             },
             LinkTimeOptimization::Full => ObjectEmissionMode::Lto {
                 lto_mode: nia_codegen_llvm::LtoMode::Full,
                 linkage_source_identity: &linkage_source_identity,
                 preserved_symbols: &preserved_symbols,
-                freestanding: runtime.source().is_some(),
                 backend_cache_directory: None,
             },
         };

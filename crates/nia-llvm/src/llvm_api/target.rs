@@ -4,7 +4,6 @@
 use llvm_sys::core::{
     LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMGetBufferSize, LLVMGetBufferStart,
 };
-use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMGetErrorMessage};
 use llvm_sys::target::{
     LLVM_InitializeAllAsmParsers, LLVM_InitializeAllAsmPrinters, LLVM_InitializeAllTargetInfos,
     LLVM_InitializeAllTargetMCs, LLVM_InitializeAllTargets, LLVMABIAlignmentOfType,
@@ -15,9 +14,6 @@ use llvm_sys::target_machine::{
     LLVMCreateTargetMachine, LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
     LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef, LLVMTargetRef,
 };
-use llvm_sys::transforms::pass_builder::{
-    LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
-};
 use std::ffi::CStr;
 use std::ptr;
 use std::slice;
@@ -26,21 +22,6 @@ use std::sync::OnceLock;
 use super::{
     AsTypeRef, BasicType, LlvmError, LlvmResult, Module, OptimizationLevel, StructType, to_c_string,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// A module-local LLVM optimization that is safe before separate object emission.
-pub enum ModuleOptimization {
-    /// Promote non-address-escaping stack slots to SSA values.
-    Mem2Reg,
-}
-
-impl ModuleOptimization {
-    fn pipeline(self) -> &'static str {
-        match self {
-            Self::Mem2Reg => "mem2reg",
-        }
-    }
-}
 
 #[derive(Debug)]
 /// Owned LLVM target machine used to configure modules and emit objects.
@@ -240,39 +221,6 @@ impl TargetMachine {
     pub fn target_triple(&self) -> LlvmResult<String> {
         let triple = unsafe { llvm_sys::target_machine::LLVMGetTargetMachineTriple(self.raw) };
         llvm_owned_string(triple)
-    }
-
-    /// Runs a typed, module-local optimization before object emission.
-    ///
-    /// Nia emits separate LLVM modules for separate codegen units. The
-    /// pipeline therefore deliberately contains only transformations whose
-    /// correctness and benefit do not depend on seeing other modules.
-    pub fn run_module_optimization<'ctx>(
-        &self,
-        module: &Module<'ctx>,
-        optimization: ModuleOptimization,
-    ) -> LlvmResult<()> {
-        let pipeline = to_c_string(optimization.pipeline())?;
-        let options = unsafe { LLVMCreatePassBuilderOptions() };
-        if options.is_null() {
-            return Err(LlvmError::error(
-                "LLVM returned a null pass-builder options handle",
-            ));
-        }
-        let error =
-            unsafe { LLVMRunPasses(module.as_mut_ptr(), pipeline.as_ptr(), self.raw, options) };
-        unsafe { LLVMDisposePassBuilderOptions(options) };
-        if error.is_null() {
-            return Ok(());
-        }
-        let message = unsafe { LLVMGetErrorMessage(error) };
-        if message.is_null() {
-            unsafe { llvm_sys::error::LLVMConsumeError(error) };
-            return Err(LlvmError::error("LLVM module optimization failed"));
-        }
-        let text = unsafe { CStr::from_ptr(message).to_string_lossy().into_owned() };
-        unsafe { LLVMDisposeErrorMessage(message) };
-        Err(LlvmError::error(text))
     }
 
     /// Emits `module` as an in-memory native object file.
@@ -505,8 +453,7 @@ mod tests {
             .configure_module(&module)
             .expect("configure module target data and triple");
         module.verify().expect("empty module should verify");
-        target
-            .run_module_optimization(&module, ModuleOptimization::Mem2Reg)
+        super::super::optimize_module(&module, &target, super::super::PipelineLevel::O2)
             .expect("run module optimization");
         let object = target.emit_object(&module).expect("emit native object");
         assert!(

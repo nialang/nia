@@ -7,19 +7,14 @@ use std::ptr::NonNull;
 use std::slice;
 use std::time::Duration;
 
-use llvm_sys::prelude::LLVMModuleRef;
-use llvm_sys::target_machine::LLVMTargetMachineRef;
-
-use super::{
-    LlvmError, LlvmResult, Module, OptimizationLevel, TargetMachine, TargetMachineIdentity,
-};
+use super::{LlvmError, LlvmResult, PipelineLevel, TargetMachineIdentity};
 
 #[derive(Debug, Clone, Copy)]
 /// One summary-bearing module supplied to the ThinLTO coordinator.
 pub struct ThinLtoInput<'a> {
     /// Unique module identifier used by the combined summary index.
     pub name: &'a str,
-    /// Bitcode emitted by [`emit_thin_lto_bitcode`].
+    /// Bitcode emitted by [`super::emit_thin_lto_bitcode`].
     pub bitcode: &'a [u8],
 }
 
@@ -28,7 +23,7 @@ pub struct ThinLtoInput<'a> {
 pub struct FullLtoInput<'a> {
     /// Unique module identifier within the final linkage unit.
     pub name: &'a str,
-    /// Bitcode emitted by [`emit_full_lto_bitcode`].
+    /// Bitcode emitted by [`super::emit_full_lto_bitcode`].
     pub bitcode: &'a [u8],
 }
 
@@ -37,12 +32,11 @@ pub struct FullLtoInput<'a> {
 pub struct ThinLtoConfig<'a> {
     /// Exact LLVM target identity shared by every input module.
     pub target: &'a TargetMachineIdentity,
-    /// Pre-link, import, post-link, and code-generation optimization level.
-    pub optimization: OptimizationLevel,
+    /// Pipeline level shared with pre-link: post-link IR level, size goal, and
+    /// code-generation tier.
+    pub level: PipelineLevel,
     /// Maximum number of in-process ThinLTO backend workers.
     pub parallelism: usize,
-    /// Disable assumptions about hosted target-library functions.
-    pub freestanding: bool,
     /// Definitions that must remain visible to native linker inputs.
     pub preserved_symbols: &'a [&'a str],
     /// Release-isolated directory for validated LLVM backend work products.
@@ -54,12 +48,11 @@ pub struct ThinLtoConfig<'a> {
 pub struct FullLtoConfig<'a> {
     /// Exact target identity shared by every input module.
     pub target: &'a TargetMachineIdentity,
-    /// Pre-link, whole-program optimization, and code-generation level.
-    pub optimization: OptimizationLevel,
+    /// Pipeline level shared with pre-link: whole-program IR level, size goal,
+    /// and code-generation tier.
+    pub level: PipelineLevel,
     /// Number of native code-generation partitions after monolithic IPO.
     pub parallelism: usize,
-    /// Disable assumptions about hosted target-library functions.
-    pub freestanding: bool,
     /// Definitions that must remain visible to native linker inputs.
     pub preserved_symbols: &'a [&'a str],
 }
@@ -196,9 +189,9 @@ struct FfiThinConfig {
     code_model: u32,
     preserved_symbols: *const FfiByteSlice,
     preserved_symbol_count: usize,
-    optimization: u32,
+    pipeline: u32,
+    codegen: u32,
     parallelism: u32,
-    freestanding: u8,
     cache_directory: FfiByteSlice,
     cache_magic: FfiByteSlice,
     cache_protocol_epoch: u32,
@@ -212,9 +205,9 @@ struct FfiFullConfig {
     code_model: u32,
     preserved_symbols: *const FfiByteSlice,
     preserved_symbol_count: usize,
-    optimization: u32,
+    pipeline: u32,
+    codegen: u32,
     parallelism: u32,
-    freestanding: u8,
 }
 
 #[repr(C)]
@@ -229,29 +222,10 @@ struct FfiThinTimings {
     codegen_ns: u64,
 }
 
-enum FfiOwnedBuffer {}
 enum FfiThinResult {}
 enum FfiFullResult {}
 
 unsafe extern "C" {
-    fn nia_llvm_emit_thin_lto_bitcode(
-        module: LLVMModuleRef,
-        target: LLVMTargetMachineRef,
-        optimization: u32,
-        freestanding: u8,
-    ) -> *mut FfiOwnedBuffer;
-    fn nia_llvm_emit_full_lto_bitcode(
-        module: LLVMModuleRef,
-        target: LLVMTargetMachineRef,
-        optimization: u32,
-        freestanding: u8,
-    ) -> *mut FfiOwnedBuffer;
-    fn nia_llvm_owned_buffer_data(buffer: *const FfiOwnedBuffer) -> *const u8;
-    fn nia_llvm_owned_buffer_len(buffer: *const FfiOwnedBuffer) -> usize;
-    fn nia_llvm_owned_buffer_error(buffer: *const FfiOwnedBuffer) -> *const u8;
-    fn nia_llvm_owned_buffer_error_len(buffer: *const FfiOwnedBuffer) -> usize;
-    fn nia_llvm_owned_buffer_free(buffer: *mut FfiOwnedBuffer);
-
     fn nia_llvm_run_thin_lto(
         inputs: *const FfiThinInput,
         input_count: usize,
@@ -316,14 +290,6 @@ unsafe extern "C" {
     fn nia_llvm_full_result_free(result: *mut FfiFullResult);
 }
 
-struct OwnedBufferHandle(NonNull<FfiOwnedBuffer>);
-
-impl Drop for OwnedBufferHandle {
-    fn drop(&mut self) {
-        unsafe { nia_llvm_owned_buffer_free(self.0.as_ptr()) };
-    }
-}
-
 struct ThinResultHandle(NonNull<FfiThinResult>);
 
 impl Drop for ThinResultHandle {
@@ -337,82 +303,6 @@ struct FullResultHandle(NonNull<FfiFullResult>);
 impl Drop for FullResultHandle {
     fn drop(&mut self) {
         unsafe { nia_llvm_full_result_free(self.0.as_ptr()) };
-    }
-}
-
-/// Runs target-aware ThinLTO pre-link optimization and emits summary-bearing bitcode.
-pub fn emit_thin_lto_bitcode(
-    module: &Module<'_>,
-    target: &TargetMachine,
-    optimization: OptimizationLevel,
-    freestanding: bool,
-) -> LlvmResult<Vec<u8>> {
-    let result = unsafe {
-        nia_llvm_emit_thin_lto_bitcode(
-            module.raw,
-            target.raw,
-            optimization_tag(optimization),
-            u8::from(freestanding),
-        )
-    };
-    let result = OwnedBufferHandle(
-        NonNull::new(result)
-            .ok_or_else(|| LlvmError::error("LLVM returned no ThinLTO pre-link result"))?,
-    );
-    let error = unsafe {
-        copy_text(
-            nia_llvm_owned_buffer_error(result.0.as_ptr()),
-            nia_llvm_owned_buffer_error_len(result.0.as_ptr()),
-            "ThinLTO pre-link error",
-        )?
-    };
-    if !error.is_empty() {
-        return Err(LlvmError::error(error));
-    }
-    unsafe {
-        copy_bytes(
-            nia_llvm_owned_buffer_data(result.0.as_ptr()),
-            nia_llvm_owned_buffer_len(result.0.as_ptr()),
-            "ThinLTO pre-link bitcode",
-        )
-    }
-}
-
-/// Runs target-aware full-LTO pre-link optimization and emits regular bitcode.
-pub fn emit_full_lto_bitcode(
-    module: &Module<'_>,
-    target: &TargetMachine,
-    optimization: OptimizationLevel,
-    freestanding: bool,
-) -> LlvmResult<Vec<u8>> {
-    let result = unsafe {
-        nia_llvm_emit_full_lto_bitcode(
-            module.raw,
-            target.raw,
-            optimization_tag(optimization),
-            u8::from(freestanding),
-        )
-    };
-    let result = OwnedBufferHandle(
-        NonNull::new(result)
-            .ok_or_else(|| LlvmError::error("LLVM returned no full-LTO pre-link result"))?,
-    );
-    let error = unsafe {
-        copy_text(
-            nia_llvm_owned_buffer_error(result.0.as_ptr()),
-            nia_llvm_owned_buffer_error_len(result.0.as_ptr()),
-            "full-LTO pre-link error",
-        )?
-    };
-    if !error.is_empty() {
-        return Err(LlvmError::error(error));
-    }
-    unsafe {
-        copy_bytes(
-            nia_llvm_owned_buffer_data(result.0.as_ptr()),
-            nia_llvm_owned_buffer_len(result.0.as_ptr()),
-            "full-LTO pre-link bitcode",
-        )
     }
 }
 
@@ -454,9 +344,9 @@ pub fn run_thin_lto(
         code_model: config.target.code_model.lto_tag(),
         preserved_symbols: preserved.as_ptr(),
         preserved_symbol_count: preserved.len(),
-        optimization: optimization_tag(config.optimization),
+        pipeline: config.level.tag(),
+        codegen: config.level.codegen_level().tag(),
         parallelism,
-        freestanding: u8::from(config.freestanding),
         cache_directory: FfiByteSlice::new(cache_directory.as_bytes()),
         cache_magic: FfiByteSlice::new(cache_format.magic),
         cache_protocol_epoch: cache_format.protocol_epoch,
@@ -588,9 +478,9 @@ pub fn run_full_lto(
         code_model: config.target.code_model.lto_tag(),
         preserved_symbols: preserved.as_ptr(),
         preserved_symbol_count: preserved.len(),
-        optimization: optimization_tag(config.optimization),
+        pipeline: config.level.tag(),
+        codegen: config.level.codegen_level().tag(),
         parallelism,
-        freestanding: u8::from(config.freestanding),
     };
     let result =
         unsafe { nia_llvm_run_full_lto(ffi_inputs.as_ptr(), ffi_inputs.len(), &ffi_config) };
@@ -655,16 +545,11 @@ pub fn run_full_lto(
     })
 }
 
-fn optimization_tag(level: OptimizationLevel) -> u32 {
-    match level {
-        OptimizationLevel::None => 0,
-        OptimizationLevel::Less => 1,
-        OptimizationLevel::Default => 2,
-        OptimizationLevel::Aggressive => 3,
-    }
-}
-
-unsafe fn copy_bytes(pointer: *const u8, len: usize, label: &str) -> LlvmResult<Vec<u8>> {
+pub(super) unsafe fn copy_bytes(
+    pointer: *const u8,
+    len: usize,
+    label: &str,
+) -> LlvmResult<Vec<u8>> {
     if len == 0 {
         return Ok(Vec::new());
     }
@@ -676,7 +561,7 @@ unsafe fn copy_bytes(pointer: *const u8, len: usize, label: &str) -> LlvmResult<
     Ok(unsafe { slice::from_raw_parts(pointer, len) }.to_vec())
 }
 
-unsafe fn copy_text(pointer: *const u8, len: usize, label: &str) -> LlvmResult<String> {
+pub(super) unsafe fn copy_text(pointer: *const u8, len: usize, label: &str) -> LlvmResult<String> {
     let bytes = unsafe { copy_bytes(pointer, len, label)? };
     String::from_utf8(bytes)
         .map_err(|_| LlvmError::error(format!("LLVM returned non-UTF-8 {label} text")))
@@ -689,19 +574,13 @@ const _: () = {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llvm_api::{LlvmError, OptimizationLevel, TargetMachine};
+    use crate::llvm_api::{PipelineLevel, emit_full_lto_bitcode, emit_thin_lto_bitcode};
     use crate::{Context, module::Linkage};
-
-    fn summary_bitcode_with_policy(
-        name: &str,
-        freestanding: bool,
-    ) -> (TargetMachineIdentity, Vec<u8>) {
-        summary_bitcode_for_identity(name, crate::llvm_api::test_host_identity(), freestanding)
-    }
 
     fn summary_bitcode_for_identity(
         name: &str,
         identity: TargetMachineIdentity,
-        freestanding: bool,
     ) -> (TargetMachineIdentity, Vec<u8>) {
         let context = Context::create().expect("create context");
         let module = context.create_module(name).expect("create module");
@@ -725,27 +604,18 @@ mod tests {
         let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
             .expect("target machine");
         target.configure_module(&module).expect("configure module");
-        let bitcode =
-            emit_thin_lto_bitcode(&module, &target, OptimizationLevel::Default, freestanding)
-                .expect("emit summary-bearing bitcode");
+        let bitcode = emit_thin_lto_bitcode(&module, &target, PipelineLevel::O2)
+            .expect("emit summary-bearing bitcode");
         (identity, bitcode)
     }
 
     fn summary_bitcode(name: &str) -> (TargetMachineIdentity, Vec<u8>) {
-        summary_bitcode_with_policy(name, false)
-    }
-
-    fn full_bitcode_with_policy(
-        name: &str,
-        freestanding: bool,
-    ) -> (TargetMachineIdentity, Vec<u8>) {
-        full_bitcode_for_identity(name, crate::llvm_api::test_host_identity(), freestanding)
+        summary_bitcode_for_identity(name, crate::llvm_api::test_host_identity())
     }
 
     fn full_bitcode_for_identity(
         name: &str,
         identity: TargetMachineIdentity,
-        freestanding: bool,
     ) -> (TargetMachineIdentity, Vec<u8>) {
         let context = Context::create().expect("create context");
         let module = context.create_module(name).expect("create module");
@@ -769,28 +639,24 @@ mod tests {
         let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
             .expect("target machine");
         target.configure_module(&module).expect("configure module");
-        let bitcode =
-            emit_full_lto_bitcode(&module, &target, OptimizationLevel::Default, freestanding)
-                .expect("emit full-LTO bitcode");
+        let bitcode = emit_full_lto_bitcode(&module, &target, PipelineLevel::O2)
+            .expect("emit full-LTO bitcode");
         (identity, bitcode)
     }
 
     fn full_bitcode(name: &str) -> (TargetMachineIdentity, Vec<u8>) {
-        full_bitcode_with_policy(name, false)
+        full_bitcode_for_identity(name, crate::llvm_api::test_host_identity())
     }
 
     #[test]
-    fn freestanding_prelink_bitcode_disables_hosted_builtins() {
-        for (name, bitcode) in [
-            summary_bitcode_with_policy("thin-freestanding", true).1,
-            full_bitcode_with_policy("full-freestanding", true).1,
-        ]
-        .into_iter()
-        .enumerate()
+    fn prelink_bitcode_disables_hosted_builtins() {
+        for (name, bitcode) in [summary_bitcode("thin").1, full_bitcode("full").1]
+            .into_iter()
+            .enumerate()
         {
             let context = Context::create().expect("create parse context");
             let module = context
-                .parse_bitcode_module(&format!("freestanding-{name}"), &bitcode)
+                .parse_bitcode_module(&format!("prelink-{name}"), &bitcode)
                 .expect("parse pre-link bitcode");
             let ir = module.ir_string().expect("render pre-link IR");
             assert!(ir.contains("\"no-builtins\""), "{ir}");
@@ -807,9 +673,8 @@ mod tests {
             }],
             FullLtoConfig {
                 target: &target,
-                optimization: OptimizationLevel::Default,
+                level: PipelineLevel::O2,
                 parallelism: 1,
-                freestanding: true,
                 preserved_symbols: &["entry"],
             },
         )
@@ -830,7 +695,7 @@ mod tests {
         let mut identity = crate::llvm_api::test_host_identity();
         identity.relocation_model = crate::target::TargetRelocationModel::Static;
         identity.code_model = crate::target::TargetCodeModel::Small;
-        let (target, bitcode) = full_bitcode_for_identity("full-explicit-models", identity, true);
+        let (target, bitcode) = full_bitcode_for_identity("full-explicit-models", identity);
         let output = run_full_lto(
             &[FullLtoInput {
                 name: "full-explicit-models",
@@ -838,9 +703,8 @@ mod tests {
             }],
             FullLtoConfig {
                 target: &target,
-                optimization: OptimizationLevel::Default,
+                level: PipelineLevel::O2,
                 parallelism: 1,
-                freestanding: true,
                 preserved_symbols: &["entry"],
             },
         )
@@ -860,9 +724,8 @@ mod tests {
             }],
             ThinLtoConfig {
                 target: &target,
-                optimization: OptimizationLevel::Default,
+                level: PipelineLevel::O2,
                 parallelism: 1,
-                freestanding: true,
                 preserved_symbols: &["entry"],
                 backend_cache_directory: None,
             },
@@ -885,8 +748,7 @@ mod tests {
         let mut identity = crate::llvm_api::test_host_identity();
         identity.relocation_model = crate::target::TargetRelocationModel::Static;
         identity.code_model = crate::target::TargetCodeModel::Small;
-        let (target, bitcode) =
-            summary_bitcode_for_identity("thin-explicit-models", identity, true);
+        let (target, bitcode) = summary_bitcode_for_identity("thin-explicit-models", identity);
         let output = run_thin_lto(
             &[ThinLtoInput {
                 name: "thin-explicit-models",
@@ -894,9 +756,8 @@ mod tests {
             }],
             ThinLtoConfig {
                 target: &target,
-                optimization: OptimizationLevel::Default,
+                level: PipelineLevel::O2,
                 parallelism: 1,
-                freestanding: true,
                 preserved_symbols: &["entry"],
                 backend_cache_directory: None,
             },
@@ -926,9 +787,8 @@ mod tests {
                 }],
                 ThinLtoConfig {
                     target: &target,
-                    optimization: OptimizationLevel::Default,
+                    level: PipelineLevel::O2,
                     parallelism: 1,
-                    freestanding: true,
                     preserved_symbols: &["entry"],
                     backend_cache_directory: Some(&cache),
                 },
@@ -980,9 +840,8 @@ mod tests {
             }],
             ThinLtoConfig {
                 target: &target,
-                optimization: OptimizationLevel::Default,
+                level: PipelineLevel::O2,
                 parallelism: 1,
-                freestanding: true,
                 preserved_symbols: &["entry"],
                 backend_cache_directory: Some(&cache),
             },
@@ -1020,9 +879,8 @@ mod tests {
             }],
             ThinLtoConfig {
                 target: &target,
-                optimization: OptimizationLevel::Default,
+                level: PipelineLevel::O2,
                 parallelism: 1,
-                freestanding: true,
                 preserved_symbols: &["entry"],
                 backend_cache_directory: Some(&root),
             },
@@ -1075,13 +933,9 @@ mod tests {
         definition_module
             .verify()
             .expect("verify definition module");
-        let definition_bitcode = emit_thin_lto_bitcode(
-            &definition_module,
-            &target,
-            OptimizationLevel::Default,
-            false,
-        )
-        .expect("emit definition bitcode");
+        let definition_bitcode =
+            emit_thin_lto_bitcode(&definition_module, &target, PipelineLevel::O2)
+                .expect("emit definition bitcode");
 
         let caller_context = Context::create().expect("create caller context");
         let caller_module = caller_context
@@ -1118,9 +972,8 @@ mod tests {
             .build_return(Some(&call))
             .expect("return shared result");
         caller_module.verify().expect("verify caller module");
-        let caller_bitcode =
-            emit_thin_lto_bitcode(&caller_module, &target, OptimizationLevel::Default, false)
-                .expect("emit caller bitcode");
+        let caller_bitcode = emit_thin_lto_bitcode(&caller_module, &target, PipelineLevel::O2)
+            .expect("emit caller bitcode");
 
         let output = run_thin_lto(
             &[
@@ -1135,9 +988,8 @@ mod tests {
             ],
             ThinLtoConfig {
                 target: &identity,
-                optimization: OptimizationLevel::Default,
+                level: PipelineLevel::O2,
                 parallelism: 2,
-                freestanding: true,
                 preserved_symbols: &["entry"],
                 backend_cache_directory: None,
             },
@@ -1173,9 +1025,8 @@ mod tests {
             }],
             ThinLtoConfig {
                 target: &target,
-                optimization: OptimizationLevel::None,
+                level: PipelineLevel::O0,
                 parallelism: 1,
-                freestanding: true,
                 preserved_symbols: &[],
                 backend_cache_directory: None,
             },
@@ -1202,9 +1053,8 @@ mod tests {
             &inputs,
             ThinLtoConfig {
                 target: &target,
-                optimization: OptimizationLevel::None,
+                level: PipelineLevel::O0,
                 parallelism: 1,
-                freestanding: true,
                 preserved_symbols: &[],
                 backend_cache_directory: None,
             },

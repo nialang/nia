@@ -26,6 +26,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO/ThinLTOBitcodeWriter.h"
+#include "llvm/Transforms/Utils/Mem2Reg.h"
 
 #include <algorithm>
 #include <array>
@@ -66,9 +67,9 @@ struct FullConfig {
   uint32_t CodeModel;
   const ByteSlice *PreservedSymbols;
   size_t PreservedSymbolCount;
-  uint32_t Optimization;
+  uint32_t Pipeline;
+  uint32_t CodeGen;
   uint32_t Parallelism;
-  uint8_t Freestanding;
 };
 
 struct ThinConfig {
@@ -78,9 +79,9 @@ struct ThinConfig {
   uint32_t CodeModel;
   const ByteSlice *PreservedSymbols;
   size_t PreservedSymbolCount;
-  uint32_t Optimization;
+  uint32_t Pipeline;
+  uint32_t CodeGen;
   uint32_t Parallelism;
-  uint8_t Freestanding;
   ByteSlice CacheDirectory;
   ByteSlice CacheMagic;
   uint32_t CacheProtocolEpoch;
@@ -195,22 +196,37 @@ std::string errorText(Error Err) {
   return toString(std::move(Err));
 }
 
-OptimizationLevel optimizationLevel(uint32_t Value) {
+enum class SizeGoal { None, Small, Minimal };
+
+// A pipeline level as encoded by nia_llvm::PipelineLevel. LLVM expresses Os
+// and Oz as the O2 pipeline with optsize or minsize on every function, so the
+// size goal travels separately from the IR level.
+struct PipelineLevel {
+  OptimizationLevel IR;
+  SizeGoal Size;
+};
+
+std::optional<PipelineLevel> pipelineLevel(uint32_t Value) {
   switch (Value) {
   case 0:
-    return OptimizationLevel::O0;
+    return PipelineLevel{OptimizationLevel::O0, SizeGoal::None};
   case 1:
-    return OptimizationLevel::O1;
+    return PipelineLevel{OptimizationLevel::O1, SizeGoal::None};
   case 2:
-    return OptimizationLevel::O2;
+    return PipelineLevel{OptimizationLevel::O2, SizeGoal::None};
   case 3:
-    return OptimizationLevel::O3;
+    return PipelineLevel{OptimizationLevel::O3, SizeGoal::None};
+  case 4:
+    return PipelineLevel{OptimizationLevel::O2, SizeGoal::Small};
+  case 5:
+    return PipelineLevel{OptimizationLevel::O2, SizeGoal::Minimal};
   default:
-    return OptimizationLevel::O0;
+    return std::nullopt;
   }
 }
 
-CodeGenOptLevel codegenOptimizationLevel(uint32_t Value) {
+// A code-generation tier as encoded by nia_llvm::OptimizationLevel.
+std::optional<CodeGenOptLevel> codegenLevel(uint32_t Value) {
   switch (Value) {
   case 0:
     return CodeGenOptLevel::None;
@@ -221,8 +237,18 @@ CodeGenOptLevel codegenOptimizationLevel(uint32_t Value) {
   case 3:
     return CodeGenOptLevel::Aggressive;
   default:
-    return CodeGenOptLevel::None;
+    return std::nullopt;
   }
+}
+
+unsigned irOptimizationLevel(OptimizationLevel Level) {
+  if (Level == OptimizationLevel::O0)
+    return 0;
+  if (Level == OptimizationLevel::O1)
+    return 1;
+  if (Level == OptimizationLevel::O3)
+    return 3;
+  return 2;
 }
 
 uint32_t diagnosticSeverity(DiagnosticSeverity Severity) {
@@ -529,90 +555,120 @@ std::optional<std::string> initializeTargets() {
   return Error;
 }
 
-void configureFreestandingPreLink(Module &M, bool Freestanding) {
-  if (!Freestanding)
-    return;
-  for (Function &F : M)
-    if (!F.isDeclaration())
-      F.addFnAttr("no-builtins");
+// Nia never relies on a hosted C library, so no pass may assume that library
+// functions exist or turn code into calls to them. Size goals are function
+// attributes, so LTO backends see them in the bitcode as well.
+void configureFunctions(Module &M, SizeGoal Size) {
+  for (Function &F : M) {
+    if (F.isDeclaration())
+      continue;
+    F.addFnAttr("no-builtins");
+    if (Size != SizeGoal::None && !F.hasFnAttribute(Attribute::OptimizeNone))
+      F.addFnAttr(Attribute::OptimizeForSize);
+    if (Size == SizeGoal::Minimal && !F.hasFnAttribute(Attribute::OptimizeNone))
+      F.addFnAttr(Attribute::MinSize);
+  }
+}
+
+enum class PipelinePhase { Object, ThinLTOPreLink, FullLTOPreLink };
+
+// The one place that decides which IR passes run before an object or LTO
+// bitcode is written. Unoptimized output still promotes stack slots, which
+// keeps it small and quick to emit.
+ModulePassManager buildModulePipeline(PassBuilder &PB, OptimizationLevel Level,
+                                      PipelinePhase Phase) {
+  if (Level == OptimizationLevel::O0) {
+    ModulePassManager MPM;
+    MPM.addPass(createModuleToFunctionPassAdaptor(PromotePass()));
+    ThinOrFullLTOPhase LTOPhase = ThinOrFullLTOPhase::None;
+    if (Phase == PipelinePhase::ThinLTOPreLink)
+      LTOPhase = ThinOrFullLTOPhase::ThinLTOPreLink;
+    else if (Phase == PipelinePhase::FullLTOPreLink)
+      LTOPhase = ThinOrFullLTOPhase::FullLTOPreLink;
+    MPM.addPass(PB.buildO0DefaultPipeline(Level, LTOPhase));
+    return MPM;
+  }
+  switch (Phase) {
+  case PipelinePhase::Object:
+    return PB.buildPerModuleDefaultPipeline(Level);
+  case PipelinePhase::ThinLTOPreLink:
+    return PB.buildThinLTOPreLinkDefaultPipeline(Level);
+  case PipelinePhase::FullLTOPreLink:
+    return PB.buildLTOPreLinkDefaultPipeline(Level);
+  }
+  return PB.buildPerModuleDefaultPipeline(Level);
+}
+
+// Runs the module pipeline for `Phase`, then `Finish` with the same pass
+// manager so a pre-link bitcode writer sees the optimized module.
+template <typename FinishFn>
+std::string runModulePipeline(LLVMModuleRef RawModule,
+                              LLVMTargetMachineRef RawTarget, uint32_t RawLevel,
+                              PipelinePhase Phase, FinishFn Finish) {
+  if (!RawModule || !RawTarget)
+    return "module optimization received a null LLVM handle";
+  std::optional<PipelineLevel> Level = pipelineLevel(RawLevel);
+  if (!Level)
+    return "module optimization received an invalid pipeline level";
+  Module &M = *unwrap(RawModule);
+  configureFunctions(M, Level->Size);
+  TargetMachine *TM = reinterpret_cast<TargetMachine *>(RawTarget);
+  LoopAnalysisManager LAM;
+  FunctionAnalysisManager FAM;
+  CGSCCAnalysisManager CGAM;
+  ModuleAnalysisManager MAM;
+  PassBuilder PB(TM);
+  PB.registerModuleAnalyses(MAM);
+  PB.registerCGSCCAnalyses(CGAM);
+  PB.registerFunctionAnalyses(FAM);
+  PB.registerLoopAnalyses(LAM);
+  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+  ModulePassManager MPM = buildModulePipeline(PB, Level->IR, Phase);
+  Finish(MPM);
+  MPM.run(M, MAM);
+  return std::string();
 }
 
 } // namespace
 
 extern "C" {
 
+OwnedBuffer *nia_llvm_optimize_module(LLVMModuleRef RawModule,
+                                     LLVMTargetMachineRef RawTarget,
+                                     uint32_t Level) {
+  auto Result = std::make_unique<OwnedBuffer>();
+  Result->Error = runModulePipeline(RawModule, RawTarget, Level,
+                                    PipelinePhase::Object,
+                                    [](ModulePassManager &) {});
+  return Result.release();
+}
+
 OwnedBuffer *nia_llvm_emit_thin_lto_bitcode(LLVMModuleRef RawModule,
                                              LLVMTargetMachineRef RawTarget,
-                                             uint32_t Optimization,
-                                             uint8_t Freestanding) {
+                                             uint32_t Level) {
   auto Result = std::make_unique<OwnedBuffer>();
-  if (!RawModule || !RawTarget) {
-    Result->Error = "ThinLTO pre-link emission received a null LLVM handle";
-    return Result.release();
-  }
-  if (Optimization > 3) {
-    Result->Error = "ThinLTO pre-link emission received an invalid optimization level";
-    return Result.release();
-  }
-
-  Module &M = *unwrap(RawModule);
-  configureFreestandingPreLink(M, Freestanding != 0);
-  TargetMachine *TM = reinterpret_cast<TargetMachine *>(RawTarget);
-  LoopAnalysisManager LAM;
-  FunctionAnalysisManager FAM;
-  CGSCCAnalysisManager CGAM;
-  ModuleAnalysisManager MAM;
-  PassBuilder PB(TM);
-  PB.registerModuleAnalyses(MAM);
-  PB.registerCGSCCAnalyses(CGAM);
-  PB.registerFunctionAnalyses(FAM);
-  PB.registerLoopAnalyses(LAM);
-  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
-
   raw_string_ostream OS(Result->Bytes);
-  ModulePassManager MPM =
-      PB.buildThinLTOPreLinkDefaultPipeline(optimizationLevel(Optimization));
-  MPM.addPass(ThinLTOBitcodeWriterPass(OS, nullptr));
-  MPM.run(M, MAM);
+  Result->Error = runModulePipeline(
+      RawModule, RawTarget, Level, PipelinePhase::ThinLTOPreLink,
+      [&OS](ModulePassManager &MPM) {
+        MPM.addPass(ThinLTOBitcodeWriterPass(OS, nullptr));
+      });
   OS.flush();
   return Result.release();
 }
 
 OwnedBuffer *nia_llvm_emit_full_lto_bitcode(LLVMModuleRef RawModule,
                                             LLVMTargetMachineRef RawTarget,
-                                            uint32_t Optimization,
-                                            uint8_t Freestanding) {
+                                            uint32_t Level) {
   auto Result = std::make_unique<OwnedBuffer>();
-  if (!RawModule || !RawTarget) {
-    Result->Error = "full LTO pre-link emission received a null LLVM handle";
-    return Result.release();
-  }
-  if (Optimization > 3) {
-    Result->Error = "full LTO pre-link emission received an invalid optimization level";
-    return Result.release();
-  }
-
-  Module &M = *unwrap(RawModule);
-  configureFreestandingPreLink(M, Freestanding != 0);
-  TargetMachine *TM = reinterpret_cast<TargetMachine *>(RawTarget);
-  LoopAnalysisManager LAM;
-  FunctionAnalysisManager FAM;
-  CGSCCAnalysisManager CGAM;
-  ModuleAnalysisManager MAM;
-  PassBuilder PB(TM);
-  PB.registerModuleAnalyses(MAM);
-  PB.registerCGSCCAnalyses(CGAM);
-  PB.registerFunctionAnalyses(FAM);
-  PB.registerLoopAnalyses(LAM);
-  PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
-
   raw_string_ostream OS(Result->Bytes);
-  ModulePassManager MPM =
-      PB.buildLTOPreLinkDefaultPipeline(optimizationLevel(Optimization));
-  MPM.addPass(BitcodeWriterPass(OS, /*ShouldPreserveUseListOrder=*/false,
-                                /*EmitSummaryIndex=*/false,
-                                /*EmitModuleHash=*/true));
-  MPM.run(M, MAM);
+  Result->Error = runModulePipeline(
+      RawModule, RawTarget, Level, PipelinePhase::FullLTOPreLink,
+      [&OS](ModulePassManager &MPM) {
+        MPM.addPass(BitcodeWriterPass(OS, /*ShouldPreserveUseListOrder=*/false,
+                                      /*EmitSummaryIndex=*/false,
+                                      /*EmitModuleHash=*/true));
+      });
   OS.flush();
   return Result.release();
 }
@@ -650,7 +706,9 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
     Result->Error = "ThinLTO requires at least one bitcode input";
     return Result.release();
   }
-  if (InputConfig->Optimization > 3 || InputConfig->Parallelism == 0) {
+  std::optional<PipelineLevel> Level = pipelineLevel(InputConfig->Pipeline);
+  std::optional<CodeGenOptLevel> CodeGen = codegenLevel(InputConfig->CodeGen);
+  if (!Level || !CodeGen || InputConfig->Parallelism == 0) {
     Result->Error = "ThinLTO received an invalid configuration";
     return Result.release();
   }
@@ -740,9 +798,9 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
       Config.MAttrs.push_back(Split.first.str());
     Features = Split.second;
   }
-  Config.OptLevel = InputConfig->Optimization;
-  Config.CGOptLevel = codegenOptimizationLevel(InputConfig->Optimization);
-  Config.Freestanding = InputConfig->Freestanding != 0;
+  Config.OptLevel = irOptimizationLevel(Level->IR);
+  Config.CGOptLevel = *CodeGen;
+  Config.Freestanding = true;
   if (!configureTargetModels(Config, InputConfig->RelocationModel,
                              InputConfig->CodeModel, Result->Error))
     return Result.release();
@@ -908,7 +966,9 @@ FullResult *nia_llvm_run_full_lto(const ThinInput *Inputs, size_t InputCount,
     Result->Error = "full LTO requires at least one bitcode input";
     return Result.release();
   }
-  if (InputConfig->Optimization > 3 || InputConfig->Parallelism == 0) {
+  std::optional<PipelineLevel> Level = pipelineLevel(InputConfig->Pipeline);
+  std::optional<CodeGenOptLevel> CodeGen = codegenLevel(InputConfig->CodeGen);
+  if (!Level || !CodeGen || InputConfig->Parallelism == 0) {
     Result->Error = "full LTO received an invalid configuration";
     return Result.release();
   }
@@ -976,9 +1036,9 @@ FullResult *nia_llvm_run_full_lto(const ThinInput *Inputs, size_t InputCount,
       Config.MAttrs.push_back(Split.first.str());
     Features = Split.second;
   }
-  Config.OptLevel = InputConfig->Optimization;
-  Config.CGOptLevel = codegenOptimizationLevel(InputConfig->Optimization);
-  Config.Freestanding = InputConfig->Freestanding != 0;
+  Config.OptLevel = irOptimizationLevel(Level->IR);
+  Config.CGOptLevel = *CodeGen;
+  Config.Freestanding = true;
   if (!configureTargetModels(Config, InputConfig->RelocationModel,
                              InputConfig->CodeModel, Result->Error))
     return Result.release();

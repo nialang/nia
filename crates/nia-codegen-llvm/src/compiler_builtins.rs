@@ -8,9 +8,9 @@ use nia_function_ir::{
     FunctionSliceRange, FunctionTerminator,
 };
 use nia_llvm::{
-    Context, FloatPredicate, IntPredicate, LlvmError, OptimizationLevel,
-    lto::{emit_full_lto_bitcode, emit_thin_lto_bitcode},
+    Context, FloatPredicate, IntPredicate, LlvmError,
     module::{Linkage, Visibility},
+    pipeline::{PipelineLevel, emit_full_lto_bitcode, emit_thin_lto_bitcode, optimize_module},
     target::TargetMachine,
     types::BasicTypeEnum,
     values::{BasicMetadataValueEnum, BasicValueEnum, IntValue, PointerValue},
@@ -521,6 +521,7 @@ pub(crate) fn emit_object(
     target: &TargetMachine,
     artifact_target: nia_target::TargetConfig,
     symbols: CompilerBuiltinSymbols,
+    level: PipelineLevel,
 ) -> Result<Vec<u8>, Diagnostic> {
     let context = Context::create().map_err(diagnostic_from_llvm_error)?;
     let module = context
@@ -532,6 +533,7 @@ pub(crate) fn emit_object(
     let windows_i128_abi = artifact_target.os() == nia_target::Os::Windows;
     emit_definitions(&context, &module, symbols, windows_i128_abi)?;
     module.verify().map_err(diagnostic_from_llvm_error)?;
+    optimize_module(&module, target, level).map_err(diagnostic_from_llvm_error)?;
     target
         .emit_object(&module)
         .map_err(diagnostic_from_llvm_error)
@@ -541,8 +543,8 @@ pub(crate) fn emit_lto_bitcode(
     target: &TargetMachine,
     artifact_target: nia_target::TargetConfig,
     symbols: CompilerBuiltinSymbols,
-    optimization: OptimizationLevel,
-    pre_link: crate::LtoPreLinkConfig,
+    level: PipelineLevel,
+    pre_link: crate::LtoMode,
 ) -> Result<Vec<u8>, Diagnostic> {
     let context = Context::create().map_err(diagnostic_from_llvm_error)?;
     let module = context
@@ -555,13 +557,9 @@ pub(crate) fn emit_lto_bitcode(
     let windows_i128_abi = artifact_target.os() == nia_target::Os::Windows;
     emit_definitions(&context, &module, symbols, windows_i128_abi)?;
     module.verify().map_err(diagnostic_from_llvm_error)?;
-    match pre_link.mode {
-        crate::LtoMode::Thin => {
-            emit_thin_lto_bitcode(&module, target, optimization, pre_link.freestanding)
-        }
-        crate::LtoMode::Full => {
-            emit_full_lto_bitcode(&module, target, optimization, pre_link.freestanding)
-        }
+    match pre_link {
+        crate::LtoMode::Thin => emit_thin_lto_bitcode(&module, target, level),
+        crate::LtoMode::Full => emit_full_lto_bitcode(&module, target, level),
     }
     .map_err(diagnostic_from_llvm_error)
 }

@@ -12,6 +12,7 @@ mod context;
 mod debug;
 mod lto;
 mod module;
+mod pipeline;
 mod target;
 
 pub use base::*;
@@ -21,4 +22,5 @@ pub use context::*;
 pub use debug::*;
 pub use lto::*;
 pub use module::*;
+pub use pipeline::*;
 pub use target::*;

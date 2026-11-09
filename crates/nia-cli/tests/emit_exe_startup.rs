@@ -537,7 +537,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert!(stderr.contains("backend optimization report:"), "{stderr}");
     assert!(stderr.contains("policy level=Oz"), "{stderr}");
     assert!(stderr.contains("llvm_codegen=less"), "{stderr}");
-    assert!(stderr.contains("llvm_size=tiny"), "{stderr}");
+    assert!(stderr.contains("llvm_pipeline=Oz"), "{stderr}");
 
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(5));

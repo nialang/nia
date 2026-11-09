@@ -8,6 +8,10 @@
 //! `LlvmResult` errors that codegen propagates instead of exposing invalid
 //! handles.
 //!
+//! `pipeline` owns the IR pass pipeline that runs before any object or LTO
+//! bitcode is written; one builder serves all three, so the levels, the size
+//! goals, and the freestanding attributes cannot diverge between them.
+//!
 //! The crate also owns LTO coordination through LLVM's resolution-based
 //! `llvm::lto::LTO` interface, not the legacy ThinLTO C API or a linker
 //! plugin. It builds the combined index, applies symbol resolutions, runs
@@ -29,5 +33,5 @@ pub use llvm_api::{Attribute, AttributeLoc, Context, InlineAsmDialect, InlineAsm
 pub use llvm_facade::{
     AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate, LlvmError,
     LlvmResult, OptimizationLevel, attributes, basic_block, builder, coff, context, intrinsics,
-    llvm_sys, lto, module, target, types, values,
+    llvm_sys, lto, module, pipeline, target, types, values,
 };

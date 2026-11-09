@@ -26,10 +26,11 @@
 //! Without LTO, units are emitted as native objects. For ThinLTO and full LTO,
 //! units are emitted as summary-bearing or regular pre-link bitcode keyed by
 //! the owner-qualified [`CodegenUnitKey`], and compiler builtins join the same
-//! linkage unit. The pre-link product records both the LTO mode and the
-//! freestanding policy, so a later coordinator cannot reinterpret already
-//! optimized IR. Pre-link modules are cached under the normal release and
-//! toolchain identity.
+//! linkage unit. Every unit runs the LLVM pipeline that
+//! [`llvm_pipeline_level`] selects for its optimization level, always as
+//! freestanding code; the pre-link product records the LTO mode, so a later
+//! coordinator cannot reinterpret already optimized IR. Pre-link modules are
+//! cached under the normal release and toolchain identity.
 mod backend_validate;
 mod compiler_builtins;
 mod declaration_membership;
@@ -57,16 +58,13 @@ pub use nia_backend_ir::{
 };
 use nia_backend_lower::BackendLowering;
 use nia_ids::ModuleId;
-use nia_llvm::{
-    Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachineIdentity,
-};
+use nia_llvm::{Context, pipeline::PipelineLevel, target::TargetMachineIdentity};
 use nia_opt::NiaOptimizationLevel;
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder, QuerySession};
 use nia_ty::TypeStore;
 pub use output::{
     FullLtoCodegenConfig, LlvmCodegenOptions, LlvmCodegenOutput, LlvmLtoModuleOutput,
-    LlvmModuleOutput, LlvmObjectOutput, LtoMode, LtoModule, LtoPreLinkConfig, NativeObject,
-    ThinLtoCodegenConfig,
+    LlvmModuleOutput, LlvmObjectOutput, LtoMode, LtoModule, NativeObject, ThinLtoCodegenConfig,
 };
 use program_index::ProgramIndex;
 use readiness::{
@@ -139,7 +137,7 @@ pub struct LlvmNativeObjectReadinessEmitter<'session> {
 /// set to the coordinator selected by [`LtoMode`].
 pub struct LlvmLtoReadinessEmitter<'session> {
     coordinator: CodegenReadinessCoordinator,
-    pre_link: LtoPreLinkConfig,
+    pre_link: LtoMode,
     options: LlvmCodegenOptions,
     cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
     target_identity: Option<Arc<TargetMachineIdentity>>,
@@ -333,7 +331,7 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
         type_store: Arc<TypeStore>,
         owners: Arc<nia_backend_ir::BackendModuleOwnerDirectory>,
         options: LlvmCodegenOptions,
-        pre_link: LtoPreLinkConfig,
+        pre_link: LtoMode,
         cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
         session: &'session QuerySession,
     ) -> nia_ice::IceResult<Self> {
@@ -640,7 +638,7 @@ pub fn emit_lto_modules(
     type_store: Arc<TypeStore>,
     session: &QuerySession,
     options: LlvmCodegenOptions,
-    pre_link: LtoPreLinkConfig,
+    pre_link: LtoMode,
     cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
 ) -> LlvmLtoModuleOutput {
     orchestration::emit_lto_modules(lowering, type_store, session, options, pre_link, cache)
@@ -702,7 +700,7 @@ pub fn emit_thin_lto_objects(
     options: LlvmCodegenOptions,
     config: ThinLtoCodegenConfig<'_>,
 ) -> LlvmObjectOutput {
-    if input.pre_link.mode != LtoMode::Thin {
+    if input.pre_link != LtoMode::Thin {
         return LlvmObjectOutput {
             link_inputs: IncrementalLinkInputs::default(),
             diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
@@ -754,9 +752,8 @@ pub fn emit_thin_lto_objects(
             &llvm_inputs,
             nia_llvm::lto::ThinLtoConfig {
                 target: &target,
-                optimization: llvm_optimization_level(options.optimization.level),
+                level: llvm_pipeline_level(options.optimization.level),
                 parallelism: config.parallelism,
-                freestanding: input.pre_link.freestanding,
                 preserved_symbols: &preserved_symbol_refs,
                 backend_cache_directory: config.backend_cache_directory,
             },
@@ -899,7 +896,7 @@ pub fn emit_full_lto_objects(
     options: LlvmCodegenOptions,
     config: FullLtoCodegenConfig<'_>,
 ) -> LlvmObjectOutput {
-    if input.pre_link.mode != LtoMode::Full {
+    if input.pre_link != LtoMode::Full {
         return LlvmObjectOutput {
             link_inputs: IncrementalLinkInputs::default(),
             diagnostics: vec![nia_diagnostic::Diagnostic::internal_error_at(
@@ -951,9 +948,8 @@ pub fn emit_full_lto_objects(
             &llvm_inputs,
             nia_llvm::lto::FullLtoConfig {
                 target: &target,
-                optimization: llvm_optimization_level(options.optimization.level),
+                level: llvm_pipeline_level(options.optimization.level),
                 parallelism: config.parallelism,
-                freestanding: input.pre_link.freestanding,
                 preserved_symbols: &preserved_symbol_refs,
             },
         )
@@ -1014,7 +1010,6 @@ pub fn emit_full_lto_objects(
                 &target,
                 options,
                 config.parallelism,
-                input.pre_link.freestanding,
                 &preserved_symbol_refs,
                 object.task,
             ),
@@ -1046,7 +1041,6 @@ fn full_lto_backend_fingerprint(
     target: &TargetMachineIdentity,
     options: LlvmCodegenOptions,
     parallelism: usize,
-    freestanding: bool,
     preserved_symbols: &[&str],
     ordinal: u32,
 ) -> CodegenUnitFingerprint {
@@ -1063,7 +1057,6 @@ fn full_lto_backend_fingerprint(
     fingerprint::write_toolchain_identity(&mut builder, options.toolchain_identity);
     fingerprint::write_optimization(&mut builder, options.optimization);
     builder.write_u64(parallelism as u64);
-    builder.write_u8(u8::from(freestanding));
     builder.write_u64(preserved_symbols.len() as u64);
     for symbol in preserved_symbols {
         builder.write_str(symbol);
@@ -1214,7 +1207,7 @@ fn emit_lto_partition(
     prepared: PreparedCodegenPartition,
     index: Arc<ProgramIndex>,
     options: LlvmCodegenOptions,
-    pre_link: LtoPreLinkConfig,
+    pre_link: LtoMode,
     target_identity: &TargetMachineIdentity,
     cache: Option<&dyn LtoModuleWorkProductCache>,
 ) -> Result<(LtoModule, WorkProductReuse), Vec<nia_diagnostic::Diagnostic>> {
@@ -1242,7 +1235,7 @@ fn emit_lto_partition(
         fingerprint::ArtifactTarget::LtoBitcode(pre_link, target_identity),
     )?;
     let module_identifier = lto_module_identifier(&partition.key);
-    let miss = match load_lto_work_product(cache, pre_link.mode, &partition.key, fingerprints) {
+    let miss = match load_lto_work_product(cache, pre_link, &partition.key, fingerprints) {
         WorkProductReuseLookup::Hit(bitcode) => {
             return Ok((
                 LtoModule {
@@ -1263,7 +1256,7 @@ fn emit_lto_partition(
     record_memory_permit(options.timings, memory_permit.waited());
     let bitcode = with_target_machine(
         target_identity,
-        llvm_optimization_level(options.optimization.level),
+        llvm_pipeline_level(options.optimization.level).codegen_level(),
         options.timings,
         |target| {
             let context = time_codegen_module_stage(
@@ -1283,7 +1276,7 @@ fn emit_lto_partition(
             codegen.emit_lto_bitcode(
                 target,
                 &module_identifier,
-                llvm_optimization_level(options.optimization.level),
+                llvm_pipeline_level(options.optimization.level),
                 pre_link,
             )
         },
@@ -1291,7 +1284,7 @@ fn emit_lto_partition(
     .map_err(|error| vec![error.diagnostic()])?
     .map_err(|diagnostic| vec![diagnostic])?;
     let write_error =
-        publish_lto_work_product(cache, pre_link.mode, &partition.key, fingerprints, &bitcode);
+        publish_lto_work_product(cache, pre_link, &partition.key, fingerprints, &bitcode);
     Ok((
         LtoModule {
             unit: partition.id,
@@ -1385,7 +1378,7 @@ fn emit_native_object_partition(
     record_memory_permit(options.timings, memory_permit.waited());
     let bytes = with_target_machine(
         &target_identity,
-        llvm_optimization_level(options.optimization.level),
+        llvm_pipeline_level(options.optimization.level).codegen_level(),
         options.timings,
         |target| {
             let context = time_codegen_module_stage(
@@ -1402,7 +1395,7 @@ fn emit_native_object_partition(
             target
                 .configure_module(&codegen.module)
                 .map_err(|error| error.diagnostic())?;
-            codegen.emit_object(target)
+            codegen.emit_object(target, llvm_pipeline_level(options.optimization.level))
         },
     )
     .map_err(|error| vec![error.diagnostic()])?
@@ -1428,7 +1421,7 @@ fn emit_native_object_partition(
 fn emit_compiler_builtins_lto_module(
     symbols: compiler_builtins::CompilerBuiltinSymbols,
     options: LlvmCodegenOptions,
-    pre_link: LtoPreLinkConfig,
+    pre_link: LtoMode,
     target_identity: &TargetMachineIdentity,
     cache: Option<&dyn LtoModuleWorkProductCache>,
 ) -> Result<(LtoModule, WorkProductReuse), nia_diagnostic::Diagnostic> {
@@ -1440,7 +1433,7 @@ fn emit_compiler_builtins_lto_module(
     );
     let miss = match load_lto_work_product(
         cache,
-        pre_link.mode,
+        pre_link,
         &CodegenUnitKey::CompilerBuiltins,
         fingerprints,
     ) {
@@ -1464,14 +1457,14 @@ fn emit_compiler_builtins_lto_module(
     record_memory_permit(options.timings, memory_permit.waited());
     let bitcode = with_target_machine(
         target_identity,
-        llvm_optimization_level(options.optimization.level),
+        llvm_pipeline_level(options.optimization.level).codegen_level(),
         options.timings,
         |target| {
             compiler_builtins::emit_lto_bitcode(
                 target,
                 options.target,
                 symbols,
-                llvm_optimization_level(options.optimization.level),
+                llvm_pipeline_level(options.optimization.level),
                 pre_link,
             )
         },
@@ -1479,7 +1472,7 @@ fn emit_compiler_builtins_lto_module(
     .map_err(|error| error.diagnostic())??;
     let write_error = publish_lto_work_product(
         cache,
-        pre_link.mode,
+        pre_link,
         &CodegenUnitKey::CompilerBuiltins,
         fingerprints,
         &bitcode,
@@ -1535,9 +1528,16 @@ fn emit_compiler_builtins_object(
     record_memory_permit(options.timings, memory_permit.waited());
     let bytes = with_target_machine(
         &target_identity,
-        llvm_optimization_level(options.optimization.level),
+        llvm_pipeline_level(options.optimization.level).codegen_level(),
         options.timings,
-        |target| compiler_builtins::emit_object(target, options.target, symbols),
+        |target| {
+            compiler_builtins::emit_object(
+                target,
+                options.target,
+                symbols,
+                llvm_pipeline_level(options.optimization.level),
+            )
+        },
     )
     .map_err(|error| error.diagnostic())??;
     let write_error = publish_object_work_product(
@@ -1654,90 +1654,20 @@ pub(crate) fn time_codegen_module_stage<T>(
     nia_timing::time_query(timings, &format!("llvm_codegen.{stage}[{module_name}]"), f)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-/// LLVM's speed-oriented optimization tier after mapping from Nia policy.
-pub enum LlvmCodegenOptimizationLevel {
-    /// Disable LLVM optimization passes.
-    None,
-    /// Run LLVM's lightweight optimization pipeline.
-    Less,
-    /// Run LLVM's standard optimization pipeline.
-    Default,
-    /// Run LLVM's most aggressive speed optimization pipeline.
-    Aggressive,
-}
-
-impl LlvmCodegenOptimizationLevel {
-    /// Returns the stable diagnostic and fingerprint name for this tier.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Less => "less",
-            Self::Default => "default",
-            Self::Aggressive => "aggressive",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-/// Code-size preference passed independently from LLVM's speed tier.
-pub enum LlvmCodegenSizePolicy {
-    /// Do not request size-specific optimization.
-    Default,
-    /// Prefer smaller output while retaining the standard speed tier.
-    Small,
-    /// Minimize output size more aggressively.
-    Tiny,
-}
-
-impl LlvmCodegenSizePolicy {
-    /// Returns the stable diagnostic and fingerprint name for this policy.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::Small => "small",
-            Self::Tiny => "tiny",
-        }
-    }
-}
-
-/// Maps a Nia optimization level to LLVM's speed-oriented pass tier.
+/// The LLVM pipeline for a Nia optimization level.
 ///
-/// Size modes are intentionally split: `Os` uses the default speed tier and
-/// `Oz` uses the lighter tier, while [`llvm_codegen_size_policy`] carries the
-/// explicit size preference.
-pub fn llvm_codegen_optimization_level(
-    level: NiaOptimizationLevel,
-) -> LlvmCodegenOptimizationLevel {
+/// This is the only mapping from Nia levels to LLVM: the level selects the IR
+/// pipeline, its size goal, and through [`PipelineLevel::codegen_level`] the
+/// code-generation tier. Layout, calling conventions, and symbols never depend
+/// on it.
+pub fn llvm_pipeline_level(level: NiaOptimizationLevel) -> PipelineLevel {
     match level {
-        NiaOptimizationLevel::O0 => LlvmCodegenOptimizationLevel::None,
-        NiaOptimizationLevel::O1 => LlvmCodegenOptimizationLevel::Less,
-        NiaOptimizationLevel::O2 | NiaOptimizationLevel::Os => {
-            LlvmCodegenOptimizationLevel::Default
-        }
-        NiaOptimizationLevel::O3 => LlvmCodegenOptimizationLevel::Aggressive,
-        NiaOptimizationLevel::Oz => LlvmCodegenOptimizationLevel::Less,
-    }
-}
-
-/// Maps a Nia optimization level to LLVM's independent size preference.
-pub fn llvm_codegen_size_policy(level: NiaOptimizationLevel) -> LlvmCodegenSizePolicy {
-    match level {
-        NiaOptimizationLevel::O0
-        | NiaOptimizationLevel::O1
-        | NiaOptimizationLevel::O2
-        | NiaOptimizationLevel::O3 => LlvmCodegenSizePolicy::Default,
-        NiaOptimizationLevel::Os => LlvmCodegenSizePolicy::Small,
-        NiaOptimizationLevel::Oz => LlvmCodegenSizePolicy::Tiny,
-    }
-}
-
-fn llvm_optimization_level(level: NiaOptimizationLevel) -> LlvmOptimizationLevel {
-    match llvm_codegen_optimization_level(level) {
-        LlvmCodegenOptimizationLevel::None => LlvmOptimizationLevel::None,
-        LlvmCodegenOptimizationLevel::Less => LlvmOptimizationLevel::Less,
-        LlvmCodegenOptimizationLevel::Default => LlvmOptimizationLevel::Default,
-        LlvmCodegenOptimizationLevel::Aggressive => LlvmOptimizationLevel::Aggressive,
+        NiaOptimizationLevel::O0 => PipelineLevel::O0,
+        NiaOptimizationLevel::O1 => PipelineLevel::O1,
+        NiaOptimizationLevel::O2 => PipelineLevel::O2,
+        NiaOptimizationLevel::O3 => PipelineLevel::O3,
+        NiaOptimizationLevel::Os => PipelineLevel::Os,
+        NiaOptimizationLevel::Oz => PipelineLevel::Oz,
     }
 }
 
@@ -1766,85 +1696,43 @@ mod optimization_tests {
             ..target.clone()
         };
         let options = LlvmCodegenOptions::default();
-        let baseline = full_lto_backend_fingerprint(&[], &target, options, 1, false, &[], 0);
+        let baseline = full_lto_backend_fingerprint(&[], &target, options, 1, &[], 0);
         assert_ne!(
             baseline,
-            full_lto_backend_fingerprint(&[], &changed_relocation, options, 1, false, &[], 0)
+            full_lto_backend_fingerprint(&[], &changed_relocation, options, 1, &[], 0)
         );
         assert_ne!(
             baseline,
-            full_lto_backend_fingerprint(&[], &changed_code_model, options, 1, false, &[], 0)
+            full_lto_backend_fingerprint(&[], &changed_code_model, options, 1, &[], 0)
         );
     }
 
     #[test]
-    fn maps_nia_optimization_levels_to_llvm_codegen_levels() {
-        assert_eq!(
-            llvm_codegen_optimization_level(NiaOptimizationLevel::O0),
-            LlvmCodegenOptimizationLevel::None
-        );
-        assert_eq!(
-            llvm_codegen_optimization_level(NiaOptimizationLevel::O1),
-            LlvmCodegenOptimizationLevel::Less
-        );
-        assert_eq!(
-            llvm_codegen_optimization_level(NiaOptimizationLevel::O2),
-            LlvmCodegenOptimizationLevel::Default
-        );
-        assert_eq!(
-            llvm_codegen_optimization_level(NiaOptimizationLevel::O3),
-            LlvmCodegenOptimizationLevel::Aggressive
-        );
-        assert_eq!(
-            llvm_codegen_optimization_level(NiaOptimizationLevel::Os),
-            LlvmCodegenOptimizationLevel::Default
-        );
-        assert_eq!(
-            llvm_codegen_optimization_level(NiaOptimizationLevel::Oz),
-            LlvmCodegenOptimizationLevel::Less
-        );
-    }
-
-    #[test]
-    fn llvm_codegen_optimization_level_names_are_stable_for_reports() {
-        assert_eq!(LlvmCodegenOptimizationLevel::None.name(), "none");
-        assert_eq!(LlvmCodegenOptimizationLevel::Less.name(), "less");
-        assert_eq!(LlvmCodegenOptimizationLevel::Default.name(), "default");
-        assert_eq!(
-            LlvmCodegenOptimizationLevel::Aggressive.name(),
-            "aggressive"
-        );
-    }
-
-    #[test]
-    fn maps_nia_size_levels_to_llvm_codegen_size_policy() {
-        for level in [
-            NiaOptimizationLevel::O0,
-            NiaOptimizationLevel::O1,
-            NiaOptimizationLevel::O2,
-            NiaOptimizationLevel::O3,
-        ] {
-            assert_eq!(
-                llvm_codegen_size_policy(level),
-                LlvmCodegenSizePolicy::Default,
-                "{level:?}"
-            );
+    fn size_levels_keep_their_codegen_tiers() {
+        let tiers = [
+            (NiaOptimizationLevel::O0, "none"),
+            (NiaOptimizationLevel::O1, "less"),
+            (NiaOptimizationLevel::O2, "default"),
+            (NiaOptimizationLevel::O3, "aggressive"),
+            (NiaOptimizationLevel::Os, "default"),
+            (NiaOptimizationLevel::Oz, "less"),
+        ];
+        for (level, tier) in tiers {
+            let pipeline = llvm_pipeline_level(level);
+            assert_eq!(pipeline.codegen_level().name(), tier, "{level:?}");
+            assert_eq!(pipeline.name(), level_name(level), "{level:?}");
         }
-        assert_eq!(
-            llvm_codegen_size_policy(NiaOptimizationLevel::Os),
-            LlvmCodegenSizePolicy::Small
-        );
-        assert_eq!(
-            llvm_codegen_size_policy(NiaOptimizationLevel::Oz),
-            LlvmCodegenSizePolicy::Tiny
-        );
     }
 
-    #[test]
-    fn llvm_codegen_size_policy_names_are_stable_for_reports() {
-        assert_eq!(LlvmCodegenSizePolicy::Default.name(), "default");
-        assert_eq!(LlvmCodegenSizePolicy::Small.name(), "small");
-        assert_eq!(LlvmCodegenSizePolicy::Tiny.name(), "tiny");
+    fn level_name(level: NiaOptimizationLevel) -> &'static str {
+        match level {
+            NiaOptimizationLevel::O0 => "O0",
+            NiaOptimizationLevel::O1 => "O1",
+            NiaOptimizationLevel::O2 => "O2",
+            NiaOptimizationLevel::O3 => "O3",
+            NiaOptimizationLevel::Os => "Os",
+            NiaOptimizationLevel::Oz => "Oz",
+        }
     }
 }
 

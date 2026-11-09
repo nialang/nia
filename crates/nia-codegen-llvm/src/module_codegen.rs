@@ -28,9 +28,9 @@ use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{TypeLayout, array_layout, range_layout, sequential_layout, tagged_union_layout};
 use nia_llvm::{
     Context, LlvmError,
-    lto::{emit_full_lto_bitcode, emit_thin_lto_bitcode},
     module::Linkage,
-    target::{ModuleOptimization, TargetMachine},
+    pipeline::{PipelineLevel, emit_full_lto_bitcode, emit_thin_lto_bitcode, optimize_module},
+    target::TargetMachine,
     types::{FunctionType, StructType},
     values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue},
 };
@@ -519,21 +519,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self.verify_aggregate_bodies(&data)
     }
 
-    pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {
+    pub(super) fn emit_object(
+        &mut self,
+        target: &TargetMachine,
+        level: PipelineLevel,
+    ) -> Result<Vec<u8>, Diagnostic> {
         time_codegen_module_stage(self.timings, "emit_module", &self.source.name, || {
             self.emit_module()
         })?;
         self.verify_aggregate_bodies_for(target)?;
-        time_codegen_module_stage(
-            self.timings,
-            "run_module_optimization",
-            &self.source.name,
-            || {
-                target
-                    .run_module_optimization(&self.module, ModuleOptimization::Mem2Reg)
-                    .map_err(Self::diagnostic_from_llvm_error)
-            },
-        )?;
+        time_codegen_module_stage(self.timings, "optimize_module", &self.source.name, || {
+            optimize_module(&self.module, target, level).map_err(Self::diagnostic_from_llvm_error)
+        })?;
         time_codegen_module_stage(self.timings, "emit_object", &self.source.name, || {
             target
                 .emit_object(&self.module)
@@ -545,36 +542,22 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &mut self,
         target: &TargetMachine,
         module_identifier: &str,
-        optimization: nia_llvm::OptimizationLevel,
-        pre_link: crate::LtoPreLinkConfig,
+        level: PipelineLevel,
+        pre_link: crate::LtoMode,
     ) -> Result<Vec<u8>, Diagnostic> {
         time_codegen_module_stage(self.timings, "emit_module", &self.source.name, || {
             self.emit_module()
         })?;
         self.verify_aggregate_bodies_for(target)?;
         self.module.set_identifier(module_identifier);
-        time_codegen_module_stage(
-            self.timings,
-            "run_module_optimization",
-            &self.source.name,
-            || {
-                target
-                    .run_module_optimization(&self.module, ModuleOptimization::Mem2Reg)
-                    .map_err(Self::diagnostic_from_llvm_error)
-            },
-        )?;
-        let stage = match pre_link.mode {
+        let stage = match pre_link {
             crate::LtoMode::Thin => "thin_lto_prelink",
             crate::LtoMode::Full => "full_lto_prelink",
         };
         time_codegen_module_stage(self.timings, stage, &self.source.name, || {
-            match pre_link.mode {
-                crate::LtoMode::Thin => {
-                    emit_thin_lto_bitcode(&self.module, target, optimization, pre_link.freestanding)
-                }
-                crate::LtoMode::Full => {
-                    emit_full_lto_bitcode(&self.module, target, optimization, pre_link.freestanding)
-                }
+            match pre_link {
+                crate::LtoMode::Thin => emit_thin_lto_bitcode(&self.module, target, level),
+                crate::LtoMode::Full => emit_full_lto_bitcode(&self.module, target, level),
             }
             .map_err(Self::diagnostic_from_llvm_error)
         })

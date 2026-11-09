@@ -35,7 +35,14 @@ pub mod lto {
     pub use crate::llvm_api::{
         FullLtoConfig, FullLtoInput, FullLtoObject, FullLtoOutput, ThinLtoConfig,
         ThinLtoDiagnostic, ThinLtoDiagnosticSeverity, ThinLtoInput, ThinLtoObject, ThinLtoOutput,
-        ThinLtoTimings, emit_full_lto_bitcode, emit_thin_lto_bitcode, run_full_lto, run_thin_lto,
+        ThinLtoTimings, run_full_lto, run_thin_lto,
+    };
+}
+
+/// The IR pipeline that runs before an object or LTO bitcode is written.
+pub mod pipeline {
+    pub use crate::llvm_api::{
+        PipelineLevel, emit_full_lto_bitcode, emit_thin_lto_bitcode, optimize_module,
     };
 }
 
@@ -47,8 +54,7 @@ pub mod coff {
 /// Native target discovery, configuration, and object emission.
 pub mod target {
     pub use crate::llvm_api::{
-        ModuleOptimization, TargetCodeModel, TargetData, TargetMachine, TargetMachineIdentity,
-        TargetRelocationModel,
+        TargetCodeModel, TargetData, TargetMachine, TargetMachineIdentity, TargetRelocationModel,
     };
 }
 

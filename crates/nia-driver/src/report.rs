@@ -68,7 +68,7 @@ fn optimization_report_lines_from_parts(
     lines.push(format!(
         "  policy level={} simplify_cfg={} const_fold={} dead_code_elim={} \
          local_copy_prop={} inline={} specialize={} dedup_monomorphized_instances={} \
-         prefer_size={} llvm_codegen={} llvm_size={}",
+         prefer_size={} llvm_pipeline={} llvm_codegen={}",
         optimization_level_name(policy.level),
         optimization_depth_name(policy.simplify_cfg),
         optimization_depth_name(policy.const_fold),
@@ -78,8 +78,10 @@ fn optimization_report_lines_from_parts(
         specialization_policy_name(policy.specialize_generics),
         policy.dedup_monomorphized_instances,
         policy.prefer_size,
-        nia_codegen_llvm::llvm_codegen_optimization_level(policy.level).name(),
-        nia_codegen_llvm::llvm_codegen_size_policy(policy.level).name()
+        nia_codegen_llvm::llvm_pipeline_level(policy.level).name(),
+        nia_codegen_llvm::llvm_pipeline_level(policy.level)
+            .codegen_level()
+            .name()
     ));
     lines.push(format!(
         "  enabled_module_passes={}",
