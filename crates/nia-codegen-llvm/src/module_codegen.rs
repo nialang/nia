@@ -10,7 +10,7 @@ pub(crate) use trait_objects::{
 };
 
 pub(crate) use c_abi::CParam;
-pub(crate) use types::{AbiParam, AbiReturn};
+pub(crate) use types::{AbiParam, AbiReturn, ValueRepr};
 
 use std::{cell::RefCell, collections::HashMap};
 
@@ -222,6 +222,35 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             timings: options.timings,
             target: options.target,
         })
+    }
+
+    /// A read-only image of the constant `value`, which code copies into
+    /// fresh storage, as C compilers do for `char buf[] = "..."`. The image
+    /// belongs to this module and has no address identity: a copy, not the
+    /// image, is the value's storage.
+    pub(crate) fn constant_image(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        align: u64,
+        span: Span,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        let ty = value.get_type().map_err(Self::diagnostic_from_llvm_error)?;
+        let global = self
+            .module
+            .add_global(ty, None, "nia.const")
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        global.set_linkage(Linkage::Private);
+        global.set_unnamed_addr();
+        global.set_constant(true);
+        let align = u32::try_from(align)
+            .map_err(|_| self.error(span, "constant alignment is too large"))?;
+        global
+            .set_alignment(align)
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        global
+            .set_initializer(&value)
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        Ok(global.as_pointer_value())
     }
 
     pub(super) fn materialize_source_location(

@@ -45,9 +45,10 @@ fun main() i32 {
         ir.contains(&format!("define hidden i32 {score}(ptr %0)")),
         "{ir}"
     );
-    assert!(ir.contains("enum.tag"), "{ir}");
-    assert!(ir.contains("enum.payload.field"), "{ir}");
-    assert!(ir.contains("enumlit"), "{ir}");
+    // Variants are built in the argument copy and read through its address.
+    assert!(ir.contains("store i8 1, ptr %enum.tag.ptr"), "{ir}");
+    assert!(ir.contains("%enum.tag = load i8"), "{ir}");
+    assert!(ir.contains("enum.byte.ptr"), "{ir}");
 }
 
 #[test]
@@ -501,18 +502,19 @@ fun main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    let pair = mangled_symbol(ir, '%', "Pair");
+    // The result is complete in the caller's slot before deferred code runs.
     let cleanup = mangled_symbol(ir, '@', "cleanup");
     assert_substrings_in_order(
         ir,
         &[
             "call i32 @log(i32 1)",
-            &format!("store {pair} %return.value, ptr %return.cleanup"),
+            "store i32 %c.call, ptr %fieldptr",
+            "store i32 3, ptr %fieldptr1",
             &format!("{cleanup}(i32 2)"),
-            &format!("%return.cleanup.value = load {pair}"),
-            &format!("store {pair} %return.cleanup.value, ptr %0"),
+            "ret void",
         ],
     );
+    assert!(!ir.contains("return.slot"), "{ir}");
 }
 
 #[test]
@@ -566,8 +568,8 @@ fun main() i32 {
 }
 
 #[test]
-fn aggregate_call_return_with_defer_keeps_return_store_after_defer() {
-    let root = temp_dir("aggregate_call_return_with_defer_keeps_return_store_after_defer");
+fn aggregate_call_return_with_defer_builds_the_result_before_the_defer() {
+    let root = temp_dir("aggregate_call_return_with_defer_builds_the_result_before_the_defer");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -609,20 +611,18 @@ fun main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("call.out"), "{ir}");
+    // The callee builds the result in the caller's slot, and deferred code
+    // runs after it.
     let forward_pair = mangled_symbol(ir, '@', "forward_pair");
     let make_pair = mangled_symbol(ir, '@', "make_pair");
-    let pair = mangled_symbol(ir, '%', "Pair");
     let cleanup = mangled_symbol(ir, '@', "cleanup");
     assert_substrings_in_order(
         ir,
         &[
             &format!("define hidden void {forward_pair}(ptr %0)"),
-            &format!("call void {make_pair}(ptr %call.out, i32 10, i32 20)"),
-            &format!("store {pair} %call.result, ptr %return.cleanup"),
+            &format!("call void {make_pair}(ptr %0, i32 10, i32 20)"),
             &format!("{cleanup}(i32 1)"),
-            &format!("%return.cleanup.value = load {pair}"),
-            &format!("store {pair} %return.cleanup.value, ptr %0"),
+            "ret void",
         ],
     );
 }

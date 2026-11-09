@@ -40,31 +40,49 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 value,
                 order,
             } => self.emit_atomic_rmw(expr, *ty, ptr, *op, value, *order),
-            FunctionAtomic::Cmpxchg {
-                ty,
-                ptr,
-                expected,
-                desired,
-                success,
-                failure,
-                weak,
-            } => self.emit_cmpxchg(
-                expr,
-                CmpxchgOperands {
-                    ty: *ty,
-                    ptr,
-                    expected,
-                    desired,
-                    success: *success,
-                    failure: *failure,
-                    weak: *weak,
-                },
-            ),
+            FunctionAtomic::Cmpxchg { .. } => Err(self.error(
+                expr.span,
+                "compare-exchange produces an optional, which lives in memory",
+            )),
             FunctionAtomic::Store { .. } | FunctionAtomic::Fence { .. } => Err(self.error(
                 expr.span,
                 "atomic store and fence do not produce runtime values",
             )),
         }
+    }
+
+    /// Writes the optional that a compare-exchange produces into `out`.
+    pub(super) fn emit_atomic_into(
+        &mut self,
+        expr: &FunctionExpr,
+        atomic: &FunctionAtomic,
+        out: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let FunctionAtomic::Cmpxchg {
+            ty,
+            ptr,
+            expected,
+            desired,
+            success,
+            failure,
+            weak,
+        } = atomic
+        else {
+            return Err(self.error(expr.span, "atomic operation has an immediate result"));
+        };
+        self.emit_cmpxchg_into(
+            expr,
+            CmpxchgOperands {
+                ty: *ty,
+                ptr,
+                expected,
+                desired,
+                success: *success,
+                failure: *failure,
+                weak: *weak,
+            },
+            out,
+        )
     }
 
     pub(super) fn emit_atomic_effect(
@@ -80,7 +98,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 order,
             } => self.emit_atomic_store(expr, *ty, ptr, value, *order),
             FunctionAtomic::Fence { order } => self.emit_fence(expr.span, *order),
-            _ => {
+            FunctionAtomic::Cmpxchg { .. } => {
+                let out = self.temporary(expr.ty, "cmpxchg.discard", expr.span)?;
+                self.emit_atomic_into(expr, atomic, out)
+            }
+            FunctionAtomic::Load { .. } | FunctionAtomic::Rmw { .. } => {
                 let _ = self.emit_atomic_value(expr, atomic)?;
                 Ok(())
             }
@@ -146,11 +168,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(expr.span, "failed to build atomic read-modify-write"))
     }
 
-    fn emit_cmpxchg(
+    fn emit_cmpxchg_into(
         &mut self,
         expr: &FunctionExpr,
         operands: CmpxchgOperands<'_>,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        out: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
         self.validate_atomic_ty(expr.span, operands.ty)?;
         let ptr = self.emit_atomic_ptr(operands.ptr)?;
         let expected = self.emit_expr(operands.expected)?;
@@ -177,10 +200,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .into_int_value()?;
 
         let optional_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let out = self
-            .builder
-            .build_alloca(optional_ty, "cmpxchg.optional")
-            .map_err(|_| self.error(expr.span, "failed to allocate cmpxchg optional"))?;
         let success_block = self
             .module
             .context
@@ -228,9 +247,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(expr.span, "failed to finish cmpxchg failure"))?;
 
         self.builder.position_at_end(done_block);
-        self.builder
-            .build_load(optional_ty, out, "cmpxchg.result")
-            .map_err(|_| self.error(expr.span, "failed to load cmpxchg optional"))
+        Ok(())
     }
 
     fn emit_fence(&mut self, span: Span, order: AtomicOrder) -> Result<(), Diagnostic> {

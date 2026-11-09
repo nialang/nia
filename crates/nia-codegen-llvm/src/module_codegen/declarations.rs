@@ -168,109 +168,85 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             None
         };
 
-        let enum_value = if layout.payload_offset.is_none() {
-            let Some(TyKind::Primitive(primitive)) = self.ty_kind(backing_type) else {
-                return Err(self.error(span, "enum constructor backing type is not primitive"));
-            };
-            self.integer_llvm_type(*primitive, span)?
-                .const_u128(tag_value as u128)?
-                .into()
-        } else {
-            let enum_ty = self.llvm_basic_type(*return_type, span)?;
-            let enum_ptr = builder
-                .build_alloca(enum_ty, "enum.ctor.value")
-                .map_err(|_| self.error(span, "failed to allocate enum constructor result"))?;
-            let tag_ptr =
-                unsafe { builder.build_struct_gep(enum_ty, enum_ptr, 0, "enum.ctor.tag.ptr") }
-                    .map_err(|_| self.error(span, "failed to address enum constructor tag"))?;
-            let Some(TyKind::Primitive(primitive)) = self.ty_kind(backing_type) else {
-                return Err(self.error(span, "enum constructor backing type is not primitive"));
-            };
-            let tag = self
-                .integer_llvm_type(*primitive, span)?
-                .const_u128(tag_value as u128)?;
-            builder
-                .build_store(tag_ptr, tag)
-                .map_err(|_| self.error(span, "failed to store enum constructor tag"))?;
-
-            let Some(payload_offset) = layout.payload_offset else {
-                return Err(self.error(span, "enum constructor payload layout is missing"));
-            };
-            for ((field_ty, field_layout), classification) in payload_types
-                .iter()
-                .zip(&variant_layout.fields)
-                .zip(self.classify_function_params(payload_types.iter().copied()))
-            {
-                let value = match classification {
-                    AbiParam::Omit => continue,
-                    AbiParam::Direct(_) => function
-                        .get_nth_param(llvm_param_index)
-                        .ok_or_else(|| self.error(span, "missing enum constructor argument"))?
-                        .map_err(Self::diagnostic_from_llvm_error)?,
-                    AbiParam::IndirectReadonly(_) => {
-                        let ptr = function
-                            .get_nth_param(llvm_param_index)
-                            .ok_or_else(|| self.error(span, "missing enum constructor argument"))?
-                            .map_err(Self::diagnostic_from_llvm_error)?
-                            .into_pointer_value()?;
-                        builder
-                            .build_load(
-                                self.llvm_basic_type(*field_ty, span)?,
-                                ptr,
-                                "enum.ctor.arg",
-                            )
-                            .map_err(|_| {
-                                self.error(span, "failed to load enum constructor argument")
-                            })?
-                    }
-                };
-                llvm_param_index += 1;
-                let field_offset = payload_offset
-                    .checked_add(field_layout.offset)
-                    .ok_or_else(|| self.error(span, "enum constructor field offset overflowed"))?;
-                let offset = self.context.i64_type().const_int(field_offset, false)?;
-                let field_ptr = unsafe {
-                    builder.build_gep(
-                        self.context.i8_type(),
-                        enum_ptr,
-                        &[offset],
-                        "enum.ctor.field.ptr",
-                    )
-                }
-                .map_err(|_| self.error(span, "failed to address enum constructor field"))?;
-                builder
-                    .build_store(field_ptr, value)
-                    .map_err(|_| self.error(span, "failed to store enum constructor field"))?;
-            }
-            builder
-                .build_load(enum_ty, enum_ptr, "enum.ctor.result")
-                .map_err(|_| self.error(span, "failed to load enum constructor result"))?
+        let Some(TyKind::Primitive(primitive)) = self.ty_kind(backing_type) else {
+            return Err(self.error(span, "enum constructor backing type is not primitive"));
         };
-
-        match return_class {
-            AbiReturn::Direct(_) => {
-                builder
-                    .build_return(Some(&enum_value))
-                    .map_err(|_| self.error(span, "failed to return enum constructor result"))?;
+        let tag = self
+            .integer_llvm_type(*primitive, span)?
+            .const_u128(tag_value as u128)?;
+        let Some(payload_offset) = layout.payload_offset else {
+            if !matches!(return_class, AbiReturn::Direct(_)) {
+                return Err(self.error(span, "payloadless enum constructor must return directly"));
             }
-            AbiReturn::IndirectOut(_) => {
-                let Some(out_ptr) = out_ptr else {
-                    return Err(self.error(
-                        span,
-                        "indirect enum constructor return lacks an out pointer",
-                    ));
-                };
-                builder
-                    .build_store(out_ptr, enum_value)
-                    .map_err(|_| self.error(span, "failed to store enum constructor result"))?;
-                builder
-                    .build_return(None)
-                    .map_err(|_| self.error(span, "failed to return from enum constructor"))?;
+            builder
+                .build_return(Some(&tag))
+                .map_err(|_| self.error(span, "failed to return enum constructor result"))?;
+            self.enum_constructor_functions
+                .borrow_mut()
+                .insert(instance_key, function);
+            return Ok(function);
+        };
+        // An enum with payloads lives in memory: build it in the caller's
+        // result slot.
+        let Some(enum_ptr) = out_ptr else {
+            return Err(self.error(span, "enum constructor with payloads lacks an out pointer"));
+        };
+        let enum_ty = self.llvm_basic_type(*return_type, span)?;
+        let tag_ptr =
+            unsafe { builder.build_struct_gep(enum_ty, enum_ptr, 0, "enum.ctor.tag.ptr") }
+                .map_err(|_| self.error(span, "failed to address enum constructor tag"))?;
+        builder
+            .build_store(tag_ptr, tag)
+            .map_err(|_| self.error(span, "failed to store enum constructor tag"))?;
+        for ((field_ty, field_layout), classification) in payload_types
+            .iter()
+            .zip(&variant_layout.fields)
+            .zip(self.classify_function_params(payload_types.iter().copied()))
+        {
+            if classification == AbiParam::Omit {
+                continue;
             }
-            AbiReturn::Void | AbiReturn::Never => {
-                return Err(self.error(span, "enum constructor has an invalid return ABI"));
+            let arg = function
+                .get_nth_param(llvm_param_index)
+                .ok_or_else(|| self.error(span, "missing enum constructor argument"))?
+                .map_err(Self::diagnostic_from_llvm_error)?;
+            llvm_param_index += 1;
+            let field_offset = payload_offset
+                .checked_add(field_layout.offset)
+                .ok_or_else(|| self.error(span, "enum constructor field offset overflowed"))?;
+            let offset = self.context.i64_type().const_int(field_offset, false)?;
+            let field_ptr = unsafe {
+                builder.build_gep(
+                    self.context.i8_type(),
+                    enum_ptr,
+                    &[offset],
+                    "enum.ctor.field.ptr",
+                )
+            }
+            .map_err(|_| self.error(span, "failed to address enum constructor field"))?;
+            match classification {
+                AbiParam::Direct(_) => {
+                    builder
+                        .build_store(field_ptr, arg)
+                        .map_err(|_| self.error(span, "failed to store enum constructor field"))?;
+                }
+                AbiParam::Indirect(_) => {
+                    let field = self
+                        .layout_of(*field_ty)
+                        .ok_or_else(|| self.error(span, "enum constructor field has no layout"))?;
+                    let align = u32::try_from(field.align)
+                        .map_err(|_| self.error(span, "enum field alignment is too large"))?;
+                    let size = self.usize_llvm_type(span)?.const_int(field.size, false)?;
+                    builder
+                        .build_memcpy(field_ptr, align, arg.into_pointer_value()?, align, size)
+                        .map_err(|_| self.error(span, "failed to copy enum constructor field"))?;
+                }
+                AbiParam::Omit => {}
             }
         }
+        builder
+            .build_return(None)
+            .map_err(|_| self.error(span, "failed to return from enum constructor"))?;
         self.enum_constructor_functions
             .borrow_mut()
             .insert(instance_key, function);
@@ -401,7 +377,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         call_args.push(state.into());
         for classification in self.classify_function_params(params.iter().copied()) {
             match classification {
-                AbiParam::Direct(_) | AbiParam::IndirectReadonly(_) => {
+                AbiParam::Direct(_) | AbiParam::Indirect(_) => {
                     let arg = adapter
                         .get_nth_param(param_index)
                         .ok_or_else(|| self.error(span, "missing closure adapter argument"))?
@@ -500,7 +476,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
         for classification in self.classify_function_params(params.iter().copied()) {
             match classification {
-                AbiParam::Direct(_) | AbiParam::IndirectReadonly(_) => {
+                AbiParam::Direct(_) | AbiParam::Indirect(_) => {
                     let arg = adapter
                         .get_nth_param(param_index)
                         .ok_or_else(|| self.error(span, "missing callable adapter argument"))?
@@ -1309,7 +1285,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         call_args.push(slice_value);
         for classification in self.classify_function_params(value_params.iter().copied()) {
             match classification {
-                AbiParam::Direct(_) | AbiParam::IndirectReadonly(_) => {
+                AbiParam::Direct(_) | AbiParam::Indirect(_) => {
                     let arg = adapter
                         .get_nth_param(param_index)
                         .ok_or_else(|| self.error(span, "missing vtable adapter argument"))?

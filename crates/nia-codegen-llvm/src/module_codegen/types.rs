@@ -62,7 +62,21 @@ fn const_args_match_semantic_with_array_lengths(
 pub(crate) enum AbiParam {
     Direct(InternedTyId),
     Omit,
-    IndirectReadonly(InternedTyId),
+    /// The address of a copy the callee owns; see [`nia_abi_check::AbiParam::Indirect`].
+    Indirect(InternedTyId),
+}
+
+/// How function code holds the values of a type.
+///
+/// The representation follows the Nia ABI: a type passed directly is an SSA
+/// value, and every type passed indirectly lives only in memory. Memory values
+/// are built in place, read through their address, and copied with
+/// `llvm.memcpy`; they are never loaded or stored as first-class aggregates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ValueRepr {
+    ZeroSized,
+    Immediate,
+    Memory,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -384,6 +398,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
+    pub(crate) fn value_repr(&self, ty: InternedTyId) -> ValueRepr {
+        match self.classify_function_param(ty) {
+            AbiParam::Omit => ValueRepr::ZeroSized,
+            AbiParam::Direct(_) => ValueRepr::Immediate,
+            AbiParam::Indirect(_) => ValueRepr::Memory,
+        }
+    }
+
     fn classify_function_param(&self, ty: InternedTyId) -> AbiParam {
         match nia_abi_check::classify_nia_param(
             self.program.type_store(),
@@ -396,7 +418,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             },
         ) {
             nia_abi_check::AbiParam::Direct { ty } => AbiParam::Direct(ty),
-            nia_abi_check::AbiParam::Indirect { ty, .. } => AbiParam::IndirectReadonly(ty),
+            nia_abi_check::AbiParam::Indirect { ty, .. } => AbiParam::Indirect(ty),
             nia_abi_check::AbiParam::IgnoreZst => AbiParam::Omit,
         }
     }

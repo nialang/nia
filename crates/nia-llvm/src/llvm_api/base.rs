@@ -14,19 +14,20 @@
 use llvm_sys::core::{
     LLVMAddAttributeAtIndex, LLVMAddCallSiteAttribute, LLVMAddIncoming, LLVMArrayType2,
     LLVMConstArray2, LLVMConstBitCast, LLVMConstGEP2, LLVMConstInBoundsGEP2, LLVMConstInt,
-    LLVMConstIntOfArbitraryPrecision, LLVMConstIntToPtr, LLVMConstNamedStruct, LLVMConstNull,
-    LLVMConstPointerNull, LLVMConstReal, LLVMConstVector, LLVMCountParamTypes, LLVMCountParams,
-    LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent,
-    LLVMGetBasicBlockTerminator, LLVMGetCmpXchgFailureOrdering, LLVMGetElementType,
-    LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
-    LLVMGetInstructionOpcode, LLVMGetInstructionParent, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock,
-    LLVMGetNextInstruction, LLVMGetParam, LLVMGetParamTypes, LLVMGetPointerAddressSpace,
-    LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize,
-    LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsLiteralStruct, LLVMIsOpaqueStruct,
-    LLVMIsPackedStruct, LLVMMoveBasicBlockAfter, LLVMSetAlignment, LLVMSetGlobalConstant,
-    LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMSetVisibility,
-    LLVMSetVolatile, LLVMSetWeak, LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf,
-    LLVMVectorType,
+    LLVMConstIntGetZExtValue, LLVMConstIntOfArbitraryPrecision, LLVMConstIntToPtr,
+    LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal, LLVMConstVector,
+    LLVMCountParamTypes, LLVMCountParams, LLVMCountStructElementTypes, LLVMFunctionType,
+    LLVMGetAllocatedType, LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator,
+    LLVMGetCmpXchgFailureOrdering, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
+    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode,
+    LLVMGetInstructionParent, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
+    LLVMGetParam, LLVMGetParamTypes, LLVMGetPointerAddressSpace, LLVMGetReturnType,
+    LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGetVectorSize, LLVMGlobalGetValueType,
+    LLVMIsAConstant, LLVMIsAConstantInt, LLVMIsAInstruction, LLVMIsLiteralStruct, LLVMIsNull,
+    LLVMIsOpaqueStruct, LLVMIsPackedStruct, LLVMMoveBasicBlockAfter, LLVMSetAlignment,
+    LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
+    LLVMSetUnnamedAddress, LLVMSetVisibility, LLVMSetVolatile, LLVMSetWeak,
+    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::debuginfo::LLVMSetSubprogram;
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
@@ -474,6 +475,8 @@ pub enum Linkage {
     WeakOdr,
     /// Module-local definition.
     Internal,
+    /// Module-local definition that has no symbol in the object file.
+    Private,
 }
 
 impl From<Linkage> for LLVMLinkage {
@@ -484,6 +487,7 @@ impl From<Linkage> for LLVMLinkage {
             Linkage::LinkOnceOdr => LLVMLinkage::LLVMLinkOnceODRLinkage,
             Linkage::WeakOdr => LLVMLinkage::LLVMWeakODRLinkage,
             Linkage::Internal => LLVMLinkage::LLVMInternalLinkage,
+            Linkage::Private => LLVMLinkage::LLVMPrivateLinkage,
         }
     }
 }
@@ -1456,6 +1460,13 @@ impl<'ctx> IntValue<'ctx> {
     pub fn get_type(self) -> LlvmResult<IntType<'ctx>> {
         BasicTypeEnum::new(unsafe { LLVMTypeOf(self.raw) })?.into_int_type()
     }
+
+    /// The value of a constant integer of at most 64 bits, zero-extended.
+    pub fn zero_extended_constant(self) -> Option<u64> {
+        let is_constant = !unsafe { LLVMIsAConstantInt(self.raw) }.is_null();
+        let fits = unsafe { LLVMGetIntTypeWidth(LLVMTypeOf(self.raw)) } <= 64;
+        (is_constant && fits).then(|| unsafe { LLVMConstIntGetZExtValue(self.raw) })
+    }
 }
 
 impl<'ctx> FloatValue<'ctx> {
@@ -1594,6 +1605,13 @@ pub enum BasicValueEnum<'ctx> {
 }
 
 impl<'ctx> BasicValueEnum<'ctx> {
+    /// Whether this is a constant whose every bit is zero: integer zero,
+    /// positive floating-point zero, a null pointer, or a zero aggregate.
+    pub fn is_null_constant(self) -> bool {
+        let raw = self.as_value_ref();
+        !unsafe { LLVMIsAConstant(raw) }.is_null() && unsafe { LLVMIsNull(raw) } != 0
+    }
+
     pub(super) fn new(raw: LLVMValueRef) -> LlvmResult<Self> {
         // `LLVMTypeOf` does not accept null. Keep null-result handling at this
         // shared conversion boundary so every builder returning an enum value
@@ -2371,6 +2389,14 @@ impl<'ctx> GlobalValue<'ctx> {
     /// Sets the global's linkage.
     pub fn set_linkage(self, linkage: Linkage) {
         unsafe { LLVMSetLinkage(self.raw, linkage.into()) };
+    }
+
+    /// Declares that the global's address is insignificant, so LLVM may merge
+    /// it with an identical constant.
+    pub fn set_unnamed_addr(self) {
+        unsafe {
+            LLVMSetUnnamedAddress(self.raw, llvm_sys::LLVMUnnamedAddr::LLVMGlobalUnnamedAddr)
+        };
     }
 
     /// Sets the global's visibility.

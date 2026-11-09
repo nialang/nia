@@ -37,7 +37,9 @@ pub mod c_abi;
 pub enum AbiParam {
     /// Value is passed in its LLVM/scalar representation.
     Direct { ty: nia_ids::InternedTyId },
-    /// Value is passed by readonly address.
+    /// Value is passed as the address of a copy that the caller made for
+    /// this call. The callee owns that copy and may use it as the
+    /// parameter's storage, writes included.
     Indirect {
         ty: nia_ids::InternedTyId,
         align: u64,

@@ -754,9 +754,15 @@ fun main(fail: bool) Error!i32 {
     let ir = &output.modules[0].ir;
     assert!(ir.contains("defer.try.failure"), "{ir}");
     assert!(ir.contains("defer.try.failed"), "{ir}");
-    assert!(
-        ir.contains("store { i8, { i32 } } %try.return.value, ptr %0"),
-        "{ir}"
+    // The deferred failure replaces the result already in the caller's slot.
+    assert_substrings_in_order(
+        ir,
+        &[
+            "defer.try.failure:",
+            "%try.failure.tag = getelementptr inbounds nuw { i8, { i32 } }, ptr %0, i32 0, i32 0",
+            "store i8 1, ptr %try.failure.tag",
+            "ret void",
+        ],
     );
     assert!(ir.contains("ret void"), "{ir}");
 }
@@ -924,8 +930,8 @@ fun run(fail: bool) TargetError![u8; 64] {
         ir,
         &[
             &format!("call i32 {into_error}"),
+            "store i32 %calltmp, ptr %tagged.payload.ptr",
             "store i8 1, ptr %try.failure.tag",
-            "store i32 %calltmp, ptr %try.failure.payload",
             "ret void",
         ],
     );

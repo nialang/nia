@@ -19,11 +19,12 @@ use llvm_sys::core::{
     LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt, LLVMBuildSIToFP, LLVMBuildSRem,
     LLVMBuildSelect, LLVMBuildShl, LLVMBuildShuffleVector, LLVMBuildStore, LLVMBuildStructGEP2,
     LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem,
-    LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition,
+    LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition, LLVMConstInt,
     LLVMCountStructElementTypes, LLVMDisposeBuilder, LLVMGetArrayLength2, LLVMGetElementType,
-    LLVMGetInsertBlock, LLVMGetIntTypeWidth, LLVMGetPointerAddressSpace, LLVMGetTypeKind,
-    LLVMGetVectorSize, LLVMIsAConstantInt, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore,
-    LLVMSetCurrentDebugLocation2, LLVMStructGetTypeAtIndex, LLVMTypeOf,
+    LLVMGetInsertBlock, LLVMGetIntTypeWidth, LLVMGetPointerAddressSpace, LLVMGetTypeContext,
+    LLVMGetTypeKind, LLVMGetVectorSize, LLVMInt1TypeInContext, LLVMIsAConstantInt,
+    LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMSetCurrentDebugLocation2,
+    LLVMSetOperand, LLVMStructGetTypeAtIndex, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use std::marker::PhantomData;
@@ -177,6 +178,26 @@ impl<'ctx> Builder<'ctx> {
             )
         };
         Ok(InstructionValue::new(require_value(call, "memcpy")?))
+    }
+
+    /// Copies `len` bytes with a volatile `llvm.memcpy`: every byte is read
+    /// and written exactly once, in an order and with access widths LLVM
+    /// leaves unspecified.
+    pub fn build_volatile_memcpy(
+        &self,
+        dest: PointerValue<'ctx>,
+        dest_align: u32,
+        src: PointerValue<'ctx>,
+        src_align: u32,
+        len: IntValue<'ctx>,
+    ) -> LlvmResult<InstructionValue<'ctx>> {
+        let call = self.build_memcpy(dest, dest_align, src, src_align, len)?;
+        // The fourth operand of a memory intrinsic is its `isvolatile` flag.
+        unsafe {
+            let bool_ty = LLVMInt1TypeInContext(LLVMGetTypeContext(LLVMTypeOf(len.as_value_ref())));
+            LLVMSetOperand(call.as_value_ref(), 3, LLVMConstInt(bool_ty, 1, 0));
+        }
+        Ok(call)
     }
 
     /// Copies `len` bytes between possibly overlapping regions with

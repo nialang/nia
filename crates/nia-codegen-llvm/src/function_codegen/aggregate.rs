@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
-    FunctionArrayElements, FunctionBuiltinValue, FunctionErrorUnionTag, FunctionExpr,
-    FunctionExprKind, FunctionFieldInit, FunctionOptionalTag, FunctionUnionRelocation,
+    FunctionArrayElements, FunctionBuiltinValue, FunctionExpr, FunctionExprKind, FunctionFieldInit,
+    FunctionUnionRelocation,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::{
@@ -13,7 +13,7 @@ use nia_span::Span;
 use nia_ty::TyKind;
 
 use super::FunctionCodegen;
-use crate::module_codegen::PromotedAllocationInitializer;
+use crate::module_codegen::{PromotedAllocationInitializer, ValueRepr};
 
 struct PromotedConstValue<'ctx> {
     value: BasicValueEnum<'ctx>,
@@ -45,16 +45,13 @@ impl<'ctx> PromotedConstValue<'ctx> {
 }
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
-    pub(super) fn emit_tuple_literal(
+    pub(super) fn emit_tuple_literal_into(
         &mut self,
         expr: &FunctionExpr,
         elems: &[FunctionExpr],
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        ptr: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
         let tuple_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let ptr = self
-            .builder
-            .build_alloca(tuple_ty, "tupletmp")
-            .map_err(|_| self.error(expr.span, "failed to allocate tuple literal"))?;
         for (index, elem) in elems.iter().enumerate() {
             if self.is_zero_sized(elem.ty) {
                 self.emit_effect_expr(elem)?;
@@ -67,30 +64,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_struct_gep(tuple_ty, ptr, index, "tuple.field.ptr")
             }
             .map_err(|_| self.error(elem.span, "failed to address tuple field"))?;
-            let value = self.emit_expr(elem)?;
-            self.builder
-                .build_store(field_ptr, value)
-                .map_err(|_| self.error(elem.span, "failed to store tuple field"))?;
+            self.emit_into(elem, field_ptr)?;
         }
-        self.builder
-            .build_load(tuple_ty, ptr, "tuplelit")
-            .map_err(|_| self.error(expr.span, "failed to load tuple literal"))
-    }
-
-    pub(super) fn emit_array_literal(
-        &mut self,
-        expr: &FunctionExpr,
-        elems: &FunctionArrayElements,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let array_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let ptr = self
-            .builder
-            .build_alloca(array_ty, "arraytmp")
-            .map_err(|_| self.error(expr.span, "failed to allocate array literal"))?;
-        self.emit_array_literal_into(expr, elems, ptr)?;
-        self.builder
-            .build_load(array_ty, ptr, "arraylit")
-            .map_err(|_| self.error(expr.span, "failed to load array literal"))
+        Ok(())
     }
 
     pub(super) fn emit_array_literal_into(
@@ -105,55 +81,83 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let index = u64::try_from(index)
                         .map_err(|_| self.error(expr.span, "array element index is too large"))?;
                     let elem_ptr = self.emit_const_index_addr(expr.span, expr.ty, ptr, index)?;
-                    let value = self.emit_expr(value)?;
-                    self.builder
-                        .build_store(elem_ptr, value)
-                        .map_err(|_| self.error(expr.span, "failed to store array element"))?;
+                    self.emit_into(value, elem_ptr)?;
                 }
             }
             FunctionArrayElements::Repeat { value, count } => {
                 let count = self.module.array_len(count, expr.span)?;
+                if count > 0
+                    && let Some(byte) = self.uniform_byte(value)?
+                {
+                    return self.emit_byte_fill(expr, byte, ptr);
+                }
                 self.emit_const_count_loop(expr.span, count, "array.repeat", |this, index| {
                     let elem_ptr =
                         this.emit_array_repeat_index_addr(expr.span, expr.ty, ptr, index)?;
-                    if this.emit_aggregate_literal_into(elem_ptr, value)?
-                        || this.emit_aggregate_call_result_into(elem_ptr, value)?
-                    {
-                        return Ok(());
-                    }
-                    let value = this.emit_expr(value)?;
-                    this.builder.build_store(elem_ptr, value).map_err(|_| {
-                        this.error(expr.span, "failed to store repeated array element")
-                    })?;
-                    Ok(())
+                    this.emit_into(value, elem_ptr)
                 })?;
             }
         }
         Ok(())
     }
 
-    pub(super) fn emit_struct_literal(
-        &mut self,
+    /// The byte that every byte of `value` equals, when `value` is a scalar
+    /// literal that is zero or one byte wide.
+    fn uniform_byte(&mut self, value: &FunctionExpr) -> Result<Option<u8>, Diagnostic> {
+        let is_literal = matches!(
+            value.kind,
+            FunctionExprKind::Integer(_)
+                | FunctionExprKind::Float(_)
+                | FunctionExprKind::Bool(_)
+                | FunctionExprKind::Char(_)
+                | FunctionExprKind::ByteChar(_)
+                | FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(_))
+        );
+        if !is_literal || self.value_repr(value.ty) != ValueRepr::Immediate {
+            return Ok(None);
+        }
+        let constant = self.emit_expr(value)?;
+        if constant.is_null_constant() {
+            return Ok(Some(0));
+        }
+        let one_byte = self
+            .module
+            .layout_of(value.ty)
+            .is_some_and(|layout| layout.size == 1);
+        Ok(constant
+            .into_int_value()
+            .ok()
+            .filter(|_| one_byte)
+            .and_then(|value| value.zero_extended_constant())
+            .and_then(|value| u8::try_from(value).ok()))
+    }
+
+    /// Sets every byte of the `expr.ty` value at `ptr` to `byte`.
+    fn emit_byte_fill(
+        &self,
         expr: &FunctionExpr,
-        _def_id: GlobalDefId,
-        fields: &[FunctionFieldInit],
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        if self
+        byte: u8,
+        ptr: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let layout = self
             .module
             .layout_of(expr.ty)
-            .is_some_and(|layout| layout.size == 0)
-        {
-            return Err(self.error(expr.span, "zero-sized struct has no runtime value"));
-        }
-        let struct_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let ptr = self
-            .builder
-            .build_alloca(struct_ty, "structtmp")
-            .map_err(|_| self.error(expr.span, "failed to allocate struct literal"))?;
-        self.emit_struct_literal_into(expr, fields, ptr)?;
+            .ok_or_else(|| self.error(expr.span, "filled array has no layout"))?;
+        let align = u32::try_from(layout.align)
+            .map_err(|_| self.error(expr.span, "array alignment is too large"))?;
+        let size = self
+            .module
+            .usize_llvm_type(expr.span)?
+            .const_int(layout.size, false)?;
+        let byte = self
+            .module
+            .context
+            .i8_type()
+            .const_int(u64::from(byte), false)?;
         self.builder
-            .build_load(struct_ty, ptr, "structlit")
-            .map_err(|_| self.error(expr.span, "failed to load struct literal"))
+            .build_memset(ptr, align, byte, size)
+            .map_err(|_| self.error(expr.span, "failed to fill array"))?;
+        Ok(())
     }
 
     pub(super) fn emit_struct_literal_into(
@@ -177,59 +181,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_struct_gep(struct_ty, ptr, field_index, "fieldptr")
             }
             .map_err(|_| self.error(field.span, "failed to build struct field address"))?;
-            let value = self.emit_expr(&field.value)?;
-            self.builder
-                .build_store(field_ptr, value)
-                .map_err(|_| self.error(field.span, "failed to store struct field"))?;
+            self.emit_into(&field.value, field_ptr)?;
         }
         Ok(())
     }
 
-    pub(super) fn emit_union_literal(
-        &mut self,
-        expr: &FunctionExpr,
-        _def_id: GlobalDefId,
-        field: &FunctionFieldInit,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let union_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let ptr = self
-            .builder
-            .build_alloca(union_ty, "uniontmp")
-            .map_err(|_| self.error(expr.span, "failed to allocate union literal"))?;
-        self.emit_union_literal_into(expr, field, ptr)?;
-        self.builder
-            .build_load(union_ty, ptr, "unionlit")
-            .map_err(|_| self.error(expr.span, "failed to load union literal"))
-    }
-
     pub(super) fn emit_union_literal_into(
         &mut self,
-        _expr: &FunctionExpr,
         field: &FunctionFieldInit,
         ptr: PointerValue<'ctx>,
     ) -> Result<(), Diagnostic> {
-        let value = self.emit_expr(&field.value)?;
-        self.builder
-            .build_store(ptr, value)
-            .map_err(|_| self.error(field.span, "failed to store union field"))?;
-        Ok(())
-    }
-
-    pub(super) fn emit_union_storage_literal(
-        &mut self,
-        expr: &FunctionExpr,
-        bytes: &[Option<u8>],
-        relocations: &[FunctionUnionRelocation],
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let union_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let ptr = self
-            .builder
-            .build_alloca(union_ty, "unionstoragetmp")
-            .map_err(|_| self.error(expr.span, "failed to allocate union storage literal"))?;
-        self.emit_union_storage_literal_into(expr, bytes, relocations, ptr)?;
-        self.builder
-            .build_load(union_ty, ptr, "unionstorage")
-            .map_err(|_| self.error(expr.span, "failed to load union storage literal"))
+        self.emit_into(&field.value, ptr)
     }
 
     pub(super) fn emit_union_storage_literal_into(
@@ -750,47 +712,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(expr.span, "promoted vector index is too large"))
     }
 
-    pub(super) fn emit_optional_null(
-        &mut self,
-        expr: &FunctionExpr,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        self.emit_tagged_union(expr, FunctionOptionalTag::Null.discriminant(), None)
-    }
-
-    pub(super) fn emit_optional_some(
-        &mut self,
-        expr: &FunctionExpr,
-        value: &FunctionExpr,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        self.emit_tagged_union(expr, FunctionOptionalTag::Some.discriminant(), Some(value))
-    }
-
-    pub(super) fn emit_error_union_value(
-        &mut self,
-        expr: &FunctionExpr,
-        tag: FunctionErrorUnionTag,
-        value: &FunctionExpr,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        self.emit_tagged_union(expr, tag.discriminant(), Some(value))
-    }
-
-    fn emit_tagged_union(
-        &mut self,
-        expr: &FunctionExpr,
-        tag: u8,
-        payload: Option<&FunctionExpr>,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let ptr = self
-            .builder
-            .build_alloca(ty, "taggedtmp")
-            .map_err(|_| self.error(expr.span, "failed to allocate tagged union literal"))?;
-        self.emit_tagged_union_into(expr, tag, payload, ptr)?;
-        self.builder
-            .build_load(ty, ptr, "taggedlit")
-            .map_err(|_| self.error(expr.span, "failed to load tagged union literal"))
-    }
-
     pub(super) fn emit_tagged_union_into(
         &mut self,
         expr: &FunctionExpr,
@@ -810,24 +731,64 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_effect_expr(payload)?;
                 return Ok(());
             }
-            let storage_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 1, "payloadptr") }
-                .map_err(|_| {
-                    self.error(expr.span, "failed to build tagged union payload address")
-                })?;
-            let value = self.emit_expr(payload)?;
-            self.builder
-                .build_store(storage_ptr, value)
-                .map_err(|_| self.error(payload.span, "failed to store tagged union payload"))?;
+            let payload_ptr = self.tagged_union_payload_addr(expr.span, expr.ty, ptr)?;
+            self.emit_into(payload, payload_ptr)?;
         }
         Ok(())
     }
 
+    /// The value of a payloadless enum variant, which is its tag.
     pub(super) fn emit_enum_variant(
         &mut self,
         expr: &FunctionExpr,
         def_id: GlobalDefId,
-        fields: &[FunctionExpr],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let (backing_type, payload_offset, _) = self.enum_variant_layout(expr, def_id)?;
+        if payload_offset.is_some() {
+            return Err(self.error(expr.span, "enum with payloads has no immediate value"));
+        }
+        self.enum_variant_tag_value(expr.span, def_id, backing_type)
+    }
+
+    pub(super) fn emit_enum_variant_into(
+        &mut self,
+        expr: &FunctionExpr,
+        def_id: GlobalDefId,
+        fields: &[FunctionExpr],
+        ptr: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let (backing_type, payload_offset, field_offsets) =
+            self.enum_variant_layout(expr, def_id)?;
+        let Some(payload_offset) = payload_offset else {
+            return Err(self.error(expr.span, "payloadless enum has no memory value"));
+        };
+        let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        let tag_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 0, "enum.tag.ptr") }
+            .map_err(|_| self.error(expr.span, "failed to address enum tag"))?;
+        let tag = self.enum_variant_tag_value(expr.span, def_id, backing_type)?;
+        self.builder
+            .build_store(tag_ptr, tag)
+            .map_err(|_| self.error(expr.span, "failed to store enum tag"))?;
+        for (index, field) in fields.iter().enumerate() {
+            let Some(offset) = field_offsets.get(index).copied() else {
+                return Err(self.error(field.span, "missing enum payload field layout"));
+            };
+            let field_offset = payload_offset
+                .checked_add(offset)
+                .ok_or_else(|| self.error(field.span, "enum payload field offset overflowed"))?;
+            let field_ptr = self.enum_byte_offset_ptr(ptr, field_offset, field.span)?;
+            self.emit_into(field, field_ptr)?;
+        }
+        Ok(())
+    }
+
+    /// The backing type, payload offset, and payload field offsets of the
+    /// enum variant `def_id` in the enum type of `expr`.
+    fn enum_variant_layout(
+        &self,
+        expr: &FunctionExpr,
+        def_id: GlobalDefId,
+    ) -> Result<(InternedTyId, Option<u64>, Vec<u64>), Diagnostic> {
         let Some(variant_info) = self.module.program.enum_variant_info(def_id) else {
             return Err(self.error(expr.span, "missing enum variant"));
         };
@@ -839,47 +800,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         else {
             return Err(self.error(expr.span, "missing enum layout"));
         };
-        if layout.payload_offset.is_none() {
-            return self.enum_variant_tag_value(expr.span, def_id, enum_item.backing_type);
-        }
-        let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let ptr = self
-            .builder
-            .build_alloca(ty, "enumtmp")
-            .map_err(|_| self.error(expr.span, "failed to allocate enum literal"))?;
-        let tag_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 0, "enum.tag.ptr") }
-            .map_err(|_| self.error(expr.span, "failed to address enum tag"))?;
-        let tag = self.enum_variant_tag_value(expr.span, def_id, enum_item.backing_type)?;
-        self.builder
-            .build_store(tag_ptr, tag)
-            .map_err(|_| self.error(expr.span, "failed to store enum tag"))?;
-        let variant_layout = layout
-            .variants
-            .iter()
-            .find(|variant| {
-                variant_info.owner.def_id.module_id == def_id.module_id
-                    && variant.def_id == def_id.def_id
-            })
-            .ok_or_else(|| self.error(expr.span, "missing enum variant layout"))?;
-        let Some(payload_offset) = layout.payload_offset else {
-            return Err(self.error(expr.span, "enum payload offset is missing"));
+        let field_offsets = match layout.payload_offset {
+            Some(_) => layout
+                .variants
+                .iter()
+                .find(|variant| {
+                    enum_item.def_id.module_id == def_id.module_id
+                        && variant.def_id == def_id.def_id
+                })
+                .ok_or_else(|| self.error(expr.span, "missing enum variant layout"))?
+                .fields
+                .iter()
+                .map(|field| field.offset)
+                .collect(),
+            None => Vec::new(),
         };
-        for (index, field) in fields.iter().enumerate() {
-            let Some(field_layout) = variant_layout.fields.get(index) else {
-                return Err(self.error(field.span, "missing enum payload field layout"));
-            };
-            let field_offset = payload_offset
-                .checked_add(field_layout.offset)
-                .ok_or_else(|| self.error(field.span, "enum payload field offset overflowed"))?;
-            let field_ptr = self.enum_byte_offset_ptr(ptr, field_offset, field.span)?;
-            let value = self.emit_expr(field)?;
-            self.builder
-                .build_store(field_ptr, value)
-                .map_err(|_| self.error(field.span, "failed to store enum payload field"))?;
-        }
-        self.builder
-            .build_load(ty, ptr, "enumlit")
-            .map_err(|_| self.error(expr.span, "failed to load enum literal"))
+        Ok((enum_item.backing_type, layout.payload_offset, field_offsets))
     }
 
     pub(super) fn emit_enum_variant_tag(
@@ -915,33 +851,30 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         expr: &FunctionExpr,
         value: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let value = self.emit_expr(value)?;
-        self.emit_enum_tag_from_value(expr, value)
-    }
-
-    fn emit_enum_tag_from_value(
-        &self,
-        expr: &FunctionExpr,
-        value: BasicValueEnum<'ctx>,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        if value.is_int_value() {
-            return Ok(value);
+        if !self.is_memory_value(value.ty) {
+            return self.emit_expr(value);
         }
-        let aggregate = value
-            .into_struct_value()
-            .map_err(|_| self.error(expr.span, "enum value is not an aggregate"))?;
+        let enum_ptr = self.emit_memory_operand(value)?;
+        let enum_ty = self.module.llvm_basic_type(value.ty, value.span)?;
+        let tag_ptr = unsafe {
+            self.builder
+                .build_struct_gep(enum_ty, enum_ptr, 0, "enum.tag.ptr")
+        }
+        .map_err(|_| self.error(expr.span, "failed to address enum tag"))?;
+        let tag_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         self.builder
-            .build_extract_value(aggregate, 0, "enum.tag")
-            .map_err(|_| self.error(expr.span, "failed to extract enum tag"))
+            .build_load(tag_ty, tag_ptr, "enum.tag")
+            .map_err(|_| self.error(expr.span, "failed to load enum tag"))
     }
 
-    pub(super) fn emit_enum_payload_field(
+    /// The address of one payload field of `value`, an enum with payloads.
+    pub(super) fn emit_enum_payload_field_addr(
         &mut self,
         expr: &FunctionExpr,
         value: &FunctionExpr,
         variant: GlobalDefId,
         field: usize,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let Some(variant_info) = self.module.program.enum_variant_info(variant) else {
             return Err(self.error(expr.span, "missing enum variant"));
         };
@@ -970,20 +903,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let field_offset = payload_offset
             .checked_add(field_layout.offset)
             .ok_or_else(|| self.error(expr.span, "enum payload field offset overflowed"))?;
-        let enum_ty = self.module.llvm_basic_type(value.ty, value.span)?;
-        let ptr = self
-            .builder
-            .build_alloca(enum_ty, "enum.payload.copy")
-            .map_err(|_| self.error(expr.span, "failed to allocate enum payload copy"))?;
-        let value = self.emit_expr(value)?;
-        self.builder
-            .build_store(ptr, value)
-            .map_err(|_| self.error(expr.span, "failed to store enum payload copy"))?;
-        let field_ptr = self.enum_byte_offset_ptr(ptr, field_offset, expr.span)?;
-        let field_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        self.builder
-            .build_load(field_ty, field_ptr, "enum.payload.field")
-            .map_err(|_| self.error(expr.span, "failed to load enum payload field"))
+        let enum_ptr = self.emit_memory_operand(value)?;
+        self.enum_byte_offset_ptr(enum_ptr, field_offset, expr.span)
     }
 
     fn enum_byte_offset_ptr(

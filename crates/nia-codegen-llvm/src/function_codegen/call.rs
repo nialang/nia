@@ -174,28 +174,21 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
         if callee_is_extern(self, callee) {
             return self
-                .emit_extern_call(expr, callee, args)?
+                .emit_extern_call(expr, callee, args, None)?
                 .ok_or_else(|| self.error(expr.span, "unit call cannot be used as a value"));
         }
         match self.module.classify_function_return(expr.ty) {
-            AbiReturn::IndirectOut(ty) if !callee_is_extern(self, callee) => {
-                let result_ty = self.module.llvm_basic_type(ty, expr.span)?;
-                let result_ptr = self
-                    .builder
-                    .build_alloca(result_ty, "call.out")
-                    .map_err(|_| self.error(expr.span, "failed to allocate call result"))?;
-                let _ = self.emit_call_raw_with_out(expr, callee, args, Some(result_ptr))?;
-                self.builder
-                    .build_load(result_ty, result_ptr, "call.result")
-                    .map_err(|_| self.error(expr.span, "failed to load call result"))
-            }
-            AbiReturn::Direct(_) | AbiReturn::IndirectOut(_) => {
+            AbiReturn::Direct(_) => {
                 let call = self.emit_call_raw_with_out(expr, callee, args, None)?;
                 call.try_as_basic_value()
                     .basic()
                     .ok_or_else(|| self.error(expr.span, "call did not produce a value"))?
                     .map_err(Into::into)
             }
+            AbiReturn::IndirectOut(_) => Err(self.error(
+                expr.span,
+                "memory-represented call result reached an immediate context",
+            )),
             AbiReturn::Void | AbiReturn::Never => {
                 let _ = self.emit_call_raw_with_out(expr, callee, args, None)?;
                 Err(self.error(expr.span, "unit call cannot be used as a value"))
@@ -203,13 +196,61 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
+    /// Calls `callee` and writes its memory-represented result into fresh
+    /// storage `dest`, which becomes the callee's result slot.
+    pub(super) fn emit_call_into(
+        &mut self,
+        expr: &FunctionExpr,
+        callee: &FunctionCallee,
+        args: &[FunctionExpr],
+        dest: nia_llvm::values::PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        if let FunctionCallee::Callable(receiver) = callee {
+            self.emit_callable_dispatch(expr, receiver, args, Some(dest))?;
+        } else if is_c_function_pointer(self, callee) {
+            self.emit_c_function_pointer_call(expr, callee, args, Some(dest))?;
+        } else if callee_is_extern(self, callee) {
+            self.emit_extern_call(expr, callee, args, Some(dest))?;
+        } else {
+            if !matches!(
+                self.module.classify_function_return(expr.ty),
+                AbiReturn::IndirectOut(_)
+            ) {
+                return Err(self.error(expr.span, "call result is not returned in memory"));
+            }
+            self.emit_call_raw_with_out(expr, callee, args, Some(dest))?;
+        }
+        Ok(())
+    }
+
+    /// Calls `callee`, whose result is immediate or unit, for its effects.
+    pub(super) fn emit_call_effect(
+        &mut self,
+        expr: &FunctionExpr,
+        callee: &FunctionCallee,
+        args: &[FunctionExpr],
+    ) -> Result<(), Diagnostic> {
+        if let FunctionCallee::Callable(receiver) = callee {
+            self.emit_callable_dispatch(expr, receiver, args, None)?;
+        } else if is_c_function_pointer(self, callee) {
+            self.emit_c_function_pointer_call(expr, callee, args, None)?;
+        } else if callee_is_extern(self, callee) {
+            self.emit_extern_call(expr, callee, args, None)?;
+        } else {
+            self.emit_call_raw_with_out(expr, callee, args, None)?;
+        }
+        Ok(())
+    }
+
     /// Calls a function with C linkage through the target C calling
-    /// convention and returns its result in memory form.
+    /// convention. A memory result goes to `result`; an immediate one is
+    /// returned.
     fn emit_extern_call(
         &mut self,
         expr: &FunctionExpr,
         callee: &FunctionCallee,
         args: &[FunctionExpr],
+        result: Option<nia_llvm::values::PointerValue<'ctx>>,
     ) -> Result<Option<BasicValueEnum<'ctx>>, Diagnostic> {
         let (function, fixed, is_variadic) = match callee {
             FunctionCallee::Function(def_id) => {
@@ -279,17 +320,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 ),
             ));
         }
-        let mut values = Vec::with_capacity(args.len());
-        for (index, arg) in args.iter().enumerate() {
-            let ty = fixed.get(index).copied().unwrap_or(arg.ty);
-            values.push((self.emit_expr(arg)?, ty));
-        }
+        let values = self.emit_c_arguments(&fixed, args)?;
         self.emit_c_call(
             expr.span,
             CCallTarget::Direct(function),
             &fixed,
             expr.ty,
             values,
+            result,
         )
     }
 
@@ -302,17 +340,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let FunctionCallee::Callable(receiver) = callee else {
             return Err(self.error(expr.span, "internal callable dispatch mismatch"));
         };
-        self.emit_callable_dispatch(expr, receiver, args, None, true)?
+        self.emit_callable_dispatch(expr, receiver, args, None)?
             .ok_or_else(|| self.error(expr.span, "unit callable call cannot be used as a value"))
     }
 
+    /// Calls through a callable view. A memory result goes to `result`; an
+    /// immediate one is returned.
     fn emit_callable_dispatch(
         &mut self,
         expr: &FunctionExpr,
         receiver: &FunctionExpr,
         args: &[FunctionExpr],
-        destination: Option<nia_llvm::values::PointerValue<'ctx>>,
-        load_result: bool,
+        result: Option<nia_llvm::values::PointerValue<'ctx>>,
     ) -> Result<Option<BasicValueEnum<'ctx>>, Diagnostic> {
         let (params, return_type) = match self.module.ty_kind(receiver.ty) {
             Some(TyKind::Callable {
@@ -336,29 +375,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_extract_value(callable, 1, "callable.entry")
             .map_err(|_| self.error(receiver.span, "failed to extract callable entry"))?
             .into_pointer_value()?;
-        let abi_return = self.module.classify_function_return(return_type);
-        let result_ptr = match abi_return {
-            AbiReturn::Direct(ty) if load_result => Some(self.builder.build_alloca(
-                self.module.llvm_basic_type(ty, expr.span)?,
-                "callable.result",
-            )?),
-            AbiReturn::IndirectOut(ty) => Some(match destination {
-                Some(destination) => destination,
-                None => self.builder.build_alloca(
-                    self.module.llvm_basic_type(ty, expr.span)?,
-                    "callable.result",
-                )?,
-            }),
-            AbiReturn::Direct(_) => None,
-            AbiReturn::Void | AbiReturn::Never => None,
+        let out_ptr = match self.module.classify_function_return(return_type) {
+            AbiReturn::IndirectOut(_) => Some(
+                result
+                    .ok_or_else(|| self.error(expr.span, "callable result has no destination"))?,
+            ),
+            AbiReturn::Direct(_) | AbiReturn::Void | AbiReturn::Never => None,
         };
-        let call_out_ptr = result_ptr.filter(|_| matches!(abi_return, AbiReturn::IndirectOut(_)));
         let callable_type =
             self.module
                 .callable_entry_function_type_in(&params, return_type, receiver.span)?;
         let mut callable_args =
-            self.emit_call_args(expr.span, args, params.iter().copied(), call_out_ptr, false)?;
-        callable_args.insert(usize::from(call_out_ptr.is_some()), state.into());
+            self.emit_call_args(expr.span, args, params.iter().copied(), out_ptr, false)?;
+        callable_args.insert(usize::from(out_ptr.is_some()), state.into());
         let call = self
             .builder
             .build_indirect_call(callable_type, entry, &callable_args, "callable.call")
@@ -368,55 +397,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     format!("failed to call callable entry: {error:?}"),
                 )
             })?;
-        if let Some(result_ptr) = result_ptr
-            && matches!(abi_return, AbiReturn::Direct(_))
-            && let Some(value) = call.try_as_basic_value().basic()
-        {
-            self.builder.build_store(result_ptr, value?)?;
+        match call.try_as_basic_value().basic() {
+            Some(value) if out_ptr.is_none() => Ok(Some(value?)),
+            _ => Ok(None),
         }
-        if !load_result {
-            return Ok(None);
-        }
-        match abi_return {
-            AbiReturn::Direct(ty) | AbiReturn::IndirectOut(ty) => {
-                let Some(result_ptr) = result_ptr else {
-                    return Err(self.error(expr.span, "callable result pointer is missing"));
-                };
-                self.builder
-                    .build_load(
-                        self.module.llvm_basic_type(ty, expr.span)?,
-                        result_ptr,
-                        "callable.result",
-                    )
-                    .map(Some)
-                    .map_err(|_| self.error(expr.span, "failed to load callable result"))
-            }
-            AbiReturn::Void | AbiReturn::Never => Ok(None),
-        }
-    }
-
-    pub(super) fn emit_call_to_destination(
-        &mut self,
-        expr: &FunctionExpr,
-        callee: &FunctionCallee,
-        args: &[FunctionExpr],
-        destination: Option<nia_llvm::values::PointerValue<'ctx>>,
-    ) -> Result<(), Diagnostic> {
-        if let FunctionCallee::Callable(receiver) = callee {
-            let _ = self.emit_callable_dispatch(expr, receiver, args, destination, false)?;
-        } else if is_c_function_pointer(self, callee) {
-            let _ = self.emit_c_function_pointer_call(expr, callee, args, destination)?;
-        } else if callee_is_extern(self, callee) {
-            let value = self.emit_extern_call(expr, callee, args)?;
-            if let (Some(destination), Some(value)) = (destination, value) {
-                self.builder
-                    .build_store(destination, value)
-                    .map_err(|_| self.error(expr.span, "failed to store C call result"))?;
-            }
-        } else {
-            let _ = self.emit_call_raw_with_out(expr, callee, args, destination)?;
-        }
-        Ok(())
     }
 
     fn emit_builtin_len_method(
@@ -717,7 +701,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         receiver_ty,
                         receiver,
                     )?),
-                    AbiParam::IndirectReadonly(_) => {
+                    AbiParam::Indirect(_) => {
                         llvm_args.push(self.emit_arg_address(expr.span, receiver)?.into())
                     }
                     AbiParam::Omit => match receiver_kind {
@@ -956,7 +940,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         expr: &FunctionExpr,
         callee: &FunctionCallee,
         args: &[FunctionExpr],
-        destination: Option<nia_llvm::values::PointerValue<'ctx>>,
+        result: Option<nia_llvm::values::PointerValue<'ctx>>,
     ) -> Result<Option<BasicValueEnum<'ctx>>, Diagnostic> {
         let FunctionCallee::FunctionPointer(callee_expr) = callee else {
             return Err(self.error(expr.span, "expected C function pointer callee"));
@@ -980,11 +964,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 ),
             ));
         }
-        let mut values = Vec::with_capacity(args.len());
-        for (index, arg) in args.iter().enumerate() {
-            let ty = params.get(index).copied().unwrap_or(arg.ty);
-            values.push((self.emit_expr(arg)?, ty));
-        }
+        let values = self.emit_c_arguments(params, args)?;
         let pointer = self.emit_expr(callee_expr)?.into_pointer_value()?;
         let function_type = self.module.function_pointer_type_in(
             params,
@@ -993,7 +973,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionPointerAbi::C,
             callee_expr.span,
         )?;
-        let value = self.emit_c_call(
+        self.emit_c_call(
             expr.span,
             CCallTarget::Indirect {
                 function_type,
@@ -1002,13 +982,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             params,
             *return_type,
             values,
-        )?;
-        if let (Some(destination), Some(value)) = (destination, value) {
-            self.builder
-                .build_store(destination, value)
-                .map_err(|_| self.error(expr.span, "failed to store C call result"))?;
-        }
-        Ok(value)
+            result,
+        )
     }
 
     fn emit_dynamic_trait_method_call(
@@ -1160,9 +1135,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     llvm_args.push(self.emit_arg_address(span, arg)?.into())
                 }
                 AbiParam::Direct(_) => llvm_args.push(self.emit_expr(arg)?),
-                AbiParam::IndirectReadonly(_) => {
-                    llvm_args.push(self.emit_arg_address(span, arg)?.into())
-                }
+                AbiParam::Indirect(_) => llvm_args.push(self.emit_arg_address(span, arg)?.into()),
                 AbiParam::Omit => self.emit_effect_expr(arg)?,
             }
         }
@@ -1272,6 +1245,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         )
     }
 
+    /// The address of a fresh copy of `arg`: the copy an indirect parameter
+    /// owns, or the storage a by-reference parameter borrows for a value
+    /// that is not a place.
     fn emit_arg_address(
         &mut self,
         span: Span,
@@ -1281,76 +1257,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::Local(local_id) if self.is_zero_sized(arg.ty) => {
                 self.local_addr(*local_id, span)
             }
-            _ if self.is_zero_sized(arg.ty) => self
-                .builder
-                .build_alloca(self.module.context.i8_type(), "zst.arg")
-                .map_err(|_| self.error(span, "failed to allocate zero-sized argument")),
+            _ if self.is_zero_sized(arg.ty) => {
+                self.emit_effect_expr(arg)?;
+                self.entry_alloca(self.module.context.i8_type().into(), 1, "zst.arg", span)
+            }
             FunctionExprKind::AddrOf(place) => self.emit_typed_place_addr(place),
-            FunctionExprKind::ArrayLiteral { elems } => {
-                let ty = self.module.llvm_basic_type(arg.ty, span)?;
-                let ptr = self
-                    .builder
-                    .build_alloca(ty, "arg.copy")
-                    .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
-                self.emit_array_literal_into(arg, elems, ptr)?;
-                Ok(ptr)
-            }
-            FunctionExprKind::StructLiteral { fields, .. } => {
-                let ty = self.module.llvm_basic_type(arg.ty, span)?;
-                let ptr = self
-                    .builder
-                    .build_alloca(ty, "arg.copy")
-                    .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
-                self.emit_struct_literal_into(arg, fields, ptr)?;
-                Ok(ptr)
-            }
-            FunctionExprKind::UnionLiteral { field, .. } => {
-                let ty = self.module.llvm_basic_type(arg.ty, span)?;
-                let ptr = self
-                    .builder
-                    .build_alloca(ty, "arg.copy")
-                    .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
-                self.emit_union_literal_into(arg, field, ptr)?;
-                Ok(ptr)
-            }
-            FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
-                let ty = self.module.llvm_basic_type(arg.ty, span)?;
-                let ptr = self
-                    .builder
-                    .build_alloca(ty, "arg.copy")
-                    .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
-                self.emit_union_storage_literal_into(arg, bytes, relocations, ptr)?;
-                Ok(ptr)
-            }
-            FunctionExprKind::Call { callee, args } if self.call_returns_indirect_out(arg) => {
-                let ty = self.module.llvm_basic_type(arg.ty, span)?;
-                let ptr = self
-                    .builder
-                    .build_alloca(ty, "arg.copy")
-                    .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
-                self.emit_call_to_destination(arg, callee, args, Some(ptr))?;
-                Ok(ptr)
-            }
             _ => {
-                let ty = self.module.llvm_basic_type(arg.ty, span)?;
-                let ptr = self
-                    .builder
-                    .build_alloca(ty, "arg.copy")
-                    .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
-                let value = self.emit_expr(arg)?;
-                self.builder
-                    .build_store(ptr, value)
-                    .map_err(|_| self.error(span, "failed to store indirect argument"))?;
-                Ok(ptr)
+                let copy = self.temporary(arg.ty, "arg.copy", span)?;
+                self.emit_into(arg, copy)?;
+                Ok(copy)
             }
         }
-    }
-
-    fn call_returns_indirect_out(&self, expr: &FunctionExpr) -> bool {
-        matches!(
-            self.module.classify_function_return(expr.ty),
-            AbiReturn::IndirectOut(_)
-        )
     }
 }
 

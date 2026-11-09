@@ -167,11 +167,17 @@ fun main() NiaString {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     // x86_64 System V returns the two INTEGER eightbytes in rax:rdx as a
-    // literal struct, which is then reread as the Nia struct.
-    let nia_string = mangled_symbol(ir, '%', "NiaString");
+    // literal struct, which is reread as the Nia struct in the caller's
+    // result slot.
     assert!(ir.contains("declare { ptr, i64 } @make_string()"), "{ir}");
-    assert!(ir.contains("call { ptr, i64 } @make_string()"), "{ir}");
-    assert!(ir.contains(&format!("load {nia_string}")), "{ir}");
+    assert_substrings_in_order(
+        ir,
+        &[
+            "%c.call = call { ptr, i64 } @make_string()",
+            "store { ptr, i64 } %c.call, ptr %c.abi.coerce",
+            "call void @llvm.memcpy.p0.p0.i64(ptr align 8 %0, ptr align 8 %c.abi.coerce, i64 16",
+        ],
+    );
     assert!(!ir.contains("call void @make_string"), "{ir}");
 }
 
@@ -553,8 +559,18 @@ fun main() i32 {
     let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
+    // A string literal is copied into its binding from a private image.
     assert!(ir.contains("%bytes = alloca [2 x i8]"), "{ir}");
-    assert!(ir.contains("store [2 x i8] c\"hi\""), "{ir}");
+    assert!(
+        ir.contains("@nia.const = private unnamed_addr constant [2 x i8] c\"hi\""),
+        "{ir}"
+    );
+    assert!(
+        ir.contains(
+            "call void @llvm.memcpy.p0.p0.i64(ptr align 1 %bytes, ptr align 1 @nia.const, i64 2"
+        ),
+        "{ir}"
+    );
     assert!(ir.contains("insertvalue"), "{ir}");
     assert!(ir.contains("getelementptr"), "{ir}");
 }

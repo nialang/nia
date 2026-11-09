@@ -229,7 +229,10 @@ OptimizationPolicy
 
 The policy changes optional transformations. It does not change type layout,
 calling convention, symbol identity, or static-data meaning; neither does the
-LLVM pipeline.
+LLVM pipeline. Value representation is likewise fixed by the Nia ABI at every
+level: a type passed directly is an SSA value in function code, and any other
+type lives only in memory and is copied with `llvm.memcpy`
+(`nia-codegen-llvm` `function_codegen/value.rs` owns the rule).
 
 ### 2.2 Query Execution And Invalidation
 

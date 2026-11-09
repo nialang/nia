@@ -6,6 +6,11 @@
 //! [`nia_abi_check::c_abi`]). This module moves values between the two at
 //! every C boundary: arguments and results of calls, and parameters and
 //! returns of `extern` definitions.
+//!
+//! Immediate values cross as SSA values. Memory values cross through their
+//! storage: a coerced or expanded value is read from or written to memory in
+//! its machine parts, and only a value the C ABI passes in its natural LLVM
+//! type is loaded or stored whole.
 
 use super::FunctionCodegen;
 use crate::module_codegen::{CParam, ModuleCodegen};
@@ -27,6 +32,14 @@ pub(super) enum CCallTarget<'ctx> {
     },
 }
 
+/// One evaluated argument of a C call.
+pub(super) enum CArgument<'ctx> {
+    /// An immediate value.
+    Value(BasicValueEnum<'ctx>),
+    /// A memory value in a temporary that this call owns.
+    Stored(PointerValue<'ctx>),
+}
+
 /// The C signature of an `extern` definition, fixed for its whole body.
 pub(super) struct CDefinitionAbi {
     pub(super) abi: CFunctionAbi,
@@ -34,41 +47,6 @@ pub(super) struct CDefinitionAbi {
 }
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
-    /// A stack slot in the entry block, so that a call in a loop does not grow
-    /// the frame on every iteration.
-    fn entry_alloca(
-        &self,
-        ty: BasicTypeEnum<'ctx>,
-        align: u64,
-        name: &str,
-        span: Span,
-    ) -> Result<PointerValue<'ctx>, Diagnostic> {
-        let entry = self
-            .llvm_function
-            .get_first_basic_block()
-            .ok_or_else(|| self.error(span, "function has no physical entry block"))?;
-        let builder = self
-            .module
-            .context
-            .create_builder()
-            .map_err(ModuleCodegen::diagnostic_from_llvm_error)?;
-        match entry.get_first_instruction() {
-            Some(first) => builder.position_before(&first),
-            None => builder.position_at_end(entry),
-        }
-        let slot = builder
-            .build_alloca(ty, name)
-            .map_err(|_| self.error(span, "failed to allocate C ABI storage"))?;
-        let align = u32::try_from(align)
-            .map_err(|_| self.error(span, "C ABI storage alignment is too large"))?;
-        BasicValueEnum::from(slot)
-            .as_instruction_value()
-            .ok_or_else(|| self.error(span, "C ABI storage is not an instruction"))?
-            .set_alignment(align)
-            .map_err(|_| self.error(span, "failed to align C ABI storage"))?;
-        Ok(slot)
-    }
-
     fn natural_extent(&self, ty: InternedTyId, span: Span) -> Result<(u64, u64), Diagnostic> {
         self.module
             .layout_of(ty)
@@ -93,57 +71,69 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.entry_alloca(storage.into(), align.max(abi_align), "c.abi.coerce", span)
     }
 
-    /// Reads a value of in-memory type `ty` as the machine type `abi`.
+    /// Reads the value of in-memory type `ty` at `value` as the machine type
+    /// `abi`.
     fn coerce_to_c(
         &mut self,
-        value: BasicValueEnum<'ctx>,
+        value: PointerValue<'ctx>,
         ty: InternedTyId,
         abi: &CAbiType,
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let buffer = self.reinterpret_buffer(ty, abi, span)?;
-        self.builder
-            .build_store(buffer, value)
-            .map_err(|_| self.error(span, "failed to store C argument"))?;
+        self.copy_value(buffer, false, value, false, ty, span)?;
         let abi_ty = self.module.c_abi_llvm_type(abi)?;
         self.builder
             .build_load(abi_ty, buffer, "c.abi.arg")
             .map_err(|_| self.error(span, "failed to load C argument"))
     }
 
-    /// Reads a machine value of type `abi` as the in-memory type `ty`.
+    /// Writes a machine value of type `abi` to `dest` as in-memory type `ty`.
     fn coerce_from_c(
         &mut self,
         value: BasicValueEnum<'ctx>,
         abi: &CAbiType,
         ty: InternedTyId,
+        dest: PointerValue<'ctx>,
         span: Span,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+    ) -> Result<(), Diagnostic> {
         let buffer = self.reinterpret_buffer(ty, abi, span)?;
         self.builder
             .build_store(buffer, value)
             .map_err(|_| self.error(span, "failed to store C value"))?;
-        let natural = self.module.llvm_basic_type(ty, span)?;
-        self.builder
-            .build_load(natural, buffer, "c.abi.value")
-            .map_err(|_| self.error(span, "failed to load C value"))
+        self.copy_value(dest, false, buffer, false, ty, span)
     }
 
-    /// Copies `value` to fresh storage aligned to at least `align`.
-    fn spill_c_value(
+    /// Storage holding the value at `value` aligned to at least `align`:
+    /// `value` itself when it is aligned enough, or else a copy.
+    fn aligned_c_storage(
         &mut self,
-        value: BasicValueEnum<'ctx>,
+        value: PointerValue<'ctx>,
         ty: InternedTyId,
         align: u64,
         span: Span,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let (_, natural_align) = self.natural_extent(ty, span)?;
+        if align <= natural_align {
+            return Ok(value);
+        }
         let natural = self.module.llvm_basic_type(ty, span)?;
-        let slot = self.entry_alloca(natural, natural_align.max(align), "c.abi.copy", span)?;
+        let copy = self.entry_alloca(natural, align, "c.abi.copy", span)?;
+        self.copy_value(copy, false, value, false, ty, span)?;
+        Ok(copy)
+    }
+
+    /// Loads a memory value that the C ABI passes whole in its natural type.
+    fn load_natural(
+        &self,
+        value: PointerValue<'ctx>,
+        ty: InternedTyId,
+        span: Span,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let natural = self.module.llvm_basic_type(ty, span)?;
         self.builder
-            .build_store(slot, value)
-            .map_err(|_| self.error(span, "failed to copy C argument"))?;
-        Ok(slot)
+            .build_load(natural, value, "c.abi.natural")
+            .map_err(|_| self.error(span, "failed to load C value"))
     }
 
     fn byte_offset(
@@ -167,14 +157,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .build_gep(self.module.context.i8_type(), base, &[index], "c.abi.part")
         }
         .map_err(|_| self.error(span, "failed to address C argument part"))
-    }
-
-    fn expand_parts_align(&self, parts: &[(u64, CAbiType)]) -> u64 {
-        parts
-            .iter()
-            .map(|(_, part)| self.module.c_abi_type_extent(part).1)
-            .max()
-            .unwrap_or(1)
     }
 
     /// Widens a variadic extra to its promoted type: small integers to
@@ -211,17 +193,41 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
+    /// Evaluates the arguments of a C call. `fixed` lists the declared
+    /// parameter types; an argument past it keeps its own type.
+    pub(super) fn emit_c_arguments(
+        &mut self,
+        fixed: &[InternedTyId],
+        args: &[nia_function_ir::FunctionExpr],
+    ) -> Result<Vec<(CArgument<'ctx>, InternedTyId)>, Diagnostic> {
+        let mut values = Vec::with_capacity(args.len());
+        for (index, arg) in args.iter().enumerate() {
+            let ty = fixed.get(index).copied().unwrap_or(arg.ty);
+            let value = if self.is_memory_value(arg.ty) {
+                let copy = self.temporary(arg.ty, "c.arg", arg.span)?;
+                self.emit_into(arg, copy)?;
+                CArgument::Stored(copy)
+            } else {
+                CArgument::Value(self.emit_expr(arg)?)
+            };
+            values.push((value, ty));
+        }
+        Ok(values)
+    }
+
     /// Emits a call through the target C calling convention. `fixed` lists
     /// the declared parameter types; arguments past it are variadic extras.
+    /// A memory result is written to `result`; an immediate one is returned.
     pub(super) fn emit_c_call(
         &mut self,
         span: Span,
         target: CCallTarget<'ctx>,
         fixed: &[InternedTyId],
         return_type: InternedTyId,
-        args: Vec<(BasicValueEnum<'ctx>, InternedTyId)>,
+        args: Vec<(CArgument<'ctx>, InternedTyId)>,
+        result: Option<PointerValue<'ctx>>,
     ) -> Result<Option<BasicValueEnum<'ctx>>, Diagnostic> {
-        self.emit_c_call_with_site(span, target, fixed, return_type, args)
+        self.emit_c_call_with_site(span, target, fixed, return_type, args, result)
             .map(|(_, value)| value)
     }
 
@@ -231,7 +237,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         target: CCallTarget<'ctx>,
         fixed: &[InternedTyId],
         return_type: InternedTyId,
-        args: Vec<(BasicValueEnum<'ctx>, InternedTyId)>,
+        args: Vec<(CArgument<'ctx>, InternedTyId)>,
+        result: Option<PointerValue<'ctx>>,
     ) -> Result<(CallSiteValue<'ctx>, Option<BasicValueEnum<'ctx>>), Diagnostic> {
         let mut params = Vec::with_capacity(args.len());
         let mut values = Vec::with_capacity(args.len());
@@ -240,14 +247,36 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             let (value, c_type) = if index < fixed.len() {
                 (value, c_type)
             } else {
-                let promoted = self.promote_variadic(value, &c_type, span)?;
-                (promoted, c_type.promoted_variadic())
+                let value = match value {
+                    CArgument::Value(value) => {
+                        CArgument::Value(self.promote_variadic(value, &c_type, span)?)
+                    }
+                    stored => stored,
+                };
+                (value, c_type.promoted_variadic())
             };
             params.push(CParam { ty, c_type });
             values.push(value);
         }
         let ret = self.module.c_return_type(return_type, span)?;
         let abi = self.module.classify_c(&params, ret.as_ref());
+        let memory_result = ret.is_some() && self.is_memory_value(return_type);
+        if memory_result && result.is_none() {
+            return Err(self.error(span, "C call result has no destination"));
+        }
+        // The C ABI may return an immediate value, such as a Windows `i128`,
+        // in memory; it then lands in a slot and is loaded from there.
+        let spilled_result = match abi.ret {
+            CRet::SRet { .. }
+            | CRet::Direct {
+                pass: CPass::Coerced(_),
+                ..
+            } if ret.is_some() && !memory_result => {
+                Some(self.temporary(return_type, "c.result", span)?)
+            }
+            _ => None,
+        };
+        let result = spilled_result.or(result);
 
         let mut llvm_args = Vec::<BasicMetadataValueEnum<'ctx>>::new();
         let mut arg_types = Vec::with_capacity(values.len());
@@ -255,32 +284,66 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .is_some()
             .then(|| self.module.llvm_basic_type(return_type, span))
             .transpose()?;
-        let result_slot = match (&abi.ret, result_type) {
-            (CRet::SRet { align }, Some(ty)) => {
-                let (_, natural_align) = self.natural_extent(return_type, span)?;
-                let slot = self.entry_alloca(ty, natural_align.max(*align), "c.abi.sret", span)?;
+        let sret = match (&abi.ret, result) {
+            (CRet::SRet { align }, Some(result)) => {
+                let slot = self.aligned_c_storage(result, return_type, *align, span)?;
                 llvm_args.push(slot.into());
                 Some(slot)
+            }
+            (CRet::SRet { .. }, None) => {
+                return Err(self.error(span, "C call result has no destination"));
             }
             _ => None,
         };
         for ((arg, param), value) in abi.args.iter().zip(&params).zip(values) {
-            arg_types.push(value.get_type()?);
-            match arg {
-                CArg::Ignore => {}
-                CArg::Direct {
-                    pass: CPass::Natural,
-                    ..
-                } => llvm_args.push(value),
-                CArg::Direct {
-                    pass: CPass::Coerced(abi),
-                    ..
-                } => llvm_args.push(self.coerce_to_c(value, param.ty, abi, span)?),
-                CArg::Expand(parts) => {
-                    let align = self.expand_parts_align(parts);
-                    let copy = self.spill_c_value(value, param.ty, align, span)?;
+            arg_types.push(match &value {
+                CArgument::Value(value) => value.get_type()?,
+                CArgument::Stored(_) => self.module.llvm_basic_type(param.ty, span)?,
+            });
+            let passed_whole = matches!(
+                arg,
+                CArg::Ignore
+                    | CArg::Direct {
+                        pass: CPass::Natural,
+                        ..
+                    }
+            );
+            let value = match value {
+                CArgument::Value(value) if !passed_whole => {
+                    let spill = self.temporary(param.ty, "c.arg", span)?;
+                    self.builder
+                        .build_store(spill, value)
+                        .map_err(|_| self.error(span, "failed to store C argument"))?;
+                    CArgument::Stored(spill)
+                }
+                value => value,
+            };
+            match (arg, value) {
+                (CArg::Ignore, _) => {}
+                (
+                    CArg::Direct {
+                        pass: CPass::Natural,
+                        ..
+                    },
+                    CArgument::Value(value),
+                ) => llvm_args.push(value),
+                (
+                    CArg::Direct {
+                        pass: CPass::Natural,
+                        ..
+                    },
+                    CArgument::Stored(value),
+                ) => llvm_args.push(self.load_natural(value, param.ty, span)?),
+                (
+                    CArg::Direct {
+                        pass: CPass::Coerced(abi),
+                        ..
+                    },
+                    CArgument::Stored(value),
+                ) => llvm_args.push(self.coerce_to_c(value, param.ty, abi, span)?),
+                (CArg::Expand(parts), CArgument::Stored(value)) => {
                     for (offset, part) in parts {
-                        let address = self.byte_offset(copy, *offset, span)?;
+                        let address = self.byte_offset(value, *offset, span)?;
                         let part_ty = self.module.c_abi_llvm_type(part)?;
                         let part = self
                             .builder
@@ -289,9 +352,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         llvm_args.push(part);
                     }
                 }
-                CArg::Byval { align } | CArg::Indirect { align } => {
-                    let copy = self.spill_c_value(value, param.ty, *align, span)?;
-                    llvm_args.push(copy.into());
+                (CArg::Byval { align } | CArg::Indirect { align }, CArgument::Stored(value)) => {
+                    let storage = self.aligned_c_storage(value, param.ty, *align, span)?;
+                    llvm_args.push(storage.into());
+                }
+                (_, CArgument::Value(_)) => {
+                    return Err(self.error(span, "C argument lost its storage"));
                 }
             }
         }
@@ -315,30 +381,43 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             call.add_attribute(loc, attribute);
         }
 
-        match abi.ret {
-            CRet::Void => Ok((call, None)),
+        let immediate = match abi.ret {
+            CRet::Void => None,
             CRet::SRet { .. } => {
-                let (Some(slot), Some(ty)) = (result_slot, result_type) else {
+                let (Some(slot), Some(result)) = (sret, result) else {
                     return Err(self.error(span, "C call lost its result storage"));
                 };
-                let value = self
-                    .builder
-                    .build_load(ty, slot, "c.result")
-                    .map_err(|_| self.error(span, "failed to load C result"))?;
-                Ok((call, Some(value)))
+                if slot != result {
+                    self.copy_value(result, false, slot, false, return_type, span)?;
+                }
+                None
             }
             CRet::Direct { pass, .. } => {
                 let value = call
                     .try_as_basic_value()
                     .basic()
                     .ok_or_else(|| self.error(span, "C call did not produce a value"))??;
-                match pass {
-                    CPass::Natural => Ok((call, Some(value))),
-                    CPass::Coerced(abi) => self
-                        .coerce_from_c(value, &abi, return_type, span)
-                        .map(|value| (call, Some(value))),
+                match (pass, result) {
+                    (CPass::Natural, Some(result)) if memory_result => {
+                        self.builder
+                            .build_store(result, value)
+                            .map_err(|_| self.error(span, "failed to store C result"))?;
+                        None
+                    }
+                    (CPass::Natural, _) => Some(value),
+                    (CPass::Coerced(abi), Some(result)) => {
+                        self.coerce_from_c(value, &abi, return_type, result, span)?;
+                        None
+                    }
+                    (CPass::Coerced(_), None) => {
+                        return Err(self.error(span, "C call result has no destination"));
+                    }
                 }
             }
+        };
+        match spilled_result {
+            Some(slot) => Ok((call, Some(self.load_natural(slot, return_type, span)?))),
+            None => Ok((call, immediate)),
         }
     }
 
@@ -382,22 +461,23 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             let storage = param
                 .local_id
                 .and_then(|local| self.locals.get(&local).copied());
-            let natural = || self.module.llvm_basic_type(c_param.ty, span);
             match arg {
                 CArg::Ignore => {}
                 CArg::Direct { pass, .. } => {
                     let value = self.c_param(index, span)?;
                     index += 1;
-                    if let Some(storage) = storage {
-                        let value = match pass {
-                            CPass::Natural => value,
-                            CPass::Coerced(abi) => {
-                                self.coerce_from_c(value, abi, c_param.ty, span)?
-                            }
-                        };
-                        self.builder
-                            .build_store(storage, value)
-                            .map_err(|_| self.error(span, "failed to store C parameter"))?;
+                    let Some(storage) = storage else {
+                        continue;
+                    };
+                    match pass {
+                        CPass::Natural => {
+                            self.builder
+                                .build_store(storage, value)
+                                .map_err(|_| self.error(span, "failed to store C parameter"))?;
+                        }
+                        CPass::Coerced(abi) => {
+                            self.coerce_from_c(value, abi, c_param.ty, storage, span)?
+                        }
                     }
                 }
                 CArg::Expand(parts) => {
@@ -416,13 +496,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let pointer = self.c_param(index, span)?.into_pointer_value()?;
                     index += 1;
                     if let Some(storage) = storage {
-                        let value = self
-                            .builder
-                            .build_load(natural()?, pointer, "c.param")
-                            .map_err(|_| self.error(span, "failed to load C parameter"))?;
-                        self.builder
-                            .build_store(storage, value)
-                            .map_err(|_| self.error(span, "failed to store C parameter"))?;
+                        self.copy_value(storage, false, pointer, false, c_param.ty, span)?;
                     }
                 }
             }
@@ -430,7 +504,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(())
     }
 
-    /// Returns `value` from an `extern` definition in its machine form.
+    /// Returns the immediate `value` from an `extern` definition in its
+    /// machine form.
     pub(super) fn emit_c_return(
         &mut self,
         definition: &CRet,
@@ -438,28 +513,53 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         value: BasicValueEnum<'ctx>,
     ) -> Result<(), Diagnostic> {
         match definition {
+            CRet::Direct {
+                pass: CPass::Natural,
+                ..
+            } => {
+                self.builder
+                    .build_return(Some(&value))
+                    .map_err(|_| self.error(span, "failed to build C return"))?;
+            }
             CRet::Void => {
                 self.builder
                     .build_return(None)
                     .map_err(|_| self.error(span, "failed to build C return"))?;
             }
-            CRet::SRet { .. } => {
-                let out = self
-                    .out_ptr
-                    .ok_or_else(|| self.error(span, "missing C result pointer"))?;
+            CRet::SRet { .. }
+            | CRet::Direct {
+                pass: CPass::Coerced(_),
+                ..
+            } => {
+                let slot = self.return_slot(span)?;
                 self.builder
-                    .build_store(out, value)
+                    .build_store(slot, value)
                     .map_err(|_| self.error(span, "failed to store C result"))?;
+                return self.emit_c_memory_return(definition, span, slot);
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns the memory result at `slot` from an `extern` definition in
+    /// its machine form.
+    pub(super) fn emit_c_memory_return(
+        &mut self,
+        definition: &CRet,
+        span: Span,
+        slot: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let ty = self.function.return_type;
+        match definition {
+            CRet::Void | CRet::SRet { .. } => {
                 self.builder
                     .build_return(None)
                     .map_err(|_| self.error(span, "failed to build C return"))?;
             }
             CRet::Direct { pass, .. } => {
                 let value = match pass {
-                    CPass::Natural => value,
-                    CPass::Coerced(abi) => {
-                        self.coerce_to_c(value, self.function.return_type, abi, span)?
-                    }
+                    CPass::Natural => self.load_natural(slot, ty, span)?,
+                    CPass::Coerced(abi) => self.coerce_to_c(slot, ty, abi, span)?,
                 };
                 self.builder
                     .build_return(Some(&value))

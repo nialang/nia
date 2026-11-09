@@ -10,8 +10,9 @@ mod literals;
 mod memory;
 mod ops;
 mod place;
+mod value;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::module_codegen::{
     AbiParam, AbiReturn, ModuleCodegen, checked_vtable_index, checked_vtable_slot_array_len,
@@ -22,8 +23,8 @@ use nia_backend_ir::{BackendClosureEntryOwner, BackendFunction, BackendParam};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionBitIntrinsicOp, FunctionBody, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
-    FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionLocal, FunctionLocalKind,
-    FunctionRange, FunctionScopeId,
+    FunctionExpr, FunctionExprKind, FunctionLocal, FunctionLocalKind, FunctionRange,
+    FunctionScopeId,
 };
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
@@ -45,6 +46,8 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     local_tys: HashMap<LocalId, InternedTyId>,
     zst_locals: HashMap<LocalId, PointerValue<'ctx>>,
     out_ptr: Option<PointerValue<'ctx>>,
+    /// Frame storage for a memory result that is not returned indirectly.
+    return_slot: Option<PointerValue<'ctx>>,
     caller_location: Option<PointerValue<'ctx>>,
     defer_scopes: Vec<DeferScope>,
     function_defer_scopes: HashMap<FunctionScopeId, usize>,
@@ -62,15 +65,6 @@ struct FunctionReturnCleanup<'ctx> {
     body: Option<FunctionDeferBody>,
     next: Option<BasicBlock<'ctx>>,
     span: Span,
-}
-
-#[derive(Clone, Copy)]
-enum TaggedUnionOperand<'ctx> {
-    Value(nia_llvm::values::StructValue<'ctx>),
-    Storage {
-        ty: nia_llvm::types::BasicTypeEnum<'ctx>,
-        ptr: nia_llvm::values::PointerValue<'ctx>,
-    },
 }
 
 #[derive(Clone)]
@@ -121,6 +115,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             local_tys: HashMap::new(),
             zst_locals: HashMap::new(),
             out_ptr: None,
+            return_slot: None,
             caller_location: None,
             defer_scopes: Vec::new(),
             function_defer_scopes: HashMap::new(),
@@ -136,7 +131,25 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn alloc_function_locals(&mut self, body: &FunctionBody) -> Result<(), Diagnostic> {
-        self.alloc_local_list(&body.locals)
+        let caller_owned = self.indirect_param_locals();
+        self.alloc_local_list(&body.locals, &caller_owned)
+    }
+
+    /// Parameters passed indirectly: the caller's copy is their storage.
+    fn indirect_param_locals(&self) -> HashSet<LocalId> {
+        if self.c_definition.is_some() {
+            return HashSet::new();
+        }
+        let classifications = self
+            .module
+            .classify_function_params(self.function.params.iter().map(|param| param.passing_ty));
+        self.function
+            .params
+            .iter()
+            .zip(classifications)
+            .filter(|(_, classification)| matches!(classification, AbiParam::Indirect(_)))
+            .filter_map(|(param, _)| param.local_id)
+            .collect()
     }
 
     fn local_addr(
@@ -156,27 +169,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if let Some(ptr) = self.zst_locals.get(&local_id).copied() {
             return Ok(ptr);
         }
-        let Some(entry) = self.llvm_function.get_first_basic_block() else {
-            return Err(self.error(span, "function has no physical entry block"));
-        };
-        let entry_builder = self
-            .module
-            .context
-            .create_builder()
-            .map_err(ModuleCodegen::diagnostic_from_llvm_error)?;
-        if let Some(first_instruction) = entry.get_first_instruction() {
-            entry_builder.position_before(&first_instruction);
-        } else {
-            entry_builder.position_at_end(entry);
-        }
-        let ptr = entry_builder
-            .build_alloca(self.module.context.i8_type(), "zst.local")
-            .map_err(|_| self.error(span, "failed to build zero-sized local address"))?;
+        let align = self.module.layout_of(ty).map_or(1, |layout| layout.align);
+        let ptr = self.entry_alloca(
+            self.module.context.i8_type().into(),
+            align,
+            "zst.local",
+            span,
+        )?;
         self.zst_locals.insert(local_id, ptr);
         Ok(ptr)
     }
 
-    fn alloc_local_list(&mut self, locals: &[FunctionLocal]) -> Result<(), Diagnostic> {
+    fn alloc_local_list(
+        &mut self,
+        locals: &[FunctionLocal],
+        caller_owned: &HashSet<LocalId>,
+    ) -> Result<(), Diagnostic> {
         for local in locals {
             if matches!(
                 local.kind,
@@ -184,18 +192,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     | FunctionLocalKind::MutableBinding
                     | FunctionLocalKind::ImmutableBinding
             ) {
-                if self.is_zero_sized(local.ty) {
-                    self.local_tys.insert(local.id, local.ty);
+                self.local_tys.insert(local.id, local.ty);
+                if self.is_zero_sized(local.ty) || caller_owned.contains(&local.id) {
                     continue;
                 }
-                let ty = self.module.llvm_basic_type(local.ty, local.span)?;
                 let name = self.local_storage_name(local);
-                let ptr = self
-                    .builder
-                    .build_alloca(ty, &name)
-                    .map_err(|_| self.error(local.span, "failed to build local alloca"))?;
+                let ptr = self.temporary(local.ty, &name, local.span)?;
                 self.locals.insert(local.id, ptr);
-                self.local_tys.insert(local.id, local.ty);
             }
         }
         Ok(())
@@ -228,6 +231,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
                 continue;
             };
+            if let AbiParam::Indirect(_) = classification {
+                let index = u32::try_from(llvm_index)
+                    .map_err(|_| self.error(param.span, "LLVM parameter index is too large"))?;
+                let Some(value) = self.llvm_function.get_nth_param(index) else {
+                    return Err(self.error(param.span, "missing LLVM function parameter"));
+                };
+                self.locals.insert(local_id, value?.into_pointer_value()?);
+                llvm_index += 1;
+                continue;
+            }
             let Some(ptr) = self.locals.get(&local_id).copied() else {
                 if !matches!(classification, AbiParam::Omit) {
                     llvm_index += 1;
@@ -247,24 +260,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     })?;
                     llvm_index += 1;
                 }
-                AbiParam::IndirectReadonly(ty) => {
-                    let index = u32::try_from(llvm_index)
-                        .map_err(|_| self.error(param.span, "LLVM parameter index is too large"))?;
-                    let Some(value) = self.llvm_function.get_nth_param(index) else {
-                        return Err(self.error(param.span, "missing LLVM function parameter"));
-                    };
-                    let value = value?;
-                    let loaded_ty = self.module.llvm_basic_type(ty, param.span)?;
-                    let loaded = self
-                        .builder
-                        .build_load(loaded_ty, value.into_pointer_value()?, "param.copy")
-                        .map_err(|_| self.error(param.span, "failed to load indirect parameter"))?;
-                    self.builder.build_store(ptr, loaded).map_err(|_| {
-                        self.error(param.span, "failed to store function parameter")
-                    })?;
-                    llvm_index += 1;
-                }
-                AbiParam::Omit => {}
+                AbiParam::Indirect(_) | AbiParam::Omit => {}
             };
         }
         Ok(())
@@ -325,6 +321,31 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(Some(value.into_pointer_value()?))
     }
 
+    /// Where the function's memory-represented result is built: the caller's
+    /// destination when the result is returned indirectly, or else frame
+    /// storage that the return reads.
+    fn return_slot(&mut self, span: Span) -> Result<PointerValue<'ctx>, Diagnostic> {
+        if let Some(slot) = self.out_ptr.or(self.return_slot) {
+            return Ok(slot);
+        }
+        let slot = self.temporary(self.function.return_type, "return.slot", span)?;
+        self.return_slot = Some(slot);
+        Ok(slot)
+    }
+
+    /// Returns the memory-represented result in [`Self::return_slot`].
+    fn emit_memory_return(&mut self, span: Span) -> Result<(), Diagnostic> {
+        if let Some(definition) = self.c_definition.clone() {
+            let slot = self.return_slot(span)?;
+            return self.emit_c_memory_return(&definition.abi.ret, span, slot);
+        }
+        self.builder
+            .build_return(None)
+            .map_err(|_| self.error(span, "failed to build aggregate return"))?;
+        Ok(())
+    }
+
+    /// Returns an immediate-represented result.
     pub(super) fn emit_return_value(
         &mut self,
         span: Span,
@@ -343,15 +364,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map_err(|_| self.error(span, "failed to build return"))
                 .map(|_| ())?,
             AbiReturn::IndirectOut(_) => {
-                let Some(out_ptr) = self.out_ptr else {
-                    return Err(self.error(span, "missing aggregate return pointer"));
-                };
-                self.builder
-                    .build_store(out_ptr, value)
-                    .map_err(|_| self.error(span, "failed to store aggregate return"))?;
-                self.builder
-                    .build_return(None)
-                    .map_err(|_| self.error(span, "failed to build aggregate return"))?;
+                return Err(self.error(span, "memory-represented result returned as a value"));
             }
             AbiReturn::Void => self
                 .builder
@@ -367,7 +380,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(())
     }
 
+    /// The SSA value of an immediate-represented expression. Memory values
+    /// have no such form; see [`value`].
     fn emit_expr(&mut self, expr: &FunctionExpr) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if self.is_memory_value(expr.ty) {
+            return Err(self.error(
+                expr.span,
+                "memory-represented value reached an immediate context",
+            ));
+        }
         match &expr.kind {
             FunctionExprKind::Integer(text) => self.emit_integer_literal(expr.ty, expr.span, text),
             FunctionExprKind::Float(text) => self.emit_float_literal(expr.ty, expr.span, text),
@@ -387,21 +408,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .bool_type()
                 .const_int(u64::from(*value), false)?
                 .into()),
-            FunctionExprKind::CallerLocation(location) => {
-                let pointer = match self.caller_location {
-                    Some(pointer) => pointer,
-                    None => self
-                        .module
-                        .materialize_source_location(location, expr.span)?,
-                };
-                self.builder
-                    .build_load(
-                        self.module.llvm_basic_type(expr.ty, expr.span)?,
-                        pointer,
-                        "caller.location",
-                    )
-                    .map_err(|_| self.error(expr.span, "failed to load caller location"))
-            }
             FunctionExprKind::ConstGeneric(_) => {
                 Err(self.error(expr.span, "const generic value reached LLVM codegen"))
             }
@@ -409,7 +415,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 expr.span,
                 "unresolved associated const projection reached LLVM codegen",
             )),
-            FunctionExprKind::Null => self.emit_optional_null(expr),
             FunctionExprKind::Local(local_id) => {
                 if self.is_zero_sized(expr.ty) {
                     return Err(self.error(expr.span, "zero-sized local has no runtime value"));
@@ -534,61 +539,52 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::BitIntrinsic { op, value } => {
                 self.emit_bit_intrinsic(expr, *op, value)
             }
-            FunctionExprKind::CharFromU32 { value } => self.emit_char_from_u32(expr, value),
             FunctionExprKind::StaticArrayPointer {
                 allocation, array, ..
             } => self.emit_static_array_pointer(expr.span, *allocation, array),
-            FunctionExprKind::ArrayLiteral { elems } => self.emit_array_literal(expr, elems),
-            FunctionExprKind::Tuple(elems) => self.emit_tuple_literal(expr, elems),
+            FunctionExprKind::CallerLocation(_)
+            | FunctionExprKind::Null
+            | FunctionExprKind::CharFromU32 { .. }
+            | FunctionExprKind::ArrayLiteral { .. }
+            | FunctionExprKind::Tuple(_)
+            | FunctionExprKind::StructLiteral { .. }
+            | FunctionExprKind::UnionLiteral { .. }
+            | FunctionExprKind::UnionStorageLiteral { .. }
+            | FunctionExprKind::OptionalSome { .. }
+            | FunctionExprKind::ErrorOk { .. }
+            | FunctionExprKind::ErrorErr { .. } => Err(self.error(
+                expr.span,
+                "a value that lives in memory reached an immediate context",
+            )),
             FunctionExprKind::TupleField { value, index } => {
-                let value = self.emit_expr(value)?.into_struct_value().map_err(|_| {
-                    self.error(expr.span, "tuple projection target is not a struct")
-                })?;
-                let index = checked_tuple_field_index(*index).ok_or_else(|| {
-                    self.error(expr.span, "tuple field index is too large for LLVM")
-                })?;
-                self.builder
-                    .build_extract_value(value, index, "tuple.field")
-                    .map_err(|_| self.error(expr.span, "failed to extract tuple field"))
-            }
-            FunctionExprKind::StructLiteral { def_id, fields } => {
-                self.emit_struct_literal(expr, *def_id, fields)
-            }
-            FunctionExprKind::UnionLiteral { def_id, field } => {
-                self.emit_union_literal(expr, *def_id, field)
-            }
-            FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
-                self.emit_union_storage_literal(expr, bytes, relocations)
-            }
-            FunctionExprKind::OptionalSome { expr: inner } => self.emit_optional_some(expr, inner),
-            FunctionExprKind::ErrorOk { expr: inner } => {
-                self.emit_error_union_value(expr, FunctionErrorUnionTag::Ok, inner)
-            }
-            FunctionExprKind::ErrorErr { expr: inner } => {
-                self.emit_error_union_value(expr, FunctionErrorUnionTag::Err, inner)
+                let ptr = self.emit_tuple_field_addr(expr.span, value, *index)?;
+                self.load_immediate(expr, ptr)
             }
             FunctionExprKind::TaggedUnionTag { expr: inner } => {
-                let aggregate = self.emit_tagged_union_operand(expr.span, inner)?;
-                self.load_tagged_union_tag(expr.span, aggregate, "tagged.tag")
+                let tagged = self.emit_memory_operand(inner)?;
+                self.load_tagged_union_tag(expr.span, inner.ty, tagged, "tagged.tag")
                     .map(Into::into)
             }
             FunctionExprKind::TaggedUnionPayload { expr: inner } => {
-                self.emit_tagged_union_payload(expr.span, inner, expr.ty)
+                let tagged = self.emit_memory_operand(inner)?;
+                let ptr = self.tagged_union_payload_addr(expr.span, inner.ty, tagged)?;
+                self.load_immediate(expr, ptr)
             }
             FunctionExprKind::Try { .. } => Err(self.error(
                 expr.span,
                 "`.?` propagation requires control-flow lowering before LLVM codegen",
             )),
-            FunctionExprKind::EnumVariant { variant, fields } => {
-                self.emit_enum_variant(expr, *variant, fields)
-            }
+            FunctionExprKind::EnumVariant { variant, .. } => self.emit_enum_variant(expr, *variant),
             FunctionExprKind::EnumVariantTag(variant) => self.emit_enum_variant_tag(expr, *variant),
             FunctionExprKind::EnumTag { value } => self.emit_enum_tag(expr, value),
             FunctionExprKind::EnumPayloadField {
                 value,
                 variant,
                 field,
-            } => self.emit_enum_payload_field(expr, value, *variant, *field),
+            } => {
+                let ptr = self.emit_enum_payload_field_addr(expr, value, *variant, *field)?;
+                self.load_immediate(expr, ptr)
+            }
             FunctionExprKind::Binary { lhs, op, rhs } => {
                 if matches!(op, BinaryOp::And | BinaryOp::Or) {
                     return self.emit_short_circuit(expr.span, lhs, *op, rhs);
@@ -875,11 +871,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(expr.span, "bit intrinsic did not produce a value"))
     }
 
-    fn emit_char_from_u32(
+    fn emit_char_from_u32_into(
         &mut self,
         expr: &FunctionExpr,
         value: &FunctionExpr,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        out: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
         let value = self.emit_expr(value)?.into_int_value()?;
         let i32_ty = self.module.context.i32_type();
         let max = i32_ty.const_int(0x10ffff, false)?;
@@ -916,10 +913,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_and(in_range, not_surrogate, "char.valid")
             .map_err(|_| self.error(expr.span, "failed to combine char validity"))?;
         let optional_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let out = self
-            .builder
-            .build_alloca(optional_ty, "char.optional")
-            .map_err(|_| self.error(expr.span, "failed to allocate char optional"))?;
         let tag_ptr = unsafe {
             self.builder
                 .build_struct_gep(optional_ty, out, 0, "char.optional.tag")
@@ -963,9 +956,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder
             .build_store(payload_ptr, value)
             .map_err(|_| self.error(expr.span, "failed to store char optional payload"))?;
-        self.builder
-            .build_load(optional_ty, out, "char.optional")
-            .map_err(|_| self.error(expr.span, "failed to load char optional"))
+        Ok(())
     }
 
     fn emit_trait_object_coercion(
@@ -1081,11 +1072,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match self.module.ty_kind(inner.ty) {
             Some(TyKind::Pointer { .. }) => Ok(self.emit_expr(inner)?.into_pointer_value()?),
             Some(TyKind::Slice { .. }) => {
-                let ty = self.module.llvm_basic_type(inner.ty, span)?;
-                let ptr = self
-                    .builder
-                    .build_alloca(ty, "traitobj.self")
-                    .map_err(|_| self.error(span, "failed to allocate trait object self"))?;
+                let ptr = self.temporary(inner.ty, "traitobj.self", span)?;
                 let value = self.emit_expr(inner)?;
                 self.builder
                     .build_store(ptr, value)
@@ -1300,126 +1287,66 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn emit_tagged_union_payload(
-        &mut self,
-        span: Span,
-        tagged: &FunctionExpr,
-        payload_ty: InternedTyId,
+    /// Loads an immediate-represented `expr` stored at `ptr`.
+    fn load_immediate(
+        &self,
+        expr: &FunctionExpr,
+        ptr: PointerValue<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let tagged_value = self.emit_tagged_union_operand(span, tagged)?;
-        self.load_tagged_union_payload(span, tagged_value, tagged.ty, payload_ty)
+        let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        self.builder
+            .build_load(ty, ptr, "loadtmp")
+            .map_err(|_| self.error(expr.span, "failed to load value"))
     }
 
-    fn emit_tagged_union_operand(
+    /// The address of tuple field `index` of `value`.
+    fn emit_tuple_field_addr(
         &mut self,
         span: Span,
         value: &FunctionExpr,
-    ) -> Result<TaggedUnionOperand<'ctx>, Diagnostic> {
-        let value_ty = self.module.llvm_basic_type(value.ty, value.span)?;
-        if let Some(ptr) = self.emit_addr_of_if_place(value)? {
-            return Ok(TaggedUnionOperand::Storage { ty: value_ty, ptr });
+        index: usize,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        let tuple = self.emit_memory_operand(value)?;
+        let tuple_ty = self.module.llvm_basic_type(value.ty, span)?;
+        let index = checked_tuple_field_index(index)
+            .ok_or_else(|| self.error(span, "tuple field index is too large for LLVM"))?;
+        unsafe {
+            self.builder
+                .build_struct_gep(tuple_ty, tuple, index, "tuple.field.ptr")
         }
-        if matches!(
-            self.module.classify_function_return(value.ty),
-            crate::module_codegen::AbiReturn::IndirectOut(_)
-        ) {
-            let ptr = self
-                .builder
-                .build_alloca(value_ty, "tagged.union.tmp")
-                .map_err(|_| self.error(span, "failed to allocate tagged union value"))?;
-            if !self.emit_aggregate_literal_into(ptr, value)?
-                && !self.emit_aggregate_call_result_into(ptr, value)?
-            {
-                let emitted = self.emit_expr(value)?;
-                self.builder
-                    .build_store(ptr, emitted)
-                    .map_err(|_| self.error(span, "failed to store tagged union value"))?;
-            }
-            return Ok(TaggedUnionOperand::Storage { ty: value_ty, ptr });
+        .map_err(|_| self.error(span, "failed to address tuple field"))
+    }
+
+    /// The address of the payload of the optional or error union at `ptr`.
+    fn tagged_union_payload_addr(
+        &self,
+        span: Span,
+        tagged_ty: InternedTyId,
+        ptr: PointerValue<'ctx>,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        let ty = self.module.llvm_basic_type(tagged_ty, span)?;
+        unsafe {
+            self.builder
+                .build_struct_gep(ty, ptr, 1, "tagged.payload.ptr")
         }
-        self.emit_expr(value)?
-            .into_struct_value()
-            .map(TaggedUnionOperand::Value)
-            .map_err(|_| self.error(span, "tagged union value is not a struct"))
+        .map_err(|_| self.error(span, "failed to address tagged union payload"))
     }
 
     fn load_tagged_union_tag(
-        &mut self,
+        &self,
         span: Span,
-        aggregate: TaggedUnionOperand<'ctx>,
+        tagged_ty: InternedTyId,
+        ptr: PointerValue<'ctx>,
         name: &str,
     ) -> Result<IntValue<'ctx>, Diagnostic> {
-        match aggregate {
-            TaggedUnionOperand::Value(value) => self
-                .builder
-                .build_extract_value(value, 0, name)
-                .map_err(|_| self.error(span, "failed to extract tagged union tag"))?
-                .into_int_value()
-                .map_err(|_| self.error(span, "tagged union tag is not an integer")),
-            TaggedUnionOperand::Storage { ty, ptr } => {
-                let tag_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 0, name) }
-                    .map_err(|_| self.error(span, "failed to address tagged union tag"))?;
-                self.builder
-                    .build_load(self.module.context.i8_type(), tag_ptr, name)
-                    .map_err(|_| self.error(span, "failed to load tagged union tag"))?
-                    .into_int_value()
-                    .map_err(|_| self.error(span, "tagged union tag is not an integer"))
-            }
-        }
-    }
-
-    fn load_tagged_union_payload(
-        &mut self,
-        span: Span,
-        aggregate: TaggedUnionOperand<'ctx>,
-        aggregate_ty: InternedTyId,
-        payload_ty: InternedTyId,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        match aggregate {
-            TaggedUnionOperand::Value(value) => self.load_tagged_union_payload_from_value(
-                span,
-                value.into(),
-                aggregate_ty,
-                payload_ty,
-            ),
-            TaggedUnionOperand::Storage { ty, ptr } => {
-                let payload_ptr = unsafe {
-                    self.builder
-                        .build_struct_gep(ty, ptr, 1, "tagged.payload.ptr")
-                }
-                .map_err(|_| self.error(span, "failed to address tagged union payload"))?;
-                let payload_ty = self.module.llvm_basic_type(payload_ty, span)?;
-                self.builder
-                    .build_load(payload_ty, payload_ptr, "tagged.payload")
-                    .map_err(|_| self.error(span, "failed to load tagged union payload"))
-            }
-        }
-    }
-
-    fn load_tagged_union_payload_from_value(
-        &mut self,
-        span: Span,
-        tagged_value: BasicValueEnum<'ctx>,
-        tagged_ty: InternedTyId,
-        payload_ty: InternedTyId,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let tagged_ty = self.module.llvm_basic_type(tagged_ty, span)?;
-        let tagged_ptr = self
-            .builder
-            .build_alloca(tagged_ty, "tagged.payload.copy")
-            .map_err(|_| self.error(span, "failed to allocate tagged union payload copy"))?;
+        let ty = self.module.llvm_basic_type(tagged_ty, span)?;
+        let tag_ptr = unsafe { self.builder.build_struct_gep(ty, ptr, 0, name) }
+            .map_err(|_| self.error(span, "failed to address tagged union tag"))?;
         self.builder
-            .build_store(tagged_ptr, tagged_value)
-            .map_err(|_| self.error(span, "failed to store tagged union payload copy"))?;
-        let payload_ptr = unsafe {
-            self.builder
-                .build_struct_gep(tagged_ty, tagged_ptr, 1, "tagged.payload.ptr")
-        }
-        .map_err(|_| self.error(span, "failed to build tagged union payload address"))?;
-        let payload_llvm_ty = self.module.llvm_basic_type(payload_ty, span)?;
-        self.builder
-            .build_load(payload_llvm_ty, payload_ptr, "tagged.payload")
-            .map_err(|_| self.error(span, "failed to load tagged union payload"))
+            .build_load(self.module.context.i8_type(), tag_ptr, name)
+            .map_err(|_| self.error(span, "failed to load tagged union tag"))?
+            .into_int_value()
+            .map_err(|_| self.error(span, "tagged union tag is not an integer"))
     }
 
     fn is_integer_like(&self, ty: InternedTyId) -> bool {

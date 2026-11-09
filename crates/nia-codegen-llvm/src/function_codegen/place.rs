@@ -16,31 +16,6 @@ use nia_ty::TyKind;
 use super::FunctionCodegen;
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
-    pub(super) fn emit_addr_of_if_place(
-        &mut self,
-        expr: &FunctionExpr,
-    ) -> Result<Option<PointerValue<'ctx>>, Diagnostic> {
-        let is_nonvolatile_place = match &expr.kind {
-            FunctionExprKind::Global(_)
-            | FunctionExprKind::Local(_)
-            | FunctionExprKind::Field { .. }
-            | FunctionExprKind::Index { .. } => true,
-            FunctionExprKind::Unary {
-                op: nia_ast::UnaryOp::Deref,
-                expr: pointer,
-            } => !matches!(
-                self.module.ty_kind(pointer.ty),
-                Some(TyKind::VolatilePointer { .. })
-            ),
-            _ => false,
-        };
-        if is_nonvolatile_place {
-            self.emit_addr_of(expr).map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-
     pub(super) fn emit_addr_of(
         &mut self,
         expr: &FunctionExpr,
@@ -48,6 +23,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match &expr.kind {
             FunctionExprKind::AddrOf(place) => self.emit_typed_place_addr(place),
             FunctionExprKind::Global(_)
+            | FunctionExprKind::GlobalInstance { .. }
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
@@ -77,6 +53,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .get(def_id)
                 .map(|global| global.as_pointer_value())
                 .ok_or_else(|| self.error(span, "missing global value")),
+            FunctionExprKind::GlobalInstance {
+                def_id,
+                arg_module_id,
+                args,
+                const_args,
+            } => self
+                .module
+                .global_instances
+                .get(&(*def_id, *arg_module_id, args.clone(), const_args.clone()))
+                .map(|global| global.as_pointer_value())
+                .ok_or_else(|| self.error(span, "missing global instance value")),
             FunctionExprKind::Local(local_id) => self.local_addr(*local_id, span),
             FunctionExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
@@ -103,23 +90,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::AddrOf(place) => self.emit_typed_place_addr(place),
             _ => Err(self.error(span, "expression is not a place")),
         }
-    }
-
-    fn emit_value_temp_addr(
-        &mut self,
-        expr: &FunctionExpr,
-        name: &str,
-    ) -> Result<PointerValue<'ctx>, Diagnostic> {
-        let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
-        let ptr = self
-            .builder
-            .build_alloca(ty, name)
-            .map_err(|_| self.error(expr.span, "failed to allocate value temporary"))?;
-        let value = self.emit_expr(expr)?;
-        self.builder
-            .build_store(ptr, value)
-            .map_err(|_| self.error(expr.span, "failed to store value temporary"))?;
-        Ok(ptr)
     }
 
     fn module_field_base_type(
@@ -284,17 +254,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         lhs: &FunctionExpr,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
-        match &lhs.kind {
-            FunctionExprKind::Global(_)
-            | FunctionExprKind::Local(_)
-            | FunctionExprKind::Unary {
-                op: nia_ast::UnaryOp::Deref,
-                ..
-            }
-            | FunctionExprKind::Field { .. }
-            | FunctionExprKind::Index { .. } => self.emit_place_addr(lhs.span, lhs),
-            _ => self.emit_value_temp_addr(lhs, "arraytmp"),
-        }
+        self.emit_memory_operand(lhs)
     }
 
     pub(super) fn emit_static_array_pointer(
@@ -556,17 +516,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok((ty, ptr))
             }
             _ => {
-                let ptr = match &expr.kind {
-                    FunctionExprKind::Global(_)
-                    | FunctionExprKind::Local(_)
-                    | FunctionExprKind::Unary {
-                        op: nia_ast::UnaryOp::Deref,
-                        ..
-                    }
-                    | FunctionExprKind::Field { .. }
-                    | FunctionExprKind::Index { .. } => self.emit_addr_of(expr)?,
-                    _ => self.emit_value_temp_addr(expr, "aggregatetmp")?,
-                };
+                let ptr = self.emit_memory_operand(expr)?;
                 let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
                 Ok((ty, ptr))
             }
