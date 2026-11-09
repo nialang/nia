@@ -19,6 +19,8 @@ pub struct Options {
     pub compiler: PathBuf,
     /// Resource root passed to the compiler.
     pub resource_root: PathBuf,
+    /// Source checkout from which the measured compiler was built.
+    pub compiler_source_root: PathBuf,
     /// JSON output path.
     pub output: PathBuf,
     /// Number of samples per workload.
@@ -37,6 +39,7 @@ impl Options {
         Self {
             compiler: super::repository_compiler(root),
             resource_root: root.join("lib"),
+            compiler_source_root: root.to_owned(),
             output: root.join("target/nia-perf/baseline.json"),
             repeat: 1,
             build_compiler: true,
@@ -375,16 +378,22 @@ fn require_codegen_bucket_instrumentation(
     let permits = integer_counter(report, "llvm.memory_permits");
     let lanes = integer_counter(report, "llvm.worker_lanes");
     let submissions = integer_counter(report, "llvm.ready_task_submissions");
-    let valid = units.is_some_and(|value| value >= minimum_units)
-        && permits.is_some_and(|value| value >= minimum_units)
-        && lanes.is_some_and(|value| value >= 1 && units.is_some_and(|units| value <= units))
-        && submissions.is_some_and(|value| Some(value) == units);
+    // Native emission adds one synchronous compiler-builtins unit after the
+    // readiness tasks finish. Every unit must still acquire a memory permit;
+    // cached work products do not, so they cannot pass this cold-path check.
+    let valid = submissions.is_some_and(|value| value >= minimum_units)
+        && units
+            .is_some_and(|units| submissions.and_then(|value| value.checked_add(1)) == Some(units))
+        && permits == units
+        && lanes.is_some_and(|value| {
+            value >= 1 && submissions.is_some_and(|submissions| value <= submissions)
+        });
     if !valid {
-        return Err(
+        return Err(format!(
             "codegen bucket timing report did not compile the required LLVM units through the \
-             live ready-task path"
-                .to_owned(),
-        );
+             live ready-task path: units={units:?}, permits={permits:?}, \
+             lanes={lanes:?}, submissions={submissions:?}, minimum={minimum_units}"
+        ));
     }
     Ok(())
 }
@@ -428,20 +437,16 @@ fn require_synthetic_scale_instrumentation(
     let query_executions = integer_counter(report, "query.executions");
     let checked_bodies = integer_counter(report, "compiler.checked_bodies");
     let reachable_bodies = integer_counter(report, "compiler.reachable_bodies");
-    let llvm_units = integer_counter(report, "llvm.units");
-    let ready_submissions = integer_counter(report, "llvm.ready_task_submissions");
     let valid = loaded_modules.is_some_and(|value| value > module_count)
         && query_executions.is_some_and(|value| value > module_count)
         && checked_bodies.is_some_and(|value| value >= module_count)
-        && reachable_bodies.is_some_and(|value| value >= module_count)
-        && llvm_units.is_some_and(|value| value >= module_count)
-        && ready_submissions.is_some_and(|value| Some(value) == llvm_units);
+        && reachable_bodies.is_some_and(|value| value >= module_count);
     if !valid {
         return Err(format!(
             "synthetic {module_count}-module timing report did not retain the required module, query, body, and LLVM-unit counters"
         ));
     }
-    Ok(())
+    require_codegen_bucket_instrumentation(report, module_count)
 }
 
 fn command_label(root: &Path, value: &str) -> String {
@@ -642,7 +647,16 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
             unknown.into_iter().collect::<Vec<_>>().join(", ")
         ));
     }
-    let toolchain = toolchain_identity(root, &compiler, &resource_root)?;
+    let source_root = options
+        .compiler_source_root
+        .canonicalize()
+        .map_err(|error| {
+            format!(
+                "compiler source root is invalid: {}: {error}",
+                options.compiler_source_root.display()
+            )
+        })?;
+    let toolchain = toolchain_identity(&source_root, &compiler, &resource_root)?;
     let mut results = Vec::new();
     for iteration in 0..options.repeat {
         for name in &selected {
@@ -664,8 +678,8 @@ pub fn run(root: &Path, options: &Options) -> MaintainResult<()> {
 
     let compiler_built_by_baseline = options.build_compiler && compiler == default_compiler;
     let git = Path::new("git");
-    let revision = command_output(root, git, &["rev-parse", "HEAD"]);
-    let dirty = command_output(root, git, &["status", "--porcelain"]).is_some();
+    let revision = command_output(&source_root, git, &["rev-parse", "HEAD"]);
+    let dirty = command_output(&source_root, git, &["status", "--porcelain"]).is_some();
     let version = command_output(root, &compiler, &["--version"]);
     let baseline = json!({
         "compiler": {
@@ -797,17 +811,17 @@ mod tests {
     #[test]
     fn validates_live_codegen_bucket_path() {
         let valid = report(json!({
-            "llvm.units": 4,
-            "llvm.memory_permits": 4,
+            "llvm.units": 5,
+            "llvm.memory_permits": 5,
             "llvm.worker_lanes": 2,
             "llvm.ready_task_submissions": 4,
         }));
         assert!(require_codegen_bucket_instrumentation(&valid, 4).is_ok());
         let cached = report(json!({
-            "llvm.units": 4,
+            "llvm.units": 5,
             "llvm.memory_permits": 4,
             "llvm.worker_lanes": 2,
-            "llvm.ready_task_submissions": 3,
+            "llvm.ready_task_submissions": 4,
         }));
         assert!(require_codegen_bucket_instrumentation(&cached, 4).is_err());
     }
@@ -824,8 +838,8 @@ mod tests {
         let executable = report(json!({
             "compiler.checked_bodies": 82,
             "query.executions": 17_330,
-            "llvm.units": 35,
-            "llvm.memory_permits": 35,
+            "llvm.units": 36,
+            "llvm.memory_permits": 36,
             "llvm.worker_lanes": 3,
             "llvm.ready_task_submissions": 35,
         }));
@@ -839,7 +853,9 @@ mod tests {
             "query.executions": 20_000,
             "compiler.checked_bodies": 120,
             "compiler.reachable_bodies": 110,
-            "llvm.units": 108,
+            "llvm.units": 109,
+            "llvm.memory_permits": 109,
+            "llvm.worker_lanes": 3,
             "llvm.ready_task_submissions": 108,
         }));
         assert!(require_synthetic_scale_instrumentation(&valid, 100).is_ok());
@@ -850,6 +866,8 @@ mod tests {
             "compiler.checked_bodies",
             "compiler.reachable_bodies",
             "llvm.units",
+            "llvm.memory_permits",
+            "llvm.worker_lanes",
             "llvm.ready_task_submissions",
         ] {
             let mut incomplete = valid.clone();
@@ -889,6 +907,24 @@ mod tests {
     #[test]
     fn rejects_malformed_or_incomplete_codegen_bucket_counters() {
         for counters in [
+            json!({
+                "llvm.units": 4,
+                "llvm.memory_permits": 4,
+                "llvm.worker_lanes": 2,
+                "llvm.ready_task_submissions": 4,
+            }),
+            json!({
+                "llvm.units": 5,
+                "llvm.memory_permits": 5,
+                "llvm.worker_lanes": 5,
+                "llvm.ready_task_submissions": 4,
+            }),
+            json!({
+                "llvm.units": 5,
+                "llvm.memory_permits": 5,
+                "llvm.worker_lanes": 2,
+                "llvm.ready_task_submissions": 3,
+            }),
             json!({
                 "llvm.units": 1,
                 "llvm.memory_permits": 1,

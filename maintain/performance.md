@@ -31,6 +31,13 @@ cargo maintain baseline compiler --repeat 3 \
 promise that every hosted machine has the same CPU. Local runs should omit it.
 CPU model and effective resource limits remain part of the compatibility check.
 
+CI builds the comparison revision in a separate checkout, then measures both
+compilers with the candidate revision's maintenance runner and workload sources.
+The reference invocation supplies `--no-build`, `--compiler`, `--resource-root`,
+and `--compiler-source-root` explicitly. The last option attributes source
+revision and dirty state to the measured compiler's checkout rather than the
+runner's checkout; each compiler uses its own standard library and runtime.
+
 Every compiler and build report records the full Git revision and dirty state;
 resolved paths and version output for Rust, Cargo, `llvm-config`, and the linker
 selected through the compiler's native link policy (`NIA_LINKER`, then
@@ -68,7 +75,10 @@ Source-volume records include the generated source byte count, so size effects
 are not inferred from workload names. The object-codegen workloads are rejected
 unless every emitted unit was submitted through the live readiness path and
 the minimum unit count is met, so their CPU/RSS trends cannot silently become
-single-unit, cache-hit, linker, or synchronous-fallback measurements. Reports
+single-unit, cache-hit, linker, or synchronous-fallback measurements. The
+compiler-builtins unit is emitted synchronously after the readiness tasks; the
+total must equal the task submissions plus that one unit, and every unit must
+acquire a memory permit. Reports
 record bounded LLVM worker lanes and live ready-task submissions separately
 from stable unit count; one lane may consume several units without coarsening
 their work-product identities. Each synthetic sample is rejected unless its

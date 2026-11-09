@@ -204,8 +204,11 @@ fn performance_workflow_uses_rust_baselines_and_preserves_evidence() {
     for command in [
         "github.event.pull_request.base.sha || github.event.before",
         "git worktree add --detach",
+        "Build reference compiler",
         "Collect reference baseline on this runner",
-        "working-directory: ${{ steps.main_baseline.outputs.source }}",
+        "--compiler \"${{ steps.main_baseline.outputs.source }}/target/release/nia\"",
+        "--resource-root \"${{ steps.main_baseline.outputs.source }}/lib\"",
+        "--compiler-source-root \"${{ steps.main_baseline.outputs.source }}\"",
         "reference.json",
         "reference.log",
     ] {
@@ -215,6 +218,19 @@ fn performance_workflow_uses_rust_baselines_and_preserves_evidence() {
         );
     }
     assert!(!workflow.contains("gh run download"));
+    let reference = workflow
+        .split("      - name: Collect reference baseline on this runner\n")
+        .nth(1)
+        .unwrap()
+        .split("      - name:")
+        .next()
+        .unwrap();
+    assert!(!reference.contains("working-directory:"));
+    assert!(reference.contains("--no-build"));
+    assert!(
+        workflow.find("Build reference compiler")
+            < workflow.find("Collect reference baseline on this runner")
+    );
     assert!(
         workflow.find("Collect reference baseline on this runner")
             < workflow.find("Collect candidate baseline")

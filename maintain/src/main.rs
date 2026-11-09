@@ -127,6 +127,10 @@ fn compiler_baseline_command(arguments: &[String]) -> MaintainResult<()> {
             "--resource-root" => {
                 options.resource_root = PathBuf::from(take_value(arguments, &mut index, option)?)
             }
+            "--compiler-source-root" => {
+                options.compiler_source_root =
+                    PathBuf::from(take_value(arguments, &mut index, option)?)
+            }
             "--output" => {
                 options.output = PathBuf::from(take_value(arguments, &mut index, option)?)
             }

@@ -108,12 +108,20 @@ jobs:
           echo "path=${GITHUB_WORKSPACE}/target/nia-perf/reference.json" >> "${GITHUB_OUTPUT}"
           echo "available=true" >> "${GITHUB_OUTPUT}"
 
-      - name: Collect reference baseline on this runner
+      - name: Build reference compiler
         if: steps.main_baseline.outputs.available == 'true'
         working-directory: ${{ steps.main_baseline.outputs.source }}
+        run: cargo build --release -p nia-cli --features perf-alloc
+
+      - name: Collect reference baseline on this runner
+        if: steps.main_baseline.outputs.available == 'true'
         run: |
           set -o pipefail
           cargo maintain baseline compiler \
+            --no-build \
+            --compiler "${{ steps.main_baseline.outputs.source }}/target/release/nia" \
+            --resource-root "${{ steps.main_baseline.outputs.source }}/lib" \
+            --compiler-source-root "${{ steps.main_baseline.outputs.source }}" \
             --repeat 3 \
             --runner-class github-hosted-ubuntu-24.04-x64 \
             --output "${{ steps.main_baseline.outputs.path }}" \
