@@ -483,7 +483,7 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
             pre_link: self.pre_link,
             target: self.target_identity.map(Arc::unwrap_or_clone),
             modules: self.outputs,
-            linker_visible_symbols: lto_linker_visible_symbols(&index),
+            linker_visible_symbols: lto_linker_visible_symbols(&index, builtin_symbols),
             diagnostics,
         })
     }
@@ -646,8 +646,18 @@ pub fn emit_lto_modules(
     orchestration::emit_lto_modules(lowering, type_store, session, options, pre_link, cache)
 }
 
-fn lto_linker_visible_symbols(index: &ProgramIndex) -> Vec<String> {
-    let mut symbols = Vec::new();
+// Exported Nia definitions, plus the compiler builtins that code generation
+// itself references. LTO sees no IR reference to a builtin such as `_fltused`
+// or `__udivdi3`, so without this it would drop the definition that the
+// objects it emits still need.
+fn lto_linker_visible_symbols(
+    index: &ProgramIndex,
+    builtins: compiler_builtins::CompilerBuiltinSymbols,
+) -> Vec<String> {
+    let mut symbols = builtins
+        .external_definitions()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     for module_id in index.module_ids() {
         let Some(module) = index.module(*module_id) else {
             continue;

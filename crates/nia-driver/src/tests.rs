@@ -135,8 +135,9 @@ fn driver_exposes_loader_owned_recursive_source_manifest() {
     );
 }
 
+// Runs on every host: on Windows the floating-point use makes code generation
+// reference `_fltused`, a compiler builtin that LTO must keep for the linker.
 #[test]
-#[cfg(unix)]
 fn lto_modes_link_and_run_a_freestanding_executable() {
     let root = common::temp_dir("lto-freestanding-executable");
     let source = root.join("main.nia");
@@ -167,10 +168,15 @@ fun clearAndRead(index: usize) u8 {
     bytes[index]
 }
 
+fun half(count: usize) f64 {
+    count as f64 / 2.0
+}
+
 pub fun main(init: process::Init) process::ExitCode!() {
     if helper0() + helper1() + helper2() + helper3()
         + helper4() + helper5() + helper6() + generic::identity[i32](1) != 22
         or clearAndRead(init.argc() % 256) != 0
+        or half(init.argc() * 2) != init.argc() as f64
     {
         return process::ExitCode(9)!;
     }
@@ -184,7 +190,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         ("thin", crate::LinkTimeOptimization::Thin),
         ("full", crate::LinkTimeOptimization::Full),
     ] {
-        let output = root.join(format!("{name}-runner"));
+        let output = root.join(format!("{name}-runner{}", std::env::consts::EXE_SUFFIX));
         let artifact = driver
             .link_executable(
                 crate::LinkExecutableRequest::new(

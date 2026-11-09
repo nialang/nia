@@ -342,7 +342,7 @@ pub(super) fn emit_lto_modules(
                 pre_link,
                 target: Some(Arc::unwrap_or_clone(target_identity)),
                 modules: Vec::new(),
-                linker_visible_symbols: lto_linker_visible_symbols(&index),
+                linker_visible_symbols: lto_linker_visible_symbols(&index, builtin_symbols),
                 diagnostics: vec![nia_diagnostic::Diagnostic::from(ice)],
             };
         }
@@ -370,7 +370,7 @@ pub(super) fn emit_lto_modules(
         pre_link,
         target: Some(Arc::unwrap_or_clone(target_identity)),
         modules,
-        linker_visible_symbols: lto_linker_visible_symbols(&index),
+        linker_visible_symbols: lto_linker_visible_symbols(&index, builtin_symbols),
         diagnostics,
     }
 }
