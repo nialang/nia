@@ -44,6 +44,7 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
 | `std::source` | `SourceLocation` and `callerLocation` |
 | `std::string` | Owned Unicode text (`String`) and text utilities |
 | `std::test` | Assertions, an explicit in-process test runner, and `FailingAllocator` fault injection |
+| `std::time` | Monotonic `Instant` readings and `Duration` spans for measuring elapsed time |
 | `std::unicode` | UTF-8 decoding and scalar-value validation |
 
 ## Conventions

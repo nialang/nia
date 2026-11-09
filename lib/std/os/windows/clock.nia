@@ -1,0 +1,16 @@
+using root::os::windows::bindings::{
+    QueryPerformanceCounter,
+    QueryPerformanceFrequency,
+};
+
+// Nanoseconds on the performance counter.
+pub fun monotonicNanos() u64 {
+    let mut count: i64 = 0;
+    let mut frequency: i64 = 0;
+    _ = QueryPerformanceCounter(&mut count);
+    _ = QueryPerformanceFrequency(&mut frequency);
+    let ticks = count as u64;
+    let perSecond = frequency as u64;
+    // Whole seconds and the remainder scale separately, so neither overflows.
+    ticks / perSecond * 1000000000 + ticks % perSecond * 1000000000 / perSecond
+}

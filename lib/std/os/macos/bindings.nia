@@ -39,6 +39,8 @@ pub extern fun getcwd(buffer: &mut u8, length: usize) &mut u8;
 pub extern fun mmap(address: usize, length: usize, protection: i32, flags: i32, fd: i32, offset: i64) &mut u8;
 pub extern fun munmap(address: &mut u8, length: usize) i32;
 pub extern fun getentropy(buffer: &mut u8, length: usize) i32;
+// Returns 0 only for an unknown clock.
+pub extern fun clock_gettime_nsec_np(clock: u32) u64;
 pub(root) extern fun __error() &mut i32;
 pub extern fun exit(code: i32) ();
 

@@ -133,6 +133,11 @@ pub fun random(bytes: &mut [u8]) Error!() {
     !(platform::random(bytes).?)
 }
 
+// Nanoseconds since an unspecified point on a clock that never goes back.
+pub fun monotonicNanos() u64 {
+    platform::monotonicNanos()
+}
+
 
 extend OpenMode {
     fun asPlatformOpenMode(self) Error!platform::OpenMode {

@@ -24,6 +24,8 @@ pub const mkdirat: usize = 296;
 pub const unlinkat: usize = 301;
 pub const renameat: usize = 302;
 pub const pipe2: usize = 331;
+// clock_gettime64: the 32-bit clock_gettime uses a 32-bit tv_sec.
+pub const clock_gettime: usize = 403;
 pub const getrandom: usize = 355;
 pub const statx: usize = 383;
 

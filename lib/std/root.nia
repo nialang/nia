@@ -36,6 +36,7 @@ pub module slice;
 pub module source;
 pub module string;
 pub module test;
+pub module time;
 pub module unicode;
 
 pub using atomic::Atomic;

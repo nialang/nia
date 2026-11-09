@@ -1,0 +1,86 @@
+// Measuring elapsed time.
+//
+// `Instant` reads the operating system's monotonic clock: it never goes
+// backwards and is not affected by changes to the wall clock, so the
+// difference between two readings is the time that passed between them. A
+// reading means nothing on its own and cannot be compared across processes.
+//
+// | System | Clock |
+// | --- | --- |
+// | Linux | `CLOCK_MONOTONIC` |
+// | macOS | `CLOCK_UPTIME_RAW`, which stops while the system sleeps |
+// | Windows | `QueryPerformanceCounter` |
+
+using root::os;
+
+// A span of time with nanosecond resolution, at most about 584 years.
+pub struct Duration {
+    nanos: u64,
+}
+
+extend Duration {
+    pub const zero: Duration = .{ nanos: 0 };
+
+    pub fun fromNanos(nanos: u64) Duration {
+        .{ nanos }
+    }
+
+    pub fun fromMicros(micros: u64) Duration {
+        .{ nanos: micros * 1000 }
+    }
+
+    pub fun fromMillis(millis: u64) Duration {
+        .{ nanos: millis * 1000000 }
+    }
+
+    pub fun fromSeconds(seconds: u64) Duration {
+        .{ nanos: seconds * 1000000000 }
+    }
+
+    // The whole span in nanoseconds.
+    pub fun nanos(self) u64 {
+        self.nanos
+    }
+
+    // Whole microseconds, rounded down.
+    pub fun micros(self) u64 {
+        self.nanos / 1000
+    }
+
+    // Whole milliseconds, rounded down.
+    pub fun millis(self) u64 {
+        self.nanos / 1000000
+    }
+
+    // Whole seconds, rounded down.
+    pub fun seconds(self) u64 {
+        self.nanos / 1000000000
+    }
+
+    // The span in seconds, including the fraction.
+    pub fun secondsF64(self) f64 {
+        (self.nanos / 1000000000) as f64 + (self.nanos % 1000000000) as f64 / 1000000000.0
+    }
+}
+
+// A reading of the monotonic clock.
+pub struct Instant {
+    nanos: u64,
+}
+
+extend Instant {
+    pub fun now() Instant {
+        .{ nanos: os::monotonicNanos() }
+    }
+
+    // The time that passed from `earlier` to this reading, or zero when
+    // `earlier` is the later of the two.
+    pub fun durationSince(self, earlier: Instant) Duration {
+        if self.nanos > earlier.nanos { .{ nanos: self.nanos - earlier.nanos } } else { Duration::zero }
+    }
+
+    // The time that passed since this reading.
+    pub fun elapsed(self) Duration {
+        Instant::now().durationSince(self)
+    }
+}

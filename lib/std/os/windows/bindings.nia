@@ -149,6 +149,10 @@ pub extern fun FindClose(search: usize) i32;
 // ProcessPrng is the documented process random number generator; it always
 // succeeds and returns TRUE.
 pub extern fun ProcessPrng(buffer: &mut u8, length: usize) i32;
+// Both always succeed on supported Windows versions; the frequency is fixed
+// at boot.
+pub extern fun QueryPerformanceCounter(count: &mut i64) i32;
+pub extern fun QueryPerformanceFrequency(frequency: &mut i64) i32;
 pub extern fun ExitProcess(code: u32) ();
 pub extern fun WaitForSingleObject(handle: usize, milliseconds: u32) u32;
 pub extern fun GetExitCodeProcess(handle: usize, code: &mut u32) i32;

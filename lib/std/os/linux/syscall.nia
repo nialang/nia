@@ -7,6 +7,7 @@ using root::os::linux::aarch64::syscall as platform;
 
 pub using platform::{
     chdir,
+    clock_gettime,
     close,
     dup3,
     execve,

@@ -1,6 +1,7 @@
 pub(root) module fd;
 pub(root) module mem;
 pub(root) module process;
+pub(root) module clock;
 pub(root) module random;
 pub(root) module stat;
 pub module syscall;
@@ -170,6 +171,10 @@ pub fun unmapPages(ptr: &mut u8, len: usize) Errno!() {
 
 pub fun random(bytes: &mut [u8]) Errno!() {
     randomImpl::random(bytes)
+}
+
+pub fun monotonicNanos() u64 {
+    clock::monotonicNanos()
 }
 
 pub fun spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {

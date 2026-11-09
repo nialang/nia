@@ -1,0 +1,21 @@
+using root::builtin;
+using root::os::linux::syscall;
+
+const clockMonotonic: usize = 1;
+
+// The kernel's 64-bit `struct timespec`.
+struct Timespec {
+    seconds: i64,
+    nanoseconds: i64,
+}
+
+// Nanoseconds on `CLOCK_MONOTONIC`.
+pub fun monotonicNanos() u64 {
+    let mut now = Timespec { seconds: 0, nanoseconds: 0 };
+    let ret = syscall::syscall2(syscall::clock_gettime, clockMonotonic, &mut now as usize);
+    // The clock always exists and `now` is writable.
+    if ret < 0 {
+        builtin::trap();
+    }
+    now.seconds as u64 * 1000000000 + now.nanoseconds as u64
+}

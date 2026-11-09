@@ -24,6 +24,7 @@ pub const mkdirat: usize = 258;
 pub const unlinkat: usize = 263;
 pub const renameat: usize = 264;
 pub const pipe2: usize = 293;
+pub const clock_gettime: usize = 228;
 pub const getrandom: usize = 318;
 pub const statx: usize = 332;
 

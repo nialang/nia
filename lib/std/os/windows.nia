@@ -15,6 +15,7 @@ pub(root) module fd;
 pub(root) module mem;
 pub(root) module path;
 pub(root) module process;
+pub(root) module clock;
 pub(root) module random;
 pub(root) module stat;
 pub(root) module types;
@@ -78,6 +79,7 @@ pub using root::os::windows::process::{
     exit,
 };
 
+pub using root::os::windows::clock::monotonicNanos;
 pub using root::os::windows::random::{
     random,
 };

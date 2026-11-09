@@ -33,6 +33,8 @@ EXPORTS
     InitializeProcThreadAttributeList
     MoveFileExW
     MultiByteToWideChar
+    QueryPerformanceCounter
+    QueryPerformanceFrequency
     ReadFile
     RemoveDirectoryW
     SetFileAttributesW

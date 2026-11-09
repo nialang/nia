@@ -228,6 +228,11 @@ pub fun unmapPages(ptr: &mut u8, len: usize) Errno!() {
     if len == 0 { return .Invalid!; }
     checkZero(bindings::munmap(ptr, pageAlignedLen(len).?))
 }
+// Nanoseconds on `CLOCK_UPTIME_RAW`, which stops while the system sleeps.
+pub fun monotonicNanos() u64 {
+    bindings::clock_gettime_nsec_np(8)
+}
+
 pub fun random(bytes: &mut [u8]) Errno!() {
     let mut offset: usize = 0;
     while offset < bytes.len() {

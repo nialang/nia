@@ -9,5 +9,5 @@ using root::os::file;
 using root::os::process;
 using root::os::types;
 pub using types::{maxPathBytes, Error, SpawnError, SpawnStage, OpenMode, SeekWhence, StdIo, FileKind, Timestamp, FileMetadata, DirectoryEntry, DirectoryReader, FileHandle, ProcessId, WaitStatus, SpawnResult, SpawnAttempt, SpawnOptions};
-pub using file::{pageSize, pageAlignedLen, cwd, getCwd, openAt, openAtBeneath, createDirAtBeneath, deleteAtBeneath, renameAtBeneath, metadataAtBeneath, mapPages, unmapPages, random};
+pub using file::{pageSize, pageAlignedLen, cwd, getCwd, openAt, openAtBeneath, createDirAtBeneath, deleteAtBeneath, renameAtBeneath, metadataAtBeneath, mapPages, unmapPages, random, monotonicNanos};
 pub using process::{spawn, wait, tryWait, killWith, exit};
