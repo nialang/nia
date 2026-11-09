@@ -8,7 +8,8 @@ them: keeping pointers valid.
 Nia does not have a borrow checker, lifetimes, or a garbage collector. A
 pointer is a plain value, like an address in C. The type system tracks whether
 a pointer is read-only or writable and what it points to; it does not track
-how long the memory lives. That part is the program's job.
+how long the memory lives. That part is the program's job, apart from the
+plainest mistake, which the compiler rejects.
 
 ## Pointers
 
@@ -195,7 +196,8 @@ owns its memory through an allocator; [Memory](memory.md) shows how.
 ## Keeping Pointers Valid
 
 A pointer is valid while the memory it points to exists. Nia checks the type
-of every pointer but not this, so it is worth knowing where memory ends:
+of every pointer but in general not this, so it is worth knowing where memory
+ends:
 
 | Memory | Lives until |
 | --- | --- |
@@ -205,10 +207,10 @@ of every pointer but not this, so it is worth knowing where memory ends:
 | an element of a container | the container is freed, or grows and moves its elements |
 
 The most common mistake is returning the address of something that dies with
-the function. Both of these compile, and both return a pointer to memory that
-no longer exists:
+the function. Both of these would return a pointer to memory that no longer
+exists, so the compiler rejects them:
 
-```nia
+```nia rejected
 fun localAddress() &i32 {
     let value = 42;
     &value          // `value` ends when the function returns
@@ -217,6 +219,11 @@ fun localAddress() &i32 {
 fun badGreeting() &[char] {
     "hello"         // the literal is a temporary of this function
 }
+```
+
+```text
+error[E0301]: returned value points to local `value`, which does not outlive this call
+error[E0301]: returned value points to a string literal, which does not outlive this call
 ```
 
 Return the value itself, or keep the data somewhere that outlives the call:
@@ -233,9 +240,11 @@ fun greetingValue() [char; 5] {
 }
 ```
 
-The same applies to pointers kept in a struct or passed to code that stores
-them. The one place Nia does check lifetimes is closures, which the
-[closures chapter](closures.md) explains.
+The compiler follows such an address through locals, structs, optionals, and
+branches, and also rejects storing it in a `static` or in memory the caller
+passed in. It does not follow an address into a call, so a pointer handed to
+code that keeps it is still the program's responsibility. Closures get a wider
+check, which the [closures chapter](closures.md) explains.
 
 > **Coming from Rust:** there is nothing like a borrow checker. Read-only and
 > writable pointers can point to the same value at the same time. The design
@@ -296,8 +305,9 @@ vowels=1 reversed=smetsys matches=true
 - Arrays are values with a compile-time length; slices are pointer-and-length
   views; string literals are `char` arrays.
 - Indexing is unchecked; `get` is the checked alternative.
-- Nia does not track how long memory lives. Never return or keep a pointer to
-  a local or a temporary.
+- Nia does not track how long memory lives. Returning or storing the address
+  of a local or a temporary directly is rejected; keeping one through a call
+  is a bug the compiler does not see.
 
 The reference covers [pointers](../reference/language.md#pointers),
 [arrays](../reference/language.md#arrays), and

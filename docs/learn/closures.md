@@ -184,10 +184,11 @@ function that keeps it is an error:
 error[E0301]: stack-backed callable view cannot be returned; use it only while its closure state is live
 ```
 
-This is the only lifetime check in Nia; ordinary pointers are the program's
-responsibility, as the [pointers chapter](pointers-and-slices.md) explains.
-Closures get the check because their captures make dangling state easy to
-create without noticing. A callable that must outlive its frame needs an
+For ordinary pointers the compiler rejects only an address of a call's own
+storage that leaves the call directly, as the
+[pointers chapter](pointers-and-slices.md) explains. Closures get a wider check,
+which follows them into calls, because their captures make dangling state easy
+to create without noticing. A callable that must outlive its frame needs an
 explicit owner from a library, such as `mem::CallableAllocation`.
 
 ## Closures With Iterators

@@ -345,7 +345,8 @@ let first = pair.0 + single.0;
 | `^mut T` | writable volatile pointer |
 
 Pointers are plain values; Nia has no borrow checker and does not track
-lifetimes. Read-only and writable pointers are distinct types. `&mut T` is
+lifetimes. It rejects only the direct cases in which an address of a call's own
+storage outlives the call; see [Addresses Of A Call's Storage](#addresses-of-a-calls-storage). Read-only and writable pointers are distinct types. `&mut T` is
 accepted where `&T` is expected; every other pointer conversion is an explicit
 [cast](#casts). There is no pointer arithmetic: cast to `usize`, compute, and
 cast back.
@@ -354,9 +355,8 @@ When a value of type `T` is used where `&T` is expected, Nia takes its address
 implicitly, so `&` may be left out of arguments, initializers, returns, and
 method receivers. Any place or temporary value except a `never` expression can
 receive a read-only address this way; a temporary lives until the end of the
-enclosing block, as with an explicit `&`, so a function must not return the
-address of a temporary; returning a string literal as `&[char]` returns a
-pointer to storage that has already ended. Where `&mut T` is expected, the
+enclosing block, as with an explicit `&`. Returning a string literal as
+`&[char]` therefore returns the address of a temporary, which is rejected. Where `&mut T` is expected, the
 address is taken implicitly only from a writable place, never from a temporary
 or a read-only value. At most one `&` is added: a `T` never becomes a `&&T`.
 Idiomatic code relies on this and writes `&` or `&mut` only where a pointer is
@@ -395,6 +395,48 @@ fun write_reg(reg: ^mut u32, value: u32) {
 Taking the address of a value that is not a place, such as `&42i32` or
 `&make_point()`, creates a temporary that lives until the end of the enclosing
 block and yields a pointer to it. A `never` expression cannot be addressed.
+
+#### Addresses Of A Call's Storage
+
+A call's locals, by-value parameters, and temporaries end when it returns, and
+a temporary ends sooner, at the end of its block. An address of that storage
+must not outlive the call. The compiler rejects one that reaches:
+
+- the call's result or returned error, directly or inside an aggregate,
+  optional, or error union;
+- a `static`;
+- memory reached through a parameter, such as `out.* = &value` or
+  `out[0] = &value` where `out` points to the caller's storage.
+
+The address is followed through bindings, assignments, aggregates, pointer
+conversions, ranges over arrays, and branches, including a branch that returns
+early. Calls are not followed: their results are not assumed to point into the
+caller's storage, so `return find(&key)` is accepted. A value read through a
+pointer is not the pointer itself, so returning `holder.*.field` is accepted
+even when `holder` points to a local. Captured bindings live in closure state,
+which the caller holds, so a closure may return their addresses; its own
+locals and parameters follow the rule above. Addresses of zero-sized storage,
+such as `&[]` used as an empty slice, are exempt: nothing can be read through
+them.
+
+Storage that outlives the call is the caller's, reached through a parameter,
+or a `static`:
+
+```nia
+static greeting: [char; 5] = "hello";
+
+fun message() &[char] {
+    greeting
+}
+
+fun first(items: &[u8]) &u8 {
+    &items[0]
+}
+```
+
+Other ways of outliving the storage, such as passing an address to a function
+that keeps it, are not detected; see
+[Unchecked Operations And Traps](#unchecked-operations-and-traps).
 
 `opaque` is an incomplete type usable only as a pointer target: `&opaque`,
 `&mut opaque`, `^opaque`, `^mut opaque`. It has no values, fields, or
@@ -2430,7 +2472,9 @@ Unchecked: the program must guarantee validity, and violating it is undefined.
 - Dereferencing a pointer, including one produced by a cast or from an integer.
 - Reading a union field other than the one last written.
 - Reading uninitialized storage (`let x: T;`).
-- Letting a pointer outlive the storage it points to.
+- Letting a pointer outlive the storage it points to, other than in the direct
+  cases that are rejected (see
+  [Addresses Of A Call's Storage](#addresses-of-a-calls-storage)).
 
 Trapping at runtime:
 

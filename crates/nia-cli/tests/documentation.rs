@@ -8,6 +8,7 @@
 //! | ` ```nia ` | a complete source file |
 //! | ` ```nia fragment ` | statements, inside a function body |
 //! | ` ```nia continued ` | appended to the previous checked block of the file |
+//! | ` ```nia rejected ` | a complete source file that must fail to check |
 //! | ` ```nia ignore ` | not checked |
 //!
 //! A source that declares `pub fun main(init` is checked with the
@@ -50,6 +51,8 @@ const DOCUMENTS: [&str; 21] = [
 struct CheckedBlock {
     line: usize,
     source: String,
+    /// The block shows code the compiler rejects.
+    rejected: bool,
 }
 
 fn checked_blocks(markdown: &str, document: &str) -> Vec<CheckedBlock> {
@@ -72,6 +75,15 @@ fn checked_blocks(markdown: &str, document: &str) -> Vec<CheckedBlock> {
             }
             Some((start, mode, body)) => {
                 if trimmed == "```" {
+                    if mode == "rejected" {
+                        blocks.push(CheckedBlock {
+                            line: *start,
+                            source: std::mem::take(body),
+                            rejected: true,
+                        });
+                        open = None;
+                        continue;
+                    }
                     let source = match mode.as_str() {
                         "" => std::mem::take(body),
                         "fragment" => format!("fun fragment() {{\n{body}}}\n"),
@@ -88,6 +100,7 @@ fn checked_blocks(markdown: &str, document: &str) -> Vec<CheckedBlock> {
                     blocks.push(CheckedBlock {
                         line: *start,
                         source,
+                        rejected: false,
                     });
                     open = None;
                 } else {
@@ -125,7 +138,12 @@ fn check_document(document: &str) {
             .args(["check", "--runtime", runtime])
             .arg(&source)
             .output_timeout_for_compiler(&format!("check {document}:{}", block.line));
-        if !output.status.success() {
+        if block.rejected && output.status.success() {
+            failures.push(format!(
+                "{document}:{}: the block is marked `rejected` but checks",
+                block.line
+            ));
+        } else if !block.rejected && !output.status.success() {
             failures.push(format!(
                 "{document}:{}:\n{}",
                 block.line,

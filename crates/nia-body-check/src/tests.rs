@@ -14,4 +14,5 @@ mod matches_and_enums;
 mod methods;
 mod operators_globals_and_layout;
 mod source_facts;
+mod stack_escapes;
 mod tuples;

@@ -282,9 +282,18 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .filter_map(|param| self.local_def(&param.node_key))
             .collect();
+        let errors_before = self.error_count();
         let lowered = self.profile_stage("body_check.profile.function.lower_body", |this| {
             this.lower_body(body)
         });
+        // A body that failed to check, or whose signature did, has no reliable
+        // data flow to follow.
+        let signature_failed = std::iter::once(signature.return_type)
+            .chain(signature.params.iter().map(|param| param.ty))
+            .any(|ty| self.is_error_recovery_ty(ty));
+        if !signature_failed && self.error_count() == errors_before {
+            self.check_stack_address_escapes(&lowered);
+        }
         self.function_bodies
             .insert(global_def_id, Arc::new(lowered));
         self.store_function_facts(global_def_id);

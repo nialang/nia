@@ -734,6 +734,7 @@ dependencies = [
  "nia-const-ir",
  "nia-defs",
  "nia-diagnostic",
+ "nia-escape-check",
  "nia-flow-check",
  "nia-function-ir",
  "nia-hash",
@@ -851,19 +852,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nia-closure-check"
-version = "0.3.0-dev"
-dependencies = [
- "nia-ast",
- "nia-body-ir",
- "nia-diagnostic",
- "nia-ice",
- "nia-ids",
- "nia-span",
- "nia-ty",
-]
-
-[[package]]
 name = "nia-codegen-llvm"
 version = "0.3.0-dev"
 dependencies = [
@@ -921,12 +909,12 @@ dependencies = [
  "nia-backend-lower",
  "nia-body-check",
  "nia-body-ir",
- "nia-closure-check",
  "nia-compat",
  "nia-const-check",
  "nia-const-ir",
  "nia-defs",
  "nia-diagnostic",
+ "nia-escape-check",
  "nia-executable-facts",
  "nia-executable-reachability",
  "nia-flow-check",
@@ -1112,6 +1100,19 @@ dependencies = [
  "nia-ty",
  "serde_json",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "nia-escape-check"
+version = "0.3.0-dev"
+dependencies = [
+ "nia-ast",
+ "nia-body-ir",
+ "nia-diagnostic",
+ "nia-ice",
+ "nia-ids",
+ "nia-span",
+ "nia-ty",
 ]
 
 [[package]]

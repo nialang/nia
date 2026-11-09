@@ -1,5 +1,5 @@
 [package]
-name = "nia-closure-check"
+name = "nia-escape-check"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

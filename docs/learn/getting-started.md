@@ -317,8 +317,7 @@ The library holds the code worth sharing:
 // A public API shared by the executable and the test suite.
 
 // The text lives in static storage, so the slice that `greeting` returns
-// stays valid after the call. Returning the literal itself would point at a
-// temporary that ends with the function.
+// stays valid after the call.
 static greetingText: [char; 14] = "hello from nia";
 
 pub fun greeting() &[char] {
@@ -328,10 +327,12 @@ pub fun greeting() &[char] {
 
 `greeting` returns `&[char]`, a *slice*: a pointer to some characters plus
 their count. The characters must outlive the call, so they are kept in a
-`static`, which exists for the whole run of the program. Nia does not track
-how long memory lives; making sure a pointer stays valid is part of writing
-the program, and [Pointers, Arrays, And Slices](pointers-and-slices.md)
-explains what to watch for.
+`static`, which exists for the whole run of the program; returning the
+literal itself is rejected, because it is a temporary of the call. Beyond such
+direct cases Nia does not track how long memory lives; making sure a pointer
+stays valid is part of writing the program, and
+[Pointers, Arrays, And Slices](pointers-and-slices.md) explains what to watch
+for.
 
 The executable imports the library by the package's name:
 

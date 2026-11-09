@@ -1049,7 +1049,7 @@ pub(super) fn closure_safety_diagnostics(
 
 fn closure_support_modules(
     db: &QueryDb<CompilerContext>,
-    roots: &[nia_closure_check::ClosureCheckFunction<'_>],
+    roots: &[nia_escape_check::ClosureCheckFunction<'_>],
     checked_modules: &[Arc<CheckedModule>],
 ) -> QueryResult<(Vec<Arc<CheckedModule>>, HashSet<GlobalDefId>)> {
     let mut modules = checked_modules
@@ -1101,12 +1101,12 @@ fn closure_support_modules(
 pub(in crate::query) fn closure_safety_check(
     db: &QueryDb<CompilerContext>,
     checked_modules: &[Arc<CheckedModule>],
-) -> QueryResult<nia_closure_check::ClosureCheck> {
+) -> QueryResult<nia_escape_check::ClosureCheck> {
     let functions = checked_modules
         .iter()
         .flat_map(|module| {
             module.body_ir.function_bodies.iter().map(|(def_id, body)| {
-                nia_closure_check::ClosureCheckFunction {
+                nia_escape_check::ClosureCheckFunction {
                     def_id: *def_id,
                     body,
                 }
@@ -1116,12 +1116,12 @@ pub(in crate::query) fn closure_safety_check(
     let closure_modules = functions
         .iter()
         .filter(|function| {
-            nia_closure_check::contains_closure_constructs(std::slice::from_ref(function))
+            nia_escape_check::contains_closure_constructs(std::slice::from_ref(function))
         })
         .map(|function| function.def_id.module_id)
         .collect::<HashSet<_>>();
     if closure_modules.is_empty() {
-        return Ok(nia_closure_check::ClosureCheck {
+        return Ok(nia_escape_check::ClosureCheck {
             summaries: HashMap::new(),
             diagnostics: Vec::new(),
         });
@@ -1140,13 +1140,13 @@ pub(in crate::query) fn closure_safety_check(
                 .function_bodies
                 .iter()
                 .filter(|(def_id, _)| support_function_ids.contains(def_id))
-                .map(|(def_id, body)| nia_closure_check::ClosureCheckFunction {
+                .map(|(def_id, body)| nia_escape_check::ClosureCheckFunction {
                     def_id: *def_id,
                     body,
                 })
         })
         .collect::<Vec<_>>();
-    Ok(nia_closure_check::check_closure_safety_with_support(
+    Ok(nia_escape_check::check_closure_safety_with_support(
         &functions,
         &support_functions,
         &db.context().type_store,

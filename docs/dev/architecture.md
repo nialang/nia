@@ -661,7 +661,7 @@ crate-level rustdoc is the detailed reference.
 | `nia-static-check` | Validation of `static` initializers against relocatable static data. |
 | `nia-flow-check` | Syntax-level control-flow diagnostics. |
 | `nia-body-check` | Typed body checking producing semantic facts and `BodyIr`. |
-| `nia-closure-check` | Interprocedural escape analysis for closures and callable views. |
+| `nia-escape-check` | Escape analysis: closures and callable views across calls, and addresses of a function's own storage that outlive its call. |
 | `nia-pattern-analysis` | Pure usefulness and exhaustiveness analysis over pattern matrices. |
 | `nia-sema` | Shared validation helpers for array lengths, arity, and fields. |
 | **Declaration and resolution** | |

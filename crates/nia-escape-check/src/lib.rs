@@ -1,12 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Interprocedural escape analysis for closures and non-owning callable views.
+//! Escape analysis for values that point into a function's own storage.
 //!
-//! The analysis computes a finite, monotone summary for every source function
-//! and nested closure, then replays the bodies with the stable summaries to
-//! diagnose stack-backed callable views and closure states that capture local
-//! addresses. It deliberately does not model general pointer lifetimes.
+//! Two checks share one provenance engine:
+//!
+//! - Closure safety is interprocedural. It computes a finite, monotone summary
+//!   for every source function and nested closure, then replays the bodies
+//!   with the stable summaries to diagnose stack-backed callable views and
+//!   closure states that capture local addresses.
+//! - Stack address escapes are local to one body. They find addresses of the
+//!   body's own locals, by-value parameters, and temporaries that reach a
+//!   return, a `static`, or memory the caller owns through direct data flow.
+//!   A call is opaque here: its result carries no stack address and its
+//!   arguments do not escape, so every finding is a definite escape rather
+//!   than a possible one.
+//!
+//! Neither check models general pointer lifetimes.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use nia_body_ir::{
     PlaceBase, PlaceElem, TypedArrayElements, TypedAtomic, TypedBody, TypedCallee, TypedExpr,
@@ -15,7 +25,7 @@ use nia_body_ir::{
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ice::Ice;
-use nia_ids::{ClosureId, GlobalDefId, LocalId};
+use nia_ids::{ClosureId, GlobalDefId, InternedTyId, LocalId};
 use nia_span::Span;
 use nia_ty::{TyKind, TypeStore};
 
@@ -52,6 +62,97 @@ pub struct ClosureCheckDiagnostic {
     pub owner: GlobalDefId,
     /// The user-facing closure-safety diagnostic.
     pub diagnostic: Diagnostic,
+}
+
+/// Storage of the current call that an address points into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StackStorage {
+    /// A local binding or by-value parameter, including compiler-named
+    /// temporaries that lowering binds to locals.
+    Local(LocalId),
+    /// A temporary value addressed where it is produced.
+    Temporary,
+    /// A string or byte-string literal, which is an array value with no
+    /// static storage when evaluated in a function.
+    StringLiteral,
+}
+
+/// Where an address of the call's own storage goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StackEscapeSink {
+    /// It is returned, as the result or as an error.
+    Return,
+    /// It is stored in a `static`.
+    Static,
+    /// It is stored in memory reached through a parameter.
+    CallerMemory,
+}
+
+/// An address of a call's own storage that outlives the call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StackAddressEscape {
+    /// Where the address leaves the call.
+    pub sink: StackEscapeSink,
+    /// The return or store that lets it leave.
+    pub span: Span,
+    /// The expression that takes the address.
+    pub site: Span,
+    /// The storage it points into.
+    pub storage: StackStorage,
+}
+
+/// Finds addresses of the body's own storage that reach a return, a
+/// `static`, or memory the caller owns, in the body and in the closures it
+/// contains. Findings are ordered by position.
+pub fn stack_address_escapes(
+    body: &TypedBody,
+    type_store: &TypeStore,
+) -> Result<Vec<StackAddressEscape>, Ice> {
+    let params = body
+        .locals
+        .iter()
+        .filter(|local| matches!(local.kind, nia_body_ir::TypedLocalKind::Param))
+        .map(|local| local.id)
+        .collect();
+    let mut callables = vec![CallableBody {
+        captures: Vec::new(),
+        params,
+        body,
+    }];
+    let mut closures = HashMap::new();
+    collect_body_closures(body, &mut closures);
+    let mut closures = closures.into_iter().collect::<Vec<_>>();
+    closures.sort_by_key(|(key, _)| *key);
+    callables.extend(closures.into_iter().map(|(_, callable)| callable));
+
+    let summaries = HashMap::new();
+    let mut escapes = BTreeSet::new();
+    for callable in &callables {
+        let mut analyzer = Analyzer::new(type_store, &summaries, None);
+        analyzer.stack = Some(StackCheck::new(callable));
+        escapes.extend(analyzer.check_stack(callable)?);
+    }
+    let mut escapes = escapes.into_iter().collect::<Vec<_>>();
+    escapes.sort_by_key(|escape| (escape.span.start, escape.site.start, escape.sink));
+    Ok(escapes)
+}
+
+/// State of a stack address check over one callable body.
+struct StackCheck {
+    /// Captured bindings live in closure state, which the caller holds.
+    captures: HashSet<LocalId>,
+    local_types: HashMap<LocalId, InternedTyId>,
+    escapes: BTreeMap<(Span, Span), StackAddressEscape>,
+}
+
+impl StackCheck {
+    fn new(callable: &CallableBody<'_>) -> Self {
+        Self {
+            captures: callable.captures.iter().copied().collect(),
+            local_types: HashMap::new(),
+            escapes: BTreeMap::new(),
+        }
+    }
 }
 
 /// A typed source function supplied to closure escape analysis.
@@ -156,6 +257,8 @@ enum Provenance {
     Input(InputSource),
     StackAddress {
         scope_depth: usize,
+        storage: StackStorage,
+        site: Span,
     },
     CapturedInputAddress(InputSource),
     CapturedStackAddress {
@@ -523,6 +626,9 @@ struct Analyzer<'a> {
     defer_scopes: Vec<Vec<TypedExpr>>,
     dependencies: HashSet<CallableKey>,
     failure: Option<Ice>,
+    /// Set when the analyzer checks stack address escapes instead of
+    /// summarizing closure safety.
+    stack: Option<StackCheck>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -543,6 +649,124 @@ impl<'a> Analyzer<'a> {
             defer_scopes: Vec::new(),
             dependencies: HashSet::new(),
             failure: None,
+            stack: None,
+        }
+    }
+
+    /// Runs the stack address check over `callable`.
+    fn check_stack(mut self, callable: &CallableBody<'_>) -> Result<Vec<StackAddressEscape>, Ice> {
+        let tail = self.analyze_callable(callable);
+        let tail_span = callable
+            .body
+            .tail
+            .as_ref()
+            .map_or(callable.body.span, |tail| tail.span);
+        self.record_return(&tail, tail_span);
+        match (self.failure, self.stack) {
+            (Some(error), _) => Err(error),
+            (None, Some(check)) => Ok(check.escapes.into_values().collect()),
+            (None, None) => Ok(Vec::new()),
+        }
+    }
+
+    /// The storage of this call that `&expr` points into, or `None` when the
+    /// place is reached through a pointer, is static, or is not storage.
+    /// Zero-sized storage cannot be read through a pointer to it, so an
+    /// address of it never dangles in an observable way, as with `&[]`.
+    fn addressed_stack_storage(&self, expr: &TypedExpr) -> Option<StackStorage> {
+        if self.is_zero_sized(expr.ty) {
+            return None;
+        }
+        match &expr.kind {
+            TypedExprKind::Local(local_id) => {
+                let captured = self
+                    .stack
+                    .as_ref()
+                    .is_some_and(|check| check.captures.contains(local_id));
+                (!captured).then_some(StackStorage::Local(*local_id))
+            }
+            TypedExprKind::Field { lhs, .. } | TypedExprKind::TupleField { lhs, .. } => {
+                self.addressed_stack_storage(lhs)
+            }
+            // An index or slice of an array value stays in the array's
+            // storage; through a pointer or slice it reaches other storage.
+            TypedExprKind::Index { lhs, .. } | TypedExprKind::Slice { lhs, .. } => {
+                match self.type_store.get(lhs.ty) {
+                    Some(TyKind::Array { .. }) => self.addressed_stack_storage(lhs),
+                    _ => None,
+                }
+            }
+            TypedExprKind::String(_) | TypedExprKind::ByteString(_) => {
+                Some(StackStorage::StringLiteral)
+            }
+            TypedExprKind::Unary {
+                op: nia_ast::UnaryOp::Deref,
+                ..
+            }
+            | TypedExprKind::Error
+            | TypedExprKind::Global(_)
+            | TypedExprKind::StaticArrayPointer { .. }
+            | TypedExprKind::Function(_)
+            | TypedExprKind::EnumConstructor(_)
+            | TypedExprKind::FunctionInstance { .. }
+            | TypedExprKind::ClosureFunctionPointer { .. } => None,
+            _ => Some(StackStorage::Temporary),
+        }
+    }
+
+    /// Whether values of `ty` occupy no storage, judged structurally: empty
+    /// arrays and tuples, and arrays and tuples of such values.
+    fn is_zero_sized(&self, ty: InternedTyId) -> bool {
+        match self.type_store.get(ty) {
+            Some(TyKind::Array { elem, len }) => {
+                matches!(len, nia_ty::ArrayLenTy::ConstValue(0)) || self.is_zero_sized(*elem)
+            }
+            Some(TyKind::Tuple(elems)) => elems.iter().all(|elem| self.is_zero_sized(*elem)),
+            _ => false,
+        }
+    }
+
+    fn stack_address(&self, storage: StackStorage, site: Span) -> Provenance {
+        Provenance::StackAddress {
+            scope_depth: self.scope_depth,
+            storage,
+            site,
+        }
+    }
+
+    /// Projects origins for a read out of a value. A stack check reads the
+    /// pointee or element, not the address, so a pointer's own stack origin
+    /// does not survive the read.
+    fn project(&self, origins: Provenances, projection: AggregateProjection) -> Provenances {
+        let origins = if self.stack.is_some() {
+            origins
+                .into_iter()
+                .filter(|origin| !is_unstructured_stack_origin(origin))
+                .collect()
+        } else {
+            origins
+        };
+        project_origins(origins, projection)
+    }
+
+    fn report_stack_escape(&mut self, value: &Provenances, span: Span, sink: StackEscapeSink) {
+        let Some(check) = &mut self.stack else {
+            return;
+        };
+        let mut found = BTreeSet::new();
+        for origin in value {
+            direct_stack_addresses(origin, &mut found);
+        }
+        for (storage, site) in found {
+            check
+                .escapes
+                .entry((span, site))
+                .or_insert(StackAddressEscape {
+                    sink,
+                    span,
+                    site,
+                    storage,
+                });
         }
     }
 
@@ -555,6 +779,24 @@ impl<'a> Analyzer<'a> {
         mut self,
         callable: &CallableBody<'_>,
     ) -> Result<(CallableSummary, HashSet<CallableKey>), Ice> {
+        let tail = self.analyze_callable(callable);
+        self.record_return(&tail, callable.body.span);
+        let summary = CallableSummary {
+            returned_inputs: input_provenances(&self.returned, false),
+            returned_error_inputs: input_provenances(&self.returned_errors, false),
+            escaping_inputs: input_provenances(&self.escaped, false),
+            returned_captured_addresses: input_provenances(&self.returned, true),
+            returned_error_captured_addresses: input_provenances(&self.returned_errors, true),
+            escaping_captured_addresses: input_provenances(&self.escaped, true),
+        };
+        match self.failure {
+            Some(error) => Err(error),
+            None => Ok((summary, self.dependencies)),
+        }
+    }
+
+    /// Analyzes a callable body and returns the provenance of its tail.
+    fn analyze_callable(&mut self, callable: &CallableBody<'_>) -> ValueProvenance {
         // Captures and parameters enter as distinct input origins. The body
         // walk then propagates those origins through assignments, calls,
         // closures, and defers without needing a path-sensitive heap model.
@@ -575,20 +817,7 @@ impl<'a> Analyzer<'a> {
                 )])),
             );
         }
-        let tail = self.analyze_body_contents(callable.body, &mut env);
-        self.record_return(&tail, callable.body.span);
-        let summary = CallableSummary {
-            returned_inputs: input_provenances(&self.returned, false),
-            returned_error_inputs: input_provenances(&self.returned_errors, false),
-            escaping_inputs: input_provenances(&self.escaped, false),
-            returned_captured_addresses: input_provenances(&self.returned, true),
-            returned_error_captured_addresses: input_provenances(&self.returned_errors, true),
-            escaping_captured_addresses: input_provenances(&self.escaped, true),
-        };
-        match self.failure {
-            Some(error) => Err(error),
-            None => Ok((summary, self.dependencies)),
-        }
+        self.analyze_body_contents(callable.body, &mut env)
     }
 
     fn fail(&mut self, message: &'static str) {
@@ -602,6 +831,11 @@ impl<'a> Analyzer<'a> {
         body: &TypedBody,
         env: &mut Environment,
     ) -> ValueProvenance {
+        if let Some(check) = &mut self.stack {
+            check
+                .local_types
+                .extend(body.locals.iter().map(|local| (local.id, local.ty)));
+        }
         self.defer_scopes.push(Vec::new());
         for stmt in &body.stmts {
             match &stmt.kind {
@@ -887,12 +1121,17 @@ impl<'a> Analyzer<'a> {
             }
             TypedExprKind::Unary { op, expr: inner } => {
                 let mut value = self.analyze_expr(inner, env).all();
-                if matches!(op, nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly)
-                    && address_uses_stack_storage(inner)
-                {
-                    value.insert(Provenance::StackAddress {
-                        scope_depth: self.scope_depth,
-                    });
+                match op {
+                    nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly => {
+                        if let Some(storage) = self.addressed_stack_storage(inner) {
+                            value.insert(self.stack_address(storage, expr.span));
+                        }
+                    }
+                    // The pointee's value, not the pointer, is read.
+                    nia_ast::UnaryOp::Deref if self.stack.is_some() => {
+                        value.retain(|origin| !is_unstructured_stack_origin(origin));
+                    }
+                    _ => {}
                 }
                 ValueProvenance::from_value(value)
             }
@@ -965,15 +1204,16 @@ impl<'a> Analyzer<'a> {
             TypedExprKind::Index { lhs, index } => {
                 let lhs = self.analyze_expr(lhs, env).all();
                 self.analyze_expr(index, env);
-                ValueProvenance::from_value(project_origins(lhs, AggregateProjection::Element))
+                ValueProvenance::from_value(self.project(lhs, AggregateProjection::Element))
             }
             TypedExprKind::Assign { place, rhs, .. } => {
                 // Function lowering materializes the destination, including
                 // dereference and index expressions, before evaluating the
                 // right-hand side. Those expressions may mutate locals read by
                 // the RHS, so preserve the same order in provenance transfer.
-                self.analyze_place(place, env);
+                let target = self.analyze_place(place, env);
                 let value = self.analyze_expr(rhs, env);
+                self.report_stack_store(place, &target, &value, expr.span);
                 self.assign_place(place, &value, env, expr.span);
                 value
             }
@@ -990,19 +1230,22 @@ impl<'a> Analyzer<'a> {
             }
             TypedExprKind::Call { callee, args } => self.analyze_call(callee, args, expr, env),
             TypedExprKind::Field { lhs, field, .. } => {
-                ValueProvenance::from_value(project_origins(
-                    self.analyze_expr(lhs, env).all(),
-                    AggregateProjection::Field(*field),
-                ))
+                let lhs = self.analyze_expr(lhs, env).all();
+                ValueProvenance::from_value(self.project(lhs, AggregateProjection::Field(*field)))
             }
             TypedExprKind::TupleField { lhs, index } => {
-                ValueProvenance::from_value(project_origins(
-                    self.analyze_expr(lhs, env).all(),
-                    AggregateProjection::TupleField(*index),
-                ))
+                let lhs = self.analyze_expr(lhs, env).all();
+                ValueProvenance::from_value(
+                    self.project(lhs, AggregateProjection::TupleField(*index)),
+                )
             }
             TypedExprKind::Slice { lhs, range, .. } => {
                 let mut value = self.analyze_expr(lhs, env).all();
+                if matches!(self.type_store.get(lhs.ty), Some(TyKind::Array { .. }))
+                    && let Some(storage) = self.addressed_stack_storage(lhs)
+                {
+                    value.insert(self.stack_address(storage, expr.span));
+                }
                 if let Some(start) = &range.start {
                     value.extend(self.analyze_expr(start, env).all());
                 }
@@ -1316,6 +1559,18 @@ impl<'a> Analyzer<'a> {
                 operands.extend(args);
                 self.apply_unknown_call(&operands, call.span, call.ty)
             }
+            // Which storage a builtin trait method's result points into is
+            // decided by the implementation selected for the receiver type,
+            // which a generic body does not know. The stack check reports
+            // only definite escapes, so the call is opaque to it.
+            TypedCallee::BuiltinTraitMethodCall(nia_body_ir::BuiltinTraitMethodCall {
+                receiver,
+                ..
+            }) if self.stack.is_some() => {
+                self.analyze_expr(receiver, env);
+                self.analyze_call_args(args, env);
+                ValueProvenance::default()
+            }
             TypedCallee::BuiltinMethod { receiver, .. }
             | TypedCallee::BuiltinTraitMethodCall(nia_body_ir::BuiltinTraitMethodCall {
                 receiver,
@@ -1350,6 +1605,9 @@ impl<'a> Analyzer<'a> {
         return_ty: nia_ids::InternedTyId,
     ) -> ValueProvenance {
         self.dependencies.insert(key);
+        if self.stack.is_some() {
+            return ValueProvenance::default();
+        }
         // A known callable maps each summarized input slot back to the
         // caller's provenance. Escaping inputs are reported at the call site;
         // returned inputs remain in the value/error channels for outer flows.
@@ -1403,7 +1661,11 @@ impl<'a> Analyzer<'a> {
     ) -> ValueProvenance {
         // Without a summary, assume every argument may be retained and may be
         // returned. This is the sound fallback for indirect calls and prevents
-        // missing discovery edges from weakening closure diagnostics.
+        // missing discovery edges from weakening closure diagnostics. The
+        // stack check reports only definite escapes, so a call is opaque.
+        if self.stack.is_some() {
+            return ValueProvenance::default();
+        }
         let result = args.iter().cloned().fold(Provenances::new(), union);
         self.record_escape(&result, span, EscapeKind::Call);
         match self.type_store.get(return_ty) {
@@ -1487,11 +1749,49 @@ impl<'a> Analyzer<'a> {
         self.returned.extend(value.value.iter().cloned());
         self.returned_errors.extend(value.error.iter().cloned());
         self.report_escaping_state(&value.all(), span, EscapeKind::Return);
+        self.report_stack_escape(&value.all(), span, StackEscapeSink::Return);
     }
 
     fn record_error_return(&mut self, error: &Provenances, span: Span) {
         self.returned_errors.extend(error.iter().cloned());
         self.report_escaping_state(error, span, EscapeKind::Return);
+        self.report_stack_escape(error, span, StackEscapeSink::Return);
+    }
+
+    /// Reports a store of a stack address into storage that outlives the
+    /// call: a `static`, memory behind a pointer derived from a parameter,
+    /// or an element of a parameter slice or pointer.
+    fn report_stack_store(
+        &mut self,
+        place: &TypedPlace,
+        target: &Provenances,
+        value: &ValueProvenance,
+        span: Span,
+    ) {
+        let Some(check) = &self.stack else {
+            return;
+        };
+        let reaches_caller = target.iter().any(contains_input);
+        let sink = match &place.base {
+            PlaceBase::Global(_) => Some(StackEscapeSink::Static),
+            PlaceBase::Deref(_) if reaches_caller => Some(StackEscapeSink::CallerMemory),
+            PlaceBase::Local(local_id)
+                if reaches_caller
+                    && matches!(place.elems.first(), Some(PlaceElem::Index(_)))
+                    && check.local_types.get(local_id).is_some_and(|ty| {
+                        matches!(
+                            self.type_store.get(*ty),
+                            Some(TyKind::Pointer { .. } | TyKind::Slice { .. })
+                        )
+                    }) =>
+            {
+                Some(StackEscapeSink::CallerMemory)
+            }
+            _ => None,
+        };
+        if let Some(sink) = sink {
+            self.report_stack_escape(&value.all(), span, sink);
+        }
     }
 
     fn record_escape(&mut self, value: &Provenances, span: Span, kind: EscapeKind) {
@@ -1500,6 +1800,9 @@ impl<'a> Analyzer<'a> {
     }
 
     fn report_escaping_state(&mut self, value: &Provenances, span: Span, kind: EscapeKind) {
+        if self.stack.is_some() {
+            return;
+        }
         let Some(sink) = &mut self.diagnostics else {
             return;
         };
@@ -1674,7 +1977,7 @@ fn capture_address_origins(origins: Provenances) -> Provenances {
 fn capture_address_origin(origin: Provenance) -> Provenance {
     match origin {
         Provenance::Input(source) => Provenance::CapturedInputAddress(source),
-        Provenance::StackAddress { scope_depth } => {
+        Provenance::StackAddress { scope_depth, .. } => {
             Provenance::CapturedStackAddress { scope_depth }
         }
         Provenance::Aggregate { projection, origin } => Provenance::Aggregate {
@@ -1796,23 +2099,31 @@ fn closure_capture_origins(
         .collect()
 }
 
-fn address_uses_stack_storage(expr: &TypedExpr) -> bool {
-    match &expr.kind {
-        TypedExprKind::Local(_) => true,
-        TypedExprKind::Field { lhs, .. } | TypedExprKind::TupleField { lhs, .. } => {
-            address_uses_stack_storage(lhs)
+/// A stack address that a value holds directly or inside an aggregate, as
+/// opposed to one captured by closure state.
+fn direct_stack_addresses(origin: &Provenance, found: &mut BTreeSet<(StackStorage, Span)>) {
+    match origin {
+        Provenance::StackAddress { storage, site, .. } => {
+            found.insert((*storage, *site));
         }
-        TypedExprKind::Index { lhs, .. } => address_uses_stack_storage(lhs),
-        TypedExprKind::Unary {
-            op: nia_ast::UnaryOp::Deref,
-            ..
-        } => false,
-        TypedExprKind::Global(_)
-        | TypedExprKind::Function(_)
-        | TypedExprKind::EnumConstructor(_)
-        | TypedExprKind::FunctionInstance { .. }
-        | TypedExprKind::ClosureFunctionPointer { .. } => false,
-        _ => true,
+        Provenance::Aggregate { origin, .. } | Provenance::OpaqueAggregate { origin } => {
+            direct_stack_addresses(origin, found);
+        }
+        _ => {}
+    }
+}
+
+/// A stack address with no aggregate structure above it: the pointer value
+/// itself, or one lost in a widened aggregate.
+fn is_unstructured_stack_origin(origin: &Provenance) -> bool {
+    match origin {
+        Provenance::StackAddress { .. } => true,
+        Provenance::OpaqueAggregate { origin } => {
+            let mut found = BTreeSet::new();
+            direct_stack_addresses(origin, &mut found);
+            !found.is_empty()
+        }
+        _ => false,
     }
 }
 

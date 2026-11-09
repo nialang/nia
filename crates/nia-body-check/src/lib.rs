@@ -61,6 +61,7 @@ mod projection_uses;
 mod provider;
 mod semantic_facts;
 mod signature_scope;
+mod stack_escapes;
 mod statements;
 mod static_init;
 mod symbols;
@@ -290,6 +291,13 @@ struct BodyChecker<'a> {
 impl BodyChecker<'_> {
     fn record_internal(&self, error: Ice) {
         self.failure.record(error);
+    }
+
+    fn error_count(&self) -> usize {
+        self.diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity() == nia_diagnostic::Severity::Error)
+            .count()
     }
 }
 
