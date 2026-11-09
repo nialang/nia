@@ -237,7 +237,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let ty = value.get_type().map_err(Self::diagnostic_from_llvm_error)?;
         let global = self
             .module
-            .add_global(ty, None, "nia.const")
+            .add_global(ty, None, "const.image")
             .map_err(Self::diagnostic_from_llvm_error)?;
         global.set_linkage(Linkage::Private);
         global.set_unnamed_addr();

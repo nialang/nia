@@ -562,12 +562,12 @@ fun main() i32 {
     // A string literal is copied into its binding from a private image.
     assert!(ir.contains("%bytes = alloca [2 x i8]"), "{ir}");
     assert!(
-        ir.contains("@nia.const = private unnamed_addr constant [2 x i8] c\"hi\""),
+        ir.contains("@const.image = private unnamed_addr constant [2 x i8] c\"hi\""),
         "{ir}"
     );
     assert!(
         ir.contains(
-            "call void @llvm.memcpy.p0.p0.i64(ptr align 1 %bytes, ptr align 1 @nia.const, i64 2"
+            "call void @llvm.memcpy.p0.p0.i64(ptr align 1 %bytes, ptr align 1 @const.image, i64 2"
         ),
         "{ir}"
     );
