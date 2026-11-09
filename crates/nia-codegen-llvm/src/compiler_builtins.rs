@@ -19,21 +19,25 @@ use nia_ty::{PrimitiveTy, TyKind};
 
 use crate::program_index::ProgramIndex;
 
+mod memory;
+
 pub(crate) fn required_symbols(
     index: &ProgramIndex,
     target: nia_target::TargetConfig,
 ) -> CompilerBuiltinSymbols {
     let mut collector = CompilerBuiltinCollector {
+        symbols: CompilerBuiltinSymbols::default(),
         // 32-bit targets lower 64-bit division through helper calls.
         wide_i64_div_rem: target.pointer_width() < 64,
         // MSVC-ABI objects that use floating point reference `_fltused`.
         windows_fltused: target.object_format() == nia_target::ObjectFormat::Coff,
-        ..CompilerBuiltinCollector::default()
     };
     collector.collect_program(index);
     collector.symbols
 }
 
+/// The helpers a program needs beyond the memory routines, which every native
+/// image defines; see [`memory`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct CompilerBuiltinSymbols {
     pub(crate) windows_fltused: bool,
@@ -52,22 +56,6 @@ pub(crate) struct CompilerBuiltinSymbols {
 }
 
 impl CompilerBuiltinSymbols {
-    pub(crate) fn any(self) -> bool {
-        self.windows_fltused
-            || self.u64_div_rem
-            || self.i64_div_rem
-            || self.u128_div_rem
-            || self.i128_div_rem
-            || self.u128_from_f32
-            || self.u128_from_f64
-            || self.i128_from_f32
-            || self.i128_from_f64
-            || self.f32_from_u128
-            || self.f64_from_u128
-            || self.f32_from_i128
-            || self.f64_from_i128
-    }
-
     /// Returns the externally visible definitions emitted for this exact set.
     ///
     /// Keep this list beside the emitter flags: native-program validation uses
@@ -94,6 +82,7 @@ impl CompilerBuiltinSymbols {
         ]
         .into_iter()
         .flatten()
+        .chain(memory::MEMORY_ROUTINES)
     }
 }
 
@@ -517,6 +506,16 @@ impl CompilerBuiltinCollector {
     }
 }
 
+/// The pipeline the support routines are compiled with. They are toolchain
+/// code that nothing debugs, so a program built for debugging still gets
+/// optimized copies; the size levels keep their size goal.
+pub(crate) fn pipeline_level(level: nia_opt::NiaOptimizationLevel) -> PipelineLevel {
+    match crate::llvm_pipeline_level(level) {
+        PipelineLevel::O0 | PipelineLevel::O1 => PipelineLevel::O2,
+        level => level,
+    }
+}
+
 pub(crate) fn emit_object(
     target: &TargetMachine,
     artifact_target: nia_target::TargetConfig,
@@ -531,7 +530,13 @@ pub(crate) fn emit_object(
         .configure_module(&module)
         .map_err(|error| error.diagnostic())?;
     let windows_i128_abi = artifact_target.os() == nia_target::Os::Windows;
-    emit_definitions(&context, &module, symbols, windows_i128_abi)?;
+    emit_definitions(
+        &context,
+        &module,
+        symbols,
+        windows_i128_abi,
+        artifact_target.pointer_width(),
+    )?;
     module.verify().map_err(diagnostic_from_llvm_error)?;
     optimize_module(&module, target, level).map_err(diagnostic_from_llvm_error)?;
     target
@@ -555,7 +560,13 @@ pub(crate) fn emit_lto_bitcode(
         .configure_module(&module)
         .map_err(|error| error.diagnostic())?;
     let windows_i128_abi = artifact_target.os() == nia_target::Os::Windows;
-    emit_definitions(&context, &module, symbols, windows_i128_abi)?;
+    emit_definitions(
+        &context,
+        &module,
+        symbols,
+        windows_i128_abi,
+        artifact_target.pointer_width(),
+    )?;
     module.verify().map_err(diagnostic_from_llvm_error)?;
     match pre_link {
         crate::LtoMode::Thin => emit_thin_lto_bitcode(&module, target, level),
@@ -569,7 +580,9 @@ fn emit_definitions<'ctx>(
     module: &nia_llvm::module::Module<'ctx>,
     symbols: CompilerBuiltinSymbols,
     windows_i128_abi: bool,
+    pointer_bits: u32,
 ) -> Result<(), Diagnostic> {
+    memory::emit_memory_routines(context, module, pointer_bits)?;
     if symbols.windows_fltused {
         let global = module
             .add_global(context.i32_type().into(), None, "_fltused")
@@ -1686,6 +1699,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn support_routines_are_optimized_at_every_level() {
+        use nia_opt::NiaOptimizationLevel as Nia;
+        for (level, expected) in [
+            (Nia::O0, PipelineLevel::O2),
+            (Nia::O1, PipelineLevel::O2),
+            (Nia::O2, PipelineLevel::O2),
+            (Nia::O3, PipelineLevel::O3),
+            (Nia::Os, PipelineLevel::Os),
+            (Nia::Oz, PipelineLevel::Oz),
+        ] {
+            assert_eq!(pipeline_level(level), expected, "{level:?}");
+        }
+    }
+
+    #[test]
     fn builtin_scan_skips_registered_but_unpublished_modules() {
         let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
         let module_id = module_ids.allocate().expect("allocate module ID");
@@ -1720,6 +1748,7 @@ mod tests {
                 ..CompilerBuiltinSymbols::default()
             },
             true,
+            64,
         )
         .expect("emit Windows i128 builtins");
         module.verify().expect("verify Windows builtin module");
@@ -1765,6 +1794,7 @@ mod tests {
                 ..CompilerBuiltinSymbols::default()
             },
             true,
+            64,
         )
         .expect("emit Windows ABI support");
 

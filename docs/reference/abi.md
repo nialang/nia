@@ -386,6 +386,23 @@ visibility: it links between the objects of one program but is never exported
 from a shared object or preempted. A program's external interface is therefore
 exactly its `extern` items.
 
+### Compiler Support Routines
+
+Every native image also contains the compiler's support routines, in one
+object of their own. `memcpy`, `memmove`, and `memset` are always there,
+because generated code calls them for large copies and fills; helpers for wide
+integer arithmetic and the MSVC `_fltused` marker are there when the target
+and program need them. They have C semantics and C symbol names, and they are
+ordinary definitions with hidden visibility: they link with the program's
+other objects but are never exported.
+
+Nia code may call a support routine through a bodyless `extern fun`
+declaration, as C code linked into the image may. Defining in Nia a routine
+that the image contains is an error. An object or static-library member in the same link that defines one
+is a duplicate definition, as with any other symbol; a C library linked as a
+shared library or import library defines nothing in the image and does not
+conflict.
+
 Objects use the platform's position-independent code model on Linux and macOS,
 so Nia objects link into position-independent executables and shared objects
 without text relocations.

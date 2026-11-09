@@ -299,16 +299,17 @@ pub extern fun clampExport(value: i32, low: i32, high: i32) i32 {
 }
 ```
 
-Emit an object without Nia startup and link it from C with the C toolchain:
+Emit the library's objects without Nia startup and link them from C with the
+C toolchain:
 
 ```text
-nia emit --obj mathlib.nia -o mathlib.o
-cc main.c mathlib.o -o main
+nia emit --obj mathlib.nia --out-dir objs
+cc main.c objs/*.o -o main
 ```
 
-`-o` names a single object, which works while the library compiles to one
-codegen unit. A library that uses the standard library usually produces
-several; write them with `--out-dir objs` and link every object in `objs`.
+`--out-dir` receives one object per codegen unit, and one more that holds the
+[compiler support routines](../reference/abi.md#compiler-support-routines),
+such as `memcpy`; link all of them.
 
 ```c
 #include <stdint.h>
@@ -317,7 +318,7 @@ int32_t pair_sum(struct Pair p);
 int32_t nia_clamp(int32_t value, int32_t low, int32_t high);
 ```
 
-`nia emit --obj` defaults to `--runtime bare`, so the object contains no
+`nia emit --obj` defaults to `--runtime bare`, so the objects contain no
 process entry. Only `extern` definitions are visible outside the linked image;
 ordinary Nia functions such as `clamp` stay internal.
 

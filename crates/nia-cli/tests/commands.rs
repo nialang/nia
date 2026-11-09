@@ -89,6 +89,9 @@ pub fun build(b: &mut build::Build) build::Error!() {
             command
                 .args(&args)
                 .arg(format!("--diagnostics-format={format}"));
+            if args.contains(&"--obj") {
+                command.arg("--out-dir").arg(root.join("objects"));
+            }
             if args[0] == "build" {
                 command.arg("--root").arg(&*root);
             } else {
@@ -753,7 +756,7 @@ fn check_rejects_misplaced_numeric_separators() {
 fn emit_obj_reports_unused_import_warning_without_skipping_codegen() {
     let root = temp_dir("emit_obj_reports_unused_import_warning_without_skipping_codegen");
     let main = root.join("main.nia");
-    let object = root.join("main.o");
+    let objects = root.join("objects");
     std::fs::write(
         &main,
         r#"
@@ -768,8 +771,8 @@ pub fun main() () {}
         .arg("emit")
         .arg("--obj")
         .arg(&main)
-        .arg("-o")
-        .arg(&object)
+        .arg("--out-dir")
+        .arg(&objects)
         .output_timeout_for_build("emit object with unused import warning");
 
     assert!(
@@ -781,13 +784,14 @@ pub fun main() () {}
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("warning[W0201]"), "{stderr}");
     assert!(stderr.contains("unused import `collections`"), "{stderr}");
-    assert!(
-        std::fs::metadata(&object)
+    let objects = nia_test_support::object_files(&objects);
+    assert!(!objects.is_empty(), "no object was emitted");
+    for object in objects {
+        let len = std::fs::metadata(&object)
             .expect("emitted object metadata")
-            .len()
-            > 0,
-        "emitted object should not be empty"
-    );
+            .len();
+        assert!(len > 0, "{} is empty", object.display());
+    }
 }
 
 #[test]
@@ -1398,10 +1402,10 @@ fun main() i32 {
 }
 
 #[test]
-fn emit_obj_writes_native_object() {
-    let root = temp_dir("emit_obj_writes_native_object");
+fn emit_obj_writes_native_objects() {
+    let root = temp_dir("emit_obj_writes_native_objects");
     let main = root.join("main.nia");
-    let object = root.join("main.o");
+    let objects = root.join("objects");
     std::fs::write(
         &main,
         r#"
@@ -1416,8 +1420,8 @@ fun main() i32 {
         .arg("emit")
         .arg("--obj")
         .arg(&main)
-        .arg("-o")
-        .arg(&object)
+        .arg("--out-dir")
+        .arg(&objects)
         .output_timeout_for_build("run nia emit --obj");
 
     assert!(
@@ -1425,8 +1429,15 @@ fun main() i32 {
         "stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let metadata = std::fs::metadata(&object).expect("object metadata");
-    assert!(metadata.len() > 0);
+    // The program's object, then the compiler builtins every image carries.
+    let names = nia_test_support::object_files(&objects)
+        .into_iter()
+        .map(|object| {
+            assert!(std::fs::metadata(&object).expect("object metadata").len() > 0);
+            object.file_name().unwrap().to_string_lossy().into_owned()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["0000_main.o", "0001_nia_compiler_builtins.o"]);
 }
 
 #[cfg(all(unix, target_os = "linux", target_arch = "x86_64"))]

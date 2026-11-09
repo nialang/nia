@@ -78,6 +78,9 @@ fn unavailable_inputs_preserve_operational_identity_in_both_formats() {
             command
                 .args(args)
                 .arg(format!("--diagnostics-format={format}"));
+            if args.contains(&"--obj") {
+                command.arg("--out-dir").arg(root.join("objects"));
+            }
             if workflow {
                 command.arg("--root").arg(&*root);
             } else {
@@ -144,15 +147,18 @@ fn artifact_write_errors_preserve_operational_identity_in_both_formats() {
     let root = temp_dir("artifact_write_reports");
     let main = root.join("main.nia");
     std::fs::write(&main, "pub fun main() i32 { 0 }\n").expect("valid entry");
-    for (flag, output_path, summary) in [("-o", &*root, "write"), ("--out-dir", &main, "create")] {
+    // A directory where the first object goes makes writing it fail.
+    let occupied = root.join("occupied");
+    std::fs::create_dir_all(occupied.join("0000_main.o")).expect("occupy the object path");
+    for (out_dir, summary) in [(&occupied, "write"), (&main, "create")] {
         for format in ["text", "json"] {
             let output = support::nia_command()
                 .args(["emit", "--obj"])
                 .arg(format!("--diagnostics-format={format}"))
                 .arg(&main)
-                .arg(flag)
-                .arg(output_path)
-                .output_timeout_for_compiler("reject an output path that is a directory");
+                .arg("--out-dir")
+                .arg(out_dir)
+                .output_timeout_for_compiler("reject an unwritable object path");
             assert_operational_failure(
                 &output,
                 format,

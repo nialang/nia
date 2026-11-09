@@ -156,16 +156,10 @@ pub(crate) enum EmitTarget {
 
 #[derive(Debug)]
 pub(crate) struct EmitObjOptions {
-    pub(crate) output: ObjectOutput,
+    /// Receives one object file per codegen unit.
+    pub(crate) out_dir: PathBuf,
     pub(crate) runtime: RuntimeMode,
     pub(crate) cache_dir: Option<PathBuf>,
-}
-
-#[derive(Debug)]
-pub(crate) enum ObjectOutput {
-    /// Write one object; `None` derives the path from the source.
-    Single(Option<PathBuf>),
-    Directory(PathBuf),
 }
 
 #[derive(Debug)]
@@ -1011,22 +1005,16 @@ fn parse_emit(scanned: &Scanned, kind: EmitKind) -> CliResult<CliCommand> {
 }
 
 fn parse_emit_obj(scanned: &Scanned, topic: HelpTopic) -> CliResult<EmitObjOptions> {
-    let output = match (
-        scanned.last(OptionId::Output),
-        scanned.last(OptionId::OutDir),
-    ) {
-        (Some(_), Some(_)) => {
-            return Err(CliError::new(
-                "use either `-o` or `--out-dir`, not both",
-                topic,
-            ));
-        }
-        (Some(output), None) => ObjectOutput::Single(Some(PathBuf::from(value(output)))),
-        (None, Some(directory)) => ObjectOutput::Directory(PathBuf::from(value(directory))),
-        (None, None) => ObjectOutput::Single(None),
+    // Every program has several codegen units, the compiler builtins among
+    // them, so the objects always go to a directory.
+    let Some(out_dir) = scanned.last(OptionId::OutDir) else {
+        return Err(CliError::new(
+            "`nia emit --obj` writes one object per codegen unit; choose a directory with `--out-dir <dir>`",
+            topic,
+        ));
     };
     Ok(EmitObjOptions {
-        output,
+        out_dir: PathBuf::from(value(out_dir)),
         runtime: runtime(scanned, RuntimeMode::Bare, topic)?,
         cache_dir: cache_dir(scanned),
     })
@@ -1827,8 +1815,12 @@ mod tests {
                 "or `self-hosted-elf`",
             ),
             (
+                &["emit", "--obj", "x"],
+                "choose a directory with `--out-dir <dir>`",
+            ),
+            (
                 &["emit", "--obj", "x", "-o", "a", "--out-dir", "b"],
-                "not both",
+                "is not an option of `nia emit --obj`",
             ),
             (
                 &["emit", "--obj", "x", "--lto=thin"],
@@ -1857,12 +1849,9 @@ mod tests {
         assert!(matches!(
             run(&["emit", "--obj", "x", "--out-dir", "d"]).command,
             CliCommand::Emit {
-                target: EmitTarget::Obj(EmitObjOptions {
-                    output: ObjectOutput::Directory(_),
-                    ..
-                }),
+                target: EmitTarget::Obj(EmitObjOptions { out_dir, .. }),
                 ..
-            }
+            } if out_dir == std::path::Path::new("d")
         ));
     }
 

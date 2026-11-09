@@ -148,9 +148,7 @@ pub(super) fn emit_native_objects(
             .into_iter()
             .map(NativeCodegenTask::DeclarationModule),
     );
-    if builtin_symbols.any() {
-        tasks.push(NativeCodegenTask::CompilerBuiltins(builtin_symbols));
-    }
+    tasks.push(NativeCodegenTask::CompilerBuiltins(builtin_symbols));
     let worker_lanes = codegen_worker_lanes(session, tasks.len());
     let outcomes = match session.run_tasks_bounded(
         tasks.into_iter().map(|task| {
@@ -294,9 +292,7 @@ pub(super) fn emit_lto_modules(
             .into_iter()
             .map(LtoCodegenTask::DeclarationModule),
     );
-    if builtin_symbols.any() {
-        tasks.push(LtoCodegenTask::CompilerBuiltins(builtin_symbols));
-    }
+    tasks.push(LtoCodegenTask::CompilerBuiltins(builtin_symbols));
     let worker_lanes = codegen_worker_lanes(session, tasks.len());
     let outcomes = match session.run_tasks_bounded(
         tasks.into_iter().map(|task| {

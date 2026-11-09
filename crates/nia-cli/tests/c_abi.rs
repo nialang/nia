@@ -255,12 +255,12 @@ pub fun main(init: process::Init) process::ExitCode!() {
     // target explicitly; `bool` is rejected on every target.
     for args in [
         &["check", "--runtime", "freestanding"][..],
-        &["emit", "--obj", "-o"],
+        &["emit", "--obj", "--out-dir"],
     ] {
         let mut command = support::nia_command();
         command.args(["--target", "x86-unknown-linux"]).args(args);
-        if args.contains(&"-o") {
-            command.arg(root.join("main.o"));
+        if args.contains(&"--out-dir") {
+            command.arg(root.join("objects"));
         }
         let output = command
             .arg(&main)

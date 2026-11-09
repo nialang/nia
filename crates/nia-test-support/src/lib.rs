@@ -243,6 +243,18 @@ pub fn test_dir(name: &str) -> TestDir {
     }
 }
 
+/// The object files `nia emit --obj` wrote into `dir`, in name order, which
+/// is the program's link order.
+pub fn object_files(dir: &Path) -> Vec<PathBuf> {
+    let mut objects = fs::read_dir(dir)
+        .unwrap_or_else(|error| panic!("read object directory {}: {error}", dir.display()))
+        .map(|entry| entry.expect("read object directory entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "o"))
+        .collect::<Vec<_>>();
+    objects.sort();
+    objects
+}
+
 fn test_dir_component(name: &str) -> String {
     let component: String = name
         .chars()

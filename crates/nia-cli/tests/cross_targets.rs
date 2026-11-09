@@ -41,20 +41,29 @@ fn every_maintained_target_emits_its_native_object_format() {
         ("x86_64-apple-macos", ("mach-o", 7)),
         ("aarch64-apple-macos", ("mach-o", 12)),
     ] {
-        let object = root.join(format!("{target}.o"));
+        let objects = root.join(target);
         let output = support::nia_command()
             .args(["--target", target, "emit", "--obj"])
             .arg(&source)
-            .arg("-o")
-            .arg(&object)
+            .arg("--out-dir")
+            .arg(&objects)
             .output_timeout_for_compiler("emit cross-target object");
         assert!(
             output.status.success(),
             "{target}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        let bytes = std::fs::read(&object).expect("read object");
-        assert_eq!(object_format(&bytes), Some(expected), "{target}");
+        let objects = nia_test_support::object_files(&objects);
+        assert!(!objects.is_empty(), "{target}: no object was emitted");
+        for object in objects {
+            let bytes = std::fs::read(&object).expect("read object");
+            assert_eq!(
+                object_format(&bytes),
+                Some(expected),
+                "{target}: {}",
+                object.display()
+            );
+        }
     }
 }
 

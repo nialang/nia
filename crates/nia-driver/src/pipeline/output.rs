@@ -115,12 +115,23 @@ pub(super) fn install_streamed_output(source: &Path, output: &Path) -> io::Resul
     result
 }
 
-pub(super) fn object_file_name(index: usize, module_name: &str) -> String {
-    let stem = Path::new(module_name)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("module");
-    let clean = stem
+/// Names the file that holds the `index`th object of a program, after the
+/// source file of its codegen unit. Object directories, link inputs, and
+/// archive members all use this name, so it depends only on stable inputs.
+pub(super) fn object_file_name(index: usize, key: &nia_codegen_llvm::CodegenUnitKey) -> String {
+    let unit = match key {
+        nia_codegen_llvm::CodegenUnitKey::SourceModule {
+            source_identity, ..
+        }
+        | nia_codegen_llvm::CodegenUnitKey::LinkageUnit {
+            source_identity, ..
+        } => Path::new(source_identity.normalized_path())
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("module"),
+        nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => "nia_compiler_builtins",
+    };
+    let clean = unit
         .chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() || ch == '_' {
@@ -131,22 +142,6 @@ pub(super) fn object_file_name(index: usize, module_name: &str) -> String {
         })
         .collect::<String>();
     format!("{index:04}_{clean}.o")
-}
-
-pub(super) fn archive_member_file_name(
-    index: usize,
-    key: &nia_codegen_llvm::CodegenUnitKey,
-) -> String {
-    let stable_name = match key {
-        nia_codegen_llvm::CodegenUnitKey::SourceModule {
-            source_identity, ..
-        } => source_identity.normalized_path(),
-        nia_codegen_llvm::CodegenUnitKey::CompilerBuiltins => "nia_compiler_builtins",
-        nia_codegen_llvm::CodegenUnitKey::LinkageUnit {
-            source_identity, ..
-        } => source_identity.normalized_path(),
-    };
-    object_file_name(index, stable_name)
 }
 
 pub(super) struct TempDir {

@@ -38,8 +38,8 @@ mod project;
 
 use cli::{
     Cli, CliAction, CliCommand, CliError, DiagnosticsFormat, EmitExeOptions, EmitObjOptions,
-    EmitTarget, HelpTopic, ObjectOutput, PackageOptions, ProgressMode, ProjectAction, ProjectAdd,
-    ProjectCreate, RuntimeMode, USAGE_EXIT_CODE,
+    EmitTarget, HelpTopic, PackageOptions, ProgressMode, ProjectAction, ProjectAdd, ProjectCreate,
+    RuntimeMode, USAGE_EXIT_CODE,
 };
 use help::{HelpStyle, error_help_text, help_command, help_text};
 
@@ -1084,14 +1084,8 @@ fn run_emit_obj(entry: &SourceEntry, options: EmitObjOptions, context: EmitConte
     if context.opt_report {
         print_optimization_report(&nia_driver::object_optimization_report(&objects));
     }
-    let output_path = match options.output {
-        ObjectOutput::Single(path) => nia_driver::ObjectOutput::Single(
-            path.unwrap_or_else(|| default_output_path(&entry.path, "o")),
-        ),
-        ObjectOutput::Directory(path) => nia_driver::ObjectOutput::Directory(path),
-    };
     match driver
-        .write_native_objects_from_artifact(&objects, output_path)
+        .write_native_objects(&objects, &options.out_dir)
         .result
     {
         Ok(_) => ExitCode::SUCCESS,

@@ -90,7 +90,8 @@ fun main() i32 {
         "{:?}",
         thin_output.diagnostics
     );
-    assert_eq!(thin_output.modules.len(), source_partitions.len());
+    // One module per partition, and the compiler-builtins module.
+    assert_eq!(thin_output.modules.len(), source_partitions.len() + 1);
     let identifiers = thin_output
         .modules
         .iter()
@@ -138,7 +139,7 @@ fun main() i32 {
         "{:?}",
         full_output.diagnostics
     );
-    assert_eq!(full_output.modules.len(), source_partitions.len());
+    assert_eq!(full_output.modules.len(), source_partitions.len() + 1);
     let full_objects = crate::emit_full_lto_objects(
         full_output,
         LlvmCodegenOptions::default(),

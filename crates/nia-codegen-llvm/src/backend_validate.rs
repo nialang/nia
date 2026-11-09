@@ -130,8 +130,11 @@ pub(super) fn validate_native_backend_program(
         let Some(module) = index.module(*module_id) else {
             continue;
         };
+        // Declaring a reserved routine refers to the compiler's definition, as
+        // a call to it from C would; only a second definition collides.
         for function in &module.functions {
             if function.linkage.is_extern()
+                && function.function_body.is_some()
                 && let Some(symbol) = function.linkage.external_symbol()
                 && reserved.contains(symbol)
             {

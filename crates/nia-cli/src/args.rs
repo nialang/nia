@@ -517,7 +517,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Output,
         names: &["-o"],
         arity: Arity::Value,
-        scope: Scope::EMIT_OBJ.or(Scope::EMIT_EXE),
+        scope: Scope::EMIT_EXE,
         usage: "-o <file>",
         about: "write the output to this path",
     },

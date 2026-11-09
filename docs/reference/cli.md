@@ -140,7 +140,7 @@ artifact with its dependencies.
 | Kind | Output |
 | --- | --- |
 | `--tokens`, `--ast`, `--checked`, `--backend`, `--llvm` | prints that form of the program |
-| `--obj` | writes native object files; `-o` for a single object, `--out-dir` when there are several |
+| `--obj` | writes one native object file per codegen unit into `--out-dir <dir>`, including the [compiler support routines](abi.md#compiler-support-routines) |
 | `--exe` | writes a freestanding executable to `-o <file>`, or without `-o` next to the source file, as `main` (`main.exe` on Windows) for `main.nia` |
 
 `--exe` also accepts the linking options: `-L <dir>` and `-l <name>` for native

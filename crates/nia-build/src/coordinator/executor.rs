@@ -1233,9 +1233,8 @@ impl DriverActionExecutor {
             kind: TransactionOutputKind::Directory,
         }];
         let staged = prepare_typed_staged_outputs(action, &self.invocation.build_dir, &resolved)?;
-        let temporary = staged.outputs[0].temporary.clone();
         let written = driver
-            .write_native_objects_from_artifact(&emitted, ObjectOutput::Directory(temporary))
+            .write_native_objects(&emitted, &staged.outputs[0].temporary)
             .result
             .map_err(|error| CoordinatorError::Driver {
                 action: action.key.clone(),

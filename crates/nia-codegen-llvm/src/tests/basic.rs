@@ -88,12 +88,16 @@ fn native_object_cache_hit_skips_emission_and_publish() {
     );
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert_eq!(output.link_inputs.len(), 1);
-    assert_eq!(
-        output.link_inputs.as_slice()[0].object.bytes,
-        b"cached-object"
+    // The program object and the compiler-builtins object.
+    assert_eq!(output.link_inputs.len(), 2);
+    assert!(
+        output
+            .link_inputs
+            .as_slice()
+            .iter()
+            .all(|input| input.object.bytes == b"cached-object")
     );
-    assert_eq!(cache.loads.load(Ordering::Relaxed), 1);
+    assert_eq!(cache.loads.load(Ordering::Relaxed), 2);
     assert_eq!(cache.publishes.load(Ordering::Relaxed), 0);
 }
 
@@ -119,9 +123,15 @@ fn lto_module_cache_hit_skips_prelink_emission_and_publish() {
     );
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert_eq!(output.modules.len(), 1);
-    assert_eq!(output.modules[0].bitcode, b"cached-prelink-bitcode");
-    assert_eq!(cache.loads.load(Ordering::Relaxed), 1);
+    // The program module and the compiler-builtins module.
+    assert_eq!(output.modules.len(), 2);
+    assert!(
+        output
+            .modules
+            .iter()
+            .all(|module| module.bitcode == b"cached-prelink-bitcode")
+    );
+    assert_eq!(cache.loads.load(Ordering::Relaxed), 2);
     assert_eq!(cache.publishes.load(Ordering::Relaxed), 0);
 }
 
@@ -863,9 +873,12 @@ fun main() i32 {
     );
 }
 
+// LLVM may lower any memory operation to `memcpy`, `memmove`, or `memset`, so
+// every native program carries one compiler-builtins object that defines them;
+// other builtins join that object only when reachable IR needs them.
 #[test]
-fn emits_compiler_builtins_object_only_when_reachable_ir_needs_it() {
-    let root = temp_dir("emits_compiler_builtins_object_only_when_reachable_ir_needs_it");
+fn emits_one_compiler_builtins_object_per_native_program() {
+    let root = temp_dir("emits_one_compiler_builtins_object_per_native_program");
     let plain = root.join("plain.nia");
     std::fs::write(
         &plain,
@@ -885,19 +898,18 @@ fun main() i32 {
         LlvmCodegenOptions::default(),
     );
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert!(
-        !output
-            .link_inputs
-            .as_slice()
-            .iter()
-            .any(|input| input.object.name == "nia.compiler_builtins"),
-        "compiler builtins should not be emitted for programs that do not need lowered libcalls"
-    );
+    let names = output
+        .link_inputs
+        .as_slice()
+        .iter()
+        .map(|input| input.object.name.as_str())
+        .collect::<Vec<_>>();
     assert_eq!(
-        output.link_inputs.len(),
-        1,
-        "empty declaration-only backend modules should not produce native object files"
+        names.len(),
+        2,
+        "one program object and the builtins object; empty declaration-only modules emit nothing: {names:?}"
     );
+    assert!(names.contains(&"nia.compiler_builtins"), "{names:?}");
 
     let wide = root.join("wide.nia");
     std::fs::write(
@@ -1027,6 +1039,41 @@ fun divrem(value: u128, by: u128) u128 {
             output.diagnostics
         );
     }
+
+    // The memory routines are part of every native program, so their names
+    // are always reserved.
+    let memory = root.join("memory.nia");
+    std::fs::write(
+        &memory,
+        r#"
+extern fun memcpy(dest: &mut u8, source: &u8, len: usize) &mut u8 {
+    _ = source;
+    _ = len;
+    dest
+}
+
+fun main() i32 { 0 }
+"#,
+    )
+    .expect("write memory-routine source");
+    let codegen = codegen_program(memory.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_native_objects(
+        &codegen.backend_lowering,
+        &codegen.type_store,
+        LlvmCodegenOptions::default(),
+    );
+    assert!(output.link_inputs.is_empty());
+    assert!(
+        output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains(
+                "extern function external symbol `memcpy` is reserved for compiler runtime support"
+            )),
+        "{:?}",
+        output.diagnostics
+    );
 }
 
 #[test]

@@ -264,7 +264,7 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
                 },
             );
         }
-        if program_diagnostics.is_empty() && builtin_symbols.any() {
+        if program_diagnostics.is_empty() {
             let builtin_result = time_codegen_stage(
                 self.options.timings,
                 "llvm_finish.compiler_builtins",
@@ -434,7 +434,6 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
             }
         }
         if program_diagnostics.is_empty()
-            && builtin_symbols.any()
             && let Some(target_identity) = self.target_identity.as_deref()
         {
             match emit_compiler_builtins_lto_module(
@@ -1455,18 +1454,13 @@ fn emit_compiler_builtins_lto_module(
     let memory_permit =
         nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
     record_memory_permit(options.timings, memory_permit.waited());
+    let level = compiler_builtins::pipeline_level(options.optimization.level);
     let bitcode = with_target_machine(
         target_identity,
-        llvm_pipeline_level(options.optimization.level).codegen_level(),
+        level.codegen_level(),
         options.timings,
         |target| {
-            compiler_builtins::emit_lto_bitcode(
-                target,
-                options.target,
-                symbols,
-                llvm_pipeline_level(options.optimization.level),
-                pre_link,
-            )
+            compiler_builtins::emit_lto_bitcode(target, options.target, symbols, level, pre_link)
         },
     )
     .map_err(|error| error.diagnostic())??;
@@ -1526,18 +1520,12 @@ fn emit_compiler_builtins_object(
     let memory_permit =
         nia_query::acquire_llvm_memory_permit().map_err(nia_diagnostic::Diagnostic::from)?;
     record_memory_permit(options.timings, memory_permit.waited());
+    let level = compiler_builtins::pipeline_level(options.optimization.level);
     let bytes = with_target_machine(
         &target_identity,
-        llvm_pipeline_level(options.optimization.level).codegen_level(),
+        level.codegen_level(),
         options.timings,
-        |target| {
-            compiler_builtins::emit_object(
-                target,
-                options.target,
-                symbols,
-                llvm_pipeline_level(options.optimization.level),
-            )
-        },
+        |target| compiler_builtins::emit_object(target, options.target, symbols, level),
     )
     .map_err(|error| error.diagnostic())??;
     let write_error = publish_object_work_product(

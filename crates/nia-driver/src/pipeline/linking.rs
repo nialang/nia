@@ -11,8 +11,7 @@ use std::{
 
 use super::emission::ObjectEmissionMode;
 use super::output::{
-    TempDir, archive_member_file_name, ensure_output_directory, install_streamed_output,
-    object_file_name, write_output_file,
+    TempDir, ensure_output_directory, install_streamed_output, object_file_name, write_output_file,
 };
 use super::*;
 use nia_linker::{ArchiveOptions, LinkOptions, LinkerFlavor, SystemImportLibrary};
@@ -463,9 +462,7 @@ impl Driver {
                 )?;
                 let mut link_inputs = Vec::with_capacity(objects.link_inputs.len());
                 for (index, input) in objects.link_inputs.as_slice().iter().enumerate() {
-                    let object_path = temp
-                        .path()
-                        .join(object_file_name(index, &input.object.name));
+                    let object_path = temp.path().join(object_file_name(index, &input.key));
                     if let Err(error) = write_output_file(&object_path, &input.object.bytes) {
                         return Err(DriverError::Io {
                             path: object_path,
@@ -621,9 +618,7 @@ impl Driver {
         }
         let mut inputs = Vec::with_capacity(objects.link_inputs.len());
         for (index, input) in objects.link_inputs.as_slice().iter().enumerate() {
-            let object_path = temp
-                .path()
-                .join(archive_member_file_name(index, &input.key));
+            let object_path = temp.path().join(object_file_name(index, &input.key));
             if let Err(error) = write_output_file(&object_path, &input.object.bytes) {
                 return DriverOutput::from_error(DriverError::Io {
                     path: object_path,

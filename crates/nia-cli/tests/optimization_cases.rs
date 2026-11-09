@@ -177,30 +177,30 @@ fn run_object_reports(source: &Path, level: &str) {
     let output_root = temp_dir("optimization_report_object");
     let placements = ["after-output", "before-source", "before-output"];
     for placement in placements {
-        let object = output_root.join(format!("{placement}.o"));
+        let objects = output_root.join(placement);
         let mut command = support::nia_command();
         command.arg(level).arg("emit").arg("--obj");
         match placement {
             "after-output" => {
                 command
                     .arg(source)
-                    .arg("-o")
-                    .arg(&object)
+                    .arg("--out-dir")
+                    .arg(&objects)
                     .arg("--opt-report");
             }
             "before-source" => {
                 command
                     .arg("--opt-report")
                     .arg(source)
-                    .arg("-o")
-                    .arg(&object);
+                    .arg("--out-dir")
+                    .arg(&objects);
             }
             "before-output" => {
                 command
                     .arg(source)
                     .arg("--opt-report")
-                    .arg("-o")
-                    .arg(&object);
+                    .arg("--out-dir")
+                    .arg(&objects);
             }
             _ => unreachable!(),
         }
@@ -216,13 +216,18 @@ fn run_object_reports(source: &Path, level: &str) {
                 "llvm_pipeline=Os",
             ],
         );
-        assert!(
-            std::fs::metadata(&object)
-                .unwrap_or_else(|error| panic!("object metadata for {placement}: {error}"))
-                .len()
-                > 0,
-            "{placement} produced an empty object"
-        );
+        let objects = nia_test_support::object_files(&objects);
+        assert!(!objects.is_empty(), "{placement} produced no object");
+        for object in objects {
+            assert!(
+                std::fs::metadata(&object)
+                    .unwrap_or_else(|error| panic!("object metadata for {placement}: {error}"))
+                    .len()
+                    > 0,
+                "{placement} produced an empty {}",
+                object.display()
+            );
+        }
     }
 }
 
@@ -286,27 +291,32 @@ fn run_emit_execute(source: &Path, levels: &[String], exit_code: i32) {
 fn run_emit_object(source: &Path, levels: &[String], minimum_bytes: usize) {
     let output_root = temp_dir("optimization_emit_object");
     for level in levels {
-        let object = output_root.join(format!("main_{}.o", level.trim_start_matches('-')));
+        let objects = output_root.join(level.trim_start_matches('-'));
         let context = format!("run nia {level} emit --obj");
         let output = support::nia_command()
             .arg(level)
             .arg("emit")
             .arg("--obj")
             .arg(source)
-            .arg("-o")
-            .arg(&object)
+            .arg("--out-dir")
+            .arg(&objects)
             .output_timeout_in_session(&context);
         assert!(
             output.status.success(),
             "{level} stderr:\n{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        let bytes = std::fs::metadata(&object)
-            .unwrap_or_else(|error| panic!("object metadata for {level}: {error}"))
-            .len();
-        assert!(
-            bytes >= minimum_bytes as u64,
-            "{level} produced {bytes} bytes, expected at least {minimum_bytes}"
-        );
+        let objects = nia_test_support::object_files(&objects);
+        assert!(!objects.is_empty(), "{level} produced no object");
+        for object in objects {
+            let bytes = std::fs::metadata(&object)
+                .unwrap_or_else(|error| panic!("object metadata for {level}: {error}"))
+                .len();
+            assert!(
+                bytes >= minimum_bytes as u64,
+                "{level}: {} has {bytes} bytes, expected at least {minimum_bytes}",
+                object.display()
+            );
+        }
     }
 }

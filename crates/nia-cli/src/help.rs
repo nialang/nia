@@ -260,12 +260,9 @@ fn emit_kind_doc(kind: EmitKind) -> HelpDoc {
         EmitKind::Obj => HelpDoc {
             title: "nia emit --obj",
             about: "Write native object files.",
-            usage: &["nia emit --obj <path> [-o <file> | --out-dir <dir>] [options]"],
+            usage: &["nia emit --obj <path> --out-dir <dir> [options]"],
             commands: &[],
-            examples: &[
-                "nia emit --obj src/main.nia -o build/main.o",
-                "nia emit --obj src/main.nia --out-dir build/obj",
-            ],
+            examples: &["nia emit --obj src/main.nia --out-dir build/obj"],
         },
         EmitKind::Exe => HelpDoc {
             title: "nia emit --exe",

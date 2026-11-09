@@ -133,7 +133,10 @@ fun main() i32 {
         LlvmCodegenOptions::default(),
     );
     assert!(thin.diagnostics.is_empty(), "{:?}", thin.diagnostics);
-    assert_eq!(thin.linker_visible_symbols, ["nia_test_add"]);
+    assert_eq!(
+        thin.linker_visible_symbols,
+        ["memcpy", "memmove", "memset", "nia_test_add"]
+    );
 }
 
 #[test]

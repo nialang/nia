@@ -126,22 +126,6 @@ impl EmitObjectRequest {
     }
 }
 
-/// Request to write native objects to one file or a directory.
-#[derive(Debug, Clone)]
-pub struct WriteObjectRequest {
-    /// Underlying check and semantic options.
-    pub check: CheckRequest,
-    /// Destination policy.
-    pub output: ObjectOutput,
-}
-
-impl WriteObjectRequest {
-    /// Creates a write request.
-    pub fn new(check: CheckRequest, output: ObjectOutput) -> Self {
-        Self { check, output }
-    }
-}
-
 /// Request to link an executable from a check request.
 #[derive(Debug, Clone)]
 pub struct LinkExecutableRequest {
@@ -209,13 +193,4 @@ impl LinkExecutableRequest {
         self.link_time_optimization = policy;
         self
     }
-}
-
-/// Destination policy for native object emission.
-#[derive(Debug, Clone)]
-pub enum ObjectOutput {
-    /// Emit one combined object file.
-    Single(PathBuf),
-    /// Emit one object file per module into a directory.
-    Directory(PathBuf),
 }

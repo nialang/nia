@@ -379,7 +379,6 @@ fn writing_native_object_preserves_incremental_link_identity() {
     use nia_codegen_llvm::NativeObject;
 
     let root = common::temp_dir("writing_native_object_preserves_incremental_link_identity");
-    let path = root.join("builtins.o");
     let key = CodegenUnitKey::CompilerBuiltins;
     let fingerprint = CodegenUnitFingerprint::from_parts([7, 8]);
     let artifact = crate::ObjectArtifact {
@@ -400,9 +399,11 @@ fn writing_native_object_preserves_incremental_link_identity() {
     };
 
     let written = crate::Driver::new(common::test_toolchain_layout())
-        .write_native_objects_from_artifact(&artifact, crate::ObjectOutput::Single(path.clone()))
+        .write_native_objects(&artifact, &root.join("objects"))
         .result
         .expect("write native object");
+
+    let path = root.join("objects").join("0000_nia_compiler_builtins.o");
 
     assert_eq!(
         std::fs::read(&path).expect("read native object"),

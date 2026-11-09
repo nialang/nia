@@ -59,9 +59,8 @@ pub use pipeline::{
     DriverOutput, EmitLlvmRequest, EmitObjectRequest, ExecutableArtifact,
     ExecutableCacheEnvironment, ExecutableCacheReference, ExecutableCacheRestore,
     LinkExecutableRequest, LinkTimeOptimization, LinkedExecutableWithSourceManifest,
-    LlvmIrArtifact, ObjectArtifact, ObjectOutput, StaticArchiveArtifact,
-    StaticArchiveCacheEnvironment, StaticArchiveCacheReference, StaticArchiveCacheRestore,
-    WriteObjectRequest, WrittenObjectArtifact,
+    LlvmIrArtifact, ObjectArtifact, StaticArchiveArtifact, StaticArchiveCacheEnvironment,
+    StaticArchiveCacheReference, StaticArchiveCacheRestore, WrittenObjectArtifact,
 };
 pub use report::{
     llvm_ir_optimization_report, object_optimization_report, optimization_report,

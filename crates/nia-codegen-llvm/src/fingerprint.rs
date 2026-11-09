@@ -131,7 +131,8 @@ fn compiler_builtins_fingerprint_inner(
     write_toolchain_identity(&mut policy, options.toolchain_identity);
     policy.write_u64(llvm_sys_version());
     write_optimization(&mut policy, options.optimization);
-    policy.write_str(crate::llvm_pipeline_level(options.optimization.level).identity());
+    policy
+        .write_str(crate::compiler_builtins::pipeline_level(options.optimization.level).identity());
     if let Some(pre_link) = lto {
         policy.write_str(match pre_link {
             crate::LtoMode::Thin => "artifact:thin-lto-prelink",

@@ -2357,3 +2357,106 @@ pub const fun readLayeredBytes[T](slot: OuterSlot[T]) [u8; 4] {
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
+
+// The compiler defines `memcpy`, `memmove`, and `memset` in every native
+// program. Calling them through C declarations checks the routines themselves,
+// unoptimized and as the vectorized code `-O2` produces, across lengths that
+// straddle vector widths and overlaps in both directions.
+#[test]
+fn emit_exe_compiler_memory_routines_follow_c_semantics() {
+    let root = temp_dir("emit_exe_compiler_memory_routines_follow_c_semantics");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+extern fun memcpy(dest: &mut u8, source: &u8, len: usize) &mut u8;
+extern fun memmove(dest: &mut u8, source: &u8, len: usize) &mut u8;
+extern fun memset(dest: &mut u8, value: i32, len: usize) &mut u8;
+
+fun fill(bytes: &mut [u8]) () {
+    for index in 0..bytes.len() {
+        bytes[index] = (index * 7 + 3) as u8;
+    }
+}
+
+fun pattern(index: usize) u8 {
+    (index * 7 + 3) as u8
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut bytes: [u8; 160] = [0; 160];
+    for len in 0usize..70 {
+        // Forward copy between disjoint halves.
+        fill(&mut bytes[..]);
+        let base = &mut bytes[0];
+        let result = memcpy(base, &bytes[80], len);
+        if result as usize != base as usize {
+            return process::ExitCode(1)!;
+        }
+        for index in 0..len {
+            if bytes[index] != pattern(80 + index) {
+                return process::ExitCode(2)!;
+            }
+        }
+        if bytes[len] != pattern(len) {
+            return process::ExitCode(3)!;
+        }
+
+        // Overlap with the destination after the source copies backward.
+        fill(&mut bytes[..]);
+        _ = memmove(&mut bytes[13], &bytes[0], len);
+        for index in 0..len {
+            if bytes[13 + index] != pattern(index) {
+                return process::ExitCode(4)!;
+            }
+        }
+
+        // Overlap with the destination before the source copies forward.
+        fill(&mut bytes[..]);
+        _ = memmove(&mut bytes[0], &bytes[13], len);
+        for index in 0..len {
+            if bytes[index] != pattern(13 + index) {
+                return process::ExitCode(5)!;
+            }
+        }
+
+        // Only the low byte of the value is stored.
+        fill(&mut bytes[..]);
+        _ = memset(&mut bytes[5], 0x1ab, len);
+        for index in 0..len {
+            if bytes[5 + index] != 0xab {
+                return process::ExitCode(6)!;
+            }
+        }
+        if bytes[4] != pattern(4) or bytes[5 + len] != pattern(5 + len) {
+            return process::ExitCode(7)!;
+        }
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    for level in ["-O0", "-O2"] {
+        let exe = root.join(format!("main{level}{}", std::env::consts::EXE_SUFFIX));
+        let output = support::nia_command()
+            .arg(level)
+            .arg("emit")
+            .arg("--exe")
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("run nia emit --exe");
+        assert!(
+            output.status.success(),
+            "{level} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&exe).status_timeout("run emitted executable");
+        assert_eq!(status.code(), Some(0), "{level}");
+    }
+}
