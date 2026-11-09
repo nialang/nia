@@ -113,7 +113,8 @@ pub(crate) enum CliCommand {
         package: PackageOptions,
         step: Option<String>,
         run_arguments: Vec<String>,
-        link_time_optimization: nia_driver::LinkTimeOptimization,
+        /// `None` lets the build runner's optimization level decide.
+        link_time_optimization: Option<nia_driver::LinkTimeOptimization>,
         dry_run: bool,
         explain: bool,
         print_plan: bool,
@@ -173,7 +174,8 @@ pub(crate) struct EmitExeOptions {
     pub(crate) output: Option<PathBuf>,
     pub(crate) cache_dir: Option<PathBuf>,
     pub(crate) link_options: nia_linker::LinkOptions,
-    pub(crate) link_time_optimization: nia_driver::LinkTimeOptimization,
+    /// `None` lets the optimization level decide.
+    pub(crate) link_time_optimization: Option<nia_driver::LinkTimeOptimization>,
 }
 
 #[derive(Debug)]
@@ -901,11 +903,11 @@ fn parse_build(scanned: &Scanned) -> CliResult<CliCommand> {
             CliError::new(format!("invalid build step `{step}`: {error}"), topic)
         })?;
     }
-    let link_time_optimization = match scanned.last(OptionId::Lto) {
-        Some(occurrence) => parse_link_time_optimization(value(occurrence))
-            .map_err(|message| CliError::new(message, topic))?,
-        None => nia_driver::LinkTimeOptimization::Off,
-    };
+    let link_time_optimization = scanned
+        .last(OptionId::Lto)
+        .map(|occurrence| parse_link_time_optimization(value(occurrence)))
+        .transpose()
+        .map_err(|message| CliError::new(message, topic))?;
     Ok(CliCommand::Build {
         package,
         step,
@@ -1077,10 +1079,11 @@ fn parse_emit_exe(scanned: &Scanned, topic: HelpTopic) -> CliResult<EmitExeOptio
         }
         (form, None) => form,
     };
-    let link_time_optimization = match scanned.last(OptionId::Lto) {
-        Some(occurrence) => parse_link_time_optimization(value(occurrence)).map_err(err)?,
-        None => nia_driver::LinkTimeOptimization::Off,
-    };
+    let link_time_optimization = scanned
+        .last(OptionId::Lto)
+        .map(|occurrence| parse_link_time_optimization(value(occurrence)))
+        .transpose()
+        .map_err(err)?;
     Ok(EmitExeOptions {
         output: scanned
             .last(OptionId::Output)
@@ -1473,7 +1476,7 @@ mod tests {
                 print_plan: true,
                 print_cache: true,
                 print_observations: true,
-                link_time_optimization: nia_driver::LinkTimeOptimization::Thin,
+                link_time_optimization: Some(nia_driver::LinkTimeOptimization::Thin),
                 step: Some(step),
                 ..
             } if step == "check"
@@ -1791,7 +1794,7 @@ mod tests {
         assert_eq!(options.output.as_deref(), Some(std::path::Path::new("out")));
         assert_eq!(
             options.link_time_optimization,
-            nia_driver::LinkTimeOptimization::Full
+            Some(nia_driver::LinkTimeOptimization::Full)
         );
         // `-O3` is the linker argument's value, not an optimization level.
         assert_eq!(options.link_options.raw_args, vec!["-O3".to_string()]);

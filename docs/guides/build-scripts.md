@@ -263,7 +263,7 @@ the artifact declaration and is frozen into the build plan:
 | `withLinkage(Linkage::Static)` / `StaticPie` / `Dynamic` | Selects the native linkage form. Executables default to `StaticPie`; objects and archives default to `Static`. |
 | `withDebugInfo(DebugInfo::None)` / `LineTables` / `Full` | Records the requested debug metadata in the plan. |
 | `withPanicStrategy(PanicStrategy::Abort)` / `Unwind` | Records the requested panic strategy in the plan. |
-| `withLto(LtoMode::Off)` / `Thin` / `Full` | Selects the final-link optimization policy. |
+| `withLto(LtoMode::Off)` / `Thin` / `Full` | Selects link-time optimization. Without it, the artifact follows the [default for its level](../reference/cli.md#nia-check-and-nia-emit). |
 | `withDefines(&[ArtifactDefine])` | Records ordered symbols in the plan. Use `ArtifactDefine::init(name)` for each symbol. |
 | `withSystemLibraries(&[SystemLibrary])` | Adds ordered native libraries for the linker. Use `SystemLibrary::init(name, mode)` with `Default`, `Static`, or `Dynamic` search mode. |
 

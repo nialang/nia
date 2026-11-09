@@ -168,7 +168,7 @@ impl BuildRequest {
             max_parallel_actions: None,
             optimization: OptimizationMode::O0,
             profile: BuildProfile::Debug,
-            link_time_optimization: LinkTimeOptimization::Off,
+            link_time_optimization: LinkTimeOptimization::for_level(BUILD_RUNNER_OPTIMIZATION),
             list: false,
             keep_going: false,
             dry_run: false,
@@ -2926,9 +2926,10 @@ fn artifact_configuration_json(value: &ArtifactConfiguration) -> serde_json::Val
             PanicStrategy::Unwind => "unwind",
         },
         "lto": match value.lto {
-            ArtifactLto::Off => "off",
-            ArtifactLto::Thin => "thin",
-            ArtifactLto::Full => "full",
+            None => "level",
+            Some(ArtifactLto::Off) => "off",
+            Some(ArtifactLto::Thin) => "thin",
+            Some(ArtifactLto::Full) => "full",
         },
         "defines": value.defines.iter().map(|define| serde_json::json!({
             "name": define.name,

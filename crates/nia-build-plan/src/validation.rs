@@ -202,7 +202,10 @@ pub(super) fn canonicalize_artifacts(
             });
         }
         if artifact.kind != PlanArtifactKind::Executable
-            && !matches!(artifact.configuration.lto, ArtifactLto::Off)
+            && matches!(
+                artifact.configuration.lto,
+                Some(ArtifactLto::Thin | ArtifactLto::Full)
+            )
         {
             return Err(PlanError::InvalidArtifactConfiguration {
                 artifact: artifact.key.clone(),

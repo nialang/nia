@@ -391,9 +391,10 @@ impl Writer {
             PanicStrategy::Unwind => 1,
         });
         self.u8(match value.lto {
-            ArtifactLto::Off => 0,
-            ArtifactLto::Thin => 1,
-            ArtifactLto::Full => 2,
+            None => 0,
+            Some(ArtifactLto::Off) => 1,
+            Some(ArtifactLto::Thin) => 2,
+            Some(ArtifactLto::Full) => 3,
         });
         self.count(value.defines.len())?;
         for define in &value.defines {
@@ -882,9 +883,10 @@ impl<'a> Reader<'a> {
         };
         let lto_offset = self.offset;
         let lto = match self.u8()? {
-            0 => ArtifactLto::Off,
-            1 => ArtifactLto::Thin,
-            2 => ArtifactLto::Full,
+            0 => None,
+            1 => Some(ArtifactLto::Off),
+            2 => Some(ArtifactLto::Thin),
+            3 => Some(ArtifactLto::Full),
             tag => {
                 return Err(PlanCodecError::InvalidTag {
                     kind: "artifact LTO",
@@ -1306,7 +1308,7 @@ mod tests {
             linkage: ArtifactLinkage::Dynamic,
             debug_info: DebugInfo::Full,
             panic_strategy: PanicStrategy::Unwind,
-            lto: ArtifactLto::Thin,
+            lto: Some(ArtifactLto::Thin),
             defines: vec![ArtifactDefine {
                 name: "FEATURE".to_string(),
                 value: Some("enabled".to_string()),

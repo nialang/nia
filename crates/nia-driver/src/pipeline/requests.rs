@@ -156,10 +156,9 @@ pub struct LinkExecutableRequest {
 }
 
 /// Final executable cross-module optimization policy.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkTimeOptimization {
     /// Emit and link independent native objects.
-    #[default]
     Off,
     /// Build a ThinLTO summary index and run parallel importing backends.
     Thin,
@@ -167,14 +166,35 @@ pub enum LinkTimeOptimization {
     Full,
 }
 
+impl LinkTimeOptimization {
+    /// The policy for an executable that does not choose one.
+    ///
+    /// A program is split into many codegen units so that they compile in
+    /// parallel and cache independently. Optimized builds use ThinLTO to
+    /// recover the cross-unit inlining that split costs; unoptimized builds
+    /// link independent objects.
+    pub fn for_level(level: NiaOptimizationLevel) -> Self {
+        match level {
+            NiaOptimizationLevel::O0 => Self::Off,
+            NiaOptimizationLevel::O1
+            | NiaOptimizationLevel::O2
+            | NiaOptimizationLevel::O3
+            | NiaOptimizationLevel::Os
+            | NiaOptimizationLevel::Oz => Self::Thin,
+        }
+    }
+}
+
 impl LinkExecutableRequest {
-    /// Creates a link request with default linker options.
+    /// Creates a link request with default linker options and the
+    /// link-time optimization that the check request's level implies.
     pub fn new(check: CheckRequest, output: impl Into<PathBuf>) -> Self {
+        let link_time_optimization = LinkTimeOptimization::for_level(check.optimization);
         Self {
             check,
             output: output.into(),
             link_options: LinkOptions::default(),
-            link_time_optimization: LinkTimeOptimization::Off,
+            link_time_optimization,
         }
     }
 

@@ -378,6 +378,7 @@ impl DriverActionExecutor {
         encoded.push(runtime_tag(artifact.runtime));
         encoded.push(link_time_optimization_tag(artifact_lto_policy(
             artifact.configuration.lto,
+            module.optimization,
         )));
         let mut package_paths = vec![
             program,
@@ -995,7 +996,8 @@ impl DriverActionExecutor {
         }
         let link_options = artifact_link_options(&artifact.configuration, *target)
             .with_static_archives(linker_inputs);
-        let link_time_optimization = artifact_lto_policy(artifact.configuration.lto);
+        let link_time_optimization =
+            artifact_lto_policy(artifact.configuration.lto, module.optimization);
         // Lookup may use the precheck closure; publication must bind the
         // executable to the finalized source closure returned after linking.
         let precheck_manifest = driver
@@ -2016,11 +2018,16 @@ fn link_time_optimization_tag(policy: LinkTimeOptimization) -> u8 {
     }
 }
 
-fn artifact_lto_policy(policy: ArtifactLto) -> LinkTimeOptimization {
+// An artifact that names no LTO mode follows the level it is built at.
+fn artifact_lto_policy(
+    policy: Option<ArtifactLto>,
+    level: OptimizationMode,
+) -> LinkTimeOptimization {
     match policy {
-        ArtifactLto::Off => LinkTimeOptimization::Off,
-        ArtifactLto::Thin => LinkTimeOptimization::Thin,
-        ArtifactLto::Full => LinkTimeOptimization::Full,
+        Some(ArtifactLto::Off) => LinkTimeOptimization::Off,
+        Some(ArtifactLto::Thin) => LinkTimeOptimization::Thin,
+        Some(ArtifactLto::Full) => LinkTimeOptimization::Full,
+        None => LinkTimeOptimization::for_level(optimization(level)),
     }
 }
 

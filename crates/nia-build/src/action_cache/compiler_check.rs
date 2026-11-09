@@ -955,9 +955,10 @@ fn artifact_configuration_identity(configuration: &ArtifactConfiguration) -> Vec
             PanicStrategy::Unwind => 1,
         },
         match configuration.lto {
-            ArtifactLto::Off => 0,
-            ArtifactLto::Thin => 1,
-            ArtifactLto::Full => 2,
+            None => 0,
+            Some(ArtifactLto::Off) => 1,
+            Some(ArtifactLto::Thin) => 2,
+            Some(ArtifactLto::Full) => 3,
         },
     ];
     encoded.extend_from_slice(&(configuration.defines.len() as u64).to_le_bytes());

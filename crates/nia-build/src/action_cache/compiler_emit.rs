@@ -849,9 +849,10 @@ fn artifact_identity(
         crate::PanicStrategy::Unwind => 1,
     });
     encoded.push(match artifact.configuration.lto {
-        crate::ArtifactLto::Off => 0,
-        crate::ArtifactLto::Thin => 1,
-        crate::ArtifactLto::Full => 2,
+        None => 0,
+        Some(crate::ArtifactLto::Off) => 1,
+        Some(crate::ArtifactLto::Thin) => 2,
+        Some(crate::ArtifactLto::Full) => 3,
     });
     encoded.extend_from_slice(&(artifact.configuration.defines.len() as u64).to_le_bytes());
     for define in &artifact.configuration.defines {

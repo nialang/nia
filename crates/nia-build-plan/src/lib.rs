@@ -390,8 +390,9 @@ pub struct ArtifactConfiguration {
     pub debug_info: DebugInfo,
     /// Panic lowering policy.
     pub panic_strategy: PanicStrategy,
-    /// Whole-program optimization policy.
-    pub lto: ArtifactLto,
+    /// Whole-program optimization policy; `None` follows the optimization level
+    /// the artifact is built at.
+    pub lto: Option<ArtifactLto>,
     /// Ordered compiler defines.
     pub defines: Vec<ArtifactDefine>,
     /// Ordered native libraries passed to the linker.
@@ -404,7 +405,7 @@ impl Default for ArtifactConfiguration {
             linkage: ArtifactLinkage::StaticPie,
             debug_info: DebugInfo::None,
             panic_strategy: PanicStrategy::Abort,
-            lto: ArtifactLto::Off,
+            lto: None,
             defines: Vec::new(),
             system_libraries: Vec::new(),
         }

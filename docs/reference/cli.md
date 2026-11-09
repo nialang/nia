@@ -150,6 +150,15 @@ and `--linker-flavor <flavor>` to replace LLD, and on Linux
 `--rpath <path>`. [C interop](../guides/c-interop.md#linking-a-c-library)
 shows them in use.
 
+An executable is compiled as several codegen units, which build in parallel
+and are cached separately. Without `--lto`, an executable built at `-O1` or
+above links them with ThinLTO, so a call into another unit can still be
+inlined; at `-O0` the units are linked as they are. `--lto off` links them
+without cross-unit optimization at any level, and `--lto full` merges them into
+one unit before optimizing, which takes longer to build and can produce smaller
+output. Build scripts choose the same way with `withLto`; an artifact that
+does not call it follows this rule.
+
 ## `nia build`
 
 ```text
@@ -191,7 +200,7 @@ names a step.
 | `--offline` | uses cached Git checkouts, registry indexes, and registry archives only |
 | `-k, --keep-going` | after a failure, keeps running the actions that do not depend on it |
 | `-j, --jobs <count>` | limits concurrent actions |
-| `--lto <off\|thin\|full>` | selects link-time optimization for the build runner; artifacts use `withLto` |
+| `--lto <off\|thin\|full>` | selects link-time optimization for the build runner, which is built at `-O0`; artifacts use `withLto` |
 | `-q`, `-v` … `-vvv`, `--progress <mode>` | progress output; see [Progress Output](#progress-output) |
 
 These options inspect the build instead of, or in addition to, running it:

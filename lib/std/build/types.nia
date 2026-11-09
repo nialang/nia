@@ -391,7 +391,7 @@ pub struct ExecutableOptions {
     linkage: Linkage,
     debugInfo: DebugInfo,
     panicStrategy: PanicStrategy,
-    lto: LtoMode,
+    lto: ?LtoMode,
     defines: ?&[ArtifactDefine],
     systemLibraries: ?&[SystemLibrary],
 }
@@ -407,7 +407,7 @@ pub struct ExecutableTarget {
     linkage: Linkage,
     debugInfo: DebugInfo,
     panicStrategy: PanicStrategy,
-    lto: LtoMode,
+    lto: ?LtoMode,
     defines: collections::ArrayList[string::String],
     systemLibraries: collections::ArrayList[OwnedSystemLibrary],
     // A test executable is compiled with `@[test]` source and the root
@@ -423,7 +423,7 @@ pub struct ObjectOptions {
     linkage: Linkage,
     debugInfo: DebugInfo,
     panicStrategy: PanicStrategy,
-    lto: LtoMode,
+    lto: ?LtoMode,
     defines: ?&[ArtifactDefine],
     systemLibraries: ?&[SystemLibrary],
 }
@@ -437,7 +437,7 @@ pub struct ObjectTarget {
     linkage: Linkage,
     debugInfo: DebugInfo,
     panicStrategy: PanicStrategy,
-    lto: LtoMode,
+    lto: ?LtoMode,
     defines: collections::ArrayList[string::String],
     systemLibraries: collections::ArrayList[OwnedSystemLibrary],
 }
@@ -450,7 +450,7 @@ pub struct StaticArchiveOptions {
     linkage: Linkage,
     debugInfo: DebugInfo,
     panicStrategy: PanicStrategy,
-    lto: LtoMode,
+    lto: ?LtoMode,
     defines: ?&[ArtifactDefine],
     systemLibraries: ?&[SystemLibrary],
 }
@@ -464,7 +464,7 @@ pub struct StaticArchiveTarget {
     linkage: Linkage,
     debugInfo: DebugInfo,
     panicStrategy: PanicStrategy,
-    lto: LtoMode,
+    lto: ?LtoMode,
     defines: collections::ArrayList[string::String],
     systemLibraries: collections::ArrayList[OwnedSystemLibrary],
 }

@@ -230,7 +230,7 @@ extend PlanEncoder {
         linkage: Linkage,
         debugInfo: DebugInfo,
         panicStrategy: PanicStrategy,
-        lto: LtoMode,
+        lto: ?LtoMode,
         defines: &[string::String],
         systemLibraries: &[OwnedSystemLibrary],
     ) Error!() {
@@ -251,11 +251,13 @@ extend PlanEncoder {
             .Unwind => 1,
             _ => return invalidPlan(),
         }).?;
+        // Unset LTO follows the artifact's optimization level.
         self.writeU8(match lto {
-            .Off => 0,
-            .Thin => 1,
-            .Full => 2,
-            _ => return invalidPlan(),
+            null => 0,
+            ?.Off => 1,
+            ?.Thin => 2,
+            ?.Full => 3,
+            ?_ => return invalidPlan(),
         }).?;
         self.writeCount(defines.len()).?;
         for define in defines.iter() {
@@ -642,7 +644,7 @@ extend PlanEncoder {
     }
 
     fun writeBuild(&mut self, build: &Build) Error!() {
-        self.writeBytes(b"NIA-PLN\x03").?;
+        self.writeBytes(b"NIA-PLN\x04").?;
         self.writeU32(build.protocolEpoch).?;
         self.writeRootPackage().?;
         let packageCount = PlanEncoder::addCount(build.packages.len(), 1).?;

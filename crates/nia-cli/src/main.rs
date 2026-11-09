@@ -321,9 +321,11 @@ fn run_cli(cli: Cli) -> ExitCode {
             if let Some(step) = step {
                 request = request.with_step(step);
             }
+            if let Some(policy) = link_time_optimization {
+                request = request.with_link_time_optimization(policy);
+            }
             let request = request
                 .with_run_arguments(run_arguments)
-                .with_link_time_optimization(link_time_optimization)
                 .with_dry_run(dry_run)
                 .with_explain(explain)
                 .with_print_plan(print_plan)
@@ -1121,12 +1123,12 @@ fn run_emit_exe(entry: &SourceEntry, options: EmitExeOptions, context: EmitConte
         ..nia_driver::DriverConfig::new(context.toolchain)
     });
     let output = time_summary_stage(context.settings.timings, "link_executable", || {
-        driver.link_executable(nia_driver::LinkExecutableRequest {
-            check: request,
-            output: output_path,
-            link_options: options.link_options,
-            link_time_optimization: options.link_time_optimization,
-        })
+        let mut link = nia_driver::LinkExecutableRequest::new(request, output_path)
+            .with_link_options(options.link_options);
+        if let Some(policy) = options.link_time_optimization {
+            link = link.with_link_time_optimization(policy);
+        }
+        driver.link_executable(link)
     });
     let executable = match output.result {
         Ok(executable) => executable,

@@ -52,7 +52,7 @@ extend ExecutableTarget {
         rootModule: ModuleHandle,
         targetIndex: usize,
     ) ExecutableTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init(), runtime: .Freestanding, linkage: .StaticPie, debugInfo: .None, panicStrategy: .Abort, lto: .Off, defines: .init(), systemLibraries: .init(), test: false }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init(), runtime: .Freestanding, linkage: .StaticPie, debugInfo: .None, panicStrategy: .Abort, lto: null, defines: .init(), systemLibraries: .init(), test: false }
     }
 
     pub(root) fun initialize(
@@ -64,7 +64,7 @@ extend ExecutableTarget {
         linkage: Linkage,
         debugInfo: DebugInfo,
         panicStrategy: PanicStrategy,
-        lto: LtoMode,
+        lto: ?LtoMode,
         defines: ?&[ArtifactDefine],
         systemLibraries: ?&[SystemLibrary],
     ) Error!() {
@@ -115,7 +115,7 @@ extend ObjectTarget {
         rootModule: ModuleHandle,
         targetIndex: usize,
     ) ObjectTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, linkage: .Static, debugInfo: .None, panicStrategy: .Abort, lto: .Off, defines: .init(), systemLibraries: .init() }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, linkage: .Static, debugInfo: .None, panicStrategy: .Abort, lto: null, defines: .init(), systemLibraries: .init() }
     }
 
     pub(root) fun initialize(
@@ -126,7 +126,7 @@ extend ObjectTarget {
         linkage: Linkage,
         debugInfo: DebugInfo,
         panicStrategy: PanicStrategy,
-        lto: LtoMode,
+        lto: ?LtoMode,
         defines: ?&[ArtifactDefine],
         systemLibraries: ?&[SystemLibrary],
     ) Error!() {
@@ -167,7 +167,7 @@ extend StaticArchiveTarget {
         rootModule: ModuleHandle,
         targetIndex: usize,
     ) StaticArchiveTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, linkage: .Static, debugInfo: .None, panicStrategy: .Abort, lto: .Off, defines: .init(), systemLibraries: .init() }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, linkage: .Static, debugInfo: .None, panicStrategy: .Abort, lto: null, defines: .init(), systemLibraries: .init() }
     }
 
     pub(root) fun initialize(
@@ -178,7 +178,7 @@ extend StaticArchiveTarget {
         linkage: Linkage,
         debugInfo: DebugInfo,
         panicStrategy: PanicStrategy,
-        lto: LtoMode,
+        lto: ?LtoMode,
         defines: ?&[ArtifactDefine],
         systemLibraries: ?&[SystemLibrary],
     ) Error!() {
@@ -314,7 +314,7 @@ extend ExecutableOptions {
             linkage: .StaticPie,
             debugInfo: .None,
             panicStrategy: .Abort,
-            lto: .Off,
+            lto: null,
             defines: null,
             systemLibraries: null,
         }
@@ -402,7 +402,7 @@ extend ExecutableOptions {
     }
 
     pub fun withLto(self, lto: LtoMode) ExecutableOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: ?lto, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withDefines(self, defines: &[ArtifactDefine]) ExecutableOptions {
@@ -424,7 +424,7 @@ extend ObjectOptions {
             linkage: .Static,
             debugInfo: .None,
             panicStrategy: .Abort,
-            lto: .Off,
+            lto: null,
             defines: null,
             systemLibraries: null,
         }
@@ -473,7 +473,7 @@ extend ObjectOptions {
     }
 
     pub fun withLto(self, lto: LtoMode) ObjectOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: ?lto, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withDefines(self, defines: &[ArtifactDefine]) ObjectOptions {
@@ -495,7 +495,7 @@ extend StaticArchiveOptions {
             linkage: .Static,
             debugInfo: .None,
             panicStrategy: .Abort,
-            lto: .Off,
+            lto: null,
             defines: null,
             systemLibraries: null,
         }
@@ -544,7 +544,7 @@ extend StaticArchiveOptions {
     }
 
     pub fun withLto(self, lto: LtoMode) StaticArchiveOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: ?lto, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withDefines(self, defines: &[ArtifactDefine]) StaticArchiveOptions {
