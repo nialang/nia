@@ -39,11 +39,9 @@ using std::{math::BinaryFloat, process};
 struct ApproximateFloat {}
 
 extend ApproximateFloat : BinaryFloat {
-    const fractionBits: u32 = 23;
-    const exponentBits: u32 = 8;
-    const shortestDigits: usize = 9;
-    fun toBits(self) u64 { 0 }
-    fun fromBits(bits: u64) ApproximateFloat { _ = bits; .{} }
+    type Bits = u32;
+    fun toBits(self) u32 { 0 }
+    fun fromBits(bits: u32) ApproximateFloat { _ = bits; .{} }
 }
 
 pub fun main(init: process::Init) process::ExitCode!() {
@@ -60,8 +58,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr
-            .contains("requires explicit implementation of supertrait `BinaryFloatRepresentation`"),
+        stderr.contains("requires explicit implementation of supertrait `BinaryFormat`"),
         "{stderr}"
     );
 }
@@ -78,8 +75,8 @@ fun same(text: &[char], bytes: &[u8], bits64: u64, bits32: u32) bool {
     let b = match bytes.parse[f64]() { !value => value, _ => return false };
     let c = match text.parse[f32]() { !value => value, _ => return false };
     let d = match bytes.parse[f32]() { !value => value, _ => return false };
-    (a).toBits() == bits64 and (b).toBits() == bits64
-        and ((c).toBits() as u32) == bits32 and ((d).toBits() as u32) == bits32
+    a.toBits() == bits64 and b.toBits() == bits64
+        and c.toBits() == bits32 and d.toBits() == bits32
 }
 
 fun rejects(text: &[char], bytes: &[u8], expected: parse::Error) bool {
@@ -122,7 +119,7 @@ fn nonfinite_formatting_preserves_its_value_error_through_process_conversion() {
 using std::{io, process};
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let value = [f64]::fromBits((0x7ff8000000000001u64) as u64);
+    let value = [f64]::fromBits(0x7ff8000000000001u64);
     io::debugPrint("{}", [value]).?;
     !()
 }

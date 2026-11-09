@@ -85,7 +85,10 @@ where U: AsciiUnit
             break;
         }
     }
-    if not sawDigit or (sawDot and input[index - 1].isAscii('.')) { return .InvalidDigit!; }
+    // A digit is required, and a decimal point must be followed by one.
+    if not sawDigit or (sawDot and input[index - 1].isAscii('.')) {
+        return .InvalidDigit!;
+    }
     let digitsEnd = index;
 
     let mut exponent: i128 = 0;
@@ -109,12 +112,18 @@ where U: AsciiUnit
     }
     if index != input.len() { return .InvalidDigit!; }
     if exponentNegative { exponent = -exponent; }
-    let adjusted = exponent - fractionDigits as i128;
-    !.{ negative, zero: firstDigit == input.len(), digitsEnd, firstDigit, significantDigits, exponent10: adjusted }
+    !.{
+        negative,
+        zero: firstDigit == input.len(),
+        digitsEnd,
+        firstDigit,
+        significantDigits,
+        exponent10: exponent - fractionDigits as i128,
+    }
 }
 
-pub(root) fun compareParsed[U](input: &[U], parsed: Parsed, exact: &decimal::Decimal) i32
+pub(root) fun compareParsed[U](input: &[U], parsed: Parsed, exact: &decimal::Decimal) cmp::Ordering
 where U: AsciiUnit
 {
-    decimal::compare(parsed.digits(input), parsed.order(), parsed.zero, exact)
+    decimal::compareDigits(parsed.digits(input), parsed.order(), parsed.zero, exact)
 }

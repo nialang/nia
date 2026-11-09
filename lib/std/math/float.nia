@@ -1,62 +1,75 @@
-// IEEE-754 classification and representation-preserving bit access.
+// IEEE-754 binary formats: bit access and classification for f32 and f64.
 
 pub(root) module decimal;
 
-// Only the built-in IEEE layouts satisfy this package-internal conversion
-// contract. Its constants and approximation hook are implementation details;
-// downstream code uses the smaller public BinaryFloat interface below.
-pub(root) trait BinaryFloatRepresentation : Sized {
-    const maxFiniteBits: u64;
+// The layout facts that generic decimal conversion needs. Only the standard
+// library implements it, so parsing and formatting accept exactly the IEEE
+// formats they are verified for. Raw bits travel as u64 inside the library;
+// the public interface below keeps each format's own width.
+pub(root) trait BinaryFormat : Sized {
+    const fractionBits: u32;
+    const exponentBits: u32;
+    // Significant digits that always suffice for a shortest round trip.
+    const shortestDigits: usize;
+    // Decimal orders below this round to zero; above the maximum they overflow.
     const minDecimalOrder: i32;
     const maxDecimalOrder: i32;
 
-    // Parser fast-path hook. A candidate is accepted only after exact interval
-    // checks, so this conversion never determines the final rounded value.
-    fun fromApproximateF64(value: f64) Self;
-}
+    fun rawBits(self) u64;
+    fun fromRawBits(bits: u64) Self;
 
-// This public trait describes the IEEE value operations users need. Decimal
-// conversion details stay in BinaryFloatRepresentation; the parser validates
-// every approximation against exact rounding intervals.
-pub trait BinaryFloat : BinaryFloatRepresentation {
-    const fractionBits: u32;
-    const exponentBits: u32;
-    const shortestDigits: usize;
+    // A parser fast-path candidate. Exact interval checks accept or reject
+    // it, so this conversion never decides the rounded result.
+    fun fromApproximation(value: f64) Self;
 
-    fun toBits(self) u64;
-    fun fromBits(bits: u64) Self;
+    fun fractionMask() u64 {
+        (1u64 << [Self as BinaryFormat]::fractionBits) - 1
+    }
 
-    fun fractionField(self) u64 {
-        self.toBits() & ((1u64 << [Self as BinaryFloat]::fractionBits) - 1)
+    fun exponentMask() u64 {
+        ((1u64 << [Self as BinaryFormat]::exponentBits) - 1) << [Self as BinaryFormat]::fractionBits
+    }
+
+    fun signMask() u64 {
+        1u64 << ([Self as BinaryFormat]::fractionBits + [Self as BinaryFormat]::exponentBits)
+    }
+
+    // All exponent bits set marks infinity and NaN, so the largest finite
+    // value lies just below the exponent mask.
+    fun maxFiniteBits() u64 {
+        [Self]::exponentMask() - 1
     }
 
     fun magnitudeBits(self) u64 {
-        self.toBits() & ((1u64 << ([Self as BinaryFloat]::fractionBits
-            + [Self as BinaryFloat]::exponentBits)) - 1)
+        self.rawBits() & ([Self]::signMask() - 1)
     }
+}
+
+// A binary32 or binary64 value. Classification and bit access need no import;
+// name the trait to write code that is generic over both widths.
+pub trait BinaryFloat : BinaryFormat {
+    // u32 for f32 and u64 for f64.
+    type Bits;
+
+    fun toBits(self) [Self as BinaryFloat]::Bits;
+
+    // Preserves every bit, including the sign of zero and NaN payloads.
+    fun fromBits(bits: [Self as BinaryFloat]::Bits) Self;
 
     fun signBit(self) bool {
-        (self.toBits() >> [Self as BinaryFloat]::fractionBits
-            >> [Self as BinaryFloat]::exponentBits) != 0
-    }
-
-    fun exponentField(self) u64 {
-        (self.toBits() >> [Self as BinaryFloat]::fractionBits)
-            & ((1u64 << [Self as BinaryFloat]::exponentBits) - 1)
-    }
-
-    fun isNan(self) bool {
-        self.exponentField() == (1u64 << [Self as BinaryFloat]::exponentBits) - 1
-            and self.fractionField() != 0
-    }
-
-    fun isInfinite(self) bool {
-        self.exponentField() == (1u64 << [Self as BinaryFloat]::exponentBits) - 1
-            and self.fractionField() == 0
+        (self.rawBits() & [Self]::signMask()) != 0
     }
 
     fun isFinite(self) bool {
-        self.exponentField() != (1u64 << [Self as BinaryFloat]::exponentBits) - 1
+        (self.rawBits() & [Self]::exponentMask()) != [Self]::exponentMask()
+    }
+
+    fun isInfinite(self) bool {
+        not self.isFinite() and (self.rawBits() & [Self]::fractionMask()) == 0
+    }
+
+    fun isNan(self) bool {
+        not self.isFinite() and (self.rawBits() & [Self]::fractionMask()) != 0
     }
 }
 
@@ -70,42 +83,62 @@ union F64Representation {
     bits: u64,
 }
 
-extend f32 : BinaryFloatRepresentation {
-    const maxFiniteBits: u64 = 0x7f7fffff;
-    const minDecimalOrder: i32 = -45;
-    const maxDecimalOrder: i32 = 39;
-
-    fun fromApproximateF64(value: f64) f32 { value as f32 }
-}
-
-extend f32 : BinaryFloat {
+extend f32 : BinaryFormat {
     const fractionBits: u32 = 23;
     const exponentBits: u32 = 8;
     const shortestDigits: usize = 9;
+    const minDecimalOrder: i32 = -45;
+    const maxDecimalOrder: i32 = 39;
 
-    fun toBits(self) u64 {
-        let representation = F32Representation { value: self };
-        representation.bits as u64
+    fun rawBits(self) u64 {
+        self.toBits() as u64
     }
 
-    fun fromBits(bits: u64) f32 {
-        let representation = F32Representation { bits: bits as u32 };
+    fun fromRawBits(bits: u64) f32 {
+        [f32]::fromBits(bits as u32)
+    }
+
+    fun fromApproximation(value: f64) f32 {
+        value as f32
+    }
+}
+
+extend f32 : BinaryFloat {
+    type Bits = u32;
+
+    fun toBits(self) u32 {
+        let representation = F32Representation { value: self };
+        representation.bits
+    }
+
+    fun fromBits(bits: u32) f32 {
+        let representation = F32Representation { bits };
         representation.value
     }
 }
 
-extend f64 : BinaryFloatRepresentation {
-    const maxFiniteBits: u64 = 0x7fefffffffffffff;
-    const minDecimalOrder: i32 = -323;
-    const maxDecimalOrder: i32 = 309;
-
-    fun fromApproximateF64(value: f64) f64 { value }
-}
-
-extend f64 : BinaryFloat {
+extend f64 : BinaryFormat {
     const fractionBits: u32 = 52;
     const exponentBits: u32 = 11;
     const shortestDigits: usize = 17;
+    const minDecimalOrder: i32 = -323;
+    const maxDecimalOrder: i32 = 309;
+
+    fun rawBits(self) u64 {
+        self.toBits()
+    }
+
+    fun fromRawBits(bits: u64) f64 {
+        [f64]::fromBits(bits)
+    }
+
+    fun fromApproximation(value: f64) f64 {
+        value
+    }
+}
+
+extend f64 : BinaryFloat {
+    type Bits = u64;
 
     fun toBits(self) u64 {
         let representation = F64Representation { value: self };

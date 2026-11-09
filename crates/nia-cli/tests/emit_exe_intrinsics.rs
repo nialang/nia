@@ -36,7 +36,7 @@ fun parsesOneTenth(input: &[u8]) bool {
 
 fun parses32As(input: &[u8], bits: u32) bool {
     match input.parse[f32]() {
-        !value => (value.toBits() as u32) == bits,
+        !value => value.toBits() == bits,
         error! => { _ = error; false },
     }
 }
@@ -171,25 +171,25 @@ fun rejectsUnrepresentableFloatPrecision(buffer: &mut [u8]) bool {
 }
 
 fun float64RoundTrips(bits: u64, buffer: &mut [u8]) bool {
-    let value = [f64]::fromBits((bits) as u64);
+    let value = [f64]::fromBits(bits);
     let length = match writeFloat(value, buffer) {
         !length => length,
         error! => { _ = error; return false; },
     };
     match (&buffer[0..length]).parse[f64]() {
-        !parsed => (parsed).toBits() == bits,
+        !parsed => parsed.toBits() == bits,
         error! => { _ = error; false },
     }
 }
 
 fun float32RoundTrips(bits: u32, buffer: &mut [u8]) bool {
-    let value = [f32]::fromBits((bits) as u64);
+    let value = [f32]::fromBits(bits);
     let length = match writeFloat32(value, buffer) {
         !length => length,
         error! => { _ = error; return false; },
     };
     match (&buffer[0..length]).parse[f32]() {
-        !parsed => ((parsed).toBits() as u32) == bits,
+        !parsed => parsed.toBits() == bits,
         error! => { _ = error; false },
     }
 }
@@ -363,7 +363,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
         floatIndex += 1;
     }
-    let minSubnormalLen = writeFloat([f64]::fromBits((1u64) as u64), &mut rendered[..]).?;
+    let minSubnormalLen = writeFloat([f64]::fromBits(1u64), &mut rendered[..]).?;
     if minSubnormalLen != 6usize
         or rendered[0] != b'5'
         or rendered[1] != b'e'
@@ -374,7 +374,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     {
         return process::ExitCode(24)!;
     }
-    let minSubnormal32Len = writeFloat32([f32]::fromBits((1u32) as u64), &mut rendered[..]).?;
+    let minSubnormal32Len = writeFloat32([f32]::fromBits(1u32), &mut rendered[..]).?;
     if minSubnormal32Len != 5usize
         or rendered[0] != b'1'
         or rendered[1] != b'e'
@@ -400,7 +400,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         or not floatSpecEquals(0.5, ?0usize, false, b"0", &mut rendered[..])
         or not floatSpecEquals(1.5, ?0usize, false, b"2", &mut rendered[..])
         or not floatSpecEquals(-0.5, ?0usize, false, b"-0", &mut rendered[..])
-        or not floatSpecEquals([f64]::fromBits((1u64) as u64), ?0usize, false, b"0", &mut rendered[..])
+        or not floatSpecEquals([f64]::fromBits(1u64), ?0usize, false, b"0", &mut rendered[..])
         or not floatSpecEquals(0.05, ?1usize, false, b"0.1", &mut rendered[..])
         or not floatSpecEquals(0.15, ?1usize, false, b"0.1", &mut rendered[..])
         or not floatSpecEquals(9.999, ?2usize, false, b"10.00", &mut rendered[..])
@@ -441,36 +441,36 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if rounded32IntegerLen != 1usize or rendered[0] != b'2' {
         return process::ExitCode(39)!;
     }
-    let negativeZero32 = [f32]::fromBits((0x80000000u32) as u64);
-    if ((negativeZero32).toBits() as u32) != 0x80000000u32 or not (negativeZero32).signBit() {
+    let negativeZero32 = [f32]::fromBits(0x80000000u32);
+    if negativeZero32.toBits() != 0x80000000u32 or not negativeZero32.signBit() {
         return process::ExitCode(1)!;
     }
-    let subnormal32 = [f32]::fromBits((1u32) as u64);
+    let subnormal32 = [f32]::fromBits(1u32);
     if not isFiniteFloat(subnormal32) or (subnormal32).isNan() or (subnormal32).isInfinite() {
         return process::ExitCode(2)!;
     }
-    let infinity32 = [f32]::fromBits((0x7f800000u32) as u64);
+    let infinity32 = [f32]::fromBits(0x7f800000u32);
     if not (infinity32).isInfinite() or (infinity32).isFinite() or (infinity32).isNan() {
         return process::ExitCode(3)!;
     }
-    let nan32 = [f32]::fromBits((0x7fc00000u32) as u64);
+    let nan32 = [f32]::fromBits(0x7fc00000u32);
     if not (nan32).isNan() or (nan32).isFinite() or (nan32).isInfinite() {
         return process::ExitCode(4)!;
     }
 
-    let negativeZero64 = [f64]::fromBits((0x8000000000000000u64) as u64);
-    if (negativeZero64).toBits() != 0x8000000000000000u64 or not (negativeZero64).signBit() {
+    let negativeZero64 = [f64]::fromBits(0x8000000000000000u64);
+    if negativeZero64.toBits() != 0x8000000000000000u64 or not negativeZero64.signBit() {
         return process::ExitCode(5)!;
     }
-    let subnormal64 = [f64]::fromBits((1u64) as u64);
+    let subnormal64 = [f64]::fromBits(1u64);
     if not (subnormal64).isFinite() or (subnormal64).isNan() or (subnormal64).isInfinite() {
         return process::ExitCode(6)!;
     }
-    let infinity64 = [f64]::fromBits((0x7ff0000000000000u64) as u64);
+    let infinity64 = [f64]::fromBits(0x7ff0000000000000u64);
     if not (infinity64).isInfinite() or (infinity64).isFinite() or (infinity64).isNan() {
         return process::ExitCode(7)!;
     }
-    let nan64 = [f64]::fromBits((0x7ff8000000000000u64) as u64);
+    let nan64 = [f64]::fromBits(0x7ff8000000000000u64);
     if not (nan64).isNan() or (nan64).isFinite() or (nan64).isInfinite() {
         return process::ExitCode(8)!;
     }
@@ -512,11 +512,11 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let mut output = io::FixedBufferWriter::init(&mut bytes[..]);
     let writer: &mut fmt::FormatWriter = &mut output;
     let mut formatter = fmt::Formatter::init(writer);
-    match formatter.writeFloat([f64]::fromBits((0x7ff0000000000000u64) as u64)) {
+    match formatter.writeFloat([f64]::fromBits(0x7ff0000000000000u64)) {
         fmt::Error::NonFinite! => {},
         _ => return process::ExitCode(1)!,
     }
-    match formatter.writeFloat([f32]::fromBits((0xffc00000u32) as u64)) {
+    match formatter.writeFloat([f32]::fromBits(0xffc00000u32)) {
         fmt::Error::NonFinite! => {},
         _ => return process::ExitCode(2)!,
     }
@@ -575,7 +575,7 @@ fun matches64(input: &[u8], expected: u64) bool {
 
 fun matches32(input: &[u8], expected: u32) bool {
     match input.parse[f32]() {
-        !value => (value.toBits() as u32) == expected,
+        !value => value.toBits() == expected,
         error! => { _ = error; false },
     }
 }
@@ -693,7 +693,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
             if index < 8 {
                 writeln!(
                     program,
-                    "    if shortestDigits64([f64]::fromBits((0x{:016x}u64) as u64)) != {shortest_digits}usize {{ return process::ExitCode(3)!; }}",
+                    "    if shortestDigits64([f64]::fromBits(0x{:016x}u64)) != {shortest_digits}usize {{ return process::ExitCode(3)!; }}",
                     state
                 )
                 .expect("append f64 shortestness sample");
@@ -752,7 +752,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
             if index < 8 {
                 writeln!(
                     program,
-                    "    if shortestDigits32([f32]::fromBits((0x{:08x}u32) as u64)) != {shortest_digits}usize {{ return process::ExitCode(4)!; }}",
+                    "    if shortestDigits32([f32]::fromBits(0x{:08x}u32)) != {shortest_digits}usize {{ return process::ExitCode(4)!; }}",
                     bits
                 )
                 .expect("append f32 shortestness sample");
@@ -801,7 +801,7 @@ fun matches64(input: &[u8], expected: u64) bool {
 
 fun matches32(input: &[u8], expected: u32) bool {
     match input.parse[f32]() {
-        !value => (value.toBits() as u32) == expected,
+        !value => value.toBits() == expected,
         error! => { _ = error; false },
     }
 }
@@ -837,7 +837,7 @@ fun textOverflows64(input: &[char]) bool {
 
 fun textMatches32(input: &[char], expected: u32) bool {
     match input.parse[f32]() {
-        !value => (value.toBits() as u32) == expected,
+        !value => value.toBits() == expected,
         _ => false,
     }
 }
@@ -1033,7 +1033,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
         writeln!(
             program,
-            "    if not matches64([f64]::fromBits((0x{:016x}u64) as u64), {precision}usize, {alternate}, b\"{expected64}\") {{ return process::ExitCode({})!; }}",
+            "    if not matches64([f64]::fromBits(0x{:016x}u64), {precision}usize, {alternate}, b\"{expected64}\") {{ return process::ExitCode({})!; }}",
             bits64,
             index + 51,
         )
@@ -1054,7 +1054,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
         writeln!(
             program,
-            "    if not matches32([f32]::fromBits((0x{:08x}u32) as u64), {precision32}usize, {alternate32}, b\"{expected32}\") {{ return process::ExitCode({})!; }}",
+            "    if not matches32([f32]::fromBits(0x{:08x}u32), {precision32}usize, {alternate32}, b\"{expected32}\") {{ return process::ExitCode({})!; }}",
             bits32,
             index + 1,
         )
@@ -1098,7 +1098,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
         writeln!(
             program,
-            "    if not matches64([f64]::fromBits((0x{bits:016x}u64) as u64), {precision}usize, {alternate}, b\"{expected}\") {{ return process::ExitCode({})!; }}",
+            "    if not matches64([f64]::fromBits(0x{bits:016x}u64), {precision}usize, {alternate}, b\"{expected}\") {{ return process::ExitCode({})!; }}",
             101 + case_index
         )
         .expect("append f64 boundary formatting case");
@@ -1139,7 +1139,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
         writeln!(
             program,
-            "    if not matches32([f32]::fromBits((0x{bits:08x}u32) as u64), {precision}usize, {alternate}, b\"{expected}\") {{ return process::ExitCode({})!; }}",
+            "    if not matches32([f32]::fromBits(0x{bits:08x}u32), {precision}usize, {alternate}, b\"{expected}\") {{ return process::ExitCode({})!; }}",
             151 + case_index
         )
         .expect("append f32 boundary formatting case");

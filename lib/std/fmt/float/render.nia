@@ -86,7 +86,8 @@ fun fixedLayout(candidate: &Decimal, precision: ?usize, alternate: bool) Error!L
     }
     let fraction = match precision {
         ?count => count,
-        null => if point < candidate.len() as i64 { (candidate.len() as i64 - point) as usize } else { 0usize },
+        // Shortest output keeps exactly the digits after the point.
+        null => cmp::max(-(candidate.exponent10() as i64), 0) as usize,
     };
     if fraction != 0 or alternate { layout.push(.Byte(b'.')).?; }
     if fraction != 0 {
@@ -113,14 +114,22 @@ fun scientificLayout(candidate: &Decimal, alternate: bool) Error!Layout {
 }
 
 fun writeSign(formatter: &mut Formatter, negative: bool, signPlus: bool) Error!() {
-    if negative { formatter.writeByte(b'-') }
-    else if signPlus { formatter.writeByte(b'+') }
-    else { !() }
+    if negative {
+        formatter.writeByte(b'-')
+    } else if signPlus {
+        formatter.writeByte(b'+')
+    } else {
+        !()
+    }
 }
 
+// Shortest output takes whichever of fixed and scientific notation is
+// shorter; an explicit precision always uses fixed notation.
 pub(super) fun write(formatter: &mut Formatter, candidate: &Decimal, negative: bool, spec: FormatSpec) Error!() {
     let fixed = fixedLayout(candidate, spec.precision(), spec.alternate()).?;
-    let layout = if spec.precision().isPresent() { fixed } else {
+    let layout = if spec.precision().isPresent() {
+        fixed
+    } else {
         let scientific = scientificLayout(candidate, spec.alternate()).?;
         if scientific.length < fixed.length { scientific } else { fixed }
     };

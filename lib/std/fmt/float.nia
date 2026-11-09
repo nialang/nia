@@ -4,8 +4,7 @@
 module candidate;
 module render;
 
-using root::math::float::BinaryFloat;
-using root::math::float::BinaryFloatRepresentation;
+using root::math::float::{BinaryFloat, BinaryFormat};
 using root::math::float::decimal;
 using root::fmt::float::{candidate, render};
 using super::formatter::Formatter;
@@ -25,7 +24,9 @@ fun validate(spec: FormatSpec, finite: bool) Error!() {
 
 extend Formatter {
     // Shortest round-trip output for a finite IEEE value.
-    pub fun writeFloat[F](&mut self, value: F) Error!() where F: BinaryFloat {
+    pub fun writeFloat[F](&mut self, value: F) Error!()
+    where F: BinaryFloat
+    {
         self.writeFloatSpec(value, FormatSpec::display())
     }
 
@@ -41,15 +42,7 @@ extend Formatter {
         let digits = if spec.precision() is ?precision {
             candidate::fixedPrecision(exact, precision)
         } else {
-            let lower = decimal::midpoint[F](bits - if bits == 0 { 0u64 } else { 1u64 });
-            let upper = decimal::midpoint[F](bits);
-            candidate::shortest(
-                exact,
-                lower,
-                upper,
-                bits,
-                [F as BinaryFloat]::shortestDigits,
-            )
+            candidate::shortest(exact, decimal::interval[F](bits), [F as BinaryFormat]::shortestDigits)
         };
         render::write(self, digits, value.signBit(), spec)
     }

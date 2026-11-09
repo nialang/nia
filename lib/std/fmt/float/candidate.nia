@@ -1,56 +1,58 @@
-// Exact decimal rounding and shortest round-trip interval search.
+// Rounding exact decimals: to a fixed precision, or to the shortest digits
+// that still round trip.
 
 using root::cmp;
 using root::iter;
 using root::option;
 using root::slice;
-using root::math::float::decimal;
+using root::math::float::decimal::{Decimal, Interval, digitCapacity};
 
-const maxFloatDigits: usize = decimal::digitCapacity;
-
-fun nonZeroSuffix(exact: &decimal::Decimal) [bool; maxFloatDigits] {
-    let mut suffix: [bool; maxFloatDigits] = [false; maxFloatDigits];
+// suffix[i] records whether a nonzero digit follows position i, so each
+// shortest-search candidate rounds without rescanning the tail.
+fun nonZeroSuffix(exact: &Decimal) [bool; digitCapacity] {
+    let mut suffix: [bool; digitCapacity] = [false; digitCapacity];
     let mut found = false;
-    let mut index = exact.len();
-    while index != 0 {
-        index -= 1;
+    for index in (0..exact.len()).iter().rev() {
         suffix[index] = found;
-        if exact.digit(index) != b'0' { found = true; }
+        if exact.digit(index) != b'0' {
+            found = true;
+        }
     }
     suffix
 }
 
-fun hasNonZeroAfter(exact: &decimal::Decimal, index: usize) bool {
+fun hasNonZeroAfter(exact: &Decimal, index: usize) bool {
     (&exact.asSlice()[index + 1..]).iter().position(\byte -> byte.* != b'0').isPresent()
 }
 
-fun roundedCandidate(exact: &decimal::Decimal, precision: usize, tailNonZero: bool) decimal::Decimal {
+// The first `precision` digits of `exact`, rounded to nearest, ties to even,
+// without trailing zeros. `tailNonZero` reports a nonzero digit after the
+// first discarded one.
+fun rounded(exact: &Decimal, precision: usize, tailNonZero: bool) Decimal {
     let len = cmp::min(exact.len(), precision);
-    let mut result: decimal::Decimal = .{
-        digits: [0u8; maxFloatDigits],
+    let mut result: Decimal = .{
+        digits: [0u8; digitCapacity],
         len,
-        exponent10: exact.exponent10() + exact.len() as i32 - len as i32,
+        exponent10: exact.exponent10() + (exact.len() - len) as i32,
     };
-    _ = (&mut result.digits[0..len]).copyFrom(&exact.asSlice()[0..len]);
-    if exact.len() > len {
+    _ = (&mut result.digits[..len]).copyFrom(&exact.asSlice()[..len]);
+    if len < exact.len() {
         let next = exact.digit(len);
         let lastOdd = ((result.digits[len - 1] - b'0') & 1) != 0;
-        let roundUp = next > b'5' or (next == b'5' and (tailNonZero or lastOdd));
-        if roundUp {
+        if next > b'5' or (next == b'5' and (tailNonZero or lastOdd)) {
             let mut carry = true;
-            let mut index = len;
-            while index != 0 and carry {
-                index -= 1;
-                if result.digits[index] == b'9' {
-                    result.digits[index] = b'0';
+            for digit in (&mut result.digits[..len]).iterMut().rev() {
+                if digit.* == b'9' {
+                    digit.* = b'0';
                 } else {
-                    result.digits[index] += 1;
+                    digit.* += 1;
                     carry = false;
+                    break;
                 }
             }
+            // Every digit was 9: the value became the next power of ten.
             if carry {
                 result.digits[0] = b'1';
-                // Carry already cleared every following digit.
                 result.exponent10 += 1;
             }
         }
@@ -62,54 +64,44 @@ fun roundedCandidate(exact: &decimal::Decimal, precision: usize, tailNonZero: bo
     result
 }
 
-fun fits(candidate: &decimal::Decimal, bits: u64, lower: &decimal::Decimal, upper: &decimal::Decimal) bool {
-    let lowerComparison = if bits == 0 { 0 } else { decimal::compareDigits(candidate, lower) };
-    decimal::intervalContains(bits, lowerComparison, decimal::compareDigits(candidate, upper))
+fun unitAt(exponent10: i32) Decimal {
+    let mut unit = Decimal::zero();
+    unit.digits[0] = b'1';
+    unit.exponent10 = exponent10;
+    unit
 }
 
-// The same decimal interval search serves binary32 and binary64.
-pub(super) fun shortest(
-    exact: &decimal::Decimal,
-    lower: &decimal::Decimal,
-    upper: &decimal::Decimal,
-    bits: u64,
-    maxPrecision: usize,
-) decimal::Decimal {
+// The fewest digits that round back to the value `interval` describes.
+// `maxPrecision` digits always suffice for the format.
+pub(super) fun shortest(exact: &Decimal, interval: &Interval, maxPrecision: usize) Decimal {
     let suffix = nonZeroSuffix(exact);
     for precision in 1usize..maxPrecision {
-        let candidate = roundedCandidate(exact, precision, suffix[precision]);
-        if fits(candidate, bits, lower, upper) { return candidate; }
+        let candidate = rounded(exact, precision, suffix[precision]);
+        if interval.contains(\[&candidate] bound -> candidate.compare(bound)) {
+            return candidate;
+        }
     }
-    roundedCandidate(exact, maxPrecision, suffix[maxPrecision])
+    rounded(exact, maxPrecision, suffix[maxPrecision])
 }
 
-pub(super) fun fixedPrecision(exact: &decimal::Decimal, precision: usize) decimal::Decimal {
-    let point = exact.point();
-    if point >= exact.len() as i64 {
-        return roundedCandidate(exact, exact.len(), false);
+// `exact` rounded to `precision` digits after the decimal point.
+pub(super) fun fixedPrecision(exact: &Decimal, precision: usize) Decimal {
+    let fractionDigits = -(exact.exponent10() as i64);
+    if precision as i64 >= fractionDigits {
+        return rounded(exact, exact.len(), false);
     }
-    let requiredPrecision = if point < 0 {
-        exact.len() + (-point) as usize
-    } else {
-        exact.len() - point as usize
-    };
-    if precision >= requiredPrecision {
-        return roundedCandidate(exact, exact.len(), false);
-    }
-    let retained = point + precision as i64;
-    if retained <= 0 {
-        let roundUp = retained == 0 and (exact.digit(0) > b'5'
-            or (exact.digit(0) == b'5' and hasNonZeroAfter(exact, 0)));
-        if roundUp {
-            let mut result = decimal::Decimal::zero();
-            result.digits[0] = b'1';
-            result.exponent10 = -(precision as i32);
-            result
-        } else {
-            decimal::Decimal::zero()
-        }
-    } else {
+    let retained = exact.point() + precision as i64;
+    if retained > 0 {
         let retained = retained as usize;
-        roundedCandidate(exact, retained, hasNonZeroAfter(exact, retained))
+        return rounded(exact, retained, hasNonZeroAfter(exact, retained));
+    }
+    // Every digit lies beyond the precision, so the result is zero or one
+    // unit in the last kept place.
+    let first = exact.digit(0);
+    let roundUp = retained == 0 and (first > b'5' or (first == b'5' and hasNonZeroAfter(exact, 0)));
+    if roundUp {
+        unitAt(-(precision as i32))
+    } else {
+        Decimal::zero()
     }
 }

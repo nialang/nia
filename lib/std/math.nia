@@ -4,12 +4,13 @@
 
 pub(root) module alignment;
 pub(root) module checked;
-pub module float;
+pub(root) module float;
 pub(root) module signed;
 pub(root) module unsigned;
 
 using root::math::alignment;
 using root::math::checked;
+using root::math::float;
 using root::math::signed;
 using root::math::unsigned;
 

@@ -142,14 +142,14 @@ syntax (including whitespace, non-ASCII digits, NaN and infinity spellings)
 returns `InvalidDigit`, and overflow returns `Overflow`. Underflow rounds to a
 subnormal or signed zero. Both widths round to nearest, ties to even.
 
-`math::BinaryFloat` is the public abstraction for generic IEEE-754 code.
-Built-in `f32` and `f64` values expose `isNan()`, `isInfinite()`, `isFinite()`,
-`signBit()`, and `toBits()` directly; `[f32]::fromBits(bits)` and
-`[f64]::fromBits(bits)` preserve the representation, including NaN payloads.
-Raw bits use `u64`; binary32 uses the low 32 bits and `fromBits` discards the
-upper bits. The trait's conversion representation is sealed inside the standard
-library so its generic parsing and formatting algorithms only accept supported
-IEEE layouts.
+`f32` and `f64` have `isNan()`, `isInfinite()`, `isFinite()`, `signBit()`,
+and `toBits()` without an import. Bits use the format's own width: `toBits`
+returns a `u32` for `f32` and a `u64` for `f64`, and `[f32]::fromBits(bits)`
+and `[f64]::fromBits(bits)` restore every bit, including NaN payloads. These
+methods belong to `math::BinaryFloat`; name it to write code that is generic
+over both widths. Only `f32` and `f64` implement it, because parsing and
+formatting rely on a layout description that the standard library keeps to
+itself.
 
 ## Testing
 

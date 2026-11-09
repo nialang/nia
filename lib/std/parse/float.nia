@@ -1,26 +1,32 @@
-// Decimal syntax is shared by bytes and Unicode text without narrowing.
-// Approximation proposes a candidate; exact midpoint comparisons decide it.
+// Correctly rounded decimal-to-binary conversion for f32 and f64, from bytes
+// or Unicode text through the same scanner. An f64 approximation proposes a
+// result; exact comparisons with rounding midpoints decide it.
 
 module syntax;
 
-using root::parse::float::syntax;
-using root::parse::ascii::AsciiUnit;
 using root::cmp;
 using root::iter;
-using root::math::float::BinaryFloat;
-using root::math::float::BinaryFloatRepresentation;
+using root::math::float::BinaryFormat;
 using root::math::float::decimal;
+using root::parse::ascii::AsciiUnit;
+using root::parse::float::syntax;
 using super::core::{Error, From};
 
+// Binary search for the smallest magnitude whose upper midpoint the input
+// does not exceed; a tie belongs to the even magnitude.
 fun roundedBits[F, U](input: &[U], parsed: syntax::Parsed) u64
-where F: BinaryFloat + BinaryFloatRepresentation, U: AsciiUnit
+where F: BinaryFormat, U: AsciiUnit
 {
     let mut low: u64 = 0;
-    let mut high = [F as BinaryFloatRepresentation]::maxFiniteBits + 1;
+    let mut high = [F]::maxFiniteBits() + 1;
     while low < high {
         let middle = low + (high - low) / 2;
-        let comparison = syntax::compareParsed(input, parsed, decimal::midpoint[F](middle));
-        if comparison < 0 or (comparison == 0 and (middle & 1) == 0) {
+        let roundsDown = match syntax::compareParsed(input, parsed, decimal::midpoint[F](middle)) {
+            .Less => true,
+            .Equal => (middle & 1) == 0,
+            .Greater => false,
+        };
+        if roundsDown {
             high = middle;
         } else {
             low = middle + 1;
@@ -34,9 +40,13 @@ fun powerOfTen(exponent: i32) f64 {
     let mut factor: f64 = 10.0;
     let mut result: f64 = 1.0;
     while power != 0 {
-        if (power & 1u32) != 0 { result *= factor; }
+        if (power & 1u32) != 0 {
+            result *= factor;
+        }
         power >>= 1;
-        if power != 0 { factor *= factor; }
+        if power != 0 {
+            factor *= factor;
+        }
     }
     if exponent < 0 { 1.0 / result } else { result }
 }
@@ -44,75 +54,86 @@ fun powerOfTen(exponent: i32) f64 {
 fun approximateMagnitude[U](input: &[U], parsed: syntax::Parsed) ?f64
 where U: AsciiUnit
 {
-    // Nineteen digits fit in u64; exact interval checks account for the discarded tail.
+    // Nineteen digits fit in u64; the exact checks account for the rest.
     let digitCount = cmp::min(parsed.significantDigits, 19usize);
     let significand = parsed.digits(input).take(digitCount).fold(
         0u64,
         \value, digit -> value * 10 + (digit - b'0') as u64,
     );
     let exponent = parsed.exponent10 + (parsed.significantDigits - digitCount) as i128;
-    if exponent < -308 or exponent > 308 { return null; }
+    if exponent < -308 or exponent > 308 {
+        return null;
+    }
     let value = significand as f64 * powerOfTen(exponent as i32);
-    if not value.isFinite() or value == 0.0 { return null; }
-    ?value
+    if value.isFinite() and value != 0.0 { ?value } else { null }
 }
 
-// The fast path never determines rounding by approximation alone.
-fun tryRoundedBits[F, U](input: &[U], parsed: syntax::Parsed) ?u64
-where F: BinaryFloat + BinaryFloatRepresentation, U: AsciiUnit
+// The approximation is only a candidate: it is accepted when the input lies in
+// its rounding interval, and otherwise the exact search decides.
+fun approximateBits[F, U](input: &[U], parsed: syntax::Parsed) ?u64
+where F: BinaryFormat, U: AsciiUnit
 {
-    let value = [F]::fromApproximateF64(approximateMagnitude(input, parsed).?);
-    let bits = value.toBits();
-    if bits > [F as BinaryFloatRepresentation]::maxFiniteBits { return null; }
-    let lower = if bits == 0 { 0 } else {
-        syntax::compareParsed(input, parsed, decimal::midpoint[F](bits - 1))
-    };
-    let upper = syntax::compareParsed(input, parsed, decimal::midpoint[F](bits));
-    if decimal::intervalContains(bits, lower, upper) { ?bits } else { null }
+    let bits = [F]::fromApproximation(approximateMagnitude(input, parsed).?).rawBits();
+    if bits > [F]::maxFiniteBits() {
+        return null;
+    }
+    let interval = decimal::interval[F](bits);
+    if interval.contains(\[input, parsed] bound -> syntax::compareParsed(input, parsed, bound)) {
+        ?bits
+    } else {
+        null
+    }
 }
 
 fun parseFloat[F, U](input: &[U]) Error!F
-where F: BinaryFloat + BinaryFloatRepresentation, U: AsciiUnit
+where F: BinaryFormat, U: AsciiUnit
 {
     let parsed = syntax::parse(input).?;
     let order = parsed.order();
-    let magnitude = if parsed.zero or order < [F as BinaryFloatRepresentation]::minDecimalOrder as i128 {
+    let magnitude = if parsed.zero or order < [F as BinaryFormat]::minDecimalOrder as i128 {
         0u64
-    } else if order > [F as BinaryFloatRepresentation]::maxDecimalOrder as i128 {
+    } else if order > [F as BinaryFormat]::maxDecimalOrder as i128 {
         return .Overflow!;
+    } else if approximateBits[F, U](input, parsed) is ?bits {
+        bits
     } else {
-        match tryRoundedBits[F, U](input, parsed) {
-            ?bits => bits,
-            null => roundedBits[F, U](input, parsed),
-        }
+        roundedBits[F, U](input, parsed)
     };
-    if magnitude > [F as BinaryFloatRepresentation]::maxFiniteBits { return .Overflow!; }
-    let sign = if parsed.negative {
-        1u64 << ([F as BinaryFloat]::fractionBits + [F as BinaryFloat]::exponentBits)
-    } else { 0u64 };
-    ![F]::fromBits(sign | magnitude)
+    if magnitude > [F]::maxFiniteBits() {
+        return .Overflow!;
+    }
+    let sign = if parsed.negative { [F]::signMask() } else { 0u64 };
+    ![F]::fromRawBits(sign | magnitude)
 }
 
 extend f32 : From[&[u8]] {
     type Error = Error;
 
-    fun from(input: &[u8]) Error!f32 { parseFloat[f32, u8](input) }
+    fun from(input: &[u8]) Error!f32 {
+        parseFloat(input)
+    }
 }
 
 extend f32 : From[&[char]] {
     type Error = Error;
 
-    fun from(input: &[char]) Error!f32 { parseFloat[f32, char](input) }
+    fun from(input: &[char]) Error!f32 {
+        parseFloat(input)
+    }
 }
 
 extend f64 : From[&[u8]] {
     type Error = Error;
 
-    fun from(input: &[u8]) Error!f64 { parseFloat[f64, u8](input) }
+    fun from(input: &[u8]) Error!f64 {
+        parseFloat(input)
+    }
 }
 
 extend f64 : From[&[char]] {
     type Error = Error;
 
-    fun from(input: &[char]) Error!f64 { parseFloat[f64, char](input) }
+    fun from(input: &[char]) Error!f64 {
+        parseFloat(input)
+    }
 }
