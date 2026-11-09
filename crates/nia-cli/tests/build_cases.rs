@@ -1500,7 +1500,7 @@ fn assert_configured_build_success(
         .find(|artifact| artifact.key.name() == "app")
         .expect("app artifact");
     assert_eq!(app_artifact.root_module.name(), "app");
-    assert_eq!(app_artifact.output.protocol_path(), "custom-app");
+    assert_eq!(app_artifact.output.protocol_path(), exe("custom-app"));
     assert_eq!(app_artifact.runtime, nia_build::Runtime::Freestanding);
     let bare_artifact = plan
         .artifacts()
@@ -1515,7 +1515,10 @@ fn assert_configured_build_success(
         .find(|artifact| artifact.key.name() == "host-tool")
         .expect("host artifact");
     assert_eq!(host_artifact.root_module.name(), "host-tool");
-    assert_eq!(host_artifact.output.protocol_path(), "custom-host-tool");
+    assert_eq!(
+        host_artifact.output.protocol_path(),
+        exe("custom-host-tool")
+    );
     let object_artifact = plan
         .artifacts()
         .iter()
@@ -1541,7 +1544,7 @@ fn assert_configured_build_success(
         .find(|artifact| artifact.key.name() == "worker")
         .expect("worker artifact");
     assert_eq!(worker_artifact.root_module.name(), "worker");
-    assert_eq!(worker_artifact.output.protocol_path(), "custom-worker");
+    assert_eq!(worker_artifact.output.protocol_path(), exe("custom-worker"));
     assert_eq!(plan.actions().len(), 13);
     assert!(matches!(
         &plan
@@ -1988,11 +1991,26 @@ fn assert_configured_build_success(
         plan.selected_step().map(nia_build::StepKey::name),
         Some("tool")
     );
-    assert!(workspace.join("build/out/custom-app").is_file());
+    assert!(
+        workspace
+            .join("build/out")
+            .join(exe("custom-app"))
+            .is_file()
+    );
     assert!(workspace.join("build/out/install/custom-app").is_file());
-    assert!(!workspace.join("build/out/app").exists());
-    assert!(workspace.join("build/out/custom-worker").is_file());
-    assert!(workspace.join("build/out/custom-host-tool").is_file());
+    assert!(!workspace.join("build/out").join(exe("app")).exists());
+    assert!(
+        workspace
+            .join("build/out")
+            .join(exe("custom-worker"))
+            .is_file()
+    );
+    assert!(
+        workspace
+            .join("build/out")
+            .join(exe("custom-host-tool"))
+            .is_file()
+    );
     assert!(workspace.join("build/out/custom-objects").is_dir());
     assert!(
         std::fs::read_dir(workspace.join("build/out/custom-objects"))
@@ -2011,7 +2029,7 @@ fn assert_configured_build_success(
     );
     assert!(workspace.join("build/out/generated/helper.nia").is_file());
     assert!(workspace.join("build/out/generated/worker.nia").is_file());
-    assert!(!workspace.join("build/out/worker").exists());
+    assert!(!workspace.join("build/out").join(exe("worker")).exists());
     let transformed = std::fs::read(workspace.join("build/out/transformed.txt")).unwrap();
     assert_eq!(
         transformed
@@ -2036,7 +2054,7 @@ fn assert_configured_build_success(
                 .starts_with(".nia-command-"))
     );
     assert_eq!(
-        Command::new(workspace.join("build/out/custom-app"))
+        Command::new(workspace.join("build/out").join(exe("custom-app")))
             .arg("roadmap")
             .status_timeout("run configured build target")
             .code(),
@@ -2062,13 +2080,13 @@ fn assert_configured_build_success(
         );
     }
     assert_eq!(
-        Command::new(workspace.join("build/out/custom-worker"))
+        Command::new(workspace.join("build/out").join(exe("custom-worker")))
             .status_timeout("run configured worker artifact")
             .code(),
         Some(0)
     );
     assert_eq!(
-        Command::new(workspace.join("build/out/custom-host-tool"))
+        Command::new(workspace.join("build/out").join(exe("custom-host-tool")))
             .arg("roadmap")
             .status_timeout("run configured host tool artifact")
             .code(),
@@ -2121,10 +2139,15 @@ fn assert_dependency_success(contract: &str, workspace: &Path, output: &std::pro
         "step-order" => assert!(output.stdout.is_empty()),
         "executable-dependency" => {
             assert!(output.stdout.is_empty());
-            assert!(workspace.join("build/out/app").is_file());
+            assert!(workspace.join("build/out").join(exe("app")).is_file());
         }
         _ => panic!("unknown dependency-success contract {contract:?}"),
     }
+}
+
+// The file an executable artifact built for the host is written to.
+fn exe(name: &str) -> String {
+    format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
 
 fn assert_runner_error(

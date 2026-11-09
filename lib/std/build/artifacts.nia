@@ -158,6 +158,7 @@ extend Build {
             self.allocator,
             options.name,
             outputName,
+            self.targets.asSlice()[targetIndex].view().executableExtension(),
             options.staticArchives,
             options.linkage,
             options.debugInfo,

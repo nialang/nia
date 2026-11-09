@@ -118,7 +118,17 @@ fn copied_installed_toolchain_reuses_caches_and_drives_build() {
             .arg(&build_workspace)
             .output_timeout_in_session("build from relocated installed toolchain"),
     );
-    assert!(build_workspace.join("build/out/custom-app").is_file());
+    assert!(
+        build_workspace
+            .join("build/out")
+            .join(exe("custom-app"))
+            .is_file()
+    );
+}
+
+// The file an executable artifact built for the host is written to.
+fn exe(name: &str) -> String {
+    format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
 
 fn timing_counter(timings: &str, name: &str) -> u64 {

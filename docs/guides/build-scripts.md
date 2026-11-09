@@ -242,7 +242,9 @@ that are not declared or managed by `nia.toml`.
 
 Each options type takes `init(name, rootModule)` and supports
 `withOutputName(fileName)` and `forTarget(target)`. The output name defaults to
-the artifact name and must be a plain file name. Executables also support:
+the artifact name and must be a plain file name. An executable's file adds its
+target's executable extension, so `app` is written as `app.exe` for a Windows
+target. Executables also support:
 
 - `withStaticArchives([archive, ...])` to link static archives declared in the
   same script;
@@ -301,7 +303,8 @@ the host, or the target given with `nia build --target <name>`.
 | `b.target(name)` | a [supported target](../reference/platform-support.md#targets) by name, or an error |
 
 A `TargetView` exposes `name()`, `arch()`, `vendor()`, `os()`, `env()`,
-`endian()`, `pointerWidth()`, and `equals(other)`. The script can branch on
+`endian()`, `pointerWidth()`, `executableExtension()` (`exe` for Windows, empty
+elsewhere), and `equals(other)`. The script can branch on
 them, for example `if b.hostTarget().os().equals("windows") { ... }`.
 
 ## Steps
@@ -422,7 +425,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
 ```
 
 `nia build run` prints `hello world 49 1.0`, and `nia build` leaves
-`build/out/app` and `build/out/dist/app`.
+`build/out/app` and `build/out/dist/app` (`build/out/app.exe` on Windows; the
+install path is used as written).
 
 ## Running External Commands
 

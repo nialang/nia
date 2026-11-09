@@ -38,6 +38,11 @@ fn manifest_executables_for_foreign_targets_do_not_register_run_steps() {
     assert!(!listed.contains("run-app"), "{listed}");
 }
 
+// The file an executable artifact built for the host is written to.
+fn executable_file(name: &str) -> String {
+    format!("{name}{}", std::env::consts::EXE_SUFFIX)
+}
+
 #[test]
 fn build_separates_owned_host_and_artifact_targets() {
     let root = temp_dir("build_separates_owned_host_and_artifact_targets");
@@ -720,6 +725,11 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if not textIs(intelMac.os(), &"macos") or not textIs(intelMac.arch(), &"x86_64") {
         return process::ExitCode(36)!;
     }
+    // Executables take their own target's extension, whatever the host.
+    let windows = api.target(&"x86_64-pc-windows-msvc").?;
+    if not textIs(windows.executableExtension(), &"exe") or intelMac.executableExtension().len() != 0 {
+        return process::ExitCode(41)!;
+    }
     let intelExecutable = api.addExecutable(
         build::ExecutableOptions::init(&"intel-app", moduleHandle)
             .withOutputName(&"intel-app")
@@ -994,7 +1004,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
         .iter()
         .find(|artifact| artifact.key.name() == "host-app")
         .expect("host executable artifact");
-    assert_eq!(host_artifact.output.protocol_path(), "host-tool");
+    assert_eq!(
+        host_artifact.output.protocol_path(),
+        executable_file("host-tool")
+    );
 
     // A per-artifact target outside the invocation pair reaches the frozen
     // plan unchanged.
@@ -1006,6 +1019,12 @@ pub fun main(init: process::Init) process::ExitCode!() {
         .iter()
         .find(|action| action.key.name() == "intel-emit")
         .expect("third-target emit action");
+    let intel_artifact = plan
+        .artifacts()
+        .iter()
+        .find(|artifact| artifact.key.name() == "intel-app")
+        .expect("third-target executable artifact");
+    assert_eq!(intel_artifact.output.protocol_path(), "intel-app");
     assert!(matches!(
         &intel_emit.kind,
         nia_build::ActionKind::CompilerEmit { artifact, target, .. }

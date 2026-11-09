@@ -60,6 +60,7 @@ extend ExecutableTarget {
         allocator: &mut mem::Allocator,
         name: &[char],
         outputName: &[char],
+        extension: &[char],
         staticArchives: ?&[StaticArchiveHandle],
         linkage: Linkage,
         debugInfo: DebugInfo,
@@ -70,6 +71,10 @@ extend ExecutableTarget {
     ) Error!() {
         self.name = string::String::fromSlice(allocator, name).withBuildContext(.Retain, .Executable(self.index)).?;
         self.outputName = string::String::fromSlice(allocator, outputName).withBuildContext(.Retain, .Executable(self.index)).?;
+        if extension.len() != 0 {
+            self.outputName.push(allocator, '.').withBuildContext(.Retain, .Executable(self.index)).?;
+            self.outputName.append(allocator, extension).withBuildContext(.Retain, .Executable(self.index)).?;
+        }
         if staticArchives is ?archives {
             self.staticArchives.reserve(
                 allocator,
@@ -233,6 +238,13 @@ extend TargetView {
 
     pub fun os(&self) &[char] {
         self.component(2)
+    }
+
+    // The file extension of the target's executables, without the dot; empty
+    // when the platform uses none.
+    pub fun executableExtension(&self) &[char] {
+        static windowsExtension: [char; 3] = "exe";
+        if self.os().equals("windows") { windowsExtension } else { &windowsExtension[0..0] }
     }
 
     // Empty when the platform has no environment component.
