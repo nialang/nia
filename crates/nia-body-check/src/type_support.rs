@@ -547,6 +547,35 @@ impl<'a> BodyChecker<'a> {
         Some(expected)
     }
 
+    /// The type of tuple field `index` read through `lhs_ty`, a tuple or
+    /// tuple struct or a pointer to one, or `None` when there is no such
+    /// field. It reports nothing; see [`Self::tuple_field_type`].
+    pub(crate) fn tuple_field_type_for_inference(
+        &mut self,
+        lhs_ty: InternedTyId,
+        index: usize,
+    ) -> Option<InternedTyId> {
+        match self
+            .interner
+            .get(self.normalization.normalize(lhs_ty))
+            .cloned()?
+        {
+            TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. } => {
+                self.tuple_field_type_for_inference(elem, index)
+            }
+            TyKind::Tuple(elems) => elems.get(index).copied(),
+            TyKind::Nominal { def_id, .. } => {
+                let resolved = self.resolved_struct_signature(def_id)?;
+                if !resolved.signature.is_tuple {
+                    return None;
+                }
+                let name = resolved.signature.fields.get(index)?.name;
+                self.field_ty_for_aggregate_ty(lhs_ty, &name)
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn tuple_field_type(
         &mut self,
         span: Span,

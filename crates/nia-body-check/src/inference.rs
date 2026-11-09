@@ -242,6 +242,32 @@ struct TryObligation {
     propagation_target: Option<InferId>,
 }
 
+/// A field, tuple field, or index read whose result type follows from its
+/// base once the base type is known.
+#[derive(Clone, Copy, Debug)]
+struct ProjectionObligation {
+    base: InferId,
+    projection: Projection,
+    result: InferId,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Projection {
+    Field(SymbolId),
+    TupleField(usize),
+    Index(InferId),
+}
+
+/// Where an omitted enum constructor may find its enum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConstructorSearch {
+    /// Only the type its context requires.
+    ContextOnly,
+    /// Also the module's enums that declare the variant, once no context
+    /// can arrive.
+    ModuleEnums,
+}
+
 #[derive(Clone, Debug)]
 struct OmittedEnumConstructorObligation {
     name: SymbolId,
@@ -253,6 +279,7 @@ enum InferenceObligation {
     Operator(OperatorObligation),
     Try(TryObligation),
     OmittedEnumConstructor(OmittedEnumConstructorObligation),
+    Projection(ProjectionObligation),
 }
 
 /// Constraint state for one function body.
@@ -2078,32 +2105,45 @@ impl FunctionInference {
             | ExprKind::Underscore
             | ExprKind::TypeTarget { .. }
             | ExprKind::TraitTarget { .. }
-            | ExprKind::BracketSuffix { .. }
             | ExprKind::ArrayLiteral { .. }
-            | ExprKind::OmittedAggregateLiteral { .. }
-            | ExprKind::Field { .. }
-            | ExprKind::TupleField { .. }
-            | ExprKind::Index { .. } => {
-                // Even a form whose result has no structural inference rule
-                // must contribute the calls and closures in its children.
-                // Use the canonical AST walker so an outer expression cannot
-                // disconnect a nested contextual use. Keep this list explicit:
-                // a new AST form must choose a structural constraint rule or
-                // deliberately participate only through its children.
-                nia_ast_walk::walk_expr(
-                    &mut ExpressionConstraintCollector {
-                        inference: self,
-                        checker,
-                    },
-                    expr,
-                );
-                if let Some(ty) = checker.inference_enum_variant_type(expr) {
-                    self.known(ty)
+            | ExprKind::OmittedAggregateLiteral { .. } => {
+                self.fallback_term(checker, expr, expected)
+            }
+            ExprKind::Field { lhs, name } => {
+                if checker.inference_enum_variant_type(expr).is_some()
+                    || checker.type_lowering.ty_for_key(&expr.node_key).is_some()
+                    || checker
+                        .semantic_uses
+                        .node_value_use(&expr.node_key)
+                        .is_some()
+                {
+                    self.fallback_term(checker, expr, expected)
                 } else {
-                    match checker.type_lowering.ty_for_key(&expr.node_key) {
-                        Some(ty) => self.known(ty),
-                        None => expected.unwrap_or_else(|| self.fresh()),
+                    let base = self.constrain_expr(checker, lhs, None);
+                    self.projection(checker, base, Projection::Field(*name), expected)
+                }
+            }
+            ExprKind::TupleField { lhs, index } => {
+                let base = self.constrain_expr(checker, lhs, None);
+                self.projection(checker, base, Projection::TupleField(*index), expected)
+            }
+            ExprKind::Index {
+                lhs,
+                index: nia_ast::IndexArg::Expr(index),
+            } => {
+                let base = self.constrain_expr(checker, lhs, None);
+                let index = self.constrain_expr(checker, index, None);
+                self.projection(checker, base, Projection::Index(index), expected)
+            }
+            ExprKind::Index { .. } => self.fallback_term(checker, expr, expected),
+            ExprKind::BracketSuffix { callee, args } => {
+                match indexed_bracket_suffix(checker, callee, args) {
+                    Some(index) => {
+                        let base = self.constrain_expr(checker, callee, None);
+                        let index = self.constrain_expr(checker, index, None);
+                        self.projection(checker, base, Projection::Index(index), expected)
                     }
+                    None => self.fallback_term(checker, expr, expected),
                 }
             }
         };
@@ -2120,6 +2160,100 @@ impl FunctionInference {
         term
     }
 
+    /// The term for a form with no structural inference rule of its own.
+    fn fallback_term(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        expr: &Expr,
+        expected: Option<InferId>,
+    ) -> InferId {
+        // Even a form whose result has no structural inference rule
+        // must contribute the calls and closures in its children.
+        // Use the canonical AST walker so an outer expression cannot
+        // disconnect a nested contextual use. Keep this list explicit:
+        // a new AST form must choose a structural constraint rule or
+        // deliberately participate only through its children.
+        nia_ast_walk::walk_expr(
+            &mut ExpressionConstraintCollector {
+                inference: self,
+                checker,
+            },
+            expr,
+        );
+        if let Some(ty) = checker.inference_enum_variant_type(expr) {
+            self.known(ty)
+        } else {
+            match checker.type_lowering.ty_for_key(&expr.node_key) {
+                Some(ty) => self.known(ty),
+                None => expected.unwrap_or_else(|| self.fresh()),
+            }
+        }
+    }
+
+    /// The term for a read projected from `base`. It resolves at once when
+    /// the base type is already known, and otherwise once later constraints
+    /// determine it.
+    fn projection(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        base: InferId,
+        projection: Projection,
+        expected: Option<InferId>,
+    ) -> InferId {
+        let result = expected.unwrap_or_else(|| self.fresh());
+        let obligation = ProjectionObligation {
+            base,
+            projection,
+            result,
+        };
+        if !self.solve_projection(checker, obligation) {
+            self.obligations
+                .push(InferenceObligation::Projection(obligation));
+        }
+        result
+    }
+
+    /// Give a projection's result its type once its base, and an index's
+    /// operand, are known. A base without the field, or a type that is not
+    /// indexable by the operand, contributes nothing: body checking reports
+    /// the access.
+    fn solve_projection(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        obligation: ProjectionObligation,
+    ) -> bool {
+        let Some(base) = self.resolve(checker, obligation.base) else {
+            return false;
+        };
+        let projected = match obligation.projection {
+            Projection::Field(name) => checker.field_type_for_inference(base, &name),
+            Projection::TupleField(index) => checker.tuple_field_type_for_inference(base, index),
+            Projection::Index(index) => {
+                let Some(index) = self.resolve(checker, index) else {
+                    return false;
+                };
+                let index_trait = nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Index);
+                checker
+                    .current_context_proves_trait_obligation(base, index_trait, vec![index])
+                    .then(|| {
+                        let projection = checker.interner.intern(TyKind::Projection {
+                            self_ty: base,
+                            trait_id: index_trait,
+                            trait_args: vec![index],
+                            trait_const_args: Vec::new(),
+                            name: nia_symbol::known::OUTPUT,
+                        });
+                        checker.normalize_projection(projection)
+                    })
+            }
+        };
+        if let Some(ty) = projected {
+            let ty = self.known(ty);
+            self.unify(checker, obligation.result, ty);
+        }
+        true
+    }
+
     /// Reach a fixed point across all deferred structural and operator
     /// obligations after the full body has contributed its contexts.
     ///
@@ -2127,20 +2261,33 @@ impl FunctionInference {
     /// obligations remain for the ordinary checker; there is no iteration
     /// limit or guessed type, and no dependence on a try-before-operator
     /// phase ordering.
+    ///
+    /// An omitted enum constructor such as `.Allocation` takes its enum from
+    /// context: the callable it must fit, or the error a `.?` propagates it
+    /// to. Only when every contextual round is exhausted may it search the
+    /// module's enums for the variant, so the order obligations were queued
+    /// in never lets that search run ahead of a context that would have
+    /// named a different enum.
     fn solve_obligations(&mut self, checker: &mut BodyChecker<'_>) {
         let mut pending = std::mem::take(&mut self.obligations);
+        let mut search = ConstructorSearch::ContextOnly;
         loop {
             let before = pending.len();
             pending.retain(|obligation| !match obligation {
                 InferenceObligation::Operator(operator) => self.solve_operator(checker, *operator),
                 InferenceObligation::Try(propagation) => self.solve_try(checker, *propagation),
                 InferenceObligation::OmittedEnumConstructor(constructor) => {
-                    self.solve_omitted_enum_constructor(checker, constructor)
+                    self.solve_omitted_enum_constructor(checker, constructor, search)
+                }
+                InferenceObligation::Projection(projection) => {
+                    self.solve_projection(checker, *projection)
                 }
             });
-            if pending.len() == before {
-                break;
-            }
+            search = match (pending.len() == before, search) {
+                (false, _) => ConstructorSearch::ContextOnly,
+                (true, ConstructorSearch::ContextOnly) => ConstructorSearch::ModuleEnums,
+                (true, ConstructorSearch::ModuleEnums) => break,
+            };
         }
     }
 
@@ -2186,6 +2333,7 @@ impl FunctionInference {
         &mut self,
         checker: &mut BodyChecker<'_>,
         obligation: &OmittedEnumConstructorObligation,
+        search: ConstructorSearch,
     ) -> bool {
         let Some(InferShape::Callable {
             params: expected_params,
@@ -2225,6 +2373,8 @@ impl FunctionInference {
             .collect::<Vec<_>>();
         let enum_ids = if let Some((enum_id, _, _)) = &known_return {
             vec![*enum_id]
+        } else if search == ConstructorSearch::ContextOnly {
+            return false;
         } else {
             checker
                 .defs
@@ -2428,6 +2578,29 @@ impl FunctionInference {
             },
         }
     }
+}
+
+/// The index of `callee[index]` when the suffix indexes a value rather than
+/// instantiating a generic function, as body checking decides: a single
+/// expression argument applied to anything but a function name.
+fn indexed_bracket_suffix<'e>(
+    checker: &BodyChecker<'_>,
+    callee: &Expr,
+    args: &'e [nia_ast::BracketArg],
+) -> Option<&'e Expr> {
+    let [arg] = args else {
+        return None;
+    };
+    let index = arg.expr.as_ref()?;
+    let names_function = matches!(callee.kind, ExprKind::Ident(_) | ExprKind::Qualified { .. })
+        && match checker.semantic_uses.node_value_use(&callee.node_key) {
+            Some(nia_sema_ir::SemanticValueUse::Local(_)) => false,
+            Some(nia_sema_ir::SemanticValueUse::Global(def_id)) => {
+                checker.global_def_kind(def_id) == Some(DefKind::Function)
+            }
+            None => true,
+        };
+    (!names_function).then_some(index)
 }
 
 fn contains_propagation(body: &Block) -> bool {

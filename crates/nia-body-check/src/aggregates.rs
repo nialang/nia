@@ -596,6 +596,28 @@ impl<'a> BodyChecker<'a> {
         self.substitute_generics_and_consts(field.ty, &substitutions, &const_substitutions)
     }
 
+    /// The type of field `name` read through `ty`, a struct or union value
+    /// or a pointer to one, or `None` when `ty` has no such field.
+    ///
+    /// It reports nothing, so inference can ask before body checking
+    /// explains a failed access.
+    pub(crate) fn field_type_for_inference(
+        &mut self,
+        ty: InternedTyId,
+        name: &SymbolId,
+    ) -> Option<InternedTyId> {
+        let (def_id, args, const_args) = self.field_base_type(ty)?;
+        let fields = if self.is_union_def(def_id) {
+            self.resolved_union_signature(def_id)?.signature.fields
+        } else {
+            self.resolved_struct_signature(def_id)?.signature.fields
+        };
+        let field = fields.iter().find(|field| &field.name == name)?;
+        let (substitutions, const_substitutions) =
+            self.generic_substitutions_and_consts_for_def(def_id, &args, &const_args);
+        Some(self.substitute_generics_and_consts(field.ty, &substitutions, &const_substitutions))
+    }
+
     pub(crate) fn has_named_field(&mut self, ty: InternedTyId, name: &SymbolId) -> bool {
         let Some((def_id, _, _)) = self.field_base_type(ty) else {
             return false;

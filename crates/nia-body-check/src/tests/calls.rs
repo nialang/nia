@@ -3265,3 +3265,99 @@ fun invalid() usize {
         checked.diagnostics
     );
 }
+
+#[test]
+fn omitted_error_variant_infers_through_field_tuple_and_index_receivers() {
+    let checked = pipeline(
+        r#"
+enum SourceError {
+    Missing,
+}
+
+enum Failure {
+    Allocation(SourceError),
+}
+
+struct Storage {
+    len: usize,
+}
+
+extend Storage {
+    fun grow(&mut self) SourceError!() {
+        self.len += 1;
+        !()
+    }
+}
+
+struct Holder {
+    storage: Storage,
+    pair: (Storage, u8),
+    items: [Storage; 2],
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun grow(holder: &mut Holder, index: usize) Failure!() {
+    holder.storage.grow().mapError(.Allocation).?;
+    holder.pair.0.grow().mapError(.Allocation).?;
+    holder.items[index].grow().mapError(.Allocation).?;
+    !()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn omitted_error_variant_takes_its_enum_from_the_propagation_target() {
+    // `LocalFailure` is the only non-generic enum here with an `Allocation`
+    // variant, but the `.?` boundary names `Wanted[u8]`. Context must decide
+    // before any search of the module's enums.
+    let checked = pipeline(
+        r#"
+enum SourceError {
+    Missing,
+}
+
+enum LocalFailure {
+    Allocation(SourceError),
+}
+
+enum Wanted[T] {
+    Allocation(SourceError),
+    Other(T),
+}
+
+fun grow() SourceError!() {
+    !()
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun wanted() Wanted[u8]!() {
+    grow().mapError(.Allocation).?;
+    !()
+}
+
+fun local() LocalFailure!() {
+    grow().mapError(.Allocation).?;
+    !()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
