@@ -176,14 +176,14 @@ impl QueryExecutor {
         Ok(())
     }
 
+    /// Runs one queued task of `batch` on the calling thread, when the batch
+    /// has one and the caller may run it now. Returns whether a task ran.
     pub(super) fn try_run_one(&self, batch: usize) -> nia_ice::IceResult<bool> {
         let nested = query_executor_is_active(self.identity());
-        let can_run = {
-            let state = self.shared.state.lock();
-            state.queue.iter().any(|task| task.batch == batch)
-                && (nested || state.active < self.shared.parallelism)
-        };
-        if !can_run {
+        if !self
+            .shared
+            .can_run(&self.shared.state.lock(), batch, nested)
+        {
             return Ok(false);
         }
         // A query waiting inside this executor helps its own batch. Nested work inherits the
@@ -250,9 +250,17 @@ impl QueryExecutor {
         Arc::as_ptr(&self.shared) as usize
     }
 
-    pub(super) fn wait_for_batch_progress<V>(&self, batch: &QueryBatch<V>) {
+    /// Blocks until `batch` is complete or [`Self::try_run_one`] could run one
+    /// of its tasks.
+    ///
+    /// Both conditions are checked under the executor lock, which every task
+    /// completion, submission, and release of activity takes before it
+    /// notifies, so a change between the caller's failed `try_run_one` and
+    /// this wait is seen here instead of being slept through.
+    pub(super) fn wait_for_batch_progress<V>(&self, batch_id: usize, batch: &QueryBatch<V>) {
+        let nested = query_executor_is_active(self.identity());
         let mut state = self.shared.state.lock();
-        if !batch.is_complete() {
+        while !batch.is_complete() && !self.shared.can_run(&state, batch_id, nested) {
             self.shared.ready.wait(&mut state);
         }
     }
@@ -290,6 +298,13 @@ impl Drop for QueryExecutor {
 }
 
 impl QueryExecutorShared {
+    /// Whether a thread may run a queued task of `batch` now: nested work
+    /// inherits its caller's activity, and other work needs free capacity.
+    fn can_run(&self, state: &QueryExecutorState, batch: usize, nested: bool) -> bool {
+        state.queue.iter().any(|task| task.batch == batch)
+            && (nested || state.active < self.parallelism)
+    }
+
     fn worker_loop(self: Arc<Self>, execution_budget: Arc<QueryExecutionBudget>) {
         loop {
             {
@@ -566,7 +581,8 @@ impl<O> TaskCompletionStream<'_, O> {
                 return Ok(None);
             }
             if !self.executor.try_run_one(self.batch_id)? {
-                self.executor.wait_for_batch_progress(&self.batch);
+                self.executor
+                    .wait_for_batch_progress(self.batch_id, &self.batch);
             }
         }
     }
@@ -673,7 +689,7 @@ where
                 self.session
                     .inner
                     .executor
-                    .wait_for_batch_progress(&task.batch);
+                    .wait_for_batch_progress(task.batch_id, &task.batch);
             }
         }
     }

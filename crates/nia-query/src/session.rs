@@ -197,7 +197,7 @@ impl QuerySession {
             .map_err(|ice| self.inner.record_failure(ice))?;
         while !batch.is_complete() {
             if !executor.try_run_one(batch_id)? {
-                executor.wait_for_batch_progress(&batch);
+                executor.wait_for_batch_progress(batch_id, &batch);
             }
         }
         batch.finish()

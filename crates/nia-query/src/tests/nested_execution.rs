@@ -150,3 +150,87 @@ fn get_many_internal_error_taints_session() {
         executions_after_failure
     );
 }
+
+/// One task of `batch` that runs `work`, completes its slot, and wakes the
+/// batch owners, as session batches do.
+fn probe_task(
+    executor: &QueryExecutor,
+    batch: &Arc<QueryBatch<usize>>,
+    work: impl FnOnce() -> usize + Send + 'static,
+) -> QueryTask {
+    let task_batch = Arc::clone(batch);
+    let shared = Arc::clone(&executor.shared);
+    QueryTask {
+        batch: Arc::as_ptr(batch) as usize,
+        settle: Box::new(move |_| {
+            task_batch
+                .complete(0, Ok(work()))
+                .expect("complete probe task");
+            shared.notify_waiters();
+        }),
+    }
+}
+
+/// A batch owner checks whether it can run its own task and, when it cannot,
+/// waits. Capacity freed between the two must end the wait: with parallelism
+/// 1 there are no worker threads, so the owner is the only thread that could
+/// ever run its task.
+#[test]
+fn batch_owner_notices_capacity_freed_between_its_check_and_its_wait() {
+    let session = QuerySession::with_parallelism(1);
+    let executor = &session.inner.executor;
+
+    // Another owner holds the only unit of capacity until released.
+    let holder = Arc::new(QueryBatch::new(1));
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    executor
+        .submit_all(vec![probe_task(executor, &holder, move || {
+            released.recv().expect("release holder");
+            0
+        })])
+        .expect("submit holder task");
+    let holder_session = session.clone();
+    let holder_batch = Arc::clone(&holder);
+    let holder_thread = std::thread::spawn(move || {
+        let executor = &holder_session.inner.executor;
+        assert!(
+            executor
+                .try_run_one(Arc::as_ptr(&holder_batch) as usize)
+                .expect("run holder task")
+        );
+    });
+    while executor.shared.state.lock().active == 0 {
+        std::thread::yield_now();
+    }
+
+    let waiting = Arc::new(QueryBatch::new(1));
+    let waiting_id = Arc::as_ptr(&waiting) as usize;
+    executor
+        .submit_all(vec![probe_task(executor, &waiting, || 4)])
+        .expect("submit waiting task");
+    assert!(!executor.try_run_one(waiting_id).expect("check capacity"));
+
+    // The capacity is freed, and its notification sent, before the owner
+    // starts waiting.
+    release.send(()).expect("release holder");
+    holder_thread.join().expect("holder thread");
+    assert!(holder.is_complete());
+    assert_eq!(executor.shared.state.lock().active, 0);
+
+    let (woke, woken) = std::sync::mpsc::channel();
+    let waiter_session = session.clone();
+    let waiter_batch = Arc::clone(&waiting);
+    std::thread::spawn(move || {
+        waiter_session
+            .inner
+            .executor
+            .wait_for_batch_progress(waiting_id, &waiter_batch);
+        woke.send(()).expect("report wake-up");
+    });
+    assert_eq!(
+        woken.recv_timeout(std::time::Duration::from_secs(10)),
+        Ok(())
+    );
+    assert!(executor.try_run_one(waiting_id).expect("run waiting task"));
+    assert_eq!(waiting.finish().expect("waiting batch result"), vec![4]);
+}
