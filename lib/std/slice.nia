@@ -1,9 +1,7 @@
 // Borrowed slice operations and iterators.
 //
 // Slice adapters borrow their backing storage without changing its lifetime.
-// Iterators validate checked element offsets and addresses before moving their
-// front or back bound; an impossible address returns `null` without consuming
-// the pending element.
+// Iterators narrow a borrowed view of the remaining elements from either end.
 // Allocator-taking operations return independent owned results.
 
 pub(root) module order;
@@ -11,22 +9,16 @@ pub(root) module order;
 using root::slice::order;
 using root::iter;
 
-using root::math;
-
 pub struct SliceIter[T]
 where T: Sized
 {
-    ptr: &T,
-    len: usize,
-    index: usize,
+    remaining: &[T],
 }
 
 pub struct SliceIterMut[T]
 where T: Sized
 {
-    ptr: &mut T,
-    len: usize,
-    index: usize,
+    remaining: &mut [T],
 }
 
 pub struct SliceSplit[T]
@@ -40,32 +32,32 @@ where T: Sized + Eq[T]
 extend[T] SliceIter[T]
 where T: Sized
 {
-    fun fromRawParts(ptr: &T, len: usize) SliceIter[T] {
-        .{ ptr, len, index: 0 }
+    fun init(items: &[T]) SliceIter[T] {
+        .{ remaining: items }
     }
 
     pub fun len(&self) usize {
-        self.len - self.index
+        self.remaining.len()
     }
 
     pub fun isEmpty(&self) bool {
-        self.len() == 0
+        self.remaining.isEmpty()
     }
 }
 
 extend[T] SliceIterMut[T]
 where T: Sized
 {
-    fun fromRawParts(ptr: &mut T, len: usize) SliceIterMut[T] {
-        .{ ptr, len, index: 0 }
+    fun init(items: &mut [T]) SliceIterMut[T] {
+        .{ remaining: items }
     }
 
     pub fun len(&self) usize {
-        self.len - self.index
+        self.remaining.len()
     }
 
     pub fun isEmpty(&self) bool {
-        self.len() == 0
+        self.remaining.isEmpty()
     }
 }
 
@@ -83,21 +75,12 @@ where T: Sized
     type Item = &T;
 
     pub fun next(&mut self) ?&T {
-        if self.index >= self.len {
-            null
-        } else {
-            let offset = match self.index.checkedMul(root::builtin::size[T]()) {
-                ?value => value,
-                null => return null,
-            };
-            let address = match (self.ptr as usize).checkedAdd(offset) {
-                ?value => value,
-                null => return null,
-            };
-            let item = address as &T;
-            self.index += 1;
-            ?item
+        if self.remaining.isEmpty() {
+            return null;
         }
+        let items = self.remaining;
+        self.remaining = &items[1..];
+        ?&items[0]
     }
 }
 
@@ -105,21 +88,13 @@ extend[T] SliceIter[T] : iter::DoubleEndedIterator
 where T: Sized
 {
     pub fun nextBack(&mut self) ?[SliceIter[T] as Iterator]::Item {
-        if self.index >= self.len {
-            null
-        } else {
-            let backIndex = self.len - 1;
-            let offset = match backIndex.checkedMul(root::builtin::size[T]()) {
-                ?value => value,
-                null => return null,
-            };
-            let address = match (self.ptr as usize).checkedAdd(offset) {
-                ?value => value,
-                null => return null,
-            };
-            self.len = backIndex;
-            ?(address as &T)
+        if self.remaining.isEmpty() {
+            return null;
         }
+        let items = self.remaining;
+        let last = items.len() - 1;
+        self.remaining = &items[..last];
+        ?&items[last]
     }
 }
 
@@ -129,21 +104,12 @@ where T: Sized
     type Item = &mut T;
 
     pub fun next(&mut self) ?&mut T {
-        if self.index >= self.len {
-            null
-        } else {
-            let offset = match self.index.checkedMul(root::builtin::size[T]()) {
-                ?value => value,
-                null => return null,
-            };
-            let address = match (self.ptr as usize).checkedAdd(offset) {
-                ?value => value,
-                null => return null,
-            };
-            let item = address as &mut T;
-            self.index += 1;
-            ?item
+        if self.remaining.isEmpty() {
+            return null;
         }
+        let items = self.remaining;
+        self.remaining = &mut items[1..];
+        ?&mut items[0]
     }
 }
 
@@ -151,21 +117,13 @@ extend[T] SliceIterMut[T] : iter::DoubleEndedIterator
 where T: Sized
 {
     pub fun nextBack(&mut self) ?[SliceIterMut[T] as Iterator]::Item {
-        if self.index >= self.len {
-            null
-        } else {
-            let backIndex = self.len - 1;
-            let offset = match backIndex.checkedMul(root::builtin::size[T]()) {
-                ?value => value,
-                null => return null,
-            };
-            let address = match (self.ptr as usize).checkedAdd(offset) {
-                ?value => value,
-                null => return null,
-            };
-            self.len = backIndex;
-            ?(address as &mut T)
+        if self.remaining.isEmpty() {
+            return null;
         }
+        let items = self.remaining;
+        let last = items.len() - 1;
+        self.remaining = &mut items[..last];
+        ?&mut items[last]
     }
 }
 
@@ -267,11 +225,11 @@ where T: Sized
     }
 
     pub fun iter(&self) SliceIter[T] {
-        .fromRawParts(self.ptr(), self.len())
+        .init(self)
     }
 
     pub fun iterMut(&mut self) SliceIterMut[T] {
-        .fromRawParts(self.ptrMut(), self.len())
+        .init(self)
     }
 }
 
@@ -342,7 +300,7 @@ where T: Sized
     type Iter = SliceIter[T];
 
     pub fun iter(&self) SliceIter[T] {
-        .fromRawParts(self.ptr(), self.len())
+        .init(self)
     }
 }
 
@@ -353,7 +311,7 @@ where T: Sized
     type Iter = SliceIter[T];
 
     pub fun iter(&self) SliceIter[T] {
-        .fromRawParts(self.*.ptr(), self.*.len())
+        .init(self.*)
     }
 }
 
@@ -364,6 +322,6 @@ where T: Sized
     type Iter = SliceIter[T];
 
     pub fun iter(&self) SliceIter[T] {
-        .fromRawParts(self.*.ptr(), self.*.len())
+        .init(self.*)
     }
 }
