@@ -444,6 +444,8 @@ pub enum FunctionAttribute {
     Builtin(BuiltinFunction),
     /// Forward the outer tracked call site's source location.
     TrackCaller,
+    /// Never inline calls to this function.
+    InlineNever,
 }
 
 pub use nia_ids::{BuiltinFunction, BuiltinTrait};

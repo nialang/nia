@@ -94,6 +94,75 @@ fun duplicate() () {}
 }
 
 #[test]
+fn records_inline_never_on_function_and_method_definitions() {
+    let signatures = signatures_ok(
+        r#"
+@[inlineNever]
+fun top() () {}
+
+@[inlineNever]
+extern fun exported() () {}
+
+struct Value {}
+
+extend Value {
+    @[inlineNever]
+    fun method(&self) () {}
+}
+
+trait Report {
+    @[inlineNever]
+    fun report(&self) () {}
+}
+"#,
+    );
+
+    let kept = signatures
+        .functions
+        .values()
+        .filter(|signature| signature.attributes == [FunctionAttribute::InlineNever])
+        .count();
+    assert_eq!(kept, 4);
+}
+
+#[test]
+fn rejects_inline_never_without_a_body_or_with_arguments() {
+    let signatures = signatures(
+        r#"
+@[inlineNever]
+extern fun foreign() ();
+
+trait Report {
+    @[inlineNever]
+    fun report(&self) ();
+}
+
+@[inlineNever(1)]
+fun withArgument() () {}
+
+@[inlineNever]
+@[inlineNever]
+fun duplicate() () {}
+"#,
+    );
+    let summaries = signatures
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| **summary == "`@[inlineNever]` requires a function body")
+            .count(),
+        2,
+        "{summaries:?}"
+    );
+    assert!(summaries.contains(&"`@[inlineNever]` does not take arguments"));
+    assert!(summaries.contains(&"duplicate `@[inlineNever]` function attribute"));
+}
+
+#[test]
 fn records_builtin_trait_attributes() {
     let signatures = signatures_ok(
         r#"

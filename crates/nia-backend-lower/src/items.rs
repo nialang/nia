@@ -28,6 +28,7 @@ impl<'a> ModuleLowerer<'a> {
             .filter_map(|attribute| match attribute {
                 FunctionAttribute::Naked => Some(BackendFunctionAttribute::Naked),
                 FunctionAttribute::TrackCaller => Some(BackendFunctionAttribute::TrackCaller),
+                FunctionAttribute::InlineNever => Some(BackendFunctionAttribute::InlineNever),
                 FunctionAttribute::Builtin(_) => None,
             })
             .collect::<Vec<_>>();

@@ -1390,6 +1390,17 @@ impl BackendValidator<'_> {
                     "backend IR `trackCaller` attribute is not valid on extern functions",
                 ));
             }
+            if matches!(
+                attribute,
+                nia_backend_ir::BackendFunctionAttribute::InlineNever
+            ) && !has_body
+            {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    span,
+                    "backend IR `inlineNever` attribute requires a function body",
+                ));
+            }
         }
     }
 

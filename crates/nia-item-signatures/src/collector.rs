@@ -1059,6 +1059,46 @@ impl<'a> SignatureCollector<'a> {
                         out.push(FunctionAttribute::TrackCaller);
                     }
                 }
+                [name] if *name == known::INLINE_NEVER => {
+                    if !meta.args.is_empty() {
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "`@[inlineNever]` does not take arguments",
+                            )
+                            .primary(attribute.span, "`inlineNever` has unexpected arguments")
+                            .help("remove the arguments from `@[inlineNever]`")
+                            .finish(),
+                        );
+                    }
+                    if function.body.is_none() {
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "`@[inlineNever]` requires a function body",
+                            )
+                            .primary(attribute.span, "this function has no body to inline")
+                            .help("move `@[inlineNever]` to the function definition")
+                            .finish(),
+                        );
+                    }
+                    if out
+                        .iter()
+                        .any(|attribute| matches!(attribute, FunctionAttribute::InlineNever))
+                    {
+                        self.diagnostics.push(
+                            Diagnostic::user_error(
+                                codes::ITEM_SIGNATURE,
+                                "duplicate `@[inlineNever]` function attribute",
+                            )
+                            .primary(attribute.span, "duplicate `inlineNever` attribute")
+                            .help("keep only one `@[inlineNever]` attribute")
+                            .finish(),
+                        );
+                    } else {
+                        out.push(FunctionAttribute::InlineNever);
+                    }
+                }
                 [name] if *name == known::LINK_NAME || *name == known::EXPORT_NAME => {}
                 [name] if *name == known::NO_MANGLE => {
                     self.diagnostics.push(

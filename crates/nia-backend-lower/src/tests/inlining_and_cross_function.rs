@@ -315,6 +315,68 @@ pub fun main() i32 {
 }
 
 #[test]
+fn inline_never_functions_and_instances_stay_calls_at_o3() {
+    let source = r#"
+@[inlineNever]
+fun identity(value: i32) i32 {
+    value
+}
+
+@[inlineNever]
+fun pass[T](value: T) T {
+    value
+}
+
+pub fun main() i32 {
+    identity(7) + pass(8)
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O3.policy(),
+    );
+    let module = lowering
+        .program
+        .modules
+        .get(0)
+        .expect("backend test module");
+    let identity = module
+        .functions
+        .iter()
+        .find(|function| function.name == sym("identity"))
+        .expect("identity function");
+    assert_eq!(
+        identity.attributes,
+        [nia_backend_ir::BackendFunctionAttribute::InlineNever]
+    );
+    let pass = module
+        .function_instances
+        .iter()
+        .find(|instance| instance.name == sym("pass"))
+        .expect("pass instance");
+    assert_eq!(
+        pass.attributes,
+        [nia_backend_ir::BackendFunctionAttribute::InlineNever]
+    );
+    assert!(
+        !lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "inline-leaf-functions",
+                    ..
+                }
+            )),
+        "{:?}",
+        lowering.optimization_report.changed_passes
+    );
+}
+
+#[test]
 fn size_levels_inline_single_param_forwarding_wrappers() {
     let source = r#"
 fun identity(value: i32) i32 {

@@ -947,6 +947,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     }
                 }
                 nia_backend_ir::BackendFunctionAttribute::TrackCaller => {}
+                nia_backend_ir::BackendFunctionAttribute::InlineNever => {
+                    let kind = Attribute::get_named_enum_kind_id("noinline");
+                    value.add_attribute(
+                        AttributeLoc::Function,
+                        self.context
+                            .create_enum_attribute(kind, 0)
+                            .map_err(Self::diagnostic_from_llvm_error)?,
+                    );
+                }
             }
         }
         Ok(())

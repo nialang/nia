@@ -2,7 +2,9 @@
 use std::collections::HashMap;
 
 use crate::{BackendOptimizationChange, ModuleLowerer};
-use nia_backend_ir::{BackendFunction, BackendFunctionInstance, BackendParam};
+use nia_backend_ir::{
+    BackendFunction, BackendFunctionAttribute, BackendFunctionInstance, BackendParam,
+};
 use nia_function_ir::{
     FunctionArrayElements, FunctionBlock, FunctionBody, FunctionCallee, FunctionDeferBody,
     FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionInstanceKey,
@@ -12,6 +14,11 @@ use nia_ids::{GlobalDefId, LocalId};
 use nia_opt::{InlineThreshold, SpecializationPolicy};
 
 pub(crate) const INLINE_LEAF_FUNCTIONS_PASS: &str = "inline-leaf-functions";
+
+/// `@[inlineNever]` keeps a function out of line at every level.
+fn is_inline_never(attributes: &[BackendFunctionAttribute]) -> bool {
+    attributes.contains(&BackendFunctionAttribute::InlineNever)
+}
 
 #[derive(Debug, Clone)]
 enum InlineCandidate {
@@ -97,6 +104,7 @@ impl<'a> ModuleLowerer<'a> {
         let function_candidates = if allow_inline {
             functions
                 .iter()
+                .filter(|function| !is_inline_never(&function.attributes))
                 .filter_map(|function| {
                     leaf_inline_return(
                         &function.function_body,
@@ -123,6 +131,7 @@ impl<'a> ModuleLowerer<'a> {
         let instance_candidates = if allow_inline {
             function_instances
                 .iter()
+                .filter(|instance| !is_inline_never(&instance.attributes))
                 .filter_map(|instance| {
                     leaf_inline_return(
                         &instance.function_body,

@@ -1685,6 +1685,8 @@ pub enum BackendFunctionAttribute {
     Naked,
     /// Accept and forward an implicit caller-location pointer.
     TrackCaller,
+    /// Never inline calls to this function, in Nia or in LLVM.
+    InlineNever,
 }
 
 /// Concrete generic function definition.

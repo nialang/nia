@@ -1250,3 +1250,60 @@ fun main() i32 { add(1, 2) }
         assert!(hidden, "canonical symbol is not hidden: {line}");
     }
 }
+
+#[test]
+fn inline_never_functions_are_noinline_for_llvm() {
+    let root = temp_dir("inline_never_functions_are_noinline_for_llvm");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+@[inlineNever]
+fun kept(value: i32) i32 {
+    value + 1
+}
+
+fun free(value: i32) i32 {
+    value + 2
+}
+
+fun main() i32 {
+    kept(1) + free(2)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    let definition = |name: &str| {
+        let symbol = mangled_symbol(ir, '@', name);
+        ir.lines()
+            .find(|line| line.starts_with("define") && line.contains(&format!("{symbol}(")))
+            .unwrap_or_else(|| panic!("missing {name}:\n{ir}"))
+            .to_owned()
+    };
+    let attributes = |line: &str| {
+        let group = line
+            .rsplit_once('#')
+            .map(|(_, group)| group.trim_end_matches(" {").to_owned());
+        group.and_then(|group| {
+            ir.lines()
+                .find(|candidate| candidate.starts_with(&format!("attributes #{group} ")))
+                .map(str::to_owned)
+        })
+    };
+    let kept = definition("kept");
+    assert!(
+        attributes(&kept).is_some_and(|group| group.contains("noinline")),
+        "{kept}\n{ir}"
+    );
+    let free = definition("free");
+    assert!(
+        !attributes(&free).is_some_and(|group| group.contains("noinline")),
+        "{free}\n{ir}"
+    );
+}

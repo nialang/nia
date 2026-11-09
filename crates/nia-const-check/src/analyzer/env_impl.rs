@@ -2404,7 +2404,9 @@ fn builtin_function(signature: &FunctionSignature) -> Option<BuiltinFunction> {
         .iter()
         .find_map(|attribute| match attribute {
             FunctionAttribute::Builtin(builtin) => Some(*builtin),
-            FunctionAttribute::Naked | FunctionAttribute::TrackCaller => None,
+            FunctionAttribute::Naked
+            | FunctionAttribute::TrackCaller
+            | FunctionAttribute::InlineNever => None,
         })
 }
 

@@ -189,6 +189,7 @@ pub mod known {
     pub const RUNTIME_TREE: SymbolId = SymbolId::from_stable_hash(stable_hash("<runtime>"));
     known_symbol!(NAKED, "naked");
     known_symbol!(TRACK_CALLER, "trackCaller");
+    known_symbol!(INLINE_NEVER, "inlineNever");
     known_symbol!(LINK_NAME, "linkName");
     known_symbol!(EXPORT_NAME, "exportName");
     known_symbol!(NO_MANGLE, "noMangle");
@@ -360,6 +361,7 @@ pub mod known {
         (RUNTIME_TREE, "<runtime>"),
         (NAKED, "naked"),
         (TRACK_CALLER, "trackCaller"),
+        (INLINE_NEVER, "inlineNever"),
         (MAIN, "main"),
         (START, "start"),
         (TRUE, "true"),

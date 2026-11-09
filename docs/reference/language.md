@@ -958,6 +958,7 @@ attributes select only whole items and statements.
 | `@[linkName("s")]` | bodyless `extern fun`, `extern static` | symbol referenced |
 | `@[exportName("s")]` | `extern fun` with a body | symbol exported |
 | `@[trackCaller]` | non-`extern` functions and trait methods | caller location tracking |
+| `@[inlineNever]` | functions and methods with a body | never inlined into callers |
 | `@[naked]` | `extern fun` definitions | no compiler-generated prologue or epilogue |
 
 An unrecognized attribute on a function, static, constant, trait, or type alias
@@ -1037,6 +1038,25 @@ fun here() std::SourceLocation {
 fun report() u32 {
     let location = here();   // the location of this call
     location.line()
+}
+```
+
+#### Inlining
+
+At `-O1` and above the compiler inlines calls where it judges them
+profitable, within a codegen unit and, through link-time optimization, across
+units. `@[inlineNever]` keeps a function out of line at every level: no
+caller receives a copy of its body, so the function stays a separate symbol
+with its own frame, as cold paths, profiling, and stack measurements may
+need. It does not exempt calls from other optimizations: a call that has no
+effects and whose result is known can still be removed, as it can for any
+function. The attribute takes no arguments and needs a body; on a generic
+function it applies to every instance.
+
+```nia
+@[inlineNever]
+fun reportOverflow(value: u64) () {
+    _ = value;
 }
 ```
 

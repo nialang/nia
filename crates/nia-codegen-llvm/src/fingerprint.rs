@@ -620,6 +620,7 @@ impl<'a> Encoder<'a> {
             self.tag(match attribute {
                 BackendFunctionAttribute::Naked => 0,
                 BackendFunctionAttribute::TrackCaller => 1,
+                BackendFunctionAttribute::InlineNever => 2,
             });
         }
     }
