@@ -1027,7 +1027,6 @@ impl DriverActionExecutor {
                 toolchain: self.invocation.toolchain.identity(),
                 link_environment: environment,
                 link_inputs: &cache_link_inputs,
-                link_time_optimization,
             })
         });
         let mut miss_reason = match precheck_identity.as_ref() {
@@ -1095,7 +1094,6 @@ impl DriverActionExecutor {
                     toolchain: self.invocation.toolchain.identity(),
                     link_environment: environment,
                     link_inputs: &cache_link_inputs,
-                    link_time_optimization,
                 })
             });
             if let Some(identity) = exact_identity {
@@ -1178,7 +1176,6 @@ impl DriverActionExecutor {
             toolchain: self.invocation.toolchain.identity(),
             link_environment,
             link_inputs: &cache_link_inputs,
-            link_time_optimization,
         }) else {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,

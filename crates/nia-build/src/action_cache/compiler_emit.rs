@@ -16,9 +16,7 @@ use std::{
 
 use nia_compat::formats::{COMPILER_EMIT_CACHE, COMPILER_EMIT_ENTRY};
 use nia_compiler_query::SourceContentFingerprint;
-use nia_driver::{
-    ExecutableCacheEnvironment, ExecutableCacheReference, LinkTimeOptimization, SourceInputManifest,
-};
+use nia_driver::{ExecutableCacheEnvironment, ExecutableCacheReference, SourceInputManifest};
 use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::SourceIdentity;
 use nia_target_config::BuildProfile;
@@ -168,7 +166,6 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
     pub(crate) toolchain: &'a ToolchainIdentity,
     pub(crate) link_environment: ExecutableCacheEnvironment,
     pub(crate) link_inputs: &'a [CompilerEmitCacheLinkInput],
-    pub(crate) link_time_optimization: LinkTimeOptimization,
 }
 
 impl CompilerEmitCacheIdentity {
@@ -186,7 +183,7 @@ impl CompilerEmitCacheIdentity {
             toolchain: input.toolchain,
         })?;
         let output = logical_path_identity(&input.artifact.output);
-        let artifact = artifact_identity(input.artifact, input.link_time_optimization);
+        let artifact = artifact_identity(input.artifact);
         let action_identity = typed_action_identity(
             input.action,
             &ActionKind::CompilerEmit {
@@ -811,10 +808,10 @@ fn invalidations(
     reasons
 }
 
-fn artifact_identity(
-    artifact: &PlanArtifact,
-    link_time_optimization: LinkTimeOptimization,
-) -> Vec<u8> {
+/// The artifact's own declaration. Its declared `withLto`, or none, is part of
+/// it; the mode an unset declaration resolves to also depends on the
+/// optimization level, which the compiler component already identifies.
+fn artifact_identity(artifact: &PlanArtifact) -> Vec<u8> {
     let mut encoded = Vec::new();
     write_text(&mut encoded, artifact.key.package().as_str());
     write_text(&mut encoded, artifact.key.name());
@@ -828,11 +825,6 @@ fn artifact_identity(
     encoded.push(match artifact.runtime {
         crate::Runtime::Bare => 0,
         crate::Runtime::Freestanding => 1,
-    });
-    encoded.push(match link_time_optimization {
-        LinkTimeOptimization::Off => 0,
-        LinkTimeOptimization::Thin => 1,
-        LinkTimeOptimization::Full => 2,
     });
     encoded.push(match artifact.configuration.linkage {
         crate::ArtifactLinkage::Static => 0,
@@ -965,14 +957,26 @@ mod tests {
     }
 
     #[test]
-    fn executable_artifact_identity_includes_lto_policy() {
-        let artifact = executable_artifact();
-        let off = artifact_identity(&artifact, LinkTimeOptimization::Off);
-        let thin = artifact_identity(&artifact, LinkTimeOptimization::Thin);
-        let full = artifact_identity(&artifact, LinkTimeOptimization::Full);
-        assert_ne!(off, thin);
-        assert_ne!(thin, full);
-        assert_ne!(off, full);
+    fn executable_artifact_identity_includes_declared_lto() {
+        let identities = [
+            None,
+            Some(crate::ArtifactLto::Off),
+            Some(crate::ArtifactLto::Thin),
+            Some(crate::ArtifactLto::Full),
+        ]
+        .map(|lto| {
+            let mut artifact = executable_artifact();
+            artifact.configuration.lto = lto;
+            artifact_identity(&artifact)
+        });
+        for (index, identity) in identities.iter().enumerate() {
+            assert!(
+                identities[index + 1..]
+                    .iter()
+                    .all(|other| other != identity),
+                "{index}"
+            );
+        }
     }
 
     #[test]
@@ -993,10 +997,7 @@ mod tests {
                 name: "m".to_string(),
                 mode: crate::SystemLibraryMode::Dynamic,
             });
-        assert_ne!(
-            artifact_identity(&baseline, LinkTimeOptimization::Off),
-            artifact_identity(&changed, LinkTimeOptimization::Off)
-        );
+        assert_ne!(artifact_identity(&baseline), artifact_identity(&changed));
     }
 
     #[test]
