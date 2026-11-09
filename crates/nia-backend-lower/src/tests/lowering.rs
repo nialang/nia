@@ -545,21 +545,9 @@ pub fun main() i32 {
     else {
         panic!("expected repeat array initializer");
     };
-    let nia_ty::ArrayLenTy::ConstExpr(id) = count else {
-        panic!("expected const expr repeat count, got {count:?}");
-    };
-    assert_eq!(
-        lowering
-            .program
-            .modules
-            .get(0)
-            .expect("backend test module")
-            .const_eval
-            .array_lengths
-            .get(id)
-            .copied(),
-        Some(1048576)
-    );
+    // An evaluated length is the array's identity, so the count arrives as
+    // its value rather than as the expression that named it.
+    assert_eq!(count, &nia_ty::ArrayLenTy::ConstValue(1048576));
 }
 
 #[test]

@@ -1682,6 +1682,10 @@ impl<'a> ModuleLowerer<'a> {
         self.type_context.const_substitution(substitutions, name)
     }
 
+    /// The length of an instantiated array type. An evaluated length
+    /// expression becomes its value, so an array type has one identity
+    /// wherever its length was written: `[u8; 3]` in two modules, or twice in
+    /// one, instantiates a generic once.
     fn instantiate_array_len(
         &self,
         len: nia_ty::ArrayLenTy,
@@ -1692,6 +1696,10 @@ impl<'a> ModuleLowerer<'a> {
                 .const_substitution(substitutions, &name)
                 .and_then(|arg| nia_ty::array_len_from_const_arg(&arg))
                 .unwrap_or(nia_ty::ArrayLenTy::GenericParam(name)),
+            nia_ty::ArrayLenTy::ConstExpr(id) => match self.input.array_length(&id) {
+                Some(value) => nia_ty::ArrayLenTy::ConstValue(value),
+                None => nia_ty::ArrayLenTy::ConstExpr(id),
+            },
             len => len,
         }
     }

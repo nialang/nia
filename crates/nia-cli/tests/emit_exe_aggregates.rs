@@ -314,3 +314,56 @@ pub fun main(init: process::Init) process::ExitCode!() {
 "#,
     );
 }
+
+#[test]
+fn emit_exe_arrays_as_elements_of_slices_and_generic_containers() {
+    run_at_each_level(
+        "emit_exe_arrays_as_elements_of_slices_and_generic_containers",
+        r#"
+using std::mem;
+using std::process;
+
+fun run[T](ptr: &T, len: usize) &[T] {
+    &ptr[0..len]
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let rows: [[u8; 3]; 2] = [[1, 2, 3], [4, 5, 6]];
+    // A std generic instantiated with an array type written here: its
+    // length expression belongs to this module.
+    let mut total: u32 = 0;
+    for &row in &rows[..] {
+        total += row[2] as u32;
+    }
+    if total != 9 {
+        return process::ExitCode(1)!;
+    }
+    let mut page: mem::PageAllocator = .init();
+    let mut allocator: mem::GeneralPurposeAllocator = .init(page);
+    defer { _ = allocator.deinitWithoutLeakCheck(); };
+    let mut list: std::ArrayList[[u8; 3]] = .init();
+    defer { _ = list.deinit(allocator); };
+    list.push(allocator, [7, 8, 9]).?;
+    if list.asSlice()[0][1] != 8 {
+        return process::ExitCode(2)!;
+    }
+    // A range over a pointer to an array is a run of whole arrays, written
+    // directly or through a type parameter.
+    let first = &rows[0];
+    let direct: &[[u8; 3]] = &first[0..2];
+    let generic: &[[u8; 3]] = run[[u8; 3]](first, 2);
+    if direct[1][2] != 6 or generic[1][2] != 6 {
+        return process::ExitCode(3)!;
+    }
+    // Converting it where a slice of its elements is expected views the
+    // array's own elements.
+    let elements: &[u8] = first;
+    if elements.len() != 3 or elements[2] != 3 {
+        return process::ExitCode(4)!;
+    }
+    !()
+}
+"#,
+    );
+}

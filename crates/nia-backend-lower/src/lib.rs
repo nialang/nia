@@ -591,6 +591,21 @@ pub struct BackendLowerModuleInput<'a> {
     pub program: &'a dyn BackendProgramFacts,
 }
 
+impl BackendLowerModuleInput<'_> {
+    /// The evaluated length of an array type's length expression. A type may
+    /// carry an expression owned by another module: a generic instance such
+    /// as `std::ArrayList[[u8; 3]]` is lowered in the generic's module with an
+    /// argument written in the caller's.
+    pub(crate) fn array_length(&self, id: &GlobalConstExprId) -> Option<u64> {
+        if id.module_id == self.module_id {
+            return self.const_array_lengths.get(id).copied();
+        }
+        self.program
+            .const_array_lengths(id.module_id)
+            .and_then(|lengths| lengths.get(id).copied())
+    }
+}
+
 impl std::fmt::Debug for BackendLowerModuleInput<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BackendLowerModuleInput")

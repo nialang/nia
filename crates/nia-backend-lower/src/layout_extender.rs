@@ -93,15 +93,7 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
         )?;
         let input = self.input;
         self.remove_generic_nominal_layouts(layouts);
-        let array_lengths = |id: GlobalConstExprId| {
-            if id.module_id == input.module_id {
-                return input.const_array_lengths.get(&id).copied();
-            }
-            input
-                .program
-                .const_array_lengths(id.module_id)
-                .and_then(|array_lengths| array_lengths.get(&id).copied())
-        };
+        let array_lengths = |id: GlobalConstExprId| input.array_length(&id);
         let program = ProgramLayoutContext {
             symbols: Some(self.input.symbols),
             layouts: None,

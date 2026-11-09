@@ -99,7 +99,7 @@ enum TaggedUnionProjection {
 }
 
 struct SliceSourceInfo {
-    elem: nia_ids::InternedTyId,
+    elems: Vec<nia_ids::InternedTyId>,
     readonly: bool,
 }
 

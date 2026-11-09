@@ -698,7 +698,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .as_pointer_value()
                 .into()),
             FunctionExprKind::Call { callee, args } => self.emit_call(expr, callee, args),
-            FunctionExprKind::Slice { lhs, range, .. } => self.emit_slice(expr.span, lhs, range),
+            FunctionExprKind::Slice { lhs, range, .. } => {
+                self.emit_slice(expr.span, expr.ty, lhs, range)
+            }
             FunctionExprKind::Field { .. } | FunctionExprKind::Index { .. } => {
                 let ptr = self.emit_addr_of(expr)?;
                 let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;

@@ -97,7 +97,11 @@ impl BackendValidator<'_> {
             self.invalid_slice(span, "slice result is not a Slice type");
             return;
         };
-        if !self.same_type(*result_elem, source.elem) {
+        if !source
+            .elems
+            .iter()
+            .any(|elem| self.same_type(*result_elem, *elem))
+        {
             self.invalid_slice(span, "slice result element does not match its input");
         }
         if *is_readonly != requested_readonly {
@@ -117,31 +121,31 @@ impl BackendValidator<'_> {
         }
     }
 
+    /// The element types a slice of `ty` may have. A pointer `&P` is a run of
+    /// `P` values; when `P` is an array `[E; N]`, the conversion to `&[E]`
+    /// views its elements instead.
     fn slice_source_info(&self, ty: nia_ids::InternedTyId) -> Option<SliceSourceInfo> {
         match self.index.ty_kind(ty) {
             Some(TyKind::Array { elem, .. }) => Some(SliceSourceInfo {
-                elem: *elem,
+                elems: vec![*elem],
                 readonly: false,
             }),
             Some(TyKind::Pointer { is_readonly, elem })
             | Some(TyKind::VolatilePointer { is_readonly, elem }) => {
+                let mut elems = vec![*elem];
                 if let Some(TyKind::Array {
                     elem: array_elem, ..
                 }) = self.index.ty_kind(*elem)
                 {
-                    Some(SliceSourceInfo {
-                        elem: *array_elem,
-                        readonly: *is_readonly,
-                    })
-                } else {
-                    Some(SliceSourceInfo {
-                        elem: *elem,
-                        readonly: *is_readonly,
-                    })
+                    elems.push(*array_elem);
                 }
+                Some(SliceSourceInfo {
+                    elems,
+                    readonly: *is_readonly,
+                })
             }
             Some(TyKind::Slice { is_readonly, elem }) => Some(SliceSourceInfo {
-                elem: *elem,
+                elems: vec![*elem],
                 readonly: *is_readonly,
             }),
             _ => None,

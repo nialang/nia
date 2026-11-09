@@ -106,10 +106,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_slice(
         &mut self,
         span: Span,
+        result_ty: InternedTyId,
         lhs: &FunctionExpr,
         range: &FunctionSliceRange,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let (base_ptr, base_len, elem_ty) = self.emit_slice_base(span, lhs)?;
+        let elem_ty = match self.module.ty_kind(result_ty) {
+            Some(TyKind::Slice { elem, .. }) => *elem,
+            _ => return Err(self.error(span, "slice result is not a slice type")),
+        };
+        let (base_ptr, base_len) = self.emit_slice_base(span, lhs, elem_ty)?;
         let start = self.emit_range_start(range)?;
         let end = self.emit_range_end(range, base_len)?;
         let len = self
@@ -164,63 +169,53 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
+    /// The address of the first element and the element count of a slice
+    /// base, viewed as a run of `elem` values.
+    ///
+    /// `elem` comes from the slice's type. Slicing a pointer `&P` with a range
+    /// yields `&[P]`, a run of `P` values that starts at the pointee, even
+    /// when `P` is an array. A pointer to an array `&[E; N]` converted where
+    /// `&[E]` is expected yields the array's own elements instead; that
+    /// conversion is the only way a pointer base has an element type other
+    /// than its pointee.
     fn emit_slice_base(
         &mut self,
         span: Span,
         lhs: &FunctionExpr,
-    ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>, InternedTyId), Diagnostic> {
+        elem: InternedTyId,
+    ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>), Diagnostic> {
         let usize_ty = self.module.usize_llvm_type(span)?;
-        let one = usize_ty.const_int(1, false)?;
         match self.module.ty_kind(lhs.ty) {
-            Some(TyKind::Array { len, elem }) => {
+            Some(TyKind::Array { len, .. }) => {
                 let base_ptr = self.emit_array_base_addr(lhs)?;
-                let array_len = self.module.array_len(len, span)?;
-                let len = usize_ty.const_int(array_len, false)?;
-                if self.is_zero_sized(lhs.ty) {
-                    return Ok((base_ptr, len, *elem));
-                }
-                let zero = self.module.context.i64_type().const_int(0, false)?;
-                let array_ty = self.module.llvm_basic_type(lhs.ty, span)?;
-                let ptr = unsafe {
-                    self.builder
-                        .build_gep(array_ty, base_ptr, &[zero, zero], "arraydecay")
-                        .map_err(|_| self.error(span, "failed to build array slice base"))?
-                };
-                Ok((ptr, len, *elem))
+                let len = usize_ty.const_int(self.module.array_len(len, span)?, false)?;
+                Ok((base_ptr, len))
             }
-            Some(TyKind::Pointer { elem, .. }) => {
+            Some(TyKind::Pointer { elem: pointee, .. }) => {
                 let ptr = self.emit_expr(lhs)?.into_pointer_value()?;
-                if let Some(TyKind::Array {
-                    len,
-                    elem: array_elem,
-                }) = self.module.ty_kind(*elem)
-                {
-                    let array_len = self.module.array_len(len, span)?;
-                    let len = usize_ty.const_int(array_len, false)?;
-                    if self.is_zero_sized(*elem) {
-                        return Ok((ptr, len, *array_elem));
+                let len = if self.module.same_type(*pointee, elem) {
+                    1
+                } else {
+                    match self.module.ty_kind(*pointee) {
+                        Some(TyKind::Array { len, .. }) => self.module.array_len(len, span)?,
+                        _ => {
+                            return Err(self.error(
+                                span,
+                                "slice element is neither the pointee nor its array element",
+                            ));
+                        }
                     }
-                    let zero = self.module.context.i64_type().const_int(0, false)?;
-                    let array_ty = self.module.llvm_basic_type(*elem, span)?;
-                    let elem_ptr = unsafe {
-                        self.builder
-                            .build_gep(array_ty, ptr, &[zero, zero], "arrayptrdecay")
-                            .map_err(|_| {
-                                self.error(span, "failed to build pointer array slice base")
-                            })?
-                    };
-                    return Ok((elem_ptr, len, *array_elem));
-                }
-                Ok((ptr, one, *elem))
+                };
+                Ok((ptr, usize_ty.const_int(len, false)?))
             }
-            Some(TyKind::Slice { elem, .. }) => {
+            Some(TyKind::Slice { .. }) => {
                 let slice = self
                     .emit_expr(lhs)?
                     .into_struct_value()
                     .map_err(|_| self.error(span, "slice base value is not a struct"))?;
                 let ptr = self.extract_slice_ptr(span, slice)?;
                 let len = self.extract_slice_len(span, slice)?;
-                Ok((ptr, len, *elem))
+                Ok((ptr, len))
             }
             Some(TyKind::Error) => Err(self.error(span, "invalid slice base")),
             None => Err(self.error(

@@ -104,7 +104,6 @@ impl ModuleLowerer<'_> {
         let defs = &self.input.defs.defs;
         let input = self.input;
         let const_expr_summaries = &self.input.type_lowering.const_expr_summaries;
-        let const_array_lengths = self.input.const_array_lengths;
         let source_identities = &self.shared.source_identities;
         let Some(package) = self
             .shared
@@ -178,7 +177,7 @@ impl ModuleLowerer<'_> {
                     name
                 },
                 |id| {
-                    let value = const_array_lengths.get(&id).copied();
+                    let value = input.array_length(&id);
                     if value.is_none() && missing_array_len_diagnostics.insert(id.clone()) {
                         let span = const_expr_summaries
                             .get(&id)
