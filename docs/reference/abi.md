@@ -390,7 +390,9 @@ exactly its `extern` items.
 
 Every native image also contains the compiler's support routines, in one
 object of their own. `memcpy`, `memmove`, and `memset` are always there,
-because generated code calls them for large copies and fills; helpers for wide
+because generated code calls them for large copies and fills; macOS images
+also contain the routine generated code calls there to zero memory, `bzero` on
+`aarch64-apple-macos` and `__bzero` on `x86_64-apple-macos`. Helpers for wide
 integer arithmetic and the MSVC `_fltused` marker are there when the target
 and program need them. They have C semantics and C symbol names, and they are
 ordinary definitions with hidden visibility: they link with the program's

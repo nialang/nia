@@ -877,8 +877,10 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
       Resolution.Prevailing = !Symbol.isUndefined() && DefinedInUnit &&
                               Definition->second.File == FileIndex;
       Resolution.FinalDefinitionInLinkageUnit = DefinedInUnit;
+      // Preserved symbols are IR names; `Name` is the object-file name,
+      // which Mach-O prefixes with `_`.
       Resolution.VisibleToRegularObj =
-          Resolution.Prevailing && Preserved.count(Name) != 0;
+          Resolution.Prevailing && Preserved.count(Symbol.getIRName().str()) != 0;
       Resolutions.push_back(Resolution);
     }
     if (Error Err = Lto.add(std::move(Files[FileIndex]), Resolutions)) {
@@ -1073,8 +1075,10 @@ FullResult *nia_llvm_run_full_lto(const ThinInput *Inputs, size_t InputCount,
       Resolution.Prevailing = !Symbol.isUndefined() && DefinedInUnit &&
                               Definition->second.File == FileIndex;
       Resolution.FinalDefinitionInLinkageUnit = DefinedInUnit;
+      // Preserved symbols are IR names; `Name` is the object-file name,
+      // which Mach-O prefixes with `_`.
       Resolution.VisibleToRegularObj =
-          Resolution.Prevailing && Preserved.count(Name) != 0;
+          Resolution.Prevailing && Preserved.count(Symbol.getIRName().str()) != 0;
       Resolutions.push_back(Resolution);
     }
     if (Error Err = Lto.add(std::move(Files[FileIndex]), Resolutions)) {

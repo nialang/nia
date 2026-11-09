@@ -26,7 +26,10 @@ pub(crate) fn required_symbols(
     target: nia_target::TargetConfig,
 ) -> CompilerBuiltinSymbols {
     let mut collector = CompilerBuiltinCollector {
-        symbols: CompilerBuiltinSymbols::default(),
+        symbols: CompilerBuiltinSymbols {
+            zero_fill: memory::zero_fill_symbol(target),
+            ..CompilerBuiltinSymbols::default()
+        },
         // 32-bit targets lower 64-bit division through helper calls.
         wide_i64_div_rem: target.pointer_width() < 64,
         // MSVC-ABI objects that use floating point reference `_fltused`.
@@ -40,6 +43,9 @@ pub(crate) fn required_symbols(
 /// image defines; see [`memory`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct CompilerBuiltinSymbols {
+    /// The target's zero-fill routine, when it is not `memset`; see
+    /// [`memory::zero_fill_symbol`].
+    pub(crate) zero_fill: Option<&'static str>,
     pub(crate) windows_fltused: bool,
     pub(crate) u64_div_rem: bool,
     pub(crate) i64_div_rem: bool,
@@ -83,6 +89,7 @@ impl CompilerBuiltinSymbols {
         .into_iter()
         .flatten()
         .chain(memory::MEMORY_ROUTINES)
+        .chain(self.zero_fill)
     }
 }
 
@@ -582,7 +589,7 @@ fn emit_definitions<'ctx>(
     windows_i128_abi: bool,
     pointer_bits: u32,
 ) -> Result<(), Diagnostic> {
-    memory::emit_memory_routines(context, module, pointer_bits)?;
+    memory::emit_memory_routines(context, module, pointer_bits, symbols.zero_fill)?;
     if symbols.windows_fltused {
         let global = module
             .add_global(context.i32_type().into(), None, "_fltused")
@@ -1729,6 +1736,55 @@ mod tests {
             required_symbols(&index, target),
             CompilerBuiltinSymbols::default()
         );
+    }
+
+    #[test]
+    fn darwin_images_define_the_zero_fill_routine_their_code_generator_calls() {
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
+        let store =
+            Arc::new(BackendModuleStore::new([module_id]).expect("create backend module store"));
+        let (index, _publisher) = ProgramIndex::new(
+            store,
+            Arc::new(TypeStore::new().expect("create type store")),
+        );
+        for (target, expected) in [
+            ("aarch64-apple-macos", Some("bzero")),
+            ("x86_64-apple-macos", Some("__bzero")),
+            ("aarch64-unknown-linux", None),
+            ("x86_64-pc-windows-msvc", None),
+        ] {
+            let target = nia_target::TargetConfig::parse(target).unwrap();
+            let symbols = required_symbols(&index, target);
+            assert_eq!(symbols.zero_fill, expected, "{target:?}");
+            assert_eq!(
+                symbols
+                    .external_definitions()
+                    .any(|symbol| Some(symbol) == expected),
+                expected.is_some(),
+                "{target:?}"
+            );
+        }
+
+        let context = Context::create().expect("create LLVM context");
+        let module = context
+            .create_module("nia.darwin.compiler_builtins")
+            .expect("create LLVM module");
+        emit_definitions(
+            &context,
+            &module,
+            CompilerBuiltinSymbols {
+                zero_fill: Some("bzero"),
+                ..CompilerBuiltinSymbols::default()
+            },
+            false,
+            64,
+        )
+        .expect("emit Darwin builtins");
+        module.verify().expect("verify Darwin builtin module");
+        let ir = module.ir_string().expect("render builtin IR");
+        assert!(ir.contains("define hidden void @bzero(ptr "), "{ir}");
+        assert!(ir.contains("define hidden ptr @memset(ptr "), "{ir}");
     }
 
     #[test]

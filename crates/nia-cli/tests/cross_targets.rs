@@ -80,3 +80,55 @@ fn unsupported_target_names_are_diagnosed_with_the_matrix() {
     );
     assert!(stderr.contains("`aarch64-apple-macos`"), "{stderr}");
 }
+
+/// Linking resolves every symbol that generated code calls, so a target that
+/// lowers some operation to a routine the image lacks fails here. The program
+/// zero-fills a large array, which the code generator lowers to a library
+/// call (`memset`, or `bzero` on Darwin), and each link mode is used because
+/// link-time optimization decides which symbols stay visible to the linker.
+#[test]
+fn every_maintained_target_links_executables_at_every_lto_mode() {
+    let root = temp_dir("cross_target_links");
+    let source = root.join("main.nia");
+    std::fs::write(
+        &source,
+        r#"
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    let mut buffer: [u8; 4096] = [0; 4096];
+    let index = init.args().len();
+    buffer[index] = 1;
+    if buffer[4095 - index] == 1 { process::ExitCode(1)! } else { !() }
+}
+"#,
+    )
+    .expect("write source");
+    let mut failures = Vec::new();
+    for target in [
+        "x86_64-unknown-linux",
+        "x86-unknown-linux",
+        "aarch64-unknown-linux",
+        "x86_64-pc-windows-msvc",
+        "x86_64-apple-macos",
+        "aarch64-apple-macos",
+    ] {
+        for level in ["-O0", "-O2"] {
+            for lto in ["off", "thin", "full"] {
+                let output = support::nia_command()
+                    .args(["--target", target, level, "emit", "--exe"])
+                    .arg(&source)
+                    .args(["--lto", lto, "-o"])
+                    .arg(root.join(format!("{target}{level}-{lto}")))
+                    .output_timeout_for_build("cross-link executable");
+                if !output.status.success() {
+                    failures.push(format!(
+                        "{target} {level} --lto {lto}:\n{}",
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
