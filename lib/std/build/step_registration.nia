@@ -13,7 +13,6 @@ using root::build::queries::{
     findEmitStep as findEmitStepRecord,
     findStep as findStepRecord,
 };
-using root::build::paths::isValidBuildPath;
 using root::build::steps;
 using root::string;
 using root::build::targets::isValidPublicStepName;
@@ -35,7 +34,6 @@ using types::{
     Build,
     BuildPathView,
     CommandArgument,
-    CommandArgumentKind,
     ExecutableHandle,
     ExecutableOptions,
     ExternalCommandOptions,
@@ -45,7 +43,6 @@ using types::{
     StepKind,
     StepPayload,
     StaticArchiveHandle,
-    UncacheableStep,
     ModuleHandle,
 };
 

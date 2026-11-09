@@ -31,7 +31,6 @@ using types::{
     ArtifactDefine,
     SystemLibrary,
     SystemLibraryMode,
-    OwnedSystemLibrary,
 };
 
 extend ArtifactDefine {

@@ -1,6 +1,6 @@
 using super::formatter::Formatter;
 using super::integer;
-using super::spec::{FormatAlignment, FormatPresentation, FormatSpec};
+using super::spec::{FormatPresentation, FormatSpec};
 using super::traits::{Error, Format};
 
 fun radixFor(presentation: FormatPresentation) Error!u128 {

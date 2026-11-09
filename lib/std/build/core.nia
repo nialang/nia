@@ -43,7 +43,6 @@ using types::{
     Build,
     StepHandle,
     RunOptions,
-    Module,
     ModuleSourceRoot,
     ModuleHandle,
     ModuleOptions,
@@ -51,7 +50,6 @@ using types::{
     PackageHandle,
     PackageOptions,
     ExecutableOptions,
-    ExecutableTarget,
 };
 
 extend Build {

@@ -3,7 +3,7 @@
 using root::cmp;
 using root::slice;
 using root::unicode;
-using super::spec::{FormatAlignment, FormatSpec};
+using super::spec::FormatSpec;
 using super::traits::{Error, FormatWriter};
 
 pub struct Formatter {

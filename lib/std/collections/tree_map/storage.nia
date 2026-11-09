@@ -8,7 +8,7 @@ using super::map;
 using super::types;
 
 using map::TreeMap;
-using types::{TreeMapNode, minKeys, maxKeys, maxChildren};
+using types::{TreeMapNode, maxKeys, maxChildren};
 
 struct NodeStoragePlan {
     layout: mem::Layout,

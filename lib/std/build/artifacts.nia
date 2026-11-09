@@ -32,14 +32,10 @@ using types::{
     Build,
     ExecutableHandle,
     ExecutableOptions,
-    ExecutableTarget,
-    ModuleHandle,
     ObjectHandle,
     ObjectOptions,
-    ObjectTarget,
     StaticArchiveHandle,
     StaticArchiveOptions,
-    StaticArchiveTarget,
     TargetView,
 };
 

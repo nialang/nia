@@ -5,7 +5,7 @@ using root::error;
 using root::math;
 using root::option;
 
-using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenHow, OpenMode, Pipe, SeekWhence};
+using types::{DirectoryEntry, Errno, FileDescriptor, FileMetadata, OpenHow, OpenMode, Pipe, SeekWhence};
 
 const linuxDirent64ReclenOffset: usize = 16;
 const linuxDirent64NameOffset: usize = 19;

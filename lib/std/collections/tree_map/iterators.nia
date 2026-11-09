@@ -9,7 +9,7 @@ using super::types;
 using entries::{TreeMapEntryRef, TreeMapEntryMut};
 using map::TreeMap;
 using types::{TreeMapIter, TreeMapIterMut, TreeMapNode, maxIteratorDepth};
-using storage::{nodeKeys, nodeValues, nodeKeysMut, nodeValuesMut, nodeChildren, nodeChildrenMut, requiredChild, requiredChildMut};
+using storage::{nodeKeys, nodeValues, nodeValuesMut, requiredChild, requiredChildMut};
 
 extend[K, V] TreeMap[K, V]
 where K: Sized + Ord[K], V: Sized
