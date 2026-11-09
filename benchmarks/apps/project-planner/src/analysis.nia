@@ -1,6 +1,7 @@
 using root::model;
 using std::collections;
 using std::mem;
+using std::slice;
 
 pub enum Error: i32 {
     Cycle = 1,

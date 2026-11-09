@@ -3,6 +3,7 @@ using root::model;
 using root::name_index;
 using std::collections;
 using std::mem;
+using std::slice;
 
 pub enum Error: i32 {
     UnexpectedEnd = 1,

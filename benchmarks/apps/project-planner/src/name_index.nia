@@ -2,6 +2,7 @@ using root::model;
 using std::collections;
 using std::hash;
 using std::mem;
+using std::slice;
 
 struct NameContext {
     source: &[u8],
