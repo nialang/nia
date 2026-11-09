@@ -471,8 +471,33 @@ impl<'a> BodyChecker<'a> {
                 .qualified_global_type(expr)
                 .unwrap_or_else(|| self.error());
         }
-        if let Some(ty) = self.check_enum_variant_access(span, lhs, name) {
-            return ty;
+        // `Enum.Variant` reads as field access on a type; the variant path is
+        // `Enum::Variant`, or `.Variant` where the type is known.
+        if let Some((def_id, args, const_args)) = self.type_prefix_instance(lhs)
+            && self.is_enum_def(def_id)
+        {
+            let enum_ty = self.interner.intern(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            });
+            let enum_name = self.ty_name(enum_ty);
+            let variant = self.symbol_name(*name);
+            self.diagnostics.push(
+                Diagnostic::user_error(
+                    codes::TYPE_CHECK,
+                    "enum variants are selected with `::`, not `.`",
+                )
+                .primary(
+                    span,
+                    format!("`.` reads a field of a value, and `{enum_name}` is a type"),
+                )
+                .help(format!(
+                    "write `{enum_name}::{variant}`, or `.{variant}` where the enum type is expected"
+                ))
+                .finish(),
+            );
+            return self.error();
         }
         let lhs_ty = self.check_expr(lhs);
         if matches!(self.interner.get(lhs_ty), Some(TyKind::ConstOnly))

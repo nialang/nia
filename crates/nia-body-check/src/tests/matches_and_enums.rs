@@ -2074,3 +2074,42 @@ fun main() () {
     );
     assert_eq!(summaries.len(), 1, "{summaries:?}");
 }
+
+#[test]
+fn rejects_dot_selected_enum_variants_in_values_and_patterns() {
+    let checked = pipeline(
+        r#"
+enum Code {
+    Missing,
+    Bad,
+}
+
+fun find(present: bool) Code!u32 {
+    if present { !1 } else { Code::Missing! }
+}
+
+fun value() Code {
+    Code.Bad
+}
+
+fun pattern(present: bool) bool {
+    match find(present) {
+        Code.Missing! => true,
+        _ => false,
+    }
+}
+"#,
+    );
+    let errors = checked
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.summary == "enum variants are selected with `::`, not `.`")
+        .collect::<Vec<_>>();
+    assert_eq!(errors.len(), 2, "{:#?}", checked.diagnostics);
+    assert!(
+        errors
+            .iter()
+            .all(|diagnostic| diagnostic.help.iter().any(|help| help.contains("`Code::"))),
+        "{errors:#?}"
+    );
+}
