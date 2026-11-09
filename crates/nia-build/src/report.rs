@@ -54,6 +54,26 @@ pub fn render_build_error(
         // ownership instead of rendering them as a generic build error.
         return nia_driver::render_driver_error(error, primary_path, primary_source);
     }
+    if let BuildError::ExecuteBuildPlan { error: coordinator } = error
+        && let CoordinatorError::Failures(failures) = coordinator.as_ref()
+    {
+        // Several failed compiler actions each keep their source paths; the
+        // summary of every failure leads the report.
+        let drivers = failures
+            .iter()
+            .filter_map(|failure| match failure.error.as_ref() {
+                CoordinatorError::Driver { error, .. } => Some(error.as_ref()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if !drivers.is_empty() {
+            let summary = nia_driver::ProgramDiagnostic {
+                path: nia_source::SourcePath::new(primary_path.unwrap_or("<build>")),
+                diagnostic: coordinator_diagnostic(coordinator),
+            };
+            return nia_driver::render_driver_errors(&[summary], &drivers);
+        }
+    }
 
     let diagnostics = build_error_diagnostics(error);
     render_diagnostic_list(&diagnostics, primary_path, primary_source)

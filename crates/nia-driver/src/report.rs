@@ -709,6 +709,65 @@ fn render_program_diagnostics_json_items(
     )
 }
 
+/// Renders several failed compiler actions as one report, after `leading`
+/// diagnostics such as a build summary.
+///
+/// Each action's diagnostics keep the source paths and texts they were
+/// checked against, so diagnostics from different packages render with their
+/// own snippets, and the footer counts every action's diagnostics together.
+pub fn render_driver_errors(
+    leading: &[crate::ProgramDiagnostic],
+    errors: &[&DriverError],
+) -> String {
+    let mut diagnostics = leading.to_vec();
+    let mut sources = crate::DiagnosticSources::new();
+    let mut suppressed_downstream = 0;
+    for error in errors {
+        let (items, item_sources, item_suppressed) =
+            match error {
+                DriverError::CheckDiagnostics(program) => (
+                    program.diagnostics.as_slice(),
+                    Some(&program.diagnostic_sources),
+                    program.suppressed_downstream,
+                ),
+                DriverError::CodegenProgramDiagnostics(program) => (
+                    program.diagnostics.as_slice(),
+                    Some(&program.diagnostic_sources),
+                    program.suppressed_downstream,
+                ),
+                DriverError::CodegenPreparationDiagnostics {
+                    diagnostic_sources,
+                    diagnostics,
+                    suppressed_downstream,
+                } => (
+                    diagnostics.as_slice(),
+                    Some(diagnostic_sources),
+                    *suppressed_downstream,
+                ),
+                // Other failures carry no source of their own.
+                _ => {
+                    diagnostics.extend(driver_error_diagnostics(error).into_iter().map(
+                        |diagnostic| crate::ProgramDiagnostic {
+                            path: nia_source::SourcePath::new(""),
+                            diagnostic,
+                        },
+                    ));
+                    continue;
+                }
+            };
+        diagnostics.extend_from_slice(items);
+        if let Some(item_sources) = item_sources {
+            for (path, source) in item_sources {
+                sources
+                    .entry(path.clone())
+                    .or_insert_with(|| source.clone());
+            }
+        }
+        suppressed_downstream += item_suppressed;
+    }
+    render_program_diagnostic_items(&diagnostics, &sources, suppressed_downstream, None, None)
+}
+
 fn driver_error_diagnostics(error: &DriverError) -> Vec<Diagnostic> {
     match error {
         DriverError::CheckDiagnostics(program) => program

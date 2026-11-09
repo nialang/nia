@@ -3155,6 +3155,13 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
                 path: package_root.clone(),
                 error,
             })?;
+    let package_graph_report = package_graph.report();
+    validate_module_roots(&package_graph_report, &package_root).map_err(|error| {
+        BuildError::ResolvePackageGraph {
+            path: package_root.clone(),
+            error,
+        }
+    })?;
     let build_script = package_root.join("build.nia");
     let manifest_artifacts = if package_root.join("nia.toml").is_file() {
         nia_package_metadata::PackageManifest::read(&package_root)
@@ -3184,7 +3191,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         build_dir,
         package_root,
         package_source_fingerprint: package_graph.fingerprint(),
-        package_graph_report: package_graph.report(),
+        package_graph_report,
         build_script,
         manifest_artifacts,
         step: if request.list {
@@ -3649,6 +3656,14 @@ pub(crate) fn add_own_library_module_root(
         return Ok(());
     };
     let name = &manifest.package.name;
+    if nia_imports::is_compiler_reserved_module_root(name) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "package `{name}` has a library, but `{name}` is reserved by the compiler, so its artifacts cannot open the library by the package name; rename the package"
+            ),
+        ));
+    }
     if report
         .declared
         .iter()
@@ -3672,6 +3687,32 @@ pub(crate) fn add_own_library_module_root(
     module_map
         .insert_scoped(&package_module_scope(""), name, path)
         .map_err(|reason| io::Error::new(io::ErrorKind::InvalidData, reason))
+}
+
+/// Rejects module-root conflicts in the package graph: a dependency or the
+/// package's own library under a reserved name, or two packages under one
+/// name in a scope. Compiler actions bind the same roots later and treat a
+/// conflict there as an internal error.
+fn validate_module_roots(
+    report: &nia_package_metadata::PackageGraphReport,
+    package_root: &Path,
+) -> io::Result<()> {
+    let scopes = [
+        DependencyScope::Build,
+        DependencyScope::Runtime,
+        DependencyScope::Development,
+    ];
+    for mode in [CompilationMode::Normal, CompilationMode::Test] {
+        add_manifest_module_roots(&mut ModuleMap::new(), report, &scopes, mode)?;
+    }
+    let mut module_map = ModuleMap::new();
+    add_manifest_module_roots(
+        &mut module_map,
+        report,
+        &[DependencyScope::Runtime, DependencyScope::Development],
+        CompilationMode::Test,
+    )?;
+    add_own_library_module_root(&mut module_map, report, package_root)
 }
 
 pub(crate) fn insert_module_root(
@@ -5114,7 +5155,7 @@ version = \"1.0.0\"
     }
 
     #[test]
-    fn own_library_is_bound_by_package_name_and_rejects_a_same_named_dependency() {
+    fn own_library_is_bound_by_package_name_and_rejects_conflicting_names() {
         let root = normalize_host_path(
             temp_root("own_library_binding")
                 .canonicalize()
@@ -5168,17 +5209,26 @@ version = \"1.0.0\"
             "[package]\nversion = \"1.0.0\"\nname = \"hello\"\n[library]\npath = \"src/root.nia\"\n[dependencies]\nhello = { path = \"vendor/hello\" }\n",
         )
         .expect("rewrite manifest");
-        let invocation =
-            resolve_build_invocation(BuildRequest::new(test_toolchain_layout()).with_root(&root))
-                .expect("resolve build invocation");
-        let error = add_own_library_module_root(
-            &mut ModuleMap::new(),
-            &invocation.package_graph_report,
-            &invocation.package_root,
+        // Conflicts are rejected when the invocation is resolved, before any
+        // compiler action binds the roots.
+        let resolve_error = |root: &Path| match resolve_build_invocation(
+            BuildRequest::new(test_toolchain_layout()).with_root(root),
+        ) {
+            Err(BuildError::ResolvePackageGraph { error, .. }) => error.to_string(),
+            Err(other) => panic!("unexpected build error: {other:?}"),
+            Ok(_) => panic!("the package graph resolved"),
+        };
+        let error = resolve_error(&root);
+        assert!(error.contains("same name as the package"), "{error}");
+
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nversion = \"1.0.0\"\nname = \"root\"\n[library]\npath = \"src/root.nia\"\n",
         )
-        .expect_err("dependency shadows the package name");
+        .expect("rewrite manifest");
+        let error = resolve_error(&root);
         assert!(
-            error.to_string().contains("same name as the package"),
+            error.contains("package `root` has a library, but `root` is reserved by the compiler"),
             "{error}"
         );
         std::fs::remove_dir_all(root).expect("remove fixture");

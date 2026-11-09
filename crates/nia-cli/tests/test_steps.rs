@@ -869,3 +869,42 @@ pub fun main(init: process::Init) process::ExitCode!() {
         "test-only source edit invalidated ordinary artifact actions: {cache}"
     );
 }
+
+#[test]
+fn failed_suite_compilations_report_their_source_locations() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let workspace = nia_test_support::test_dir("failed-suite-locations");
+    fs::create_dir_all(workspace.join("lib")).expect("create library directory");
+    fs::create_dir_all(workspace.join("tests")).expect("create test directory");
+    fs::write(
+        workspace.join("nia.toml"),
+        "[package]\nversion = \"1.0.0\"\nname = \"demo\"\n\
+         [library]\npath = \"lib/root.nia\"\n\
+         [[test]]\nname = \"first\"\npath = \"tests/first.nia\"\n\
+         [[test]]\nname = \"second\"\npath = \"tests/second.nia\"\n",
+    )
+    .expect("write manifest");
+    fs::write(
+        workspace.join("lib/root.nia"),
+        "pub fun answer() u8 {\n    true\n}\n",
+    )
+    .expect("write library");
+    let suite = "using std::process;\nusing demo;\n\npub fun main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    _ = demo::answer();\n    !()\n}\n";
+    fs::write(workspace.join("tests/first.nia"), suite).expect("write first suite");
+    fs::write(workspace.join("tests/second.nia"), suite).expect("write second suite");
+
+    let output = build_command(&workspace)
+        .arg("test")
+        .output_timeout_in_session("build two suites over a broken library");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Both compilations fail on the library; each failure is shown at its
+    // source line, not as a byte range of an unnamed build source.
+    assert!(stderr.contains("build action(s) failed"), "{stderr}");
+    assert!(
+        stderr.contains(&format!("lib{}root.nia:2:5", std::path::MAIN_SEPARATOR))
+            || stderr.contains("lib/root.nia:2:5"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains(":bytes "), "{stderr}");
+}
