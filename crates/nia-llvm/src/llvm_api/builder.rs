@@ -14,16 +14,16 @@ use llvm_sys::core::{
     LLVMBuildFDiv, LLVMBuildFMul, LLVMBuildFNeg, LLVMBuildFPCast, LLVMBuildFPToSI, LLVMBuildFPToUI,
     LLVMBuildFRem, LLVMBuildFSub, LLVMBuildFence, LLVMBuildGEP2, LLVMBuildICmp,
     LLVMBuildInsertElement, LLVMBuildInsertValue, LLVMBuildIntToPtr, LLVMBuildLShr, LLVMBuildLoad2,
-    LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot, LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast,
-    LLVMBuildPtrToInt, LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt,
-    LLVMBuildSIToFP, LLVMBuildSRem, LLVMBuildSelect, LLVMBuildShl, LLVMBuildShuffleVector,
-    LLVMBuildStore, LLVMBuildStructGEP2, LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc,
-    LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem, LLVMBuildUnreachable, LLVMBuildXor,
-    LLVMBuildZExt, LLVMClearInsertionPosition, LLVMCountStructElementTypes, LLVMDisposeBuilder,
-    LLVMGetArrayLength2, LLVMGetElementType, LLVMGetInsertBlock, LLVMGetIntTypeWidth,
-    LLVMGetPointerAddressSpace, LLVMGetTypeKind, LLVMGetVectorSize, LLVMIsAConstantInt,
-    LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMSetCurrentDebugLocation2,
-    LLVMStructGetTypeAtIndex, LLVMTypeOf,
+    LLVMBuildMemCpy, LLVMBuildMemMove, LLVMBuildMemSet, LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot,
+    LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast, LLVMBuildPtrToInt, LLVMBuildRet,
+    LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt, LLVMBuildSIToFP, LLVMBuildSRem,
+    LLVMBuildSelect, LLVMBuildShl, LLVMBuildShuffleVector, LLVMBuildStore, LLVMBuildStructGEP2,
+    LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem,
+    LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition,
+    LLVMCountStructElementTypes, LLVMDisposeBuilder, LLVMGetArrayLength2, LLVMGetElementType,
+    LLVMGetInsertBlock, LLVMGetIntTypeWidth, LLVMGetPointerAddressSpace, LLVMGetTypeKind,
+    LLVMGetVectorSize, LLVMIsAConstantInt, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore,
+    LLVMSetCurrentDebugLocation2, LLVMStructGetTypeAtIndex, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use std::marker::PhantomData;
@@ -153,6 +153,73 @@ impl<'ctx> Builder<'ctx> {
         let inst = self.build_store(ptr, value)?;
         inst.set_volatile(true)?;
         Ok(inst)
+    }
+
+    /// Copies `len` bytes between non-overlapping regions with `llvm.memcpy`.
+    ///
+    /// Alignments are in bytes; 1 claims nothing beyond byte alignment.
+    pub fn build_memcpy(
+        &self,
+        dest: PointerValue<'ctx>,
+        dest_align: u32,
+        src: PointerValue<'ctx>,
+        src_align: u32,
+        len: IntValue<'ctx>,
+    ) -> LlvmResult<InstructionValue<'ctx>> {
+        let call = unsafe {
+            LLVMBuildMemCpy(
+                self.raw,
+                dest.as_value_ref(),
+                dest_align,
+                src.as_value_ref(),
+                src_align,
+                len.as_value_ref(),
+            )
+        };
+        Ok(InstructionValue::new(require_value(call, "memcpy")?))
+    }
+
+    /// Copies `len` bytes between possibly overlapping regions with
+    /// `llvm.memmove`.
+    pub fn build_memmove(
+        &self,
+        dest: PointerValue<'ctx>,
+        dest_align: u32,
+        src: PointerValue<'ctx>,
+        src_align: u32,
+        len: IntValue<'ctx>,
+    ) -> LlvmResult<InstructionValue<'ctx>> {
+        let call = unsafe {
+            LLVMBuildMemMove(
+                self.raw,
+                dest.as_value_ref(),
+                dest_align,
+                src.as_value_ref(),
+                src_align,
+                len.as_value_ref(),
+            )
+        };
+        Ok(InstructionValue::new(require_value(call, "memmove")?))
+    }
+
+    /// Sets `len` bytes to the `i8` `value` with `llvm.memset`.
+    pub fn build_memset(
+        &self,
+        dest: PointerValue<'ctx>,
+        dest_align: u32,
+        value: IntValue<'ctx>,
+        len: IntValue<'ctx>,
+    ) -> LlvmResult<InstructionValue<'ctx>> {
+        let call = unsafe {
+            LLVMBuildMemSet(
+                self.raw,
+                dest.as_value_ref(),
+                value.as_value_ref(),
+                len.as_value_ref(),
+                dest_align,
+            )
+        };
+        Ok(InstructionValue::new(require_value(call, "memset")?))
     }
 
     /// Emits a volatile load of `ty`.
