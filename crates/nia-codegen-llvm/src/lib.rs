@@ -287,7 +287,10 @@ impl<'session> LlvmNativeObjectReadinessEmitter<'session> {
             }
         }
         if !program_diagnostics.is_empty() {
+            // The program itself is invalid, so no unit's output is used and a
+            // unit's failure can only be a consequence of the program error.
             self.outputs.clear();
+            self.partition_diagnostics.clear();
         }
         time_codegen_stage(self.options.timings, "llvm_finish.sort_outputs", || {
             self.outputs
@@ -453,7 +456,10 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
             }
         }
         if !program_diagnostics.is_empty() {
+            // The program itself is invalid, so no unit's output is used and a
+            // unit's failure can only be a consequence of the program error.
             self.outputs.clear();
+            self.partition_diagnostics.clear();
         }
         self.outputs
             .sort_unstable_by(|left, right| left.key.cmp(&right.key));
@@ -570,7 +576,10 @@ impl<'session> LlvmIrReadinessEmitter<'session> {
             }
         }
         if !program_diagnostics.is_empty() {
+            // The program itself is invalid, so no unit's output is used and a
+            // unit's failure can only be a consequence of the program error.
             self.outputs.clear();
+            self.partition_diagnostics.clear();
         }
         self.outputs
             .sort_unstable_by(|left, right| left.key.cmp(&right.key));

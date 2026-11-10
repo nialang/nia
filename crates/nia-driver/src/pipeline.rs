@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
+    collections::HashMap,
     io,
     path::{Path, PathBuf},
     sync::Mutex,
@@ -356,6 +357,41 @@ impl<T> DriverOutput<T> {
 
     fn from_codegen_diagnostics(program: CodegenProgram) -> Self {
         Self::from_error(DriverError::CodegenProgramDiagnostics(Box::new(program)))
+    }
+}
+
+impl DriverError {
+    /// Backend diagnostics for code in a module other than the entry name
+    /// that module's source by its stable identity, the only source handle
+    /// the backend program carries. Each identity is replaced by the path the
+    /// module was loaded from, so the report reads and shows that file.
+    pub(crate) fn codegen_diagnostics(
+        mut diagnostics: Vec<Diagnostic>,
+        graph: &nia_imports::ModuleGraphSnapshot,
+    ) -> Self {
+        let loaded = graph
+            .modules()
+            .map(|module| {
+                (
+                    module.path.identity_ref().normalized_path().to_owned(),
+                    module.path.as_str().to_owned(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let resolve = |path: &mut Option<String>| {
+            if let Some(current) = path
+                && let Some(loaded_path) = loaded.get(current.as_str())
+            {
+                *current = loaded_path.clone();
+            }
+        };
+        for diagnostic in &mut diagnostics {
+            resolve(&mut diagnostic.source_path);
+            for related in diagnostic.related.iter_mut() {
+                resolve(&mut related.source_path);
+            }
+        }
+        Self::CodegenDiagnostics(diagnostics)
     }
 }
 

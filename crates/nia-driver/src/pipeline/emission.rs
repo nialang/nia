@@ -46,12 +46,16 @@ impl Driver {
             );
             let optimization = preparation.optimization;
             let diagnostics = preparation.diagnostics;
+            let graph = preparation.graph.clone();
             let type_store = std::sync::Arc::clone(&preparation.type_store);
             let session = database.query_session();
             let result = database.with_backend_finalization_schedule(|schedule| {
                 Ok((|| -> Result<_, DriverError> {
                     match schedule {
-                        Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
+                        Err(lowering) => Err(DriverError::codegen_diagnostics(
+                            lowering.diagnostics,
+                            &graph,
+                        )),
                         Ok(mut schedule) => {
                             let mut emitter = nia_codegen_llvm::LlvmIrReadinessEmitter::new(
                                 schedule.module_store(),
@@ -74,7 +78,10 @@ impl Driver {
                                 DriverError::InternalDiagnostic(query_error_diagnostic(error))
                             })?;
                             if !lowering.diagnostics.is_empty() {
-                                return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
+                                return Err(DriverError::codegen_diagnostics(
+                                    lowering.diagnostics,
+                                    &graph,
+                                ));
                             }
                             let backend_function_stats = lowering.program.function_stats();
                             let backend_module_count = lowering.program.modules.len();
@@ -129,8 +136,9 @@ impl Driver {
                 ));
             }
             if !output.diagnostics.is_empty() {
-                return DriverOutput::from_error(DriverError::CodegenDiagnostics(
+                return DriverOutput::from_error(DriverError::codegen_diagnostics(
                     output.diagnostics,
+                    &graph,
                 ));
             }
             DriverOutput::success(LlvmIrArtifact {
@@ -178,8 +186,9 @@ impl Driver {
                 ),
             );
             if !output.diagnostics.is_empty() {
-                return DriverOutput::from_error(DriverError::CodegenDiagnostics(
+                return DriverOutput::from_error(DriverError::codegen_diagnostics(
                     output.diagnostics,
+                    &program.graph,
                 ));
             }
             DriverOutput::success(LlvmIrArtifact {
@@ -301,6 +310,7 @@ impl Driver {
         let monomorphized_instance_count = preparation.monomorphization.instances.len();
         let optimization = preparation.optimization;
         let diagnostics = preparation.diagnostics;
+        let graph = preparation.graph.clone();
         let type_store = std::sync::Arc::clone(&preparation.type_store);
         let options = codegen_options(
             optimization,
@@ -323,7 +333,10 @@ impl Driver {
             .with_backend_finalization_schedule(|schedule| {
                 Ok((|| -> Result<_, DriverError> {
                     match schedule {
-                        Err(lowering) => Err(DriverError::CodegenDiagnostics(lowering.diagnostics)),
+                        Err(lowering) => Err(DriverError::codegen_diagnostics(
+                            lowering.diagnostics,
+                            &graph,
+                        )),
                         Ok(mut schedule) => {
                             let mut emitter =
                                 time_detail_stage(timings, mode.emitter_create_stage(), || {
@@ -384,7 +397,10 @@ impl Driver {
                                     DriverError::InternalDiagnostic(query_error_diagnostic(error))
                                 })?;
                             if !lowering.diagnostics.is_empty() {
-                                return Err(DriverError::CodegenDiagnostics(lowering.diagnostics));
+                                return Err(DriverError::codegen_diagnostics(
+                                    lowering.diagnostics,
+                                    &graph,
+                                ));
                             }
                             let backend_function_stats = lowering.program.function_stats();
                             let backend_module_count = lowering.program.modules.len();
@@ -405,7 +421,7 @@ impl Driver {
             })
             .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))??;
         if !output.diagnostics.is_empty() {
-            return Err(DriverError::CodegenDiagnostics(output.diagnostics));
+            return Err(DriverError::codegen_diagnostics(output.diagnostics, &graph));
         }
         let link_input_count = output.link_inputs.len();
         Ok(NativeDatabaseEmission {
@@ -465,8 +481,9 @@ impl Driver {
                 cache,
             );
             if !output.diagnostics.is_empty() {
-                return DriverOutput::from_error(DriverError::CodegenDiagnostics(
+                return DriverOutput::from_error(DriverError::codegen_diagnostics(
                     output.diagnostics,
+                    &program.graph,
                 ));
             }
             DriverOutput::success(ObjectArtifact {

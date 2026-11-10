@@ -885,16 +885,26 @@ fn render_diagnostic_list(
     primary_path: Option<&str>,
     primary_source: Option<&str>,
 ) -> String {
-    let report = build_diagnostic_report(diagnostics, DiagnosticReportConfig::default());
-    let mut out = String::new();
-    let path = primary_path.unwrap_or("<codegen>");
-    let source = primary_source.unwrap_or("");
-    for diagnostic in report.entries() {
-        out.push_str(&render_diagnostic(path, source, diagnostic));
-        out.push('\n');
-    }
-    out.push_str(&report.render_footer());
-    out
+    // A diagnostic that names its own source file is rendered against that
+    // file, and its related locations against theirs; the rest belong to the
+    // primary source.
+    let default_path = primary_path.unwrap_or("<codegen>");
+    let items = diagnostics
+        .iter()
+        .map(|diagnostic| crate::ProgramDiagnostic {
+            path: nia_source::SourcePath::new(
+                diagnostic.source_path.as_deref().unwrap_or(default_path),
+            ),
+            diagnostic: diagnostic.clone(),
+        })
+        .collect::<Vec<_>>();
+    render_program_diagnostic_items(
+        &items,
+        &crate::DiagnosticSources::new(),
+        0,
+        Some(primary_path.unwrap_or(default_path)),
+        primary_source,
+    )
 }
 
 /// Renders parser errors using the same diagnostic report suppression policy.
