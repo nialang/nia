@@ -47,7 +47,7 @@ pub using errorBuiltin::IntoError;
 pub using iter::{Iterable, Iterator};
 pub using layout::{align, offset, size};
 pub using marker::{Sized, Unsized};
-pub using mem::{loadUnaligned, memcpy, memmove, memset};
+pub using mem::{loadUnaligned, memcpy, memmove, memset, storeUnaligned};
 pub using ops::{
     Add,
     BitAnd,

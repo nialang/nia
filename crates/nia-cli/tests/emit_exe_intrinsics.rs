@@ -1979,6 +1979,59 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_unaligned_stores_write_exactly_their_bytes() {
+    let root = temp_dir("emit_exe_unaligned_stores_write_exactly_their_bytes");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::builtin;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut bytes: [u8; 32] = [0; 32];
+    // Odd offsets: neither store is aligned for its type.
+    builtin::storeUnaligned(&mut bytes[3], builtin::splat[u8x16](7u8));
+    builtin::storeUnaligned(&mut bytes[21], 0x04030201u32);
+    if bytes[2] != 0 or bytes[3] != 7 or bytes[18] != 7 or bytes[19] != 0 {
+        return process::ExitCode(1)!;
+    }
+    if bytes[20] != 0 or bytes[21] != 1 or bytes[24] != 4 or bytes[25] != 0 {
+        return process::ExitCode(2)!;
+    }
+    // A store followed by a load at the same address gives the value back.
+    let back = builtin::loadUnaligned[u32](&bytes[21]);
+    if back != 0x04030201u32 {
+        return process::ExitCode(3)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    for optimization in ["-O0", "-O2"] {
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--exe")
+            .arg(optimization)
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit unaligned store executable");
+        assert!(
+            output.status.success(),
+            "{optimization} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&exe).status_timeout("run unaligned store executable");
+        assert_eq!(status.code(), Some(0), "{optimization}");
+    }
+}
+
+#[test]
 fn emit_exe_const_functions_run_at_comptime_and_runtime() {
     let root = temp_dir("emit_exe_const_functions_run_at_comptime_and_runtime");
     let main = root.join("main.nia");

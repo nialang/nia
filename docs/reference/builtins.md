@@ -90,6 +90,7 @@ fun divide(value: u32, by: u32) u32 {
 | `memmove[T](dest: &mut [T], source: &[T]) ()` | copies elements between possibly overlapping slices |
 | `memset(dest: &mut [u8], value: u8) ()` | sets every byte of a slice |
 | `loadUnaligned[T](ptr: &u8) T` | reads a `T` from a byte address with no alignment requirement |
+| `storeUnaligned[T](ptr: &mut u8, value: T) ()` | writes a `T` to a byte address with no alignment requirement |
 
 `memcpy` and `memmove` copy the common prefix of the two slices as raw element
 representation. The source must be initialized and readable, the destination
@@ -100,7 +101,11 @@ is not converted here. The element type must be `Sized`, as must `T` loaded by
 `loadUnaligned`; generic callers state that bound in their `where` clause.
 
 `loadUnaligned` relaxes only alignment. At least `size[T]()` initialized bytes
-must be readable at `ptr`, and `T` must be `Sized`.
+must be readable at `ptr`, and `T` must be `Sized`. `storeUnaligned` is its
+counterpart: at least `size[T]()` bytes must be writable at `ptr`. It is an
+ordinary `@[inlineAlways]` function that copies the value's bytes with
+`memcpy`; the fixed length compiles to one unaligned store at every
+optimization level.
 
 ```nia
 using std::builtin;

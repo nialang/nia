@@ -18,3 +18,15 @@ pub fun memset(dest: &mut [u8], value: u8) ();
 @[builtin("loadUnaligned")]
 pub fun loadUnaligned[T](ptr: &u8) T
 where T: Sized;
+
+// Stores `value` at a byte pointer without requiring alignment. At least
+// `size[T]()` bytes must be writable at `ptr`. It is a fixed-length copy of
+// the value's bytes, which compiles to one unaligned store; unlike an
+// assignment through a `&mut T`, the address needs no alignment for `T`.
+@[inlineAlways]
+pub fun storeUnaligned[T](ptr: &mut u8, value: T) ()
+where T: Sized
+{
+    let len = super::layout::size[T]();
+    memcpy(&mut ptr[0..len], &(&value as &u8)[0..len]);
+}
