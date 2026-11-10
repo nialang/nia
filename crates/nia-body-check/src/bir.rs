@@ -1267,9 +1267,17 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Unary { op, expr: inner }
                 if let Some(trait_id) = BuiltinOperatorOp::Unary(*op).trait_id() =>
             {
+                // The operand has the operator's own type, not the type it is
+                // adjusted to afterwards, such as the pointer of an implicit
+                // address.
+                let own_ty = self
+                    .node_expr_adjustments
+                    .get(&expr.node_key)
+                    .map(|plan| plan.source_ty)
+                    .or_else(|| self.expr_ty(expr));
                 let inner_ty = self
                     .numeric_literal_suffix_type(expr)
-                    .or_else(|| self.expr_ty(expr))
+                    .or(own_ty)
                     .or_else(|| self.expr_ty(inner))
                     .or(forced_ty);
                 TypedExprKind::Call {

@@ -1840,7 +1840,9 @@ impl<'a> BodyChecker<'a> {
                 &[rhs_ty],
             );
         }
-        if let Some(expected) = expected {
+        if let Some(expected) = expected
+            && !self.expected_is_address_target(expected)
+        {
             self.expect_type(span, expected, lhs_ty, "binary operator");
         }
         self.record_builtin_operator_method(BuiltinOperatorOp::Binary(op), lhs_ty, vec![rhs_ty]);
@@ -1979,10 +1981,28 @@ impl<'a> BodyChecker<'a> {
             });
             self.normalize_projection(output)
         };
-        if let Some(expected) = finish.expected {
+        if let Some(expected) = finish.expected
+            && !self.expected_is_address_target(expected)
+        {
             self.expect_type(finish.span, expected, output, "binary operator");
         }
         output
+    }
+
+    /// Whether `expected` is a pointer, slice, or trait object, which an
+    /// operator's value can reach only through an implicit address. Such a
+    /// result is adapted after the operator is checked, and the surrounding
+    /// context reports a mismatch, as it does for a call's result.
+    fn expected_is_address_target(&self, expected: InternedTyId) -> bool {
+        matches!(
+            self.interner.get(self.normalization.normalize(expected)),
+            Some(
+                TyKind::Pointer { .. }
+                    | TyKind::VolatilePointer { .. }
+                    | TyKind::Slice { .. }
+                    | TyKind::TraitObject { .. }
+            )
+        )
     }
 
     fn check_builtin_unary_operator_expr(

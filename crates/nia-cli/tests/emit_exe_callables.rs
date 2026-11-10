@@ -114,6 +114,95 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_operator_results_receive_implicit_addresses() {
+    let root = temp_dir("operator_results_receive_implicit_addresses");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::fmt;
+using std::process;
+
+fun unsigned(value: &usize) usize { value.* }
+fun signed(value: &isize) isize { value.* }
+fun flag(value: &bool) bool { value.* }
+fun formatted(value: &fmt::Format) bool { _ = value; true }
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let x: usize = 3;
+    // Operator results are temporaries and take a read-only address where
+    // a pointer or trait object is expected.
+    let sum: &usize = x + 1;
+    if sum.* != 4 or unsigned(x * 7) != 21 or unsigned(x << 1) != 6 {
+        return process::ExitCode(1)!;
+    }
+    if signed(-(x as isize)) != -3 or unsigned(~x) != ~3usize or flag(not (x == 3)) {
+        return process::ExitCode(2)!;
+    }
+    if not formatted(x + 1) or not formatted(-(x as isize)) or not formatted(x == 3) {
+        return process::ExitCode(3)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write operator implicit address source");
+    for optimization in ["-O0", "-O2"] {
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--exe")
+            .arg(optimization)
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit operator implicit address executable");
+        assert!(
+            output.status.success(),
+            "{optimization} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let run = Command::new(&exe).status_timeout("run operator implicit address executable");
+        assert_eq!(run.code(), Some(0), "{optimization}");
+    }
+
+    // A mismatched operator result is reported by its context, and a
+    // temporary never receives a writable address.
+    let rejected = root.join("rejected.nia");
+    std::fs::write(
+        &rejected,
+        r#"
+fun flag(value: &bool) bool { value.* }
+
+fun main() i32 {
+    let x: usize = 3;
+    _ = flag(x + 1);
+    let writable: &mut usize = x + 1;
+    _ = writable;
+    0
+}
+"#,
+    )
+    .expect("write rejected operator address source");
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&rejected)
+        .output_timeout_for_build("check rejected operator addresses");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("type mismatch in call argument 1: expected &bool, got usize"),
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("type mismatch in binding initializer: expected &mut usize, got usize"),
+        "stderr:\n{stderr}"
+    );
+    assert!(!stderr.contains("internal"), "stderr:\n{stderr}");
+}
+
+#[test]
 fn emit_exe_qualified_method_items_preserve_identity_and_instantiation() {
     let root = temp_dir("qualified_method_items_preserve_identity_and_instantiation");
     let main = root.join("main.nia");
