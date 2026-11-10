@@ -838,15 +838,69 @@ impl<'a> BodyChecker<'a> {
     ) -> TypedExpr {
         let receiver_expr_ty =
             receiver_ty.map(|ty| self.receiver_expr_ty_for_lowering(callee, ty, receiver_kind));
-        if self.callee_has_receiver_lhs(callee)
-            && let Some(receiver) = self.lower_receiver_expr_with_ty(callee, receiver_expr_ty)
-        {
-            return receiver;
+        if self.callee_has_receiver_lhs(callee) {
+            // A `&mut` receiver reaching a `&self` method keeps its own type
+            // and is viewed as readonly afterwards. Forcing the readonly type
+            // onto the receiver would retype a call that produces it.
+            if let Some(target_ty) = receiver_expr_ty
+                && let Some(actual_ty) = self.receiver_lhs_expr_ty(callee)
+                && self.is_readonly_view_of(target_ty, actual_ty)
+                && let Some(receiver) = self.lower_receiver_expr_with_ty(callee, Some(actual_ty))
+            {
+                return TypedExpr {
+                    span: receiver.span,
+                    ty: target_ty,
+                    kind: TypedExprKind::Cast {
+                        expr: Box::new(receiver),
+                        ty: target_ty,
+                    },
+                };
+            }
+            if let Some(receiver) = self.lower_receiver_expr_with_ty(callee, receiver_expr_ty) {
+                return receiver;
+            }
         }
         if let Some(receiver) = call_args.first() {
             return self.lower_expr_with_ty(receiver, receiver_expr_ty);
         }
         self.lower_expr_with_ty(callee, receiver_expr_ty)
+    }
+
+    /// Whether `target_ty` is the readonly form of the writable pointer or
+    /// slice `actual_ty`.
+    fn is_readonly_view_of(
+        &mut self,
+        target_ty: nia_ids::InternedTyId,
+        actual_ty: nia_ids::InternedTyId,
+    ) -> bool {
+        let target_ty = self.normalization.normalize(target_ty);
+        let actual_ty = self.normalization.normalize(actual_ty);
+        match (
+            self.interner.get(target_ty).cloned(),
+            self.interner.get(actual_ty).cloned(),
+        ) {
+            (
+                Some(TyKind::Pointer {
+                    is_readonly: true,
+                    elem: target_elem,
+                }),
+                Some(TyKind::Pointer {
+                    is_readonly: false,
+                    elem: actual_elem,
+                }),
+            )
+            | (
+                Some(TyKind::Slice {
+                    is_readonly: true,
+                    elem: target_elem,
+                }),
+                Some(TyKind::Slice {
+                    is_readonly: false,
+                    elem: actual_elem,
+                }),
+            ) => self.types_match(target_elem, actual_elem),
+            _ => false,
+        }
     }
 
     fn receiver_expr_ty_for_lowering(

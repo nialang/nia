@@ -57,6 +57,63 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_readonly_methods_accept_writable_call_receivers() {
+    let root = temp_dir("readonly_methods_accept_writable_call_receivers");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+struct Holder {
+    items: [u32; 4],
+    count: u32,
+}
+
+extend Holder {
+    fun asMutSlice(&mut self) &mut [u32] { &mut self.items[..] }
+    fun me(&mut self) &mut Holder { self }
+    fun total(&self) u32 { self.count + self.items[0] }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut holder = Holder { items: [1, 2, 3, 4], count: 10 };
+    // `len(&self)` and `total(&self)` take the readonly view of a `&mut`
+    // that a call produces.
+    if holder.asMutSlice().len() != 4 or holder.me().total() != 11 {
+        return process::ExitCode(1)!;
+    }
+    holder.asMutSlice()[0] = 5;
+    if (&mut holder).me().me().total() != 15 {
+        return process::ExitCode(2)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write writable call receiver source");
+    for optimization in ["-O0", "-O2"] {
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--exe")
+            .arg(optimization)
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit writable call receiver executable");
+        assert!(
+            output.status.success(),
+            "{optimization} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let run = Command::new(&exe).status_timeout("run writable call receiver executable");
+        assert_eq!(run.code(), Some(0), "{optimization}");
+    }
+}
+
+#[test]
 fn emit_exe_qualified_method_items_preserve_identity_and_instantiation() {
     let root = temp_dir("qualified_method_items_preserve_identity_and_instantiation");
     let main = root.join("main.nia");
