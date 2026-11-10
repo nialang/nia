@@ -11,16 +11,19 @@ impl TraitSolver<'_> {
         }
     }
 
-    pub(crate) fn is_enum(&self, ty: InternedTyId) -> bool {
+    pub(crate) fn is_fieldless_enum(&self, ty: InternedTyId) -> bool {
         let ty = self.normalization.normalize(ty);
         let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(ty) else {
             return false;
         };
         if def_id.module_id == self.local_module_id {
-            return self.local_enums.contains_key(&def_id.def_id);
+            return self
+                .local_enums
+                .get(&def_id.def_id)
+                .is_some_and(nia_item_signatures::EnumSignature::is_fieldless);
         }
-        self.program_is_enum
-            .is_some_and(|program_is_enum| program_is_enum(*def_id))
+        self.program_fieldless_enum
+            .is_some_and(|program_fieldless_enum| program_fieldless_enum(*def_id))
     }
 
     /// Resolves a trait goal using assumptions, visible source impls, then
@@ -534,7 +537,7 @@ impl TraitSolver<'_> {
                         || self.types_equivalent_inner(self_ty, self.bool())
                         || self.is_char(self_ty)
                         || self.is_pointer(self_ty)
-                        || self.is_enum(self_ty))
+                        || self.is_fieldless_enum(self_ty))
             }
             BuiltinTrait::Ord => {
                 let [rhs_ty] = goal.trait_args.as_slice() else {

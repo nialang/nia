@@ -85,6 +85,13 @@ impl<'a> ProgramSignatureScope<'a> {
         }
     }
 
+    pub(super) fn has_fieldless_enum(&self, def_id: GlobalDefId) -> bool {
+        match self {
+            ProgramSignatureScope::LocalModule => false,
+            ProgramSignatureScope::Program(program) => program.has_fieldless_enum(def_id),
+        }
+    }
+
     pub(super) fn has_union(&self, def_id: GlobalDefId) -> bool {
         match self {
             ProgramSignatureScope::LocalModule => false,

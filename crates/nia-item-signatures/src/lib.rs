@@ -728,6 +728,17 @@ pub struct EnumSignature {
     pub span: Span,
 }
 
+impl EnumSignature {
+    /// Whether no variant carries a payload. Only such an enum is compared
+    /// by its discriminant, so only it has the intrinsic `Eq`; an enum with
+    /// payloads needs an `Eq` implementation that compares them.
+    pub fn is_fieldless(&self) -> bool {
+        self.variants
+            .iter()
+            .all(|variant| matches!(variant.payload, EnumVariantPayloadSignature::Unit))
+    }
+}
+
 /// One lowered enum variant signature.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariantSignature {

@@ -94,6 +94,13 @@ pub trait ProgramSignatureLookup {
         self.enum_(def_id).is_some()
     }
 
+    /// Tests whether an enum is present and none of its variants has a
+    /// payload, the enums that have the intrinsic `Eq`.
+    fn has_fieldless_enum(&self, def_id: GlobalDefId) -> bool {
+        self.enum_(def_id)
+            .is_some_and(|enum_| enum_.signature.is_fieldless())
+    }
+
     /// Tests whether a trait is present.
     fn has_trait(&self, def_id: GlobalDefId) -> bool {
         self.trait_(def_id).is_some()
@@ -395,6 +402,12 @@ impl ProgramSignatureLookup for ProgramSignatureMaps<'_> {
 
     fn has_enum(&self, def_id: GlobalDefId) -> bool {
         self.enums.contains_key(&def_id)
+    }
+
+    fn has_fieldless_enum(&self, def_id: GlobalDefId) -> bool {
+        self.enums
+            .get(&def_id)
+            .is_some_and(|enum_| enum_.signature.is_fieldless())
     }
 
     fn has_trait(&self, def_id: GlobalDefId) -> bool {

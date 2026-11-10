@@ -238,9 +238,13 @@ impl BackendAssociatedConstEvaluator {
             })
         };
         let enum_provider = |def_id: GlobalDefId| {
-            self.modules
-                .get(&def_id.module_id)
-                .is_some_and(|module| module.defs.defs.get(def_id.def_id).is_some())
+            self.modules.get(&def_id.module_id).is_some_and(|module| {
+                module
+                    .signatures
+                    .enums
+                    .get(&def_id.def_id)
+                    .is_some_and(nia_item_signatures::EnumSignature::is_fieldless)
+            })
         };
         let extensions_provider = |module_id| {
             self.modules
@@ -279,7 +283,7 @@ impl BackendAssociatedConstEvaluator {
                 value_signatures: Some(&signatures_provider),
                 const_values: Some(&const_values_provider),
                 global_initializer: Some(&global_initializer_provider),
-                program_is_enum: Some(&enum_provider),
+                program_fieldless_enum: Some(&enum_provider),
                 trait_impls_for_module: Some(&trait_impls_provider),
                 visible_extensions: Some(&extensions_provider),
             },

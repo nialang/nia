@@ -584,18 +584,25 @@ fn const_inputs_for_body_check(
         )
         .map(|impls| impls.trait_impls.clone())
     };
-    let program_is_enum = |def_id: GlobalDefId| {
-        fact_mode
-            .non_function_signatures
-            .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
-            || capture_query_failure(
-                &query_failure,
-                db.get(SignatureItemSignaturesQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                )),
-            )
-            .is_some_and(|signatures| signatures.semantic.enums.contains_key(&def_id.def_id))
+    let program_fieldless_enum = |def_id: GlobalDefId| match fact_mode
+        .non_function_signatures
+        .and_then(|signatures| signatures.enums.get(&def_id))
+    {
+        Some(enum_) => enum_.signature.is_fieldless(),
+        None => capture_query_failure(
+            &query_failure,
+            db.get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )
+        .is_some_and(|signatures| {
+            signatures
+                .semantic
+                .enums
+                .get(&def_id.def_id)
+                .is_some_and(nia_item_signatures::EnumSignature::is_fieldless)
+        }),
     };
     let item_signatures_for_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
@@ -704,7 +711,7 @@ fn const_inputs_for_body_check(
             value_signatures: Some(&value_signatures_for_module),
             const_values: None,
             global_initializer: Some(&program_global_initializer),
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             trait_impls_for_module: Some(&trait_impls_for_module),
             visible_extensions: Some(&visible_extensions_for_module),
         },

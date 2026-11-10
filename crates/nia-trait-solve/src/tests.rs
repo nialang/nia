@@ -50,7 +50,7 @@ fn obligation_explanations_distinguish_missing_hidden_and_ambiguous_impls() {
         program_layouts: None,
         local_module_id: local_module,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -73,7 +73,7 @@ fn obligation_explanations_distinguish_missing_hidden_and_ambiguous_impls() {
         program_layouts: None,
         local_module_id: local_module,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: Some(&invisible),
     };
@@ -99,7 +99,7 @@ fn obligation_explanations_distinguish_missing_hidden_and_ambiguous_impls() {
         program_layouts: None,
         local_module_id: local_module,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: Some(&visible),
     };
@@ -257,7 +257,7 @@ fn static_callable_bounds_accept_function_items_and_reject_function_pointers() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -323,7 +323,7 @@ fn structural_equivalence_resolves_const_expression_array_lengths() {
         program_layouts: None,
         local_module_id: left_module,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: Some(&const_expr_value),
         impl_is_visible: None,
     };
@@ -406,7 +406,7 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: Some(&const_expr_value),
         impl_is_visible: None,
     };
@@ -504,7 +504,7 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: Some(&const_expr_value),
         impl_is_visible: None,
     };
@@ -562,13 +562,13 @@ fn enum_classification_reads_new_types_from_canonical_store() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
     let solver = context.solver(&[]);
 
-    assert!(solver.is_enum(ty));
+    assert!(solver.is_fieldless_enum(ty));
 }
 
 #[test]
@@ -648,7 +648,7 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -734,7 +734,7 @@ fn user_impl_infers_type_generic_from_layout_builtin_array_operand() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -811,7 +811,7 @@ fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -872,7 +872,7 @@ fn sized_lookup_matches_layout_tuple_elements_structurally() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -916,7 +916,7 @@ fn failed_array_element_match_does_not_publish_const_length_inference() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -964,7 +964,7 @@ fn failed_tuple_match_does_not_publish_earlier_type_inference() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1068,7 +1068,7 @@ fn trait_object_impl_matching_backtracks_without_reusing_bindings() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1132,7 +1132,7 @@ fn callable_pointees_are_unsized_while_callable_views_are_sized() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1187,7 +1187,7 @@ fn builtin_traits_reject_const_arguments() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1254,7 +1254,7 @@ fn concrete_closure_states_are_sized_when_their_captures_are_sized() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1343,7 +1343,7 @@ fn user_impl_substitutes_const_argument_types_before_matching() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1439,7 +1439,7 @@ fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1583,7 +1583,7 @@ fn impl_where_predicate_substitutes_const_arguments_from_target() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1668,7 +1668,7 @@ fn concrete_trait_const_argument_is_more_specific_than_a_parameter() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1741,7 +1741,7 @@ fn repeated_type_parameter_across_impl_header_is_more_specific() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1836,7 +1836,7 @@ fn repeated_const_parameter_across_impl_header_is_more_specific() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -1930,7 +1930,7 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -2033,7 +2033,7 @@ fn cyclic_where_goal_guard_uses_semantic_const_identity() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -2096,7 +2096,7 @@ fn associated_projection_guard_uses_semantic_goal_identity() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -2167,7 +2167,7 @@ fn projection_equivalence_guard_uses_semantic_pair_identity() {
         program_layouts: None,
         local_module_id: left_module,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -2235,7 +2235,7 @@ fn array_layout_builtin_equivalence_recurses_through_operand_types() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -2317,7 +2317,7 @@ fn projection_equivalence_recurses_through_tuple_elements() {
         program_layouts: None,
         local_module_id: module_id,
         local_enums: &local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -2412,7 +2412,7 @@ fn sized_queries_only_the_nominal_owner_and_preserves_instance_identity() {
         program_layouts: Some(&program_layouts),
         local_module_id: local,
         local_enums: &enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };

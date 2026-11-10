@@ -1140,7 +1140,8 @@ impl<'a> BodyChecker<'a> {
         let const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
         let program_signature_scope = self.program_signature_scope;
-        let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
+        let program_fieldless_enum =
+            move |def_id| program_signature_scope.has_fieldless_enum(def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.normalization,
@@ -1150,7 +1151,7 @@ impl<'a> BodyChecker<'a> {
             program_layouts: self.program.layouts,
             local_module_id: self.defs.module_id,
             local_enums: self.signatures.enums,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             const_expr_value: Some(&const_expr_value),
             // Program trait facts already carry the witness scope. Method
             // visibility is a separate capability and may contain no entry

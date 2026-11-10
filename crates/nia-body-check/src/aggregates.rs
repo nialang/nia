@@ -1602,7 +1602,7 @@ impl<'a> BodyChecker<'a> {
     ) -> T {
         let trait_impls_for_module = |_| Some(self.program_trait_impls.to_vec());
         let program_signature_scope = self.program_signature_scope;
-        let program_is_enum = |def_id| program_signature_scope.has_enum(def_id);
+        let program_fieldless_enum = |def_id| program_signature_scope.has_fieldless_enum(def_id);
         let function_signature = |def_id: GlobalDefId| {
             if def_id.module_id == self.defs.module_id
                 && let Some(signature) = self.const_signatures.functions.get(&def_id.def_id)
@@ -1639,7 +1639,7 @@ impl<'a> BodyChecker<'a> {
                 value_signatures: self.program.signatures,
                 const_values: Some(self.program_const_values),
                 global_initializer: None,
-                program_is_enum: Some(&program_is_enum),
+                program_fieldless_enum: Some(&program_fieldless_enum),
                 trait_impls_for_module: Some(&trait_impls_for_module),
                 visible_extensions: self.program.visible_extensions,
             },

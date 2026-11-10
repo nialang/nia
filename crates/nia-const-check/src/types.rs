@@ -306,7 +306,7 @@ pub struct ConstProgramContext<'a> {
     /// Resolves a global initializer by stable identity.
     pub global_initializer: Option<&'a dyn Fn(GlobalDefId) -> Option<ResolvedConstExpr>>,
     /// Identifies enum definitions for value interpretation.
-    pub program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
+    pub program_fieldless_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
     /// Lazily loads the complete trait witness scope for an execution module.
     /// These facts are already filtered by trait visibility and provider
     /// closure; consumers must not intersect them with a method index.
@@ -330,7 +330,10 @@ impl fmt::Debug for ConstProgramContext<'_> {
             .field("value_signatures", &self.value_signatures.is_some())
             .field("const_values", &self.const_values.is_some())
             .field("global_initializer", &self.global_initializer.is_some())
-            .field("program_is_enum", &self.program_is_enum.is_some())
+            .field(
+                "program_fieldless_enum",
+                &self.program_fieldless_enum.is_some(),
+            )
             .field(
                 "trait_impls_for_module",
                 &self.trait_impls_for_module.is_some(),
@@ -354,7 +357,7 @@ impl<'a> ConstProgramContext<'a> {
             value_signatures: None,
             const_values: None,
             global_initializer: None,
-            program_is_enum: None,
+            program_fieldless_enum: None,
             trait_impls_for_module: None,
             visible_extensions: None,
         }

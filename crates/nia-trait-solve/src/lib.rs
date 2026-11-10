@@ -263,7 +263,7 @@ pub struct TraitSolver<'a> {
         Option<&'a dyn Fn(GlobalConstExprId, InternedTyId) -> Option<ConstGenericValue>>,
     local_module_id: ModuleId,
     local_enums: &'a HashMap<DefId, EnumSignature>,
-    program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
+    program_fieldless_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
     impl_is_visible: &'a dyn Fn(ModuleId, TraitImplId) -> bool,
     stats: TraitSolverStats,
 }
@@ -300,7 +300,7 @@ pub struct TraitSolverContext<'a> {
     /// Enum signatures owned by `local_module_id`.
     pub local_enums: &'a HashMap<DefId, EnumSignature>,
     /// Cross-module enum classifier.
-    pub program_is_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
+    pub program_fieldless_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
     /// Evaluates const-expression identities when const arguments are compared.
     pub const_expr_value:
         Option<&'a dyn Fn(GlobalConstExprId, InternedTyId) -> Option<ConstGenericValue>>,
@@ -377,7 +377,7 @@ impl<'a> TraitSolverContext<'a> {
             const_expr_value: self.const_expr_value,
             local_module_id: self.local_module_id,
             local_enums: self.local_enums,
-            program_is_enum: self.program_is_enum,
+            program_fieldless_enum: self.program_fieldless_enum,
             impl_is_visible: self
                 .impl_is_visible
                 .unwrap_or(&trait_impl_visible_by_default),
@@ -409,7 +409,7 @@ impl<'a> TraitSolverContext<'a> {
             const_expr_value: self.const_expr_value,
             local_module_id: self.local_module_id,
             local_enums: self.local_enums,
-            program_is_enum: self.program_is_enum,
+            program_fieldless_enum: self.program_fieldless_enum,
             impl_is_visible: self
                 .impl_is_visible
                 .unwrap_or(&trait_impl_visible_by_default),
@@ -444,7 +444,7 @@ pub fn trait_impl_headers_are_equivalent(
         program_layouts: None,
         local_module_id,
         local_enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };

@@ -877,7 +877,13 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> bool {
         let assumptions = self.current_trait_assumptions();
-        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
+        let program_fieldless_enum = |def_id| {
+            self.input
+                .program
+                .enums()
+                .get(&def_id)
+                .is_some_and(|enum_| enum_.signature.is_fieldless())
+        };
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
@@ -887,7 +893,7 @@ impl<'a> ModuleLowerer<'a> {
             program_layouts: None,
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             const_expr_value: None,
             impl_is_visible: None,
         };
@@ -914,7 +920,13 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> bool {
         let assumptions = self.current_trait_assumptions();
-        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
+        let program_fieldless_enum = |def_id| {
+            self.input
+                .program
+                .enums()
+                .get(&def_id)
+                .is_some_and(|enum_| enum_.signature.is_fieldless())
+        };
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
@@ -924,7 +936,7 @@ impl<'a> ModuleLowerer<'a> {
             program_layouts: None,
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             const_expr_value: None,
             impl_is_visible: None,
         };
@@ -1810,7 +1822,13 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<InternedTyId> {
         let associated_type_assumptions =
             self.current_associated_type_assumptions(substitutions, active_projections);
-        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
+        let program_fieldless_enum = |def_id| {
+            self.input
+                .program
+                .enums()
+                .get(&def_id)
+                .is_some_and(|enum_| enum_.signature.is_fieldless())
+        };
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
@@ -1820,7 +1838,7 @@ impl<'a> ModuleLowerer<'a> {
             program_layouts: None,
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             const_expr_value: None,
             impl_is_visible: None,
         };
@@ -1846,7 +1864,13 @@ impl<'a> ModuleLowerer<'a> {
         projection: &ProjectionInstantiationKey,
     ) -> Option<AssociatedConstResolution> {
         let assumptions = self.current_trait_assumptions();
-        let program_is_enum = |def_id| self.input.program.enums().contains_key(&def_id);
+        let program_fieldless_enum = |def_id| {
+            self.input
+                .program
+                .enums()
+                .get(&def_id)
+                .is_some_and(|enum_| enum_.signature.is_fieldless())
+        };
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.input.type_normalization,
@@ -1856,7 +1880,7 @@ impl<'a> ModuleLowerer<'a> {
             program_layouts: None,
             local_module_id: self.input.module_id,
             local_enums: &self.input.signatures.enums,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             const_expr_value: None,
             impl_is_visible: None,
         };

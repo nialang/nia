@@ -2061,7 +2061,8 @@ impl<'a> BodyChecker<'a> {
                 })
         };
         let program_signature_scope = self.program_signature_scope;
-        let program_is_enum = move |def_id| program_signature_scope.has_enum(def_id);
+        let program_fieldless_enum =
+            move |def_id| program_signature_scope.has_fieldless_enum(def_id);
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization: self.normalization,
@@ -2071,7 +2072,7 @@ impl<'a> BodyChecker<'a> {
             program_layouts: self.program.layouts,
             local_module_id: self.defs.module_id,
             local_enums: self.signatures.enums,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             const_expr_value: Some(&const_expr_value),
             // The supplied program facts already establish the witness scope.
             // Re-filtering every prerequisite by the callsite's method scope

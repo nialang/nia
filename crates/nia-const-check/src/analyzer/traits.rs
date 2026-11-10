@@ -219,12 +219,15 @@ impl Analyzer<'_> {
             .signatures_for_module(module_id)
             .map(|signatures| signatures.as_ref().enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
-        let program_is_enum_query = self.input.program.program_is_enum;
-        let program_is_enum = |def_id: GlobalDefId| {
+        let program_fieldless_enum_query = self.input.program.program_fieldless_enum;
+        let program_fieldless_enum = |def_id: GlobalDefId| {
             if def_id.module_id == module_id {
-                return local_enums.contains_key(&def_id.def_id);
+                return local_enums
+                    .get(&def_id.def_id)
+                    .is_some_and(nia_item_signatures::EnumSignature::is_fieldless);
             }
-            program_is_enum_query.is_some_and(|program_is_enum| program_is_enum(def_id))
+            program_fieldless_enum_query
+                .is_some_and(|program_fieldless_enum| program_fieldless_enum(def_id))
         };
         let trait_impls = self.trait_impls_for_solver_module(module_id);
         let mut array_lengths = self.trait_solver_array_lengths(
@@ -267,7 +270,7 @@ impl Analyzer<'_> {
             program_layouts: Some(&program_layouts),
             local_module_id: module_id,
             local_enums: &local_enums,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             const_expr_value: Some(&const_expr_value),
             // The provider supplies the witness closure for this execution
             // module. A method index cannot re-filter that proof scope:
@@ -452,12 +455,15 @@ impl Analyzer<'_> {
             .signatures_for_module(module_id)
             .map(|signatures| signatures.as_ref().enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
-        let program_is_enum_query = self.input.program.program_is_enum;
-        let program_is_enum = |def_id: GlobalDefId| {
+        let program_fieldless_enum_query = self.input.program.program_fieldless_enum;
+        let program_fieldless_enum = |def_id: GlobalDefId| {
             if def_id.module_id == module_id {
-                return local_enums.contains_key(&def_id.def_id);
+                return local_enums
+                    .get(&def_id.def_id)
+                    .is_some_and(nia_item_signatures::EnumSignature::is_fieldless);
             }
-            program_is_enum_query.is_some_and(|program_is_enum| program_is_enum(def_id))
+            program_fieldless_enum_query
+                .is_some_and(|program_fieldless_enum| program_fieldless_enum(def_id))
         };
         let trait_impls = self.trait_impls_for_solver_module(module_id);
         let array_lengths = self.trait_solver_array_lengths(
@@ -485,7 +491,7 @@ impl Analyzer<'_> {
             program_layouts: Some(&program_layouts),
             local_module_id: module_id,
             local_enums: &local_enums,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             const_expr_value: Some(&const_expr_value),
             // The provider supplies the witness closure for this execution
             // module. A method index cannot re-filter that proof scope:
@@ -537,12 +543,15 @@ impl Analyzer<'_> {
             .signatures_for_module(module_id)
             .map(|signatures| signatures.as_ref().enums.clone())
             .unwrap_or_else(|| self.input.signatures.enums.clone());
-        let program_is_enum_query = self.input.program.program_is_enum;
-        let program_is_enum = |def_id: GlobalDefId| {
+        let program_fieldless_enum_query = self.input.program.program_fieldless_enum;
+        let program_fieldless_enum = |def_id: GlobalDefId| {
             if def_id.module_id == module_id {
-                return local_enums.contains_key(&def_id.def_id);
+                return local_enums
+                    .get(&def_id.def_id)
+                    .is_some_and(nia_item_signatures::EnumSignature::is_fieldless);
             }
-            program_is_enum_query.is_some_and(|program_is_enum| program_is_enum(def_id))
+            program_fieldless_enum_query
+                .is_some_and(|program_fieldless_enum| program_fieldless_enum(def_id))
         };
         let trait_impls = self.trait_impls_for_solver_module(module_id);
         let array_lengths = self.trait_solver_array_lengths(
@@ -570,7 +579,7 @@ impl Analyzer<'_> {
             program_layouts: Some(&program_layouts),
             local_module_id: module_id,
             local_enums: &local_enums,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             const_expr_value: Some(&const_expr_value),
             // The provider supplies the witness closure for this execution
             // module. A method index cannot re-filter that proof scope:

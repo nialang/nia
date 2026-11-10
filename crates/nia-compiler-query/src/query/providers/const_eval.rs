@@ -214,17 +214,24 @@ pub(super) fn with_const_input_and_program_facts<T>(
         )
         .map(|signatures| signatures.trait_impls.clone())
     };
-    let program_is_enum = |def_id: GlobalDefId| {
-        non_function_signatures_override
-            .is_some_and(|signatures| signatures.enums.contains_key(&def_id))
-            || capture_query_failure(
-                &query_failure,
-                db.get(SignatureItemSignaturesQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                )),
-            )
-            .is_some_and(|signatures| signatures.semantic.enums.contains_key(&def_id.def_id))
+    let program_fieldless_enum = |def_id: GlobalDefId| match non_function_signatures_override
+        .and_then(|signatures| signatures.enums.get(&def_id))
+    {
+        Some(enum_) => enum_.signature.is_fieldless(),
+        None => capture_query_failure(
+            &query_failure,
+            db.get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )
+        .is_some_and(|signatures| {
+            signatures
+                .semantic
+                .enums
+                .get(&def_id.def_id)
+                .is_some_and(nia_item_signatures::EnumSignature::is_fieldless)
+        }),
     };
     let item_signatures_for_module = |module_id| {
         if use_signature_facts_for(module_id) {
@@ -313,7 +320,7 @@ pub(super) fn with_const_input_and_program_facts<T>(
             value_signatures: Some(&value_signatures_for_module),
             const_values: None,
             global_initializer: None,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             trait_impls_for_module: Some(&trait_impls_for_module),
             visible_extensions: Some(&visible_extensions_for_module),
         },

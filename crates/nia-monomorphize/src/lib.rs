@@ -1595,7 +1595,11 @@ impl MonoCollector<'_> {
             .copied()
             .unwrap_or(&EMPTY_LOCAL_ENUMS);
         let layouts = self.layouts_by_module.get(&module_id).copied();
-        let program_is_enum = |def_id| self.program_enums.contains_key(&def_id);
+        let program_fieldless_enum = |def_id| {
+            self.program_enums
+                .get(&def_id)
+                .is_some_and(|enum_| enum_.signature.is_fieldless())
+        };
         let context = TraitSolverContext {
             type_store: self.type_store,
             normalization,
@@ -1605,7 +1609,7 @@ impl MonoCollector<'_> {
             program_layouts: None,
             local_module_id: module_id,
             local_enums,
-            program_is_enum: Some(&program_is_enum),
+            program_fieldless_enum: Some(&program_fieldless_enum),
             const_expr_value: None,
             impl_is_visible: None,
         };

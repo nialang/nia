@@ -1995,7 +1995,7 @@ fn supertrait_associated_bindings_hold(
         program_layouts: None,
         local_module_id: module.module_id,
         local_enums: &module.signatures.enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: None,
         impl_is_visible: None,
     };
@@ -2179,7 +2179,7 @@ fn trait_method_signature_matches(
         program_layouts: None,
         local_module_id: input.module.module_id,
         local_enums: &input.module.signatures.enums,
-        program_is_enum: None,
+        program_fieldless_enum: None,
         const_expr_value: Some(&const_expr_value),
         impl_is_visible: None,
     };
