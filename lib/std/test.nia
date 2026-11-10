@@ -237,3 +237,42 @@ where T: Eq[T]
 pub fun fail() Error!() {
     .AssertionFailed(callerLocation())!
 }
+
+// The value of a successful result, or a failed assertion at the caller.
+// The result's error type is not converted, so any error union can be
+// checked without an `IntoError` implementation.
+@[trackCaller]
+pub fun expectOk[T, E](result: E!T) Error!T {
+    match result {
+        !value => !value,
+        _! => .AssertionFailed(callerLocation())!,
+    }
+}
+
+// The error of a failed result, or a failed assertion at the caller when
+// the result succeeded. Pair it with `expectEqual` to check which error.
+@[trackCaller]
+pub fun expectError[T, E](result: E!T) Error!E {
+    match result {
+        !_ => .AssertionFailed(callerLocation())!,
+        error! => !error,
+    }
+}
+
+// The value of a present optional, or a failed assertion at the caller.
+@[trackCaller]
+pub fun expectSome[T](optional: ?T) Error!T {
+    match optional {
+        ?value => !value,
+        null => .AssertionFailed(callerLocation())!,
+    }
+}
+
+// A failed assertion at the caller unless `optional` is `null`.
+@[trackCaller]
+pub fun expectNull[T](optional: ?T) Error!() {
+    if optional is ?_ {
+        return .AssertionFailed(callerLocation())!;
+    }
+    !()
+}

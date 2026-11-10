@@ -54,7 +54,38 @@ pub fun main(init: process::Init) process::ExitCode!() {
 | `test::expect(condition)` | `condition` is false |
 | `test::expectEqual(actual, expected)` | the values differ; the type needs `Eq` |
 | `test::expectNotEqual(actual, expected)` | the values are equal |
+| `test::expectOk(result)` | `result` is an error; otherwise returns its value |
+| `test::expectError(result)` | `result` succeeded; otherwise returns its error |
+| `test::expectSome(optional)` | `optional` is `null`; otherwise returns its value |
+| `test::expectNull(optional)` | `optional` holds a value |
 | `test::fail()` | always |
+
+`expectOk` and `expectError` accept a result of any error type: the error is
+not converted to `test::Error`, so code under test does not need an
+`IntoError` implementation for its errors. To check which error a call
+returned, compare the one `expectError` gives back:
+
+```nia
+using std::test;
+
+enum ParseError { Empty, TooLong }
+
+fun parseLength(text: &[u8]) ParseError!usize {
+    if text.len() == 0 {
+        return .Empty!;
+    }
+    if text.len() > 3 {
+        return .TooLong!;
+    }
+    !text.len()
+}
+
+fun rejectsEmptyInput() test::Error!() {
+    test::expectEqual(test::expectOk(parseLength(b"ab")).?, 2).?;
+    test::expectEqual(test::expectError(parseLength(b"")).?, .Empty).?;
+    !()
+}
+```
 
 A `Case` pairs a name with a test function, and a `Runner` runs a table of
 cases and returns a `RunSummary` with `total()`, `passed()`, `failed()`, and

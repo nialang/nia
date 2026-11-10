@@ -297,6 +297,98 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn result_and_optional_assertions_report_the_caller() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let workspace = nia_test_support::test_dir("test-result-assertions");
+    fs::create_dir_all(workspace.join("tests")).expect("create test directory");
+    fs::write(
+        workspace.join("nia.toml"),
+        "[package]
+name = \"assertions\"
+version = \"1.0.0\"
+         [[test]]
+name = \"unit\"
+path = \"tests/unit.nia\"
+",
+    )
+    .expect("write manifest");
+    fs::write(
+        workspace.join("tests/unit.nia"),
+        r#"using std::{io, process, test};
+
+enum Parse { Empty, TooLong }
+
+fun parse(text: &[u8]) Parse!usize {
+    if text.len() == 0 { return .Empty!; }
+    if text.len() > 3 { return .TooLong!; }
+    !text.len()
+}
+
+fun firstEven(values: &[u32]) ?u32 {
+    for &value in values {
+        if value % 2 == 0 { return ?value; }
+    }
+    null
+}
+
+fun passing() test::Error!() {
+    test::expectEqual(test::expectOk(parse(b"ab")).?, 2).?;
+    test::expectEqual(test::expectError(parse(b"")).?, Parse::Empty).?;
+    test::expectEqual(test::expectError(parse(b"abcd")).?, .TooLong).?;
+    test::expectEqual(test::expectSome(firstEven(&[1, 4, 6])).?, 4).?;
+    test::expectNull(firstEven(&[1, 3])).?;
+    !()
+}
+
+fun okFails() test::Error!() { _ = test::expectOk(parse(b"")).?; !() }
+fun errorFails() test::Error!() { _ = test::expectError(parse(b"a")).?; !() }
+fun someFails() test::Error!() { _ = test::expectSome(firstEven(&[1])).?; !() }
+fun nullFails() test::Error!() { test::expectNull(firstEven(&[2])) }
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let cases = [
+        test::Case::init("passing", passing),
+        test::Case::init("ok", okFails),
+        test::Case::init("error", errorFails),
+        test::Case::init("some", someFails),
+        test::Case::init("null", nullFails),
+    ];
+    let mut reporter = \result: test::CaseResult -> {
+        if result.error() is ?failure {
+            _ = io::debugPrint("{}: {}\n", [result.name(), failure]);
+        }
+    };
+    let summary = test::Runner::init(cases).runWith(reporter);
+    _ = io::debugPrint("passed={} failed={}\n", [summary.passed(), summary.failed()]);
+    !()
+}
+"#,
+    )
+    .expect("write assertion test suite");
+
+    let output = build_command(&workspace)
+        .arg("unit")
+        .output_timeout_in_session("run result and optional assertions");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    // Each failure names the line and column of the assertion's caller.
+    for expected in [
+        "ok: tests/unit.nia:27:36: assertion failed",
+        "error: tests/unit.nia:28:39: assertion failed",
+        "some: tests/unit.nia:29:38: assertion failed",
+        "null: tests/unit.nia:30:34: assertion failed",
+        "passed=1 failed=4",
+    ] {
+        assert!(
+            stderr.contains(expected),
+            "missing `{expected}`:
+{stderr}"
+        );
+    }
+}
+
+#[test]
 fn executable_and_test_modules_can_share_one_package_import_set() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let workspace = nia_test_support::test_dir("test-and-executable-shared-package-imports");
