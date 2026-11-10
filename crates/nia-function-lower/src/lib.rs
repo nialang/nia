@@ -24,16 +24,15 @@ use nia_ty::{PrimitiveTy, TyKind, TypeStore, TypeStoreAppend};
 
 use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAsmInput, FunctionAsmOption,
-    FunctionAsmOutput, FunctionAtomic, FunctionBinding, FunctionBitIntrinsicOp, FunctionBlock,
-    FunctionBlockId, FunctionBody, FunctionBuiltinMethod, FunctionBuiltinOperator,
-    FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee, FunctionClosureEntry,
-    FunctionDeferBody, FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionFieldInit,
-    FunctionForHeader, FunctionInlineAsm, FunctionLocal, FunctionLocalKind,
-    FunctionMemoryIntrinsic, FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionOp,
-    FunctionOptionalTag, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange,
-    FunctionScope, FunctionScopeId, FunctionSliceRange, FunctionSwitchArm, FunctionTerminator,
-    FunctionTryKind, GeneratedLocalName, LocalName, validate_function_body,
-    validate_function_closure_entry,
+    FunctionAsmOutput, FunctionAtomic, FunctionBinding, FunctionBlock, FunctionBlockId,
+    FunctionBody, FunctionBuiltinMethod, FunctionBuiltinOperator, FunctionBuiltinOperatorOp,
+    FunctionBuiltinValue, FunctionCallee, FunctionClosureEntry, FunctionDeferBody,
+    FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader,
+    FunctionInlineAsm, FunctionLocal, FunctionLocalKind, FunctionMemoryIntrinsic,
+    FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionOp, FunctionOptionalTag,
+    FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionScope,
+    FunctionScopeId, FunctionSliceRange, FunctionSwitchArm, FunctionTerminator, FunctionTryKind,
+    GeneratedLocalName, LocalName, validate_function_body, validate_function_closure_entry,
 };
 
 mod expr;

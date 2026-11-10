@@ -127,10 +127,6 @@ impl<'a> LocalUseCollector<'a> {
             | FunctionExprKind::TaggedUnionTag { expr }
             | FunctionExprKind::TaggedUnionPayload { expr }
             | FunctionExprKind::Try { expr }
-            | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
-            | FunctionExprKind::Splat { value: expr }
-            | FunctionExprKind::Bitmask { vector: expr }
-            | FunctionExprKind::BitIntrinsic { value: expr, .. }
             | FunctionExprKind::CharFromU32 { value: expr }
             | FunctionExprKind::Discard(expr)
             | FunctionExprKind::Cast { expr, .. }
@@ -153,18 +149,10 @@ impl<'a> LocalUseCollector<'a> {
                 self.collect_expr(lhs);
                 self.collect_expr(rhs);
             }
-            FunctionExprKind::ExtractElement { vector, index } => {
-                self.collect_expr(vector);
-                self.collect_expr(index);
-            }
-            FunctionExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => {
-                self.collect_expr(vector);
-                self.collect_expr(index);
-                self.collect_expr(value);
+            FunctionExprKind::Intrinsic { args, .. } => {
+                for arg in args {
+                    self.collect_expr(arg);
+                }
             }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 self.collect_place(place);

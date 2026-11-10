@@ -1091,10 +1091,7 @@ impl<'a> Analyzer<'a> {
                 ValueProvenance::from_value(union(dest, source))
             }
             TypedExprKind::Atomic(atomic) => self.analyze_atomic(atomic, expr.span, env),
-            TypedExprKind::LoadUnaligned { ptr, .. }
-            | TypedExprKind::Splat { value: ptr }
-            | TypedExprKind::BitIntrinsic { value: ptr, .. }
-            | TypedExprKind::CharFromU32 { value: ptr }
+            TypedExprKind::CharFromU32 { value: ptr }
             | TypedExprKind::StaticArrayPointer { array: ptr, .. }
             | TypedExprKind::OptionalSome { expr: ptr }
             | TypedExprKind::Discard(ptr)
@@ -1135,19 +1132,10 @@ impl<'a> Analyzer<'a> {
                 }
                 ValueProvenance::from_value(value)
             }
-            TypedExprKind::ExtractElement { vector, index } => ValueProvenance::from_value(union(
-                self.analyze_expr(vector, env).all(),
-                self.analyze_expr(index, env).all(),
-            )),
-            TypedExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => ValueProvenance::from_value(
-                self.analyze_exprs([vector.as_ref(), index.as_ref(), value.as_ref()], env),
-            ),
-            TypedExprKind::Bitmask { vector } => {
-                ValueProvenance::from_value(self.analyze_expr(vector, env).all())
+            // The result may carry the provenance of any operand, as an
+            // unaligned load may read an address that a vector lane held.
+            TypedExprKind::Intrinsic { args, .. } => {
+                ValueProvenance::from_value(self.analyze_exprs(args, env))
             }
             TypedExprKind::ArrayLiteral { elems } => match elems {
                 TypedArrayElements::List(elems) => ValueProvenance::from_value(

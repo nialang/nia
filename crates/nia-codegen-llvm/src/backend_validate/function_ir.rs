@@ -657,15 +657,8 @@ impl BackendValidator<'_> {
             FunctionExprKind::Cast { expr: inner, ty } => {
                 self.validate_cast(expr.ty, *ty, inner, expr.span);
             }
-            FunctionExprKind::LoadUnaligned { ty, ptr } => {
-                self.validate_load_unaligned(expr.ty, *ty, ptr, expr.span)
-            }
-            FunctionExprKind::Splat { value } => self.validate_splat(expr.ty, value, expr.span),
-            FunctionExprKind::Bitmask { vector } => {
-                self.validate_bitmask(expr.ty, vector, expr.span)
-            }
-            FunctionExprKind::BitIntrinsic { value, .. } => {
-                self.validate_bit_intrinsic(expr.ty, value, expr.span)
+            FunctionExprKind::Intrinsic { op, args } => {
+                self.validate_intrinsic(expr.ty, *op, args, expr.span)
             }
             FunctionExprKind::CharFromU32 { value } => {
                 self.validate_char_from_u32(expr.ty, value, expr.span)
@@ -702,16 +695,6 @@ impl BackendValidator<'_> {
             }
             FunctionExprKind::Binary { lhs, op, rhs } => {
                 self.validate_binary(expr.ty, lhs, *op, rhs, expr.span);
-            }
-            FunctionExprKind::ExtractElement { vector, index } => {
-                self.validate_vector_element(expr.ty, vector, index, None, expr.span);
-            }
-            FunctionExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => {
-                self.validate_vector_element(expr.ty, vector, index, Some(value), expr.span);
             }
             FunctionExprKind::Assign { place, op, rhs } => {
                 self.validate_assignment(expr.ty, place, *op, rhs, expr.span);

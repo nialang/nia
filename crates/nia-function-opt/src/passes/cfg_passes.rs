@@ -131,13 +131,8 @@ pub(crate) fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstan
         | FunctionExprKind::TaggedUnionPayload { .. }
         | FunctionExprKind::Try { .. }
         | FunctionExprKind::Unary { .. }
-        | FunctionExprKind::LoadUnaligned { .. }
-        | FunctionExprKind::Splat { .. }
-        | FunctionExprKind::Bitmask { .. }
-        | FunctionExprKind::BitIntrinsic { .. }
         | FunctionExprKind::CharFromU32 { .. }
-        | FunctionExprKind::ExtractElement { .. }
-        | FunctionExprKind::InsertElement { .. }
+        | FunctionExprKind::Intrinsic { .. }
         | FunctionExprKind::Binary { .. }
         | FunctionExprKind::Cast { .. }
         | FunctionExprKind::InlineAsm(_)

@@ -504,45 +504,15 @@ pub enum FunctionExprKind {
     InlineAsm(FunctionInlineAsm),
     /// Checked atomic operation.
     Atomic(FunctionAtomic),
-    /// Loads `ty` at byte alignment from a readonly or mutable `u8` pointer.
-    LoadUnaligned {
-        /// Result type loaded from memory.
-        ty: InternedTyId,
-        /// Byte pointer source.
-        ptr: Box<FunctionExpr>,
-    },
-    /// Broadcasts one scalar lane into the result SIMD vector type.
-    Splat {
-        /// Scalar lane to broadcast.
-        value: Box<FunctionExpr>,
-    },
-    /// Extracts one lane using an integer index; the result is the lane type.
-    ExtractElement {
-        /// SIMD vector source.
-        vector: Box<FunctionExpr>,
-        /// Integer lane index.
-        index: Box<FunctionExpr>,
-    },
-    /// Replaces one lane and returns the same SIMD vector type.
-    InsertElement {
-        /// SIMD vector source.
-        vector: Box<FunctionExpr>,
-        /// Integer lane index.
-        index: Box<FunctionExpr>,
-        /// Replacement lane value.
-        value: Box<FunctionExpr>,
-    },
-    /// Packs bool lanes, up to the target `usize` width, into a `usize` result.
-    Bitmask {
-        /// Boolean SIMD vector source.
-        vector: Box<FunctionExpr>,
-    },
-    /// Applies an LLVM integer bit-counting intrinsic without changing type.
-    BitIntrinsic {
-        /// Bit-counting operation.
-        op: FunctionBitIntrinsicOp,
-        /// Integer value being inspected.
-        value: Box<FunctionExpr>,
+    /// A value-producing compiler intrinsic; see [`nia_ids::IntrinsicOp`].
+    /// The result type is the expression's type: for `LoadUnaligned` the
+    /// loaded type, for `ExtractElement` the lane type, for `Bitmask` `usize`,
+    /// and otherwise the type of the first operand.
+    Intrinsic {
+        /// The operation.
+        op: nia_ids::IntrinsicOp,
+        /// Operands in evaluation order; exactly `op.arity()` of them.
+        args: Vec<FunctionExpr>,
     },
     /// Converts a `u32` scalar to `Optional[char]` after validity checks.
     CharFromU32 {
@@ -755,17 +725,6 @@ pub struct FunctionUnionRelocation {
     pub allocation: PromotedAllocationId,
     /// Constant value used to initialize that allocation.
     pub pointee: Box<FunctionExpr>,
-}
-
-/// Integer bit-counting intrinsic selected by a function expression.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FunctionBitIntrinsicOp {
-    /// Count trailing zero bits.
-    Ctz,
-    /// Count leading zero bits.
-    Clz,
-    /// Count set bits.
-    Popcount,
 }
 
 /// Slice bounds attached to a slice expression.

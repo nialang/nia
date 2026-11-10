@@ -4,7 +4,7 @@ use nia_function_ir::{
     FunctionArrayElements, FunctionBuiltinValue, FunctionExpr, FunctionExprKind, FunctionFieldInit,
     FunctionUnionRelocation,
 };
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, IntrinsicOp};
 use nia_llvm::{
     types::BasicTypeEnum,
     values::{BasicValueEnum, PointerValue},
@@ -367,9 +367,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::StructLiteral { fields, .. } => {
                 return self.emit_promoted_struct_const(value, fields);
             }
-            FunctionExprKind::Splat { .. } | FunctionExprKind::InsertElement { .. } => {
-                self.emit_promoted_vector_const(value)?
-            }
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Splat | IntrinsicOp::InsertElement,
+                ..
+            } => self.emit_promoted_vector_const(value)?,
             FunctionExprKind::UnionStorageLiteral { bytes, relocations } => {
                 return self.emit_promoted_union_storage(value, bytes, relocations);
             }
@@ -670,15 +671,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let lane_count = super::checked_vector_lane_count(*lanes)
             .ok_or_else(|| self.error(expr.span, "vector lane count is too large for the host"))?;
         match &expr.kind {
-            FunctionExprKind::Splat { value } => {
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Splat,
+                args,
+            } if let [value] = args.as_slice() => {
                 let value = self.emit_promoted_const_value(value)?.value;
                 Ok(std::iter::repeat_n(value, lane_count).collect())
             }
-            FunctionExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => {
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::InsertElement,
+                args,
+            } if let [vector, index, value] = args.as_slice() => {
                 let mut values = self.promoted_vector_lanes(vector)?;
                 if values.len() != lane_count {
                     return Err(

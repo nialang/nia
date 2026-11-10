@@ -104,11 +104,7 @@ fn walk_expr<'a>(expr: &'a TypedExpr, visit: &mut impl FnMut(&'a TypedBody)) {
             }
             TypedAtomic::Fence { .. } => {}
         },
-        TypedExprKind::LoadUnaligned { ptr: inner, .. }
-        | TypedExprKind::Splat { value: inner }
-        | TypedExprKind::Bitmask { vector: inner }
-        | TypedExprKind::BitIntrinsic { value: inner, .. }
-        | TypedExprKind::CharFromU32 { value: inner }
+        TypedExprKind::CharFromU32 { value: inner }
         | TypedExprKind::StaticArrayPointer { array: inner, .. }
         | TypedExprKind::OptionalSome { expr: inner }
         | TypedExprKind::ErrorOk { expr: inner }
@@ -123,8 +119,7 @@ fn walk_expr<'a>(expr: &'a TypedExpr, visit: &mut impl FnMut(&'a TypedBody)) {
         | TypedExprKind::Unary { expr: inner, .. }
         | TypedExprKind::Field { lhs: inner, .. }
         | TypedExprKind::TupleField { lhs: inner, .. } => walk_expr(inner, visit),
-        TypedExprKind::ExtractElement { vector, index }
-        | TypedExprKind::Binary {
+        TypedExprKind::Binary {
             lhs: vector,
             rhs: index,
             ..
@@ -133,14 +128,10 @@ fn walk_expr<'a>(expr: &'a TypedExpr, visit: &mut impl FnMut(&'a TypedBody)) {
             walk_expr(vector, visit);
             walk_expr(index, visit);
         }
-        TypedExprKind::InsertElement {
-            vector,
-            index,
-            value,
-        } => {
-            walk_expr(vector, visit);
-            walk_expr(index, visit);
-            walk_expr(value, visit);
+        TypedExprKind::Intrinsic { args, .. } => {
+            for arg in args {
+                walk_expr(arg, visit);
+            }
         }
         TypedExprKind::ArrayLiteral { elems } => match elems {
             TypedArrayElements::List(elems) => {

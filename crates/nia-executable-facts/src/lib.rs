@@ -738,25 +738,12 @@ fn collect_typed_expr_refs(
             }
         }
         TypedExprKind::Atomic(atomic) => collect_typed_atomic_refs(module, atomic, refs),
-        TypedExprKind::LoadUnaligned { ptr, .. } => collect_typed_expr_refs(module, ptr, refs),
-        TypedExprKind::Splat { value } | TypedExprKind::Bitmask { vector: value } => {
-            collect_typed_expr_refs(module, value, refs);
+        TypedExprKind::Intrinsic { args, .. } => {
+            for arg in args {
+                collect_typed_expr_refs(module, arg, refs);
+            }
         }
-        TypedExprKind::ExtractElement { vector, index } => {
-            collect_typed_expr_refs(module, vector, refs);
-            collect_typed_expr_refs(module, index, refs);
-        }
-        TypedExprKind::InsertElement {
-            vector,
-            index,
-            value,
-        } => {
-            collect_typed_expr_refs(module, vector, refs);
-            collect_typed_expr_refs(module, index, refs);
-            collect_typed_expr_refs(module, value, refs);
-        }
-        TypedExprKind::BitIntrinsic { value, .. }
-        | TypedExprKind::CharFromU32 { value }
+        TypedExprKind::CharFromU32 { value }
         | TypedExprKind::StaticArrayPointer { array: value, .. }
         | TypedExprKind::Unary { expr: value, .. }
         | TypedExprKind::OptionalSome { expr: value }

@@ -1792,6 +1792,14 @@ impl<'a> BodyChecker<'a> {
         type_arg: Option<nia_ids::InternedTyId>,
         args: &[Expr],
     ) -> TypedExprKind {
+        if let Some(op) = nia_ids::IntrinsicOp::from_builtin(builtin)
+            && args.len() == op.arity()
+        {
+            return TypedExprKind::Intrinsic {
+                op,
+                args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
+            };
+        }
         match (builtin, args) {
             (nia_ids::BuiltinFunction::CallerLocation, []) => TypedExprKind::CallerLocation(
                 nia_source::SourceLocation::at(self.source_path, self.source_text, expr.span.start),
@@ -1844,39 +1852,6 @@ impl<'a> BodyChecker<'a> {
                     source: TypedMemoryIntrinsicSource::Byte(Box::new(self.lower_expr(value))),
                 })
             }
-            (nia_ids::BuiltinFunction::LoadUnaligned, [ptr]) => TypedExprKind::LoadUnaligned {
-                ty: type_arg.unwrap_or_else(|| self.error()),
-                ptr: Box::new(self.lower_expr(ptr)),
-            },
-            (nia_ids::BuiltinFunction::Splat, [value]) => TypedExprKind::Splat {
-                value: Box::new(self.lower_expr(value)),
-            },
-            (nia_ids::BuiltinFunction::Extract, [vector, index]) => TypedExprKind::ExtractElement {
-                vector: Box::new(self.lower_expr(vector)),
-                index: Box::new(self.lower_expr(index)),
-            },
-            (nia_ids::BuiltinFunction::Insert, [vector, index, value]) => {
-                TypedExprKind::InsertElement {
-                    vector: Box::new(self.lower_expr(vector)),
-                    index: Box::new(self.lower_expr(index)),
-                    value: Box::new(self.lower_expr(value)),
-                }
-            }
-            (nia_ids::BuiltinFunction::Bitmask, [vector]) => TypedExprKind::Bitmask {
-                vector: Box::new(self.lower_expr(vector)),
-            },
-            (nia_ids::BuiltinFunction::Ctz, [value]) => TypedExprKind::BitIntrinsic {
-                op: nia_body_ir::TypedBitIntrinsicOp::Ctz,
-                value: Box::new(self.lower_expr(value)),
-            },
-            (nia_ids::BuiltinFunction::Clz, [value]) => TypedExprKind::BitIntrinsic {
-                op: nia_body_ir::TypedBitIntrinsicOp::Clz,
-                value: Box::new(self.lower_expr(value)),
-            },
-            (nia_ids::BuiltinFunction::Popcount, [value]) => TypedExprKind::BitIntrinsic {
-                op: nia_body_ir::TypedBitIntrinsicOp::Popcount,
-                value: Box::new(self.lower_expr(value)),
-            },
             (nia_ids::BuiltinFunction::AtomicLoad, [ptr, order]) => {
                 TypedExprKind::Atomic(TypedAtomic::Load {
                     ty: type_arg.unwrap_or_else(|| self.error()),

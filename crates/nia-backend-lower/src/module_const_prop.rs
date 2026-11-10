@@ -384,10 +384,6 @@ fn propagate_cross_function_constants_in_expr(
         | FunctionExprKind::TaggedUnionTag { expr: array }
         | FunctionExprKind::TaggedUnionPayload { expr: array }
         | FunctionExprKind::Try { expr: array }
-        | FunctionExprKind::LoadUnaligned { ptr: array, .. }
-        | FunctionExprKind::Splat { value: array }
-        | FunctionExprKind::Bitmask { vector: array }
-        | FunctionExprKind::BitIntrinsic { value: array, .. }
         | FunctionExprKind::CharFromU32 { value: array }
         | FunctionExprKind::Discard(array)
         | FunctionExprKind::Cast { expr: array, .. }
@@ -483,38 +479,14 @@ fn propagate_cross_function_constants_in_expr(
                 instance_constants,
             );
         }
-        FunctionExprKind::ExtractElement { vector, index } => {
-            changed |= propagate_cross_function_constants_in_expr(
-                vector,
-                function_constants,
-                instance_constants,
-            );
-            changed |= propagate_cross_function_constants_in_expr(
-                index,
-                function_constants,
-                instance_constants,
-            );
-        }
-        FunctionExprKind::InsertElement {
-            vector,
-            index,
-            value,
-        } => {
-            changed |= propagate_cross_function_constants_in_expr(
-                vector,
-                function_constants,
-                instance_constants,
-            );
-            changed |= propagate_cross_function_constants_in_expr(
-                index,
-                function_constants,
-                instance_constants,
-            );
-            changed |= propagate_cross_function_constants_in_expr(
-                value,
-                function_constants,
-                instance_constants,
-            );
+        FunctionExprKind::Intrinsic { args, .. } => {
+            for arg in args {
+                changed |= propagate_cross_function_constants_in_expr(
+                    arg,
+                    function_constants,
+                    instance_constants,
+                );
+            }
         }
         FunctionExprKind::Assign { place, rhs, .. } => {
             changed |= propagate_cross_function_constants_in_place(

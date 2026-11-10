@@ -133,12 +133,13 @@ fn emits_bitmask_with_32_bit_usize_result() {
     let vector = FunctionExpr {
         span,
         ty: boolx16_ty,
-        kind: FunctionExprKind::Splat {
-            value: Box::new(FunctionExpr {
+        kind: FunctionExprKind::Intrinsic {
+            op: IntrinsicOp::Splat,
+            args: vec![FunctionExpr {
                 span,
                 ty: bool_ty,
                 kind: FunctionExprKind::Bool(true),
-            }),
+            }],
         },
     };
     let function = BackendFunction {
@@ -171,8 +172,9 @@ fn emits_bitmask_with_32_bit_usize_result() {
                     value: Some(FunctionExpr {
                         span,
                         ty: usize_ty,
-                        kind: FunctionExprKind::Bitmask {
-                            vector: Box::new(vector),
+                        kind: FunctionExprKind::Intrinsic {
+                            op: IntrinsicOp::Bitmask,
+                            args: vec![vector],
                         },
                     }),
                     span,

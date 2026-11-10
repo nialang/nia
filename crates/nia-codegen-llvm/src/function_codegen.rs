@@ -22,11 +22,11 @@ use nia_ast::BinaryOp;
 use nia_backend_ir::{BackendClosureEntryOwner, BackendFunction, BackendParam};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
-    FunctionBitIntrinsicOp, FunctionBody, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
-    FunctionExpr, FunctionExprKind, FunctionLocal, FunctionLocalKind, FunctionOp, FunctionRange,
-    FunctionScopeId, FunctionTerminator,
+    FunctionBody, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody, FunctionExpr,
+    FunctionExprKind, FunctionLocal, FunctionLocalKind, FunctionOp, FunctionRange, FunctionScopeId,
+    FunctionTerminator,
 };
-use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_ids::{GlobalDefId, InternedTyId, IntrinsicOp, LocalId};
 use nia_llvm::{
     IntPredicate,
     basic_block::BasicBlock,
@@ -584,22 +584,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Err(self.error(expr.span, "inline assembly does not produce a value"))
             }
             FunctionExprKind::Atomic(atomic) => self.emit_atomic_value(expr, atomic),
-            FunctionExprKind::LoadUnaligned { ty, ptr } => {
-                self.emit_load_unaligned(expr.span, *ty, ptr)
-            }
-            FunctionExprKind::Splat { value } => self.emit_splat(expr, value),
-            FunctionExprKind::ExtractElement { vector, index } => {
-                self.emit_extract_element(expr, vector, index)
-            }
-            FunctionExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => self.emit_insert_element(expr, vector, index, value),
-            FunctionExprKind::Bitmask { vector } => self.emit_bitmask(expr, vector),
-            FunctionExprKind::BitIntrinsic { op, value } => {
-                self.emit_bit_intrinsic(expr, *op, value)
-            }
+            FunctionExprKind::Intrinsic { op, args } => self.emit_intrinsic(expr, *op, args),
             FunctionExprKind::StaticArrayPointer {
                 allocation, array, ..
             } => self.emit_static_array_pointer(expr.span, *allocation, array),
@@ -725,6 +710,39 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
+    fn emit_intrinsic(
+        &mut self,
+        expr: &FunctionExpr,
+        op: IntrinsicOp,
+        args: &[FunctionExpr],
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        match (op, args) {
+            (IntrinsicOp::LoadUnaligned, [ptr]) => self.emit_load_unaligned(expr, ptr),
+            (IntrinsicOp::Splat, [value]) => self.emit_splat(expr, value),
+            (IntrinsicOp::ExtractElement, [vector, index]) => {
+                self.emit_extract_element(expr, vector, index)
+            }
+            (IntrinsicOp::InsertElement, [vector, index, value]) => {
+                self.emit_insert_element(expr, vector, index, value)
+            }
+            (IntrinsicOp::Bitmask, [vector]) => self.emit_bitmask(expr, vector),
+            (IntrinsicOp::Ctz, [value]) => self.emit_bit_intrinsic(expr, "llvm.cttz", true, value),
+            (IntrinsicOp::Clz, [value]) => self.emit_bit_intrinsic(expr, "llvm.ctlz", true, value),
+            (IntrinsicOp::Popcount, [value]) => {
+                self.emit_bit_intrinsic(expr, "llvm.ctpop", false, value)
+            }
+            _ => Err(self.error(
+                expr.span,
+                format!(
+                    "intrinsic `{}` takes {} operand(s), found {}",
+                    op.name(),
+                    op.arity(),
+                    args.len()
+                ),
+            )),
+        }
+    }
+
     fn emit_splat(
         &mut self,
         expr: &FunctionExpr,
@@ -769,15 +787,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_load_unaligned(
         &mut self,
-        span: Span,
-        ty: InternedTyId,
+        expr: &FunctionExpr,
         ptr: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let llvm_ty = self.module.llvm_basic_type(ty, span)?;
+        let llvm_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         let ptr = self.emit_expr(ptr)?.into_pointer_value()?;
         self.builder
             .build_aligned_load(llvm_ty, ptr, 1, "load.unaligned")
-            .map_err(|_| self.error(span, "failed to build unaligned load"))
+            .map_err(|_| self.error(expr.span, "failed to build unaligned load"))
     }
 
     fn emit_extract_element(
@@ -902,31 +919,27 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(expr.span, "failed to widen SIMD mask"))
     }
 
+    /// Calls an LLVM bit-counting intrinsic. `takes_zero_flag` intrinsics
+    /// (`cttz`, `ctlz`) get `is_zero_poison = false`, so a zero input
+    /// counts every bit, as the language defines.
     fn emit_bit_intrinsic(
         &mut self,
         expr: &FunctionExpr,
-        op: FunctionBitIntrinsicOp,
+        intrinsic_name: &str,
+        takes_zero_flag: bool,
         value: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let value = self.emit_expr(value)?;
         let ty = value.get_type()?;
-        let intrinsic_name = match op {
-            FunctionBitIntrinsicOp::Ctz => "llvm.cttz",
-            FunctionBitIntrinsicOp::Clz => "llvm.ctlz",
-            FunctionBitIntrinsicOp::Popcount => "llvm.ctpop",
-        };
         let intrinsic = nia_llvm::intrinsics::Intrinsic::find(intrinsic_name)
             .and_then(|intrinsic| intrinsic.get_declaration(&self.module.module, &[ty]))
             .ok_or_else(|| self.error(expr.span, "failed to declare bit intrinsic"))?;
-        let call = match op {
-            FunctionBitIntrinsicOp::Ctz | FunctionBitIntrinsicOp::Clz => {
-                let zero_is_poison = self.module.context.bool_type().const_int(0, false)?;
-                self.builder
-                    .build_call(intrinsic, &[value, zero_is_poison.into()], "bitintr")
-            }
-            FunctionBitIntrinsicOp::Popcount => {
-                self.builder.build_call(intrinsic, &[value], "bitintr")
-            }
+        let call = if takes_zero_flag {
+            let zero_is_poison = self.module.context.bool_type().const_int(0, false)?;
+            self.builder
+                .build_call(intrinsic, &[value, zero_is_poison.into()], "bitintr")
+        } else {
+            self.builder.build_call(intrinsic, &[value], "bitintr")
         }
         .map_err(|_| self.error(expr.span, "failed to build bit intrinsic call"))?;
         call.try_as_basic_value()

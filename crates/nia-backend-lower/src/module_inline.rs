@@ -344,10 +344,6 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TaggedUnionTag { expr: array }
             | FunctionExprKind::TaggedUnionPayload { expr: array }
             | FunctionExprKind::Try { expr: array }
-            | FunctionExprKind::LoadUnaligned { ptr: array, .. }
-            | FunctionExprKind::Splat { value: array }
-            | FunctionExprKind::Bitmask { vector: array }
-            | FunctionExprKind::BitIntrinsic { value: array, .. }
             | FunctionExprKind::CharFromU32 { value: array }
             | FunctionExprKind::Discard(array)
             | FunctionExprKind::Cast { expr: array, .. }
@@ -408,18 +404,10 @@ impl<'a> ModuleLowerer<'a> {
                 self.inline_leaf_calls_in_expr(lhs, function_candidates, instance_candidates);
                 self.inline_leaf_calls_in_expr(rhs, function_candidates, instance_candidates);
             }
-            FunctionExprKind::ExtractElement { vector, index } => {
-                self.inline_leaf_calls_in_expr(vector, function_candidates, instance_candidates);
-                self.inline_leaf_calls_in_expr(index, function_candidates, instance_candidates);
-            }
-            FunctionExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => {
-                self.inline_leaf_calls_in_expr(vector, function_candidates, instance_candidates);
-                self.inline_leaf_calls_in_expr(index, function_candidates, instance_candidates);
-                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+            FunctionExprKind::Intrinsic { args, .. } => {
+                for arg in args {
+                    self.inline_leaf_calls_in_expr(arg, function_candidates, instance_candidates);
+                }
             }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 self.inline_leaf_calls_in_place(place, function_candidates, instance_candidates);
@@ -983,10 +971,6 @@ fn substitute_inline_locals(
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
-        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
-        | FunctionExprKind::Splat { value: expr }
-        | FunctionExprKind::Bitmask { vector: expr }
-        | FunctionExprKind::BitIntrinsic { value: expr, .. }
         | FunctionExprKind::CharFromU32 { value: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
@@ -997,18 +981,10 @@ fn substitute_inline_locals(
             substitute_inline_locals(lhs, substitutions, require_local_match)?;
             substitute_inline_locals(rhs, substitutions, require_local_match)?;
         }
-        FunctionExprKind::ExtractElement { vector, index } => {
-            substitute_inline_locals(vector, substitutions, require_local_match)?;
-            substitute_inline_locals(index, substitutions, require_local_match)?;
-        }
-        FunctionExprKind::InsertElement {
-            vector,
-            index,
-            value,
-        } => {
-            substitute_inline_locals(vector, substitutions, require_local_match)?;
-            substitute_inline_locals(index, substitutions, require_local_match)?;
-            substitute_inline_locals(value, substitutions, require_local_match)?;
+        FunctionExprKind::Intrinsic { args, .. } => {
+            for arg in args {
+                substitute_inline_locals(arg, substitutions, require_local_match)?;
+            }
         }
         FunctionExprKind::Field { lhs, .. } => {
             substitute_inline_locals(lhs, substitutions, require_local_match)?;
@@ -1217,10 +1193,6 @@ fn small_pure_inline_expr_cost_with_local(
             1 + small_pure_inline_expr_cost_with_local(expr, budget, local_allowed)?
         }
         FunctionExprKind::Unary { expr, .. }
-        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
-        | FunctionExprKind::Splat { value: expr }
-        | FunctionExprKind::Bitmask { vector: expr }
-        | FunctionExprKind::BitIntrinsic { value: expr, .. }
         | FunctionExprKind::CharFromU32 { value: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
@@ -1231,18 +1203,11 @@ fn small_pure_inline_expr_cost_with_local(
             1 + small_pure_inline_expr_cost_with_local(lhs, budget, local_allowed)?
                 + small_pure_inline_expr_cost_with_local(rhs, budget, local_allowed)?
         }
-        FunctionExprKind::ExtractElement { vector, index } => {
-            1 + small_pure_inline_expr_cost_with_local(vector, budget, local_allowed)?
-                + small_pure_inline_expr_cost_with_local(index, budget, local_allowed)?
-        }
-        FunctionExprKind::InsertElement {
-            vector,
-            index,
-            value,
-        } => {
-            1 + small_pure_inline_expr_cost_with_local(vector, budget, local_allowed)?
-                + small_pure_inline_expr_cost_with_local(index, budget, local_allowed)?
-                + small_pure_inline_expr_cost_with_local(value, budget, local_allowed)?
+        FunctionExprKind::Intrinsic { args, .. } => {
+            1 + args
+                .iter()
+                .map(|arg| small_pure_inline_expr_cost_with_local(arg, budget, local_allowed))
+                .sum::<Option<usize>>()?
         }
         FunctionExprKind::Field { lhs, .. } => {
             1 + small_pure_inline_expr_cost_with_local(lhs, budget, local_allowed)?

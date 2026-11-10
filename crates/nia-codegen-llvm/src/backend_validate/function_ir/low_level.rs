@@ -4,24 +4,54 @@
 use super::*;
 
 impl BackendValidator<'_> {
-    pub(super) fn validate_load_unaligned(
+    /// Checks one intrinsic against its contract. The operand count is
+    /// checked first, so each contract can bind its operands by position.
+    pub(super) fn validate_intrinsic(
         &mut self,
         result_ty: nia_ids::InternedTyId,
-        load_ty: nia_ids::InternedTyId,
+        op: nia_ids::IntrinsicOp,
+        args: &[FunctionExpr],
+        span: Span,
+    ) {
+        use nia_ids::IntrinsicOp;
+        match (op, args) {
+            (IntrinsicOp::LoadUnaligned, [ptr]) => {
+                self.validate_load_unaligned(result_ty, ptr, span)
+            }
+            (IntrinsicOp::Splat, [value]) => self.validate_splat(result_ty, value, span),
+            (IntrinsicOp::ExtractElement, [vector, index]) => {
+                self.validate_vector_element(result_ty, vector, index, None, span)
+            }
+            (IntrinsicOp::InsertElement, [vector, index, value]) => {
+                self.validate_vector_element(result_ty, vector, index, Some(value), span)
+            }
+            (IntrinsicOp::Bitmask, [vector]) => self.validate_bitmask(result_ty, vector, span),
+            (IntrinsicOp::Ctz | IntrinsicOp::Clz | IntrinsicOp::Popcount, [value]) => {
+                self.validate_bit_intrinsic(result_ty, value, span)
+            }
+            _ => {
+                for arg in args {
+                    self.validate_expr(arg);
+                }
+                self.invalid_low_level_builtin(
+                    op.name(),
+                    span,
+                    &format!("takes {} operand(s), found {}", op.arity(), args.len()),
+                );
+            }
+        }
+    }
+
+    fn validate_load_unaligned(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
         ptr: &FunctionExpr,
         span: Span,
     ) {
         self.current_subject = Some("unaligned load value");
-        self.validate_runtime_type(load_ty, span);
+        self.validate_runtime_type(result_ty, span);
         self.current_subject = None;
         self.validate_expr(ptr);
-        if !self.same_type(result_ty, load_ty) {
-            self.invalid_low_level_builtin(
-                "unaligned load",
-                span,
-                "result type does not match its load metadata",
-            );
-        }
         let is_byte_pointer = match self.index.ty_kind(ptr.ty) {
             Some(TyKind::Pointer { elem, .. }) => matches!(
                 self.index.ty_kind(*elem),
@@ -202,7 +232,7 @@ impl BackendValidator<'_> {
         &mut self,
         kind: &'static str,
         span: Span,
-        message: &'static str,
+        message: &str,
     ) {
         self.diagnostics.push(Diagnostic::internal_error_at(
             nia_diagnostic::codes::INVALID_BACKEND_IR,

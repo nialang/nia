@@ -127,10 +127,7 @@ fn collect_expr_closures<'a>(
             }
             TypedAtomic::Fence { .. } => {}
         },
-        TypedExprKind::LoadUnaligned { ptr, .. }
-        | TypedExprKind::Splat { value: ptr }
-        | TypedExprKind::BitIntrinsic { value: ptr, .. }
-        | TypedExprKind::CharFromU32 { value: ptr }
+        TypedExprKind::CharFromU32 { value: ptr }
         | TypedExprKind::StaticArrayPointer { array: ptr, .. }
         | TypedExprKind::OptionalSome { expr: ptr }
         | TypedExprKind::ErrorOk { expr: ptr }
@@ -144,8 +141,7 @@ fn collect_expr_closures<'a>(
         | TypedExprKind::Unary { expr: ptr, .. }
         | TypedExprKind::Field { lhs: ptr, .. }
         | TypedExprKind::TupleField { lhs: ptr, .. } => collect_expr_closures(ptr, callables),
-        TypedExprKind::ExtractElement { vector, index }
-        | TypedExprKind::Binary {
+        TypedExprKind::Binary {
             lhs: vector,
             rhs: index,
             ..
@@ -154,16 +150,11 @@ fn collect_expr_closures<'a>(
             collect_expr_closures(vector, callables);
             collect_expr_closures(index, callables);
         }
-        TypedExprKind::InsertElement {
-            vector,
-            index,
-            value,
-        } => {
-            collect_expr_closures(vector, callables);
-            collect_expr_closures(index, callables);
-            collect_expr_closures(value, callables);
+        TypedExprKind::Intrinsic { args, .. } => {
+            for arg in args {
+                collect_expr_closures(arg, callables);
+            }
         }
-        TypedExprKind::Bitmask { vector } => collect_expr_closures(vector, callables),
         TypedExprKind::ArrayLiteral { elems } => match elems {
             TypedArrayElements::List(elems) => {
                 for elem in elems {

@@ -455,36 +455,16 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Try { expr } => FunctionExprKind::Try {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                 },
-                FunctionExprKind::LoadUnaligned { ty, ptr } => FunctionExprKind::LoadUnaligned {
-                    ty: self.instantiate_ty_with_id(ty, substitutions),
-                    ptr: Box::new(self.instantiate_expr(*ptr, substitutions)),
-                },
-                FunctionExprKind::Splat { value } => FunctionExprKind::Splat {
-                    value: Box::new(self.instantiate_expr(*value, substitutions)),
-                },
-                FunctionExprKind::Bitmask { vector } => FunctionExprKind::Bitmask {
-                    vector: Box::new(self.instantiate_expr(*vector, substitutions)),
-                },
-                FunctionExprKind::BitIntrinsic { op, value } => FunctionExprKind::BitIntrinsic {
+                // The result type, which an unaligned load reads, is the
+                // expression's type and was instantiated above.
+                FunctionExprKind::Intrinsic { op, args } => FunctionExprKind::Intrinsic {
                     op,
-                    value: Box::new(self.instantiate_expr(*value, substitutions)),
+                    args: args
+                        .into_iter()
+                        .map(|arg| self.instantiate_expr(arg, substitutions))
+                        .collect(),
                 },
                 FunctionExprKind::CharFromU32 { value } => FunctionExprKind::CharFromU32 {
-                    value: Box::new(self.instantiate_expr(*value, substitutions)),
-                },
-                FunctionExprKind::ExtractElement { vector, index } => {
-                    FunctionExprKind::ExtractElement {
-                        vector: Box::new(self.instantiate_expr(*vector, substitutions)),
-                        index: Box::new(self.instantiate_expr(*index, substitutions)),
-                    }
-                }
-                FunctionExprKind::InsertElement {
-                    vector,
-                    index,
-                    value,
-                } => FunctionExprKind::InsertElement {
-                    vector: Box::new(self.instantiate_expr(*vector, substitutions)),
-                    index: Box::new(self.instantiate_expr(*index, substitutions)),
                     value: Box::new(self.instantiate_expr(*value, substitutions)),
                 },
                 FunctionExprKind::AddrOf(place) => {
@@ -877,8 +857,9 @@ impl<'a> ModuleLowerer<'a> {
                     ty: lane_ty,
                     kind: self.function_expr_kind_from_const_value(first, lane_ty, span)?,
                 };
-                let mut result = FunctionExprKind::Splat {
-                    value: Box::new(first),
+                let mut result = FunctionExprKind::Intrinsic {
+                    op: nia_ids::IntrinsicOp::Splat,
+                    args: vec![first],
                 };
                 let usize_ty = self
                     .type_context
@@ -889,22 +870,25 @@ impl<'a> ModuleLowerer<'a> {
                         ty: lane_ty,
                         kind: self.function_expr_kind_from_const_value(value, lane_ty, span)?,
                     };
-                    result = FunctionExprKind::InsertElement {
-                        vector: Box::new(FunctionExpr {
-                            span,
-                            ty,
-                            kind: result,
-                        }),
-                        index: Box::new(FunctionExpr {
-                            span,
-                            ty: usize_ty,
-                            kind: FunctionExprKind::BuiltinValue(
-                                nia_function_ir::FunctionBuiltinValue::Usize(
-                                    u64::try_from(index + 1).ok()?,
+                    result = FunctionExprKind::Intrinsic {
+                        op: nia_ids::IntrinsicOp::InsertElement,
+                        args: vec![
+                            FunctionExpr {
+                                span,
+                                ty,
+                                kind: result,
+                            },
+                            FunctionExpr {
+                                span,
+                                ty: usize_ty,
+                                kind: FunctionExprKind::BuiltinValue(
+                                    nia_function_ir::FunctionBuiltinValue::Usize(
+                                        u64::try_from(index + 1).ok()?,
+                                    ),
                                 ),
-                            ),
-                        }),
-                        value: Box::new(lane),
+                            },
+                            lane,
+                        ],
                     };
                 }
                 Some(result)

@@ -195,10 +195,6 @@ where
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Try { expr }
-        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
-        | FunctionExprKind::Splat { value: expr }
-        | FunctionExprKind::Bitmask { vector: expr }
-        | FunctionExprKind::BitIntrinsic { value: expr, .. }
         | FunctionExprKind::CharFromU32 { value: expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
@@ -215,14 +211,10 @@ where
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             rewrite_expr(lhs) | rewrite_expr(rhs)
         }
-        FunctionExprKind::ExtractElement { vector, index } => {
-            rewrite_expr(vector) | rewrite_expr(index)
-        }
-        FunctionExprKind::InsertElement {
-            vector,
-            index,
-            value,
-        } => rewrite_expr(vector) | rewrite_expr(index) | rewrite_expr(value),
+        // Every operand is rewritten, even after one reports a change.
+        FunctionExprKind::Intrinsic { args, .. } => args
+            .iter_mut()
+            .fold(false, |changed, arg| rewrite_expr(arg) | changed),
         FunctionExprKind::Assign { place, rhs, .. } => {
             let mut changed = false;
             if traversal.places {

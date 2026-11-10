@@ -418,19 +418,12 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Try { expr } => FunctionExprKind::Try {
                     expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
                 },
-                FunctionExprKind::LoadUnaligned { ty, ptr } => FunctionExprKind::LoadUnaligned {
-                    ty,
-                    ptr: Box::new(self.resolve_builtin_operator_calls_in_expr(*ptr)),
-                },
-                FunctionExprKind::Splat { value } => FunctionExprKind::Splat {
-                    value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
-                },
-                FunctionExprKind::Bitmask { vector } => FunctionExprKind::Bitmask {
-                    vector: Box::new(self.resolve_builtin_operator_calls_in_expr(*vector)),
-                },
-                FunctionExprKind::BitIntrinsic { op, value } => FunctionExprKind::BitIntrinsic {
+                FunctionExprKind::Intrinsic { op, args } => FunctionExprKind::Intrinsic {
                     op,
-                    value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
+                    args: args
+                        .into_iter()
+                        .map(|arg| self.resolve_builtin_operator_calls_in_expr(arg))
+                        .collect(),
                 },
                 FunctionExprKind::CharFromU32 { value } => FunctionExprKind::CharFromU32 {
                     value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
@@ -442,21 +435,6 @@ impl<'a> ModuleLowerer<'a> {
                     lhs: Box::new(self.resolve_builtin_operator_calls_in_expr(*lhs)),
                     op,
                     rhs: Box::new(self.resolve_builtin_operator_calls_in_expr(*rhs)),
-                },
-                FunctionExprKind::ExtractElement { vector, index } => {
-                    FunctionExprKind::ExtractElement {
-                        vector: Box::new(self.resolve_builtin_operator_calls_in_expr(*vector)),
-                        index: Box::new(self.resolve_builtin_operator_calls_in_expr(*index)),
-                    }
-                }
-                FunctionExprKind::InsertElement {
-                    vector,
-                    index,
-                    value,
-                } => FunctionExprKind::InsertElement {
-                    vector: Box::new(self.resolve_builtin_operator_calls_in_expr(*vector)),
-                    index: Box::new(self.resolve_builtin_operator_calls_in_expr(*index)),
-                    value: Box::new(self.resolve_builtin_operator_calls_in_expr(*value)),
                 },
                 FunctionExprKind::Assign { place, op, rhs } => FunctionExprKind::Assign {
                     place: self.resolve_builtin_operator_calls_in_place(place),

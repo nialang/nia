@@ -988,38 +988,13 @@ impl<'a> Encoder<'a> {
                 self.tag(21);
                 self.atomic(atomic);
             }
-            FunctionExprKind::LoadUnaligned { ty, ptr } => {
+            FunctionExprKind::Intrinsic { op, args } => {
                 self.tag(22);
-                self.ty(*ty);
-                self.expr(ptr);
-            }
-            FunctionExprKind::Splat { value } => {
-                self.tag(23);
-                self.expr(value);
-            }
-            FunctionExprKind::ExtractElement { vector, index } => {
-                self.tag(24);
-                self.expr(vector);
-                self.expr(index);
-            }
-            FunctionExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => {
-                self.tag(25);
-                self.expr(vector);
-                self.expr(index);
-                self.expr(value);
-            }
-            FunctionExprKind::Bitmask { vector } => {
-                self.tag(26);
-                self.expr(vector);
-            }
-            FunctionExprKind::BitIntrinsic { op, value } => {
-                self.tag(27);
-                self.tag(*op as u8);
-                self.expr(value);
+                self.tag(op.stable_tag());
+                self.len(args.len());
+                for arg in args {
+                    self.expr(arg);
+                }
             }
             FunctionExprKind::CharFromU32 { value } => {
                 self.tag(28);

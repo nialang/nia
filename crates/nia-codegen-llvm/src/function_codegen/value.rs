@@ -22,7 +22,7 @@ use nia_function_ir::{
     FunctionErrorUnionTag, FunctionExpr, FunctionExprKind, FunctionOptionalTag, FunctionPlace,
     FunctionPlaceBase, FunctionPlaceElem,
 };
-use nia_ids::InternedTyId;
+use nia_ids::{InternedTyId, IntrinsicOp};
 use nia_llvm::{
     types::BasicTypeEnum,
     values::{BasicValueEnum, PointerValue},
@@ -366,11 +366,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::CharFromU32 { value } => {
                 self.emit_char_from_u32_into(expr, value, ptr)
             }
-            FunctionExprKind::LoadUnaligned { ty, ptr: source } => {
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::LoadUnaligned,
+                args,
+            } => {
+                let [source] = args.as_slice() else {
+                    return Err(self.error(expr.span, "unaligned load takes one pointer operand"));
+                };
                 let source = self.emit_expr(source)?.into_pointer_value()?;
                 let layout = self
                     .module
-                    .layout_of(*ty)
+                    .layout_of(expr.ty)
                     .ok_or_else(|| self.error(expr.span, "unaligned load has no layout"))?;
                 let size = self
                     .module

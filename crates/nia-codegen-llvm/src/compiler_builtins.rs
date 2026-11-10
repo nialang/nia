@@ -264,10 +264,6 @@ impl CompilerBuiltinCollector {
             | FunctionExprKind::TaggedUnionTag { expr }
             | FunctionExprKind::TaggedUnionPayload { expr }
             | FunctionExprKind::Try { expr }
-            | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
-            | FunctionExprKind::Splat { value: expr }
-            | FunctionExprKind::Bitmask { vector: expr }
-            | FunctionExprKind::BitIntrinsic { value: expr, .. }
             | FunctionExprKind::CharFromU32 { value: expr }
             | FunctionExprKind::Discard(expr)
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
@@ -284,21 +280,10 @@ impl CompilerBuiltinCollector {
                 self.collect_expr(index, inner);
             }
             FunctionExprKind::AddrOf(place) => self.collect_place(index, place),
-            FunctionExprKind::ExtractElement {
-                vector,
-                index: element_index,
-            } => {
-                self.collect_expr(index, vector);
-                self.collect_expr(index, element_index);
-            }
-            FunctionExprKind::InsertElement {
-                vector,
-                index: element_index,
-                value,
-            } => {
-                self.collect_expr(index, vector);
-                self.collect_expr(index, element_index);
-                self.collect_expr(index, value);
+            FunctionExprKind::Intrinsic { args, .. } => {
+                for arg in args {
+                    self.collect_expr(index, arg);
+                }
             }
             FunctionExprKind::Call { callee, args } => {
                 self.collect_callee(index, callee, args);

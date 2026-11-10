@@ -234,23 +234,12 @@ impl BodyInputValidator<'_, '_> {
             }
             TypedExprKind::InlineAsm(asm) => self.validate_inline_asm(asm),
             TypedExprKind::Atomic(atomic) => self.validate_atomic(atomic),
-            TypedExprKind::LoadUnaligned { ptr, .. } => self.validate_value_expr(ptr),
-            TypedExprKind::Splat { value } => self.validate_value_expr(value),
-            TypedExprKind::ExtractElement { vector, index } => {
-                self.validate_value_expr(vector)?;
-                self.validate_value_expr(index)
+            TypedExprKind::Intrinsic { args, .. } => {
+                for arg in args {
+                    self.validate_value_expr(arg)?;
+                }
+                Ok(())
             }
-            TypedExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => {
-                self.validate_value_expr(vector)?;
-                self.validate_value_expr(index)?;
-                self.validate_value_expr(value)
-            }
-            TypedExprKind::Bitmask { vector } => self.validate_value_expr(vector),
-            TypedExprKind::BitIntrinsic { value, .. } => self.validate_value_expr(value),
             TypedExprKind::CharFromU32 { value } => self.validate_value_expr(value),
             TypedExprKind::StaticArrayPointer { array, .. } => self.validate_value_expr(array),
             TypedExprKind::ArrayLiteral { elems } => self.validate_array_elements(elems),

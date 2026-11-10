@@ -329,13 +329,14 @@ impl<'a> BodyChecker<'a> {
                 let mut vector = TypedExpr {
                     span,
                     ty,
-                    kind: TypedExprKind::Splat {
-                        value: Box::new(self.lower_const_value_expr_with_origin(
+                    kind: TypedExprKind::Intrinsic {
+                        op: nia_ids::IntrinsicOp::Splat,
+                        args: vec![self.lower_const_value_expr_with_origin(
                             span,
                             lane_ty,
                             Some(first),
                             fallback_allocation,
-                        )),
+                        )],
                     },
                 };
                 let usize_ty = self.primitive(nia_ty::PrimitiveTy::Usize);
@@ -343,21 +344,24 @@ impl<'a> BodyChecker<'a> {
                     vector = TypedExpr {
                         span,
                         ty,
-                        kind: TypedExprKind::InsertElement {
-                            vector: Box::new(vector),
-                            index: Box::new(TypedExpr {
-                                span,
-                                ty: usize_ty,
-                                kind: TypedExprKind::BuiltinValue(BuiltinConst::Int(
-                                    nia_ty::IntConst::unsigned(index as u128),
-                                )),
-                            }),
-                            value: Box::new(self.lower_const_value_expr_with_origin(
-                                span,
-                                lane_ty,
-                                Some(value.clone()),
-                                fallback_allocation,
-                            )),
+                        kind: TypedExprKind::Intrinsic {
+                            op: nia_ids::IntrinsicOp::InsertElement,
+                            args: vec![
+                                vector,
+                                TypedExpr {
+                                    span,
+                                    ty: usize_ty,
+                                    kind: TypedExprKind::BuiltinValue(BuiltinConst::Int(
+                                        nia_ty::IntConst::unsigned(index as u128),
+                                    )),
+                                },
+                                self.lower_const_value_expr_with_origin(
+                                    span,
+                                    lane_ty,
+                                    Some(value.clone()),
+                                    fallback_allocation,
+                                ),
+                            ],
                         },
                     };
                 }

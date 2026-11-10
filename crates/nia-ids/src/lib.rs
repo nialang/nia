@@ -792,6 +792,103 @@ impl BuiltinFunction {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// A value-producing compiler intrinsic in typed and function IR.
+///
+/// An intrinsic expression holds the operation and its operands; its result
+/// type is the expression's own type. Every operand is evaluated, left to
+/// right, before the operation, so code that only visits subexpressions treats
+/// all intrinsics alike. What an operation means, its operand and result
+/// types and its effects, is decided by `match` on the operation in type
+/// checking, lowering, validation, and code generation.
+pub enum IntrinsicOp {
+    /// Reads the result type from a byte address with no alignment
+    /// requirement. Operands: the `&u8` or `&mut u8` address.
+    LoadUnaligned,
+    /// A vector with every lane set to the operand. Operands: the lane value.
+    Splat,
+    /// One lane of a vector. Operands: the vector, the lane index.
+    ExtractElement,
+    /// A copy of a vector with one lane replaced. Operands: the vector, the
+    /// lane index, the lane value.
+    InsertElement,
+    /// A `bool` vector packed into a `usize`, lane 0 in the lowest bit.
+    /// Operands: the mask vector.
+    Bitmask,
+    /// Trailing zero bits. Operands: the integer.
+    Ctz,
+    /// Leading zero bits. Operands: the integer.
+    Clz,
+    /// Set bits. Operands: the integer.
+    Popcount,
+}
+
+impl IntrinsicOp {
+    /// The operation a source builtin lowers to, if it is an intrinsic
+    /// expression.
+    pub const fn from_builtin(builtin: BuiltinFunction) -> Option<Self> {
+        Some(match builtin {
+            BuiltinFunction::LoadUnaligned => Self::LoadUnaligned,
+            BuiltinFunction::Splat => Self::Splat,
+            BuiltinFunction::Extract => Self::ExtractElement,
+            BuiltinFunction::Insert => Self::InsertElement,
+            BuiltinFunction::Bitmask => Self::Bitmask,
+            BuiltinFunction::Ctz => Self::Ctz,
+            BuiltinFunction::Clz => Self::Clz,
+            BuiltinFunction::Popcount => Self::Popcount,
+            _ => return None,
+        })
+    }
+
+    /// The number of operands the operation takes.
+    pub const fn arity(self) -> usize {
+        match self {
+            Self::LoadUnaligned
+            | Self::Splat
+            | Self::Bitmask
+            | Self::Ctz
+            | Self::Clz
+            | Self::Popcount => 1,
+            Self::ExtractElement => 2,
+            Self::InsertElement => 3,
+        }
+    }
+
+    /// Whether the operation reads memory. Such an operation cannot be
+    /// removed or reordered as if it were a pure computation on its operands.
+    pub const fn reads_memory(self) -> bool {
+        matches!(self, Self::LoadUnaligned)
+    }
+
+    /// A stable tag for fingerprints; it never changes for an operation.
+    pub const fn stable_tag(self) -> u8 {
+        match self {
+            Self::LoadUnaligned => 1,
+            Self::Splat => 2,
+            Self::ExtractElement => 3,
+            Self::InsertElement => 4,
+            Self::Bitmask => 5,
+            Self::Ctz => 6,
+            Self::Clz => 7,
+            Self::Popcount => 8,
+        }
+    }
+
+    /// The source-level builtin name, for diagnostics.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::LoadUnaligned => "loadUnaligned",
+            Self::Splat => "splat",
+            Self::ExtractElement => "extract",
+            Self::InsertElement => "insert",
+            Self::Bitmask => "bitmask",
+            Self::Ctz => "ctz",
+            Self::Clz => "clz",
+            Self::Popcount => "popcount",
+        }
+    }
+}
+
 impl ValueBuiltin {
     /// All value-producing builtins in canonical order.
     pub const ALL: [Self; 1] = [Self::Error];

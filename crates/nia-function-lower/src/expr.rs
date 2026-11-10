@@ -159,33 +159,17 @@ impl FunctionLowerer<'_> {
             TypedExprKind::Atomic(atomic) => {
                 FunctionExprKind::Atomic(self.lower_atomic(atomic, scope, current, ops, blocks))
             }
-            TypedExprKind::LoadUnaligned { ty, ptr } => FunctionExprKind::LoadUnaligned {
-                ty: *ty,
-                ptr: Box::new(self.lower_value_expr(ptr, scope, current, ops, blocks)),
-            },
-            TypedExprKind::Splat { value } => FunctionExprKind::Splat {
-                value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
-            },
-            TypedExprKind::ExtractElement { vector, index } => FunctionExprKind::ExtractElement {
-                vector: Box::new(self.lower_value_expr(vector, scope, current, ops, blocks)),
-                index: Box::new(self.lower_value_expr(index, scope, current, ops, blocks)),
-            },
-            TypedExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => FunctionExprKind::InsertElement {
-                vector: Box::new(self.lower_value_expr(vector, scope, current, ops, blocks)),
-                index: Box::new(self.lower_value_expr(index, scope, current, ops, blocks)),
-                value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
-            },
-            TypedExprKind::Bitmask { vector } => FunctionExprKind::Bitmask {
-                vector: Box::new(self.lower_value_expr(vector, scope, current, ops, blocks)),
-            },
-            TypedExprKind::BitIntrinsic { op, value } => FunctionExprKind::BitIntrinsic {
-                op: self.lower_bit_intrinsic_op(*op),
-                value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
-            },
+            TypedExprKind::Intrinsic { op, args } => {
+                // Operands are lowered in order, so their effects keep it.
+                let mut lowered = Vec::with_capacity(args.len());
+                for arg in args {
+                    lowered.push(self.lower_value_expr(arg, scope, current, ops, blocks));
+                }
+                FunctionExprKind::Intrinsic {
+                    op: *op,
+                    args: lowered,
+                }
+            }
             TypedExprKind::CharFromU32 { value } => FunctionExprKind::CharFromU32 {
                 value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
             },
@@ -1735,17 +1719,6 @@ impl FunctionLowerer<'_> {
 }
 
 impl FunctionLowerer<'_> {
-    fn lower_bit_intrinsic_op(
-        &self,
-        op: nia_body_ir::TypedBitIntrinsicOp,
-    ) -> FunctionBitIntrinsicOp {
-        match op {
-            nia_body_ir::TypedBitIntrinsicOp::Ctz => FunctionBitIntrinsicOp::Ctz,
-            nia_body_ir::TypedBitIntrinsicOp::Clz => FunctionBitIntrinsicOp::Clz,
-            nia_body_ir::TypedBitIntrinsicOp::Popcount => FunctionBitIntrinsicOp::Popcount,
-        }
-    }
-
     fn function_pointer_pointee_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
         match self.types.get(ty) {
             Some(TyKind::FunctionPointer { .. }) => Some(ty),

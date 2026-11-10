@@ -390,10 +390,6 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::TaggedUnionTag { expr: array }
         | FunctionExprKind::TaggedUnionPayload { expr: array }
         | FunctionExprKind::Try { expr: array }
-        | FunctionExprKind::LoadUnaligned { ptr: array, .. }
-        | FunctionExprKind::Splat { value: array }
-        | FunctionExprKind::Bitmask { vector: array }
-        | FunctionExprKind::BitIntrinsic { value: array, .. }
         | FunctionExprKind::CharFromU32 { value: array }
         | FunctionExprKind::Discard(array)
         | FunctionExprKind::Cast { expr: array, .. } => {
@@ -436,18 +432,10 @@ fn collect_function_refs_from_expr(
             collect_function_refs_from_expr(lhs, types, refs);
             collect_function_refs_from_expr(rhs, types, refs);
         }
-        FunctionExprKind::ExtractElement { vector, index } => {
-            collect_function_refs_from_expr(vector, types, refs);
-            collect_function_refs_from_expr(index, types, refs);
-        }
-        FunctionExprKind::InsertElement {
-            vector,
-            index,
-            value,
-        } => {
-            collect_function_refs_from_expr(vector, types, refs);
-            collect_function_refs_from_expr(index, types, refs);
-            collect_function_refs_from_expr(value, types, refs);
+        FunctionExprKind::Intrinsic { args, .. } => {
+            for arg in args {
+                collect_function_refs_from_expr(arg, types, refs);
+            }
         }
         FunctionExprKind::Assign { place, rhs, .. } => {
             collect_function_refs_from_place(place, types, refs);

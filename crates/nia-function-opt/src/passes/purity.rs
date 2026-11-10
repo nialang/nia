@@ -76,25 +76,14 @@ pub(crate) fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::TaggedUnionTag { expr }
         | FunctionExprKind::TaggedUnionPayload { expr }
         | FunctionExprKind::Unary { expr, .. }
-        | FunctionExprKind::Splat { value: expr }
-        | FunctionExprKind::Bitmask { vector: expr }
-        | FunctionExprKind::BitIntrinsic { value: expr, .. }
         | FunctionExprKind::CharFromU32 { value: expr }
         | FunctionExprKind::Cast { expr, .. } => is_pure_discardable_expr(expr),
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             is_pure_discardable_expr(lhs) && is_pure_discardable_expr(rhs)
         }
-        FunctionExprKind::ExtractElement { vector, index } => {
-            is_pure_discardable_expr(vector) && is_pure_discardable_expr(index)
-        }
-        FunctionExprKind::InsertElement {
-            vector,
-            index,
-            value,
-        } => {
-            is_pure_discardable_expr(vector)
-                && is_pure_discardable_expr(index)
-                && is_pure_discardable_expr(value)
+        // An unaligned load reads memory, so it is never discarded as pure.
+        FunctionExprKind::Intrinsic { op, args } => {
+            !op.reads_memory() && args.iter().all(is_pure_discardable_expr)
         }
         FunctionExprKind::Field { lhs, .. } => is_pure_discardable_expr(lhs),
         FunctionExprKind::Slice { lhs, range, .. } => {
@@ -104,7 +93,6 @@ pub(crate) fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         }
         FunctionExprKind::InlineAsm(_)
         | FunctionExprKind::Atomic(_)
-        | FunctionExprKind::LoadUnaligned { .. }
         | FunctionExprKind::StaticArrayPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }

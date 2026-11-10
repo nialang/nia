@@ -174,10 +174,6 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TaggedUnionTag { expr: array }
             | FunctionExprKind::TaggedUnionPayload { expr: array }
             | FunctionExprKind::Try { expr: array }
-            | FunctionExprKind::LoadUnaligned { ptr: array, .. }
-            | FunctionExprKind::Splat { value: array }
-            | FunctionExprKind::Bitmask { vector: array }
-            | FunctionExprKind::BitIntrinsic { value: array, .. }
             | FunctionExprKind::CharFromU32 { value: array }
             | FunctionExprKind::Discard(array)
             | FunctionExprKind::Cast { expr: array, .. }
@@ -226,18 +222,10 @@ impl<'a> ModuleLowerer<'a> {
                 changed |= self.devirtualize_direct_trait_calls_in_expr(lhs);
                 changed |= self.devirtualize_direct_trait_calls_in_expr(rhs);
             }
-            FunctionExprKind::ExtractElement { vector, index } => {
-                changed |= self.devirtualize_direct_trait_calls_in_expr(vector);
-                changed |= self.devirtualize_direct_trait_calls_in_expr(index);
-            }
-            FunctionExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => {
-                changed |= self.devirtualize_direct_trait_calls_in_expr(vector);
-                changed |= self.devirtualize_direct_trait_calls_in_expr(index);
-                changed |= self.devirtualize_direct_trait_calls_in_expr(value);
+            FunctionExprKind::Intrinsic { args, .. } => {
+                for arg in args {
+                    changed |= self.devirtualize_direct_trait_calls_in_expr(arg);
+                }
             }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 changed |= self.devirtualize_direct_trait_calls_in_place(place);

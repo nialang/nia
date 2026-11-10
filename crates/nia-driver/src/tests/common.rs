@@ -249,10 +249,6 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::TraitObjectCoercion { expr, .. }
         | FunctionExprKind::CallableCoercion { state: expr, .. }
         | FunctionExprKind::RangeBound { range: expr, .. }
-        | FunctionExprKind::LoadUnaligned { ptr: expr, .. }
-        | FunctionExprKind::Splat { value: expr }
-        | FunctionExprKind::Bitmask { vector: expr }
-        | FunctionExprKind::BitIntrinsic { value: expr, .. }
         | FunctionExprKind::CharFromU32 { value: expr }
         | FunctionExprKind::StaticArrayPointer { array: expr, .. } => {
             function_expr_contains_builtin_eq(expr)
@@ -260,17 +256,8 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             function_expr_contains_builtin_eq(lhs) || function_expr_contains_builtin_eq(rhs)
         }
-        FunctionExprKind::ExtractElement { vector, index } => {
-            function_expr_contains_builtin_eq(vector) || function_expr_contains_builtin_eq(index)
-        }
-        FunctionExprKind::InsertElement {
-            vector,
-            index,
-            value,
-        } => {
-            function_expr_contains_builtin_eq(vector)
-                || function_expr_contains_builtin_eq(index)
-                || function_expr_contains_builtin_eq(value)
+        FunctionExprKind::Intrinsic { args, .. } => {
+            args.iter().any(function_expr_contains_builtin_eq)
         }
         FunctionExprKind::Assign { place, rhs, .. } => {
             function_place_contains_builtin_eq(place) || function_expr_contains_builtin_eq(rhs)

@@ -1005,10 +1005,6 @@ impl FunctionLowerer<'_> {
                 | TypedExprKind::ErrorErr { expr: inner }
                 | TypedExprKind::Try { expr: inner, .. }
                 | TypedExprKind::FunctionCallable { function: inner }
-                | TypedExprKind::LoadUnaligned { ptr: inner, .. }
-                | TypedExprKind::Splat { value: inner }
-                | TypedExprKind::Bitmask { vector: inner }
-                | TypedExprKind::BitIntrinsic { value: inner, .. }
                 | TypedExprKind::CharFromU32 { value: inner }
                 | TypedExprKind::Discard(inner)
                 | TypedExprKind::Cast { expr: inner, .. }
@@ -1050,22 +1046,14 @@ impl FunctionLowerer<'_> {
                 }
                 TypedExprKind::UnionLiteral { field, .. } => visit_expr(&field.value, max_id),
                 TypedExprKind::Binary { lhs, rhs, .. }
-                | TypedExprKind::Index { lhs, index: rhs }
-                | TypedExprKind::ExtractElement {
-                    vector: lhs,
-                    index: rhs,
-                } => {
+                | TypedExprKind::Index { lhs, index: rhs } => {
                     visit_expr(lhs, max_id);
                     visit_expr(rhs, max_id);
                 }
-                TypedExprKind::InsertElement {
-                    vector,
-                    index,
-                    value,
-                } => {
-                    visit_expr(vector, max_id);
-                    visit_expr(index, max_id);
-                    visit_expr(value, max_id);
+                TypedExprKind::Intrinsic { args, .. } => {
+                    for arg in args {
+                        visit_expr(arg, max_id);
+                    }
                 }
                 TypedExprKind::Assign { place, rhs, .. } => {
                     visit_place(place, max_id);

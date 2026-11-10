@@ -4,10 +4,10 @@ pub(super) use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 pub(super) use nia_backend_ir::BackendEnumVariantPayload;
 pub(super) use nia_function_ir::{
     AtomicOrder, AtomicRmwOp, FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput,
-    FunctionAtomic, FunctionBitIntrinsicOp, FunctionInlineAsm, FunctionMemoryIntrinsic,
-    FunctionMemoryIntrinsicOp, FunctionMemoryIntrinsicSource, FunctionSliceRange,
-    FunctionSwitchArm,
+    FunctionAtomic, FunctionInlineAsm, FunctionMemoryIntrinsic, FunctionMemoryIntrinsicOp,
+    FunctionMemoryIntrinsicSource, FunctionSliceRange, FunctionSwitchArm,
 };
+pub(super) use nia_ids::IntrinsicOp;
 pub(super) use nia_ty::{ConstGenericArg, ConstGenericValue, FunctionPointerAbi, IntConst};
 
 pub(super) fn single_module_program(

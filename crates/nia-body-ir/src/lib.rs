@@ -444,45 +444,13 @@ pub enum TypedExprKind {
     MemoryIntrinsic(TypedMemoryIntrinsic),
     /// Atomic operation.
     Atomic(TypedAtomic),
-    /// Loads a typed value from an unaligned byte pointer.
-    LoadUnaligned {
-        /// Result type loaded from memory.
-        ty: InternedTyId,
-        /// Byte pointer source.
-        ptr: Box<TypedExpr>,
-    },
-    /// Broadcasts one scalar value into a SIMD vector.
-    Splat {
-        /// Scalar lane value.
-        value: Box<TypedExpr>,
-    },
-    /// Extracts a SIMD lane by integer index.
-    ExtractElement {
-        /// Vector source.
-        vector: Box<TypedExpr>,
-        /// Lane index.
-        index: Box<TypedExpr>,
-    },
-    /// Replaces one SIMD lane.
-    InsertElement {
-        /// Vector source.
-        vector: Box<TypedExpr>,
-        /// Lane index.
-        index: Box<TypedExpr>,
-        /// Replacement lane value.
-        value: Box<TypedExpr>,
-    },
-    /// Packs boolean lanes into a target-width integer.
-    Bitmask {
-        /// Boolean vector source.
-        vector: Box<TypedExpr>,
-    },
-    /// Integer bit-counting intrinsic.
-    BitIntrinsic {
-        /// Intrinsic operation.
-        op: TypedBitIntrinsicOp,
-        /// Integer source value.
-        value: Box<TypedExpr>,
+    /// A value-producing compiler intrinsic; see [`nia_ids::IntrinsicOp`].
+    /// The result type is the expression's type.
+    Intrinsic {
+        /// The operation.
+        op: nia_ids::IntrinsicOp,
+        /// Operands in evaluation order; exactly `op.arity()` of them.
+        args: Vec<TypedExpr>,
     },
     /// Converts a `u32` candidate into an optional `char`.
     CharFromU32 {
@@ -714,17 +682,6 @@ pub struct TypedUnionRelocation {
     pub allocation: PromotedAllocationId,
     /// Value used to initialize the promoted allocation.
     pub pointee: Box<TypedExpr>,
-}
-
-/// Integer bit-counting intrinsic.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TypedBitIntrinsicOp {
-    /// Count trailing zeros.
-    Ctz,
-    /// Count leading zeros.
-    Clz,
-    /// Count set bits.
-    Popcount,
 }
 
 /// Bounds attached to a typed slice expression.

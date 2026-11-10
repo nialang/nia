@@ -504,10 +504,6 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::TaggedUnionTag { expr: inner }
             | FunctionExprKind::TaggedUnionPayload { expr: inner }
             | FunctionExprKind::Try { expr: inner }
-            | FunctionExprKind::LoadUnaligned { ptr: inner, .. }
-            | FunctionExprKind::Splat { value: inner }
-            | FunctionExprKind::Bitmask { vector: inner }
-            | FunctionExprKind::BitIntrinsic { value: inner, .. }
             | FunctionExprKind::CharFromU32 { value: inner }
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
@@ -589,22 +585,25 @@ impl<'a> FunctionIrValidator<'a> {
                 }
             }
             FunctionExprKind::Binary { lhs, rhs, .. }
-            | FunctionExprKind::Index { lhs, index: rhs }
-            | FunctionExprKind::ExtractElement {
-                vector: lhs,
-                index: rhs,
-            } => {
+            | FunctionExprKind::Index { lhs, index: rhs } => {
                 self.validate_value_expr(lhs)?;
                 self.validate_value_expr(rhs)?;
             }
-            FunctionExprKind::InsertElement {
-                vector,
-                index,
-                value,
-            } => {
-                self.validate_value_expr(vector)?;
-                self.validate_value_expr(index)?;
-                self.validate_value_expr(value)?;
+            FunctionExprKind::Intrinsic { op, args } => {
+                if args.len() != op.arity() {
+                    return Err(FunctionIrError::new(
+                        expr.span,
+                        format!(
+                            "intrinsic `{}` takes {} operand(s), found {}",
+                            op.name(),
+                            op.arity(),
+                            args.len()
+                        ),
+                    ));
+                }
+                for arg in args {
+                    self.validate_value_expr(arg)?;
+                }
             }
             FunctionExprKind::Assign { place, rhs, .. } => {
                 self.validate_place(place)?;

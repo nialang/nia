@@ -423,62 +423,65 @@ fn validates_low_level_builtin_contracts_before_llvm() {
     let ops = vec![
         builtin(
             bool_ty,
-            FunctionExprKind::LoadUnaligned {
-                ty: i32_ty,
-                ptr: Box::new(value(i32_ptr_ty)),
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::LoadUnaligned,
+                args: vec![value(i32_ptr_ty)],
             },
         ),
         builtin(
             i32x4_ty,
-            FunctionExprKind::Splat {
-                value: Box::new(value(bool_ty)),
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Splat,
+                args: vec![value(bool_ty)],
             },
         ),
         builtin(
             i32_ty,
-            FunctionExprKind::Splat {
-                value: Box::new(value(i32_ty)),
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Splat,
+                args: vec![value(i32_ty)],
             },
         ),
         builtin(
             bool_ty,
-            FunctionExprKind::ExtractElement {
-                vector: Box::new(value(i32x4_ty)),
-                index: Box::new(value(f32_ty)),
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::ExtractElement,
+                args: vec![value(i32x4_ty), value(f32_ty)],
             },
         ),
         builtin(
             boolx4_ty,
-            FunctionExprKind::InsertElement {
-                vector: Box::new(value(i32x4_ty)),
-                index: Box::new(value(f32_ty)),
-                value: Box::new(value(bool_ty)),
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::InsertElement,
+                args: vec![value(i32x4_ty), value(f32_ty), value(bool_ty)],
             },
         ),
         builtin(
             i32_ty,
-            FunctionExprKind::Bitmask {
-                vector: Box::new(value(i32x4_ty)),
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Bitmask,
+                args: vec![value(i32x4_ty)],
             },
         ),
         builtin(
             usize_ty,
-            FunctionExprKind::Bitmask {
-                vector: Box::new(value(boolx65_ty)),
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Bitmask,
+                args: vec![value(boolx65_ty)],
             },
         ),
         builtin(
             u32_ty,
-            FunctionExprKind::BitIntrinsic {
-                op: FunctionBitIntrinsicOp::Ctz,
-                value: Box::new(value(i32_ty)),
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Ctz,
+                args: vec![value(i32_ty)],
             },
         ),
         builtin(
             f32_ty,
-            FunctionExprKind::BitIntrinsic {
-                op: FunctionBitIntrinsicOp::Popcount,
-                value: Box::new(value(f32_ty)),
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Popcount,
+                args: vec![value(f32_ty)],
             },
         ),
         builtin(
@@ -495,9 +498,9 @@ fn validates_low_level_builtin_contracts_before_llvm() {
         ),
         builtin(
             i32_ty,
-            FunctionExprKind::LoadUnaligned {
-                ty: i32_ty,
-                ptr: Box::new(value(byte_ptr_ty)),
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::LoadUnaligned,
+                args: vec![value(byte_ptr_ty)],
             },
         ),
     ];
@@ -559,7 +562,6 @@ fn validates_low_level_builtin_contracts_before_llvm() {
     let output = emit_owned_llvm_ir(program, type_store);
     assert!(output.modules.is_empty());
     for expected in [
-        "unaligned load has an invalid contract: result type",
         "unaligned load has an invalid contract: operand is not a byte pointer",
         "SIMD splat has an invalid contract: scalar value type",
         "SIMD splat has an invalid contract: result is not a vector",

@@ -491,6 +491,53 @@ fn rejects_missing_local_reference() {
 }
 
 #[test]
+fn rejects_intrinsic_with_wrong_operand_count() {
+    let ty = test_ty();
+    let operand = FunctionExpr {
+        span: Span::default(),
+        ty,
+        kind: FunctionExprKind::Null,
+    };
+    let function_body = FunctionBody {
+        span: Span::default(),
+        locals: Vec::new(),
+        scopes: vec![FunctionScope {
+            id: FunctionScopeId(0),
+            parent: None,
+            span: Span::default(),
+        }],
+        blocks: vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span: Span::default(),
+            ops: Vec::new(),
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span: Span::default(),
+                    ty,
+                    kind: FunctionExprKind::Intrinsic {
+                        op: nia_ids::IntrinsicOp::InsertElement,
+                        args: vec![operand.clone(), operand],
+                    },
+                }),
+                span: Span::default(),
+            },
+        }],
+        entry: FunctionBlockId(0),
+        ty,
+    };
+
+    let error = validate_function_body(&function_body).expect_err("missing operand");
+
+    assert!(
+        error
+            .message
+            .contains("intrinsic `insert` takes 3 operand(s), found 2"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn rejects_invalid_defer_body_recursively() {
     let ty = test_ty();
     let function_body = FunctionBody {
