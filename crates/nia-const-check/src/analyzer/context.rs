@@ -509,6 +509,30 @@ impl Analyzer<'_> {
         };
         let mut visible_methods = visible_extensions.all_methods_named(&name);
         visible_methods.extend(visible_extensions.all_trait_witnesses_named(&name));
+        // Body checking has already resolved and checked this call, including
+        // a path call such as `module::Type::method`, which needs no `using`.
+        // Methods visible where the target type is defined complete the set,
+        // so selection does not depend on the imports of whichever module is
+        // executing.
+        let defining_modules = actual_target_tys
+            .iter()
+            .filter_map(|(_, ty)| match self.ty_kind(*ty) {
+                Some(TyKind::Nominal { def_id, .. }) => Some(def_id.module_id),
+                _ => None,
+            })
+            .filter(|module_id| *module_id != self.current_execution_module_id())
+            .collect::<HashSet<_>>();
+        for module_id in defining_modules {
+            if let Some(extensions) = self
+                .input
+                .program
+                .visible_extensions
+                .and_then(|query| query(module_id))
+            {
+                visible_methods.extend(extensions.all_methods_named(&name));
+                visible_methods.extend(extensions.all_trait_witnesses_named(&name));
+            }
+        }
         visible_methods.sort_by_key(|(_, method)| method.def_id);
         visible_methods.dedup_by_key(|(_, method)| method.def_id);
         let mut candidates = visible_methods
@@ -593,6 +617,12 @@ impl Analyzer<'_> {
             _ => return None,
         };
         let receiver_ty = self.resolved_const_arg_runtime_type(receiver, None)?;
+        // A pointer receiver, such as `&self` in a range method, reaches the
+        // range through one dereference, as method calls do at runtime.
+        let receiver_ty = match self.ty_kind(receiver_ty)? {
+            TyKind::Pointer { elem, .. } => elem,
+            _ => receiver_ty,
+        };
         let TyKind::Range { kind, bound } = self.ty_kind(receiver_ty)? else {
             return None;
         };
@@ -742,12 +772,13 @@ impl Analyzer<'_> {
             .type_normalization_for_module(self.current_execution_module_id())?
             .as_ref()
             .normalize(target_ty);
+        // Trait witnesses apply wherever their trait is visible, whether or
+        // not their methods are callable by name here, so they are looked up
+        // among the witnesses rather than the callable methods.
         let mut candidates = visible_extensions
-            .all_methods_named(&name)
+            .all_trait_witnesses_named(&name)
             .into_iter()
-            .filter(|(_, method)| {
-                method.trait_id == Some(TraitId::Builtin(trait_id)) && method.is_trait_witness
-            })
+            .filter(|(_, method)| method.trait_id == Some(TraitId::Builtin(trait_id)))
             .filter_map(|(candidate_target_ty, method)| {
                 let function_id = method.def_id;
                 self.type_context(function_id.module_id);

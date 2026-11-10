@@ -519,7 +519,6 @@ fn eval_resolved_const_expr_flow(
             else_branch,
         } => {
             return eval_resolved_const_if_expr_flow(
-                span,
                 cond,
                 then_branch,
                 else_branch.as_deref(),
@@ -840,13 +839,7 @@ fn eval_const_expr_flow(
             then_branch,
             else_branch,
         } => {
-            return eval_const_if_expr_flow(
-                expr.span,
-                cond,
-                then_branch,
-                else_branch.as_deref(),
-                env,
-            );
+            return eval_const_if_expr_flow(cond, then_branch, else_branch.as_deref(), env);
         }
         EarlyConstExprKind::Match(matched) => {
             return eval_const_match_expr_flow(matched, env);
@@ -880,7 +873,6 @@ fn tuple_field_symbol(index: usize) -> nia_symbol::SymbolId {
 }
 
 fn eval_const_if_expr_flow(
-    span: Span,
     cond: &EarlyConstExpr,
     then_branch: &EarlyConstBlock,
     else_branch: Option<&EarlyConstExpr>,
@@ -900,10 +892,9 @@ fn eval_const_if_expr_flow(
     if let Some(else_branch) = else_branch {
         eval_const_expr_flow(else_branch, env)
     } else {
-        Err(ConstError {
-            span,
-            message: "if expression requires an else branch".to_string(),
-        })
+        // Type checking gives an `if` without `else` the unit type, so a
+        // false condition completes with unit.
+        Ok(ConstEvalFlow::Void)
     }
 }
 
@@ -1246,7 +1237,6 @@ fn eval_const_match_expr_flow(
 }
 
 fn eval_resolved_const_if_expr_flow(
-    span: Span,
     cond: &ResolvedConstExpr,
     then_branch: &ResolvedConstBlock,
     else_branch: Option<&ResolvedConstExpr>,
@@ -1266,10 +1256,9 @@ fn eval_resolved_const_if_expr_flow(
     if let Some(else_branch) = else_branch {
         eval_resolved_const_expr_flow(else_branch, env)
     } else {
-        Err(ConstError {
-            span,
-            message: "if expression requires an else branch".to_string(),
-        })
+        // Type checking gives an `if` without `else` the unit type, so a
+        // false condition completes with unit.
+        Ok(ConstEvalFlow::Void)
     }
 }
 

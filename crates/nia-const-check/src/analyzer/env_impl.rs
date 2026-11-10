@@ -1069,10 +1069,14 @@ impl ResolvedConstEnv for Analyzer<'_> {
                             message: "const range method requires one receiver".to_string(),
                         });
                     };
+                    let receiver = match receiver {
+                        ConstValue::Pointer(pointer) => {
+                            self.dereference_const_pointer(span, pointer)?
+                        }
+                        value => value.clone(),
+                    };
                     return nia_const_eval::eval_const_range_bound_value(
-                        span,
-                        receiver.clone(),
-                        want_start,
+                        span, receiver, want_start,
                     );
                 }
                 if let Some((mutable, _)) =
@@ -1334,21 +1338,65 @@ impl ResolvedConstEnv for Analyzer<'_> {
         param: &ResolvedConstParam,
         value: ConstValue,
     ) -> Result<(), ConstError> {
+        let receiver = param.receiver();
+        let target_ty = receiver
+            .and_then(|_| {
+                let function_id = self.current_execution_function_id()?;
+                self.extension_method_target_ty(function_id)
+            })
+            .map(|ty| self.substitute_ty_generics(ty));
+        // A receiver value that is a pointer is the address of the target,
+        // unless the target is itself a pointer type.
+        let addresses_target = matches!(value, ConstValue::Pointer(_))
+            && target_ty.is_some_and(|ty| {
+                !matches!(
+                    self.ty_kind(ty),
+                    Some(TyKind::Pointer { .. } | TyKind::VolatilePointer { .. })
+                )
+            });
+        match receiver {
+            Some(nia_ids::ReceiverKind::RefReadOnly) => {
+                // `&self` is a read-only pointer, as at runtime. Without a
+                // writer, a pointer to a copy cannot be told apart from a
+                // pointer to the caller's value.
+                let pointer = match value {
+                    ConstValue::Pointer(mut pointer) if addresses_target => {
+                        pointer.restrict_readonly(true);
+                        ConstValue::Pointer(pointer)
+                    }
+                    value => self.reference_const_value(span, value, true)?,
+                };
+                let ty = target_ty
+                    .and_then(|elem| {
+                        self.intern_current_ty(TyKind::Pointer {
+                            is_readonly: true,
+                            elem,
+                        })
+                    })
+                    .map(ConstValueType::Runtime);
+                return self.bind_local_value(span, param.local_id(), false, pointer, ty);
+            }
+            Some(nia_ids::ReceiverKind::Value) if addresses_target => {
+                let ConstValue::Pointer(pointer) = &value else {
+                    unreachable!("addresses_target requires a pointer value");
+                };
+                let value = self.dereference_const_pointer(span, pointer)?;
+                let ty = target_ty.map(ConstValueType::Runtime);
+                return self.bind_local_value(span, param.local_id(), true, value, ty);
+            }
+            _ => {}
+        }
         let declared_ty = param
             .ty()
             .filter(|ty| !matches!(self.ty_kind(*ty), Some(TyKind::Error)))
-            .or_else(|| {
-                param.receiver()?;
-                let function_id = self.current_execution_function_id()?;
-                self.extension_method_target_ty(function_id)
-            });
+            .or(target_ty);
         let ty = declared_ty.map(|ty| ConstValueType::Runtime(self.substitute_ty_generics(ty)));
         self.bind_local_value(
             span,
             param.local_id(),
             // Value parameters own writable local storage, just as runtime
-            // parameters do. Only a read-only reference receiver restricts it.
-            param.receiver() != Some(nia_ids::ReceiverKind::RefReadOnly),
+            // parameters do.
+            true,
             value,
             ty,
         )

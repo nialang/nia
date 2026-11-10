@@ -159,12 +159,16 @@ const n: usize = width();
 "#,
     );
 
+    // Type checking rejects the assignment; the one cause is reported once.
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("expected length 2")),
+    let summaries = program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries,
+        ["const array literal length mismatch: expected 2, got 3"],
         "{:?}",
         program.diagnostics
     );
@@ -679,8 +683,8 @@ fun main() i32 {
 }
 
 #[test]
-fn const_for_in_rejects_range_iter_method() {
-    let root = temp_dir("const_for_in_rejects_range_iter_method");
+fn const_for_in_accepts_range_iter_method() {
+    let root = temp_dir("const_for_in_accepts_range_iter_method");
     write(
         &root.join("main.nia"),
         r#"
@@ -695,23 +699,16 @@ const fun width() usize {
 }
 
 const n: usize = width();
+const values: [i32; 6] = [0; n];
 
 fun main() i32 {
-    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const expression can only call `const fun`")),
-        "{:?}",
-        program.diagnostics
-    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
@@ -883,8 +880,8 @@ fun main() i32 {
 }
 
 #[test]
-fn const_function_for_in_ranges_require_iterator() {
-    let root = temp_dir("const_function_for_in_ranges_require_iterator");
+fn const_function_for_in_runs_inclusive_ranges() {
+    let root = temp_dir("const_function_for_in_runs_inclusive_ranges");
     write(
         &root.join("main.nia"),
         r#"
@@ -903,25 +900,19 @@ const fun width() usize {
 }
 
 const n: usize = width();
+// 0 + 1 + 3 + 4: 2 is skipped and the loop stops at 5.
+const values: [i32; 8] = [0; n];
 
 fun main() i32 {
-    let mut values: [i32; n] = [0; n];
     values.len() as i32
 }
 "#,
     );
 
-    // Demand-driven builtin-trait loading finds the range provider, whose
-    // `iter` witness is not a `const fn`; const for-in must reject it.
+    // The range provider's `iter` and `next` are `const fun`, found without
+    // an import because trait implementations apply wherever the trait does.
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .summary
-            .contains("const Iterable::iter requires a const trait implementation")),
-        "{:?}",
-        program.diagnostics
-    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
@@ -1492,4 +1483,113 @@ fun main() i32 {
         "{:?}",
         program.diagnostics
     );
+}
+
+#[test]
+fn const_methods_receive_self_as_a_pointer() {
+    let root = temp_dir("const_methods_receive_self_as_a_pointer");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Pair {
+    a: usize,
+    b: usize,
+}
+
+extend Pair {
+    const fun sum(&self) usize { self.a + self.b }
+    // `&self` is a read-only pointer, as at runtime.
+    const fun copy(&self) Pair { self.* }
+    const fun swapped(self) Pair { .{ a: self.b, b: self.a } }
+}
+
+const fun build() usize {
+    let pair = Pair { a: 2, b: 5 };
+    pair.copy().swapped().a * 10 + pair.sum()
+}
+
+const n: usize = build();
+const values: [i32; 57] = [0; n];
+
+fun main() i32 {
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_function_if_without_else_completes_with_unit() {
+    let root = temp_dir("const_function_if_without_else_completes_with_unit");
+    write(
+        &root.join("main.nia"),
+        r#"
+const fun firstSquareOver(limit: u64) u64 {
+    for value in 1u64.. {
+        if value * value > limit {
+            return value;
+        }
+    }
+    0
+}
+
+const n: usize = firstSquareOver(50) as usize;
+const values: [i32; 8] = [0; n];
+
+fun main() i32 {
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_calls_reach_methods_of_other_modules_by_path() {
+    let root = temp_dir("const_calls_reach_methods_of_other_modules_by_path");
+    write(
+        &root.join("main.nia"),
+        r#"
+module spans;
+
+// No `using` imports the methods; a path call needs none.
+const a: usize = spans::Flat::direct(7).start;
+const b: usize = spans::Span[usize]::viaHelper(3..5).start;
+const values: [i32; 10] = [0; a + b];
+
+fun main() i32 {
+    values.len() as i32
+}
+"#,
+    );
+    write(
+        &root.join("spans.nia"),
+        r#"
+pub struct Flat {
+    start: usize,
+}
+
+extend Flat {
+    pub const fun direct(start: usize) Flat { .{ start } }
+}
+
+pub struct Span[T] {
+    start: T,
+    end: T,
+}
+
+extend[T] Span[T] {
+    const fun fromBounds(bounds: T..T) Span[T] { .{ start: bounds.start(), end: bounds.end() } }
+    pub const fun viaHelper(bounds: T..T) Span[T] { .fromBounds(bounds) }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }

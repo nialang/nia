@@ -1751,8 +1751,10 @@ Constant evaluation does not materialize callable values. Function items
 enum constructor pointers cannot be materialized as values, stored, passed, or
 invoked indirectly during constant evaluation. Direct calls to a `const fun`
 remain available. In a `const fun`, a `for` loop requires the selected `Iterable::iter`
-and `Iterator::next` implementations to be `const fun`; the standard library's
-ranges and slices do not provide them, so loops in a `const fun` use `while`.
+and `Iterator::next` implementations to be `const fun`. The standard library's
+integer ranges (`a..b`, `a..=b`, `a..`) provide them; slice iteration does not,
+so a loop over a slice in a `const fun` uses an index. A `&self` receiver of a
+`const fun` is a read-only pointer, as at runtime.
 
 `std::builtin::trap()` returns `never`; reached during constant evaluation it is
 a compile-time error at the call, and at runtime it traps.
