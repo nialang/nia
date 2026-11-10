@@ -29,6 +29,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionAttribute::Naked => Some(BackendFunctionAttribute::Naked),
                 FunctionAttribute::TrackCaller => Some(BackendFunctionAttribute::TrackCaller),
                 FunctionAttribute::InlineNever => Some(BackendFunctionAttribute::InlineNever),
+                FunctionAttribute::InlineAlways => Some(BackendFunctionAttribute::InlineAlways),
                 FunctionAttribute::Builtin(_) => None,
             })
             .collect::<Vec<_>>();

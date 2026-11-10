@@ -1001,6 +1001,7 @@ attributes select only whole items and statements.
 | `@[exportName("s")]` | `extern fun` with a body | symbol exported |
 | `@[trackCaller]` | non-`extern` functions and trait methods | caller location tracking |
 | `@[inlineNever]` | functions and methods with a body | never inlined into callers |
+| `@[inlineAlways]` | functions and methods with a body | inlined into every direct caller, at every level |
 | `@[naked]` | `extern fun` definitions | no compiler-generated prologue or epilogue |
 
 An unrecognized attribute on a function, static, constant, trait, or type alias
@@ -1101,6 +1102,38 @@ fun reportOverflow(value: u64) () {
     _ = value;
 }
 ```
+
+`@[inlineAlways]` is the opposite guarantee: no direct call to the function
+remains, at every optimization level including `-O0`, `-Os`, and `-Oz`, and
+whether or not link-time optimization runs. A call into another module is
+inlined as well; that module's code generation does not decide it. It suits
+small helpers whose cost would otherwise be the call itself, such as wrappers
+around [vector builtins](builtins.md#simd), and code that should run at the
+same speed in debug builds. Taking the function's address is still allowed:
+a call through the pointer is an ordinary call, as for any function. The
+attribute takes no arguments, needs a body, and applies to every instance of a
+generic function. It cannot be combined with `@[inlineNever]` or `@[naked]`.
+
+Functions marked `@[inlineAlways]` must not call each other in a cycle,
+directly or through other such functions, because one call in the cycle would
+have to remain; the cycle is reported when the program is built. Cycles are
+found by definition, so a generic function that calls itself is a cycle even
+when each call uses a different instance.
+
+```nia
+using std::builtin;
+
+@[inlineAlways]
+fun anyAbove(bytes: u8x16, limit: u8) bool {
+    builtin::bitmask(bytes > builtin::splat[u8x16](limit)) != 0
+}
+```
+
+The compiler checks the guarantee: if a direct call to such a function were
+still present after optimization, the build fails with an internal error
+rather than produce code that breaks it. Inlining makes code larger, so the
+attribute is for functions that are small at each call site; the
+optimization levels, and `-Os` and `-Oz` for size, govern every other call.
 
 #### Naked Functions
 

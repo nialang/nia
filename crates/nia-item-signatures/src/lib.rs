@@ -446,6 +446,8 @@ pub enum FunctionAttribute {
     TrackCaller,
     /// Never inline calls to this function.
     InlineNever,
+    /// Inline every direct call to this function, at every optimization level.
+    InlineAlways,
 }
 
 pub use nia_ids::{BuiltinFunction, BuiltinTrait};

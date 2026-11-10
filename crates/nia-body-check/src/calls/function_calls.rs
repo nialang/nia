@@ -4069,6 +4069,7 @@ pub(super) fn builtin_function(signature: &FunctionSignature) -> Option<BuiltinF
             FunctionAttribute::Builtin(builtin) => Some(*builtin),
             FunctionAttribute::Naked
             | FunctionAttribute::TrackCaller
-            | FunctionAttribute::InlineNever => None,
+            | FunctionAttribute::InlineNever
+            | FunctionAttribute::InlineAlways => None,
         })
 }

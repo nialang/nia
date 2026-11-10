@@ -348,6 +348,68 @@ impl<'ctx> FunctionValue<'ctx> {
     }
 }
 
+impl Module<'_> {
+    /// Direct calls that remain to functions carrying the function attribute
+    /// `attribute`, as `(caller, callee)` symbol names. Calls through a
+    /// pointer have no statically known callee and are not listed.
+    pub fn direct_calls_to_functions_with_attribute(
+        &self,
+        attribute: &str,
+    ) -> Vec<(String, String)> {
+        use llvm_sys::LLVMAttributeFunctionIndex;
+        use llvm_sys::core::{
+            LLVMGetCalledValue, LLVMGetEnumAttributeAtIndex, LLVMGetFirstBasicBlock,
+            LLVMGetFirstInstruction, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
+            LLVMGetValueName2, LLVMIsACallInst, LLVMIsAFunction,
+        };
+
+        let kind = super::Attribute::get_named_enum_kind_id(attribute);
+        let name = |value: llvm_sys::prelude::LLVMValueRef| {
+            let mut len = 0;
+            let raw = unsafe { LLVMGetValueName2(value, &mut len) };
+            if raw.is_null() {
+                String::new()
+            } else {
+                String::from_utf8_lossy(unsafe { slice::from_raw_parts(raw.cast::<u8>(), len) })
+                    .into_owned()
+            }
+        };
+        let mut found = Vec::new();
+        if kind == 0 {
+            return found;
+        }
+        let mut function = unsafe { LLVMGetFirstFunction(self.raw) };
+        while !function.is_null() {
+            let mut block = unsafe { LLVMGetFirstBasicBlock(function) };
+            while !block.is_null() {
+                let mut instruction = unsafe { LLVMGetFirstInstruction(block) };
+                while !instruction.is_null() {
+                    if !unsafe { LLVMIsACallInst(instruction) }.is_null() {
+                        let callee = unsafe { LLVMGetCalledValue(instruction) };
+                        if !callee.is_null()
+                            && !unsafe { LLVMIsAFunction(callee) }.is_null()
+                            && !unsafe {
+                                LLVMGetEnumAttributeAtIndex(
+                                    callee,
+                                    LLVMAttributeFunctionIndex,
+                                    kind,
+                                )
+                            }
+                            .is_null()
+                        {
+                            found.push((name(function), name(callee)));
+                        }
+                    }
+                    instruction = unsafe { LLVMGetNextInstruction(instruction) };
+                }
+                block = unsafe { LLVMGetNextBasicBlock(block) };
+            }
+            function = unsafe { LLVMGetNextFunction(function) };
+        }
+        found
+    }
+}
+
 impl<'ctx> Drop for Module<'ctx> {
     fn drop(&mut self) {
         if !self.raw.is_null() {

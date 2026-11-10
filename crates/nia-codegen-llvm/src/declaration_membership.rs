@@ -32,6 +32,17 @@ pub(super) struct CodegenDeclarationMembership {
     pub(super) globals: Vec<GlobalDefId>,
     pub(super) global_instances: Vec<BackendGlobalInstanceKey>,
     pub(super) vtables: Vec<BackendTraitObjectVtableKey>,
+    /// `@[inlineAlways]` functions owned by other units whose bodies this
+    /// unit emits as `available_externally` copies, so that its calls to them
+    /// are inlined without link-time optimization.
+    pub(super) available_functions: Vec<GlobalDefId>,
+    /// Instances of `@[inlineAlways]` generic functions copied the same way.
+    pub(super) available_function_instances: Vec<FunctionInstanceKey>,
+}
+
+/// Whether calls to a function with these attributes must be inlined.
+pub(super) fn is_inline_always(attributes: &[nia_backend_ir::BackendFunctionAttribute]) -> bool {
+    attributes.contains(&nia_backend_ir::BackendFunctionAttribute::InlineAlways)
 }
 
 pub(super) enum CodegenDeclarationMembershipBuild {
@@ -93,6 +104,10 @@ struct MembershipBuilder<'a> {
     global_instances: HashSet<BackendGlobalInstanceKey>,
     vtables: HashSet<BackendTraitObjectVtableKey>,
     expanded_vtables: HashSet<BackendTraitObjectVtableKey>,
+    defined_functions: HashSet<GlobalDefId>,
+    defined_function_instances: HashSet<FunctionInstanceKey>,
+    available_functions: BTreeSet<GlobalDefId>,
+    available_function_instances: HashSet<FunctionInstanceKey>,
     pending_types: VecDeque<InternedTyId>,
     visited_types: HashSet<InternedTyId>,
     dependency_modules: BTreeSet<ModuleId>,
@@ -115,6 +130,10 @@ impl<'a> MembershipBuilder<'a> {
             global_instances: HashSet::new(),
             vtables: HashSet::new(),
             expanded_vtables: HashSet::new(),
+            defined_functions: HashSet::new(),
+            defined_function_instances: HashSet::new(),
+            available_functions: BTreeSet::new(),
+            available_function_instances: HashSet::new(),
             pending_types: VecDeque::new(),
             visited_types: HashSet::new(),
             dependency_modules: BTreeSet::new(),
@@ -135,6 +154,18 @@ impl<'a> MembershipBuilder<'a> {
             });
         };
         self.dependency_modules.insert(owner.id);
+        // Definitions are known before references are followed, so a call to
+        // a function this unit defines never asks for a copy of it.
+        self.defined_functions = partition
+            .function_definitions()
+            .iter()
+            .map(|&index| owner.functions[index].def_id)
+            .collect();
+        self.defined_function_instances = partition
+            .function_instance_definitions()
+            .iter()
+            .map(|&index| function_instance_key(&owner.function_instances[index]))
+            .collect();
         for &index in partition.global_definitions() {
             self.add_global_definition(&owner.globals[index]);
         }
@@ -258,16 +289,26 @@ impl<'a> MembershipBuilder<'a> {
             });
             self.add_function_signature(&item.params, item.return_type);
         }
+        // A body copied into this unit brings its own references with it;
+        // `@[inlineAlways]` forbids cycles, so the closure is finite.
+        if is_inline_always(&item.attributes)
+            && !self.defined_functions.contains(&item.def_id)
+            && let Some(body) = &item.function_body
+            && self.available_functions.insert(item.def_id)
+        {
+            self.add_refs(body.value_refs(self.index.type_store()));
+        }
     }
 
     fn add_function_instance(&mut self, item: &BackendFunctionInstance) {
-        let key = FunctionInstanceKey {
-            def_id: item.def_id,
-            arg_module_id: item.arg_module_id,
-            self_arg: item.self_arg,
-            args: item.args.clone(),
-            const_args: item.const_args.clone(),
-        };
+        let key = function_instance_key(item);
+        if is_inline_always(&item.attributes)
+            && !self.defined_function_instances.contains(&key)
+            && let Some(body) = &item.function_body
+            && self.available_function_instances.insert(key.clone())
+        {
+            self.add_refs(body.value_refs(self.index.type_store()));
+        }
         if self.function_instances.insert(key) {
             self.add_context_dependency(item.arg_module_id);
             self.add_dependency(
@@ -761,6 +802,19 @@ impl<'a> MembershipBuilder<'a> {
                 stable_type_key(self.index, key.object_ty),
             )
         });
+        let mut available_functions = self.available_functions.into_iter().collect::<Vec<_>>();
+        available_functions.sort_unstable_by(|left, right| {
+            stable_def_key(self.index, *left).cmp(&stable_def_key(self.index, *right))
+        });
+        let mut available_function_instances = self
+            .available_function_instances
+            .into_iter()
+            .collect::<Vec<_>>();
+        available_function_instances.sort_unstable_by(|left, right| {
+            function_instance(self.index, left)
+                .map(|item| item.symbol.as_str())
+                .cmp(&function_instance(self.index, right).map(|item| item.symbol.as_str()))
+        });
         Ok(CodegenDeclarationMembershipBuild::Ready(Box::new(
             CodegenDeclarationMembership {
                 dependencies: CodegenUnitDependencies::new(unit, self.dependency_modules)?,
@@ -773,6 +827,8 @@ impl<'a> MembershipBuilder<'a> {
                 globals,
                 global_instances,
                 vtables,
+                available_functions,
+                available_function_instances,
             },
         )))
     }
@@ -923,6 +979,16 @@ fn invalid_membership(message: impl Into<String>) -> Diagnostic {
         Span::default(),
         message,
     )
+}
+
+fn function_instance_key(item: &BackendFunctionInstance) -> FunctionInstanceKey {
+    FunctionInstanceKey {
+        def_id: item.def_id,
+        arg_module_id: item.arg_module_id,
+        self_arg: item.self_arg,
+        args: item.args.clone(),
+        const_args: item.const_args.clone(),
+    }
 }
 
 #[cfg(test)]

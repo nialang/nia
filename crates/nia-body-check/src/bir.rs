@@ -1764,7 +1764,8 @@ impl<'a> BodyChecker<'a> {
                 FunctionAttribute::Builtin(builtin) => Some(*builtin),
                 FunctionAttribute::Naked
                 | FunctionAttribute::TrackCaller
-                | FunctionAttribute::InlineNever => None,
+                | FunctionAttribute::InlineNever
+                | FunctionAttribute::InlineAlways => None,
             })
     }
 

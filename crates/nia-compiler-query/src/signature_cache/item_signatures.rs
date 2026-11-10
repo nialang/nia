@@ -212,6 +212,7 @@ pub(crate) fn write_function_signature(
             }
             item_signatures::FunctionAttribute::TrackCaller => encoded.push(2),
             item_signatures::FunctionAttribute::InlineNever => encoded.push(3),
+            item_signatures::FunctionAttribute::InlineAlways => encoded.push(4),
         }
     }
     write_bool(encoded, signature.has_body);
@@ -253,6 +254,7 @@ pub(crate) fn read_function_signature(
             1 => item_signatures::FunctionAttribute::Builtin(read_builtin_function(cursor)?),
             2 => item_signatures::FunctionAttribute::TrackCaller,
             3 => item_signatures::FunctionAttribute::InlineNever,
+            4 => item_signatures::FunctionAttribute::InlineAlways,
             _ => return None,
         });
     }

@@ -939,6 +939,91 @@ impl<'a> SignatureCollector<'a> {
         signature
     }
 
+    fn inline_attribute(
+        &mut self,
+        out: &mut Vec<FunctionAttribute>,
+        attribute: &Attribute,
+        meta: &nia_ast::AttributeMeta,
+        function: &FunctionItem,
+        spelling: &str,
+        kind: FunctionAttribute,
+    ) {
+        if !meta.args.is_empty() {
+            self.diagnostics.push(
+                Diagnostic::user_error(
+                    codes::ITEM_SIGNATURE,
+                    format!("`@[{spelling}]` does not take arguments"),
+                )
+                .primary(
+                    attribute.span,
+                    format!("`{spelling}` has unexpected arguments"),
+                )
+                .help(format!("remove the arguments from `@[{spelling}]`"))
+                .finish(),
+            );
+        }
+        if function.body.is_none() {
+            self.diagnostics.push(
+                Diagnostic::user_error(
+                    codes::ITEM_SIGNATURE,
+                    format!("`@[{spelling}]` requires a function body"),
+                )
+                .primary(attribute.span, "this function has no body to inline")
+                .help(format!("move `@[{spelling}]` to the function definition"))
+                .finish(),
+            );
+        }
+        if out.contains(&kind) {
+            self.diagnostics.push(
+                Diagnostic::user_error(
+                    codes::ITEM_SIGNATURE,
+                    format!("duplicate `@[{spelling}]` function attribute"),
+                )
+                .primary(attribute.span, format!("duplicate `{spelling}` attribute"))
+                .help(format!("keep only one `@[{spelling}]` attribute"))
+                .finish(),
+            );
+        } else {
+            out.push(kind);
+        }
+    }
+
+    /// `@[inlineAlways]` contradicts `@[inlineNever]`, and a naked function
+    /// has no frame of its own to be inlined into a caller's.
+    fn report_inline_attribute_conflicts(
+        &mut self,
+        attributes: &[Attribute],
+        out: &[FunctionAttribute],
+    ) {
+        if !out.contains(&FunctionAttribute::InlineAlways) {
+            return;
+        }
+        let span = attributes
+            .iter()
+            .find(|attribute| {
+                matches!(&attribute.kind, AttributeKind::Meta(meta)
+                    if matches!(meta.path.as_slice(), [name] if *name == known::INLINE_ALWAYS))
+            })
+            .map(|attribute| attribute.span)
+            .unwrap_or_default();
+        for (conflict, other) in [
+            (FunctionAttribute::InlineNever, "inlineNever"),
+            (FunctionAttribute::Naked, "naked"),
+        ] {
+            if out.contains(&conflict) {
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::ITEM_SIGNATURE,
+                        format!("`@[inlineAlways]` cannot be combined with `@[{other}]`"),
+                    )
+                    .primary(span, format!("`inlineAlways` conflicts with `{other}`"))
+                    .help(format!("keep either `@[inlineAlways]` or `@[{other}]`"))
+                    .finish(),
+                );
+            }
+        }
+    }
+
     fn function_attributes(
         &mut self,
         attributes: &[Attribute],
@@ -1059,45 +1144,13 @@ impl<'a> SignatureCollector<'a> {
                         out.push(FunctionAttribute::TrackCaller);
                     }
                 }
-                [name] if *name == known::INLINE_NEVER => {
-                    if !meta.args.is_empty() {
-                        self.diagnostics.push(
-                            Diagnostic::user_error(
-                                codes::ITEM_SIGNATURE,
-                                "`@[inlineNever]` does not take arguments",
-                            )
-                            .primary(attribute.span, "`inlineNever` has unexpected arguments")
-                            .help("remove the arguments from `@[inlineNever]`")
-                            .finish(),
-                        );
-                    }
-                    if function.body.is_none() {
-                        self.diagnostics.push(
-                            Diagnostic::user_error(
-                                codes::ITEM_SIGNATURE,
-                                "`@[inlineNever]` requires a function body",
-                            )
-                            .primary(attribute.span, "this function has no body to inline")
-                            .help("move `@[inlineNever]` to the function definition")
-                            .finish(),
-                        );
-                    }
-                    if out
-                        .iter()
-                        .any(|attribute| matches!(attribute, FunctionAttribute::InlineNever))
-                    {
-                        self.diagnostics.push(
-                            Diagnostic::user_error(
-                                codes::ITEM_SIGNATURE,
-                                "duplicate `@[inlineNever]` function attribute",
-                            )
-                            .primary(attribute.span, "duplicate `inlineNever` attribute")
-                            .help("keep only one `@[inlineNever]` attribute")
-                            .finish(),
-                        );
+                [name] if *name == known::INLINE_NEVER || *name == known::INLINE_ALWAYS => {
+                    let (spelling, kind) = if *name == known::INLINE_NEVER {
+                        ("inlineNever", FunctionAttribute::InlineNever)
                     } else {
-                        out.push(FunctionAttribute::InlineNever);
-                    }
+                        ("inlineAlways", FunctionAttribute::InlineAlways)
+                    };
+                    self.inline_attribute(&mut out, attribute, meta, function, spelling, kind);
                 }
                 [name] if *name == known::LINK_NAME || *name == known::EXPORT_NAME => {}
                 [name] if *name == known::NO_MANGLE => {
@@ -1123,6 +1176,7 @@ impl<'a> SignatureCollector<'a> {
                 }
             }
         }
+        self.report_inline_attribute_conflicts(attributes, &out);
         if context == FunctionAttributeContext::TopLevel
             && !function.is_extern
             && function.body.is_none()

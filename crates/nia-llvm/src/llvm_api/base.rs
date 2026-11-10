@@ -477,6 +477,9 @@ pub enum Linkage {
     Internal,
     /// Module-local definition that has no symbol in the object file.
     Private,
+    /// A copy of a definition owned by another module, available for
+    /// inlining and analysis only; it never produces a symbol.
+    AvailableExternally,
 }
 
 impl From<Linkage> for LLVMLinkage {
@@ -488,6 +491,7 @@ impl From<Linkage> for LLVMLinkage {
             Linkage::WeakOdr => LLVMLinkage::LLVMWeakODRLinkage,
             Linkage::Internal => LLVMLinkage::LLVMInternalLinkage,
             Linkage::Private => LLVMLinkage::LLVMPrivateLinkage,
+            Linkage::AvailableExternally => LLVMLinkage::LLVMAvailableExternallyLinkage,
         }
     }
 }

@@ -86,6 +86,11 @@ pub(super) fn source_unit_fingerprint(
 
     let mut definition = Encoder::new(SOURCE_DEFINITION_DOMAIN, index);
     definition.partition_definitions(partition, owner);
+    // Bodies copied in for `@[inlineAlways]` are compiled into this unit, so
+    // a change to one of them must rebuild it.
+    definition
+        .available_copies(declarations)
+        .map_err(|diagnostic| vec![diagnostic])?;
 
     let mut declaration = Encoder::new(SOURCE_DECLARATIONS_DOMAIN, index);
     declaration
@@ -420,6 +425,39 @@ impl<'a> Encoder<'a> {
         });
     }
 
+    fn available_copies(
+        &mut self,
+        declarations: &CodegenDeclarationMembership,
+    ) -> Result<(), nia_diagnostic::Diagnostic> {
+        let missing = || {
+            nia_diagnostic::Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                nia_span::Span::default(),
+                "inlined function copy is missing from the backend program",
+            )
+        };
+        let index = self.index;
+        self.len(declarations.available_functions.len());
+        for def_id in &declarations.available_functions {
+            self.function(index.function(*def_id).ok_or_else(missing)?);
+        }
+        self.len(declarations.available_function_instances.len());
+        for key in &declarations.available_function_instances {
+            self.function_instance(
+                index
+                    .function_instance(
+                        key.def_id,
+                        key.arg_module_id,
+                        key.self_arg,
+                        &key.args,
+                        &key.const_args,
+                    )
+                    .ok_or_else(missing)?,
+            );
+        }
+        Ok(())
+    }
+
     fn partition_definitions(&mut self, partition: &CodegenPartition, module: &BackendModule) {
         self.len(partition.global_definitions().len());
         for &index in partition.global_definitions() {
@@ -622,6 +660,7 @@ impl<'a> Encoder<'a> {
                 BackendFunctionAttribute::Naked => 0,
                 BackendFunctionAttribute::TrackCaller => 1,
                 BackendFunctionAttribute::InlineNever => 2,
+                BackendFunctionAttribute::InlineAlways => 3,
             });
         }
     }

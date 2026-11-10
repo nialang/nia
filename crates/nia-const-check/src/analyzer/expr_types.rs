@@ -768,7 +768,8 @@ impl Analyzer<'_> {
                 FunctionAttribute::Builtin(builtin) => Some(*builtin),
                 FunctionAttribute::Naked
                 | FunctionAttribute::TrackCaller
-                | FunctionAttribute::InlineNever => None,
+                | FunctionAttribute::InlineNever
+                | FunctionAttribute::InlineAlways => None,
             })?;
         match builtin {
             BuiltinFunction::ConstError => expected,

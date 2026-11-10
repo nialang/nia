@@ -1687,6 +1687,8 @@ pub enum BackendFunctionAttribute {
     TrackCaller,
     /// Never inline calls to this function, in Nia or in LLVM.
     InlineNever,
+    /// Inline every direct call to this function, at every level.
+    InlineAlways,
 }
 
 /// Concrete generic function definition.

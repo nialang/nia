@@ -115,7 +115,146 @@ pub(super) fn validate_backend_program(index: &ProgramIndex) -> Vec<Diagnostic> 
         ));
     }
     validate_generated_symbols(index, &mut diagnostics);
+    validate_inline_always_cycles(index, &mut diagnostics);
     diagnostics
+}
+
+/// `@[inlineAlways]` promises that no call to the function remains, which a
+/// cycle of such functions cannot keep: one call in the cycle would have to
+/// stay. Cycles are found by definition, so recursion through two instances
+/// of one generic function counts as well.
+fn validate_inline_always_cycles(index: &ProgramIndex, diagnostics: &mut Vec<Diagnostic>) {
+    use crate::declaration_membership::is_inline_always;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    // Each inline-always definition with the spans of its body and the
+    // inline-always definitions its body refers to.
+    type Node<'p> = (nia_span::Span, &'p str, BTreeSet<GlobalDefId>);
+    let mut edges: BTreeMap<GlobalDefId, Node<'_>> = BTreeMap::new();
+    let mut nodes = Vec::new();
+    for module_id in index.module_ids() {
+        let Some(module) = index.module(*module_id) else {
+            continue;
+        };
+        for function in &module.functions {
+            if is_inline_always(&function.attributes)
+                && let Some(body) = &function.function_body
+            {
+                nodes.push((
+                    function.def_id,
+                    function.span,
+                    module.source_identity.normalized_path(),
+                    body.value_refs(index.type_store()),
+                ));
+            }
+        }
+        for instance in &module.function_instances {
+            if is_inline_always(&instance.attributes)
+                && let Some(body) = &instance.function_body
+            {
+                nodes.push((
+                    instance.def_id,
+                    instance.span,
+                    module.source_identity.normalized_path(),
+                    body.value_refs(index.type_store()),
+                ));
+            }
+        }
+    }
+    let inline_always = nodes
+        .iter()
+        .map(|(def_id, _, _, _)| *def_id)
+        .collect::<BTreeSet<_>>();
+    for (def_id, span, path, refs) in nodes {
+        let entry = edges
+            .entry(def_id)
+            .or_insert_with(|| (span, path, BTreeSet::new()));
+        entry.2.extend(
+            refs.functions
+                .iter()
+                .copied()
+                .chain(
+                    refs.function_instances
+                        .iter()
+                        .map(|reference| reference.def_id),
+                )
+                .filter(|callee| inline_always.contains(callee)),
+        );
+    }
+
+    // Depth-first search; a back edge closes a cycle, reported once from its
+    // first member in definition order.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Mark {
+        Active,
+        Done,
+    }
+    let mut marks = BTreeMap::new();
+    let mut reported = BTreeSet::new();
+    for &root in edges.keys() {
+        if marks.contains_key(&root) {
+            continue;
+        }
+        let mut path = vec![root];
+        let mut stack = vec![(root, edges[&root].2.iter().copied().collect::<Vec<_>>())];
+        marks.insert(root, Mark::Active);
+        while let Some((_, pending)) = stack.last_mut() {
+            let Some(next) = pending.pop() else {
+                let (done, _) = stack.pop().expect("stack is not empty");
+                marks.insert(done, Mark::Done);
+                path.pop();
+                continue;
+            };
+            match marks.get(&next) {
+                Some(Mark::Active) => {
+                    let start = path.iter().position(|def_id| *def_id == next).unwrap_or(0);
+                    let cycle = path[start..].to_vec();
+                    let first = *cycle.iter().min().expect("a cycle has a member");
+                    if !reported.insert(first) {
+                        continue;
+                    }
+                    let mut diagnostic = Diagnostic::user_error(
+                        nia_diagnostic::codes::ITEM_SIGNATURE,
+                        "`@[inlineAlways]` functions cannot call each other in a cycle",
+                    )
+                    .primary(
+                        edges[&cycle[0]].0,
+                        if cycle.len() == 1 {
+                            "this `@[inlineAlways]` function calls itself"
+                        } else {
+                            "this `@[inlineAlways]` function starts the cycle"
+                        },
+                    );
+                    // Members may be defined in other files, so each one is a
+                    // related location carrying its own source path.
+                    for member in &cycle[1..] {
+                        diagnostic = diagnostic.related_at(
+                            edges[member].1,
+                            edges[member].0,
+                            "this `@[inlineAlways]` function is part of the same cycle",
+                        );
+                    }
+                    diagnostics.push(
+                        diagnostic
+                            .note("one call in the cycle would remain, which `@[inlineAlways]` rules out")
+                            .help("remove `@[inlineAlways]` from at least one function in the cycle")
+                            .in_source(edges[&cycle[0]].1)
+                            .finish(),
+                    );
+                }
+                Some(Mark::Done) => {}
+                None => {
+                    marks.insert(next, Mark::Active);
+                    path.push(next);
+                    let callees = edges
+                        .get(&next)
+                        .map(|(_, _, callees)| callees.iter().copied().collect::<Vec<_>>())
+                        .unwrap_or_default();
+                    stack.push((next, callees));
+                }
+            }
+        }
+    }
 }
 
 pub(super) fn validate_native_backend_program(
@@ -1390,15 +1529,18 @@ impl BackendValidator<'_> {
                     "backend IR `trackCaller` attribute is not valid on extern functions",
                 ));
             }
-            if matches!(
-                attribute,
-                nia_backend_ir::BackendFunctionAttribute::InlineNever
-            ) && !has_body
+            let inline_spelling = match attribute {
+                nia_backend_ir::BackendFunctionAttribute::InlineNever => Some("inlineNever"),
+                nia_backend_ir::BackendFunctionAttribute::InlineAlways => Some("inlineAlways"),
+                _ => None,
+            };
+            if let Some(spelling) = inline_spelling
+                && !has_body
             {
                 self.diagnostics.push(Diagnostic::internal_error_at(
                     nia_diagnostic::codes::INVALID_BACKEND_IR,
                     span,
-                    "backend IR `inlineNever` attribute requires a function body",
+                    format!("backend IR `{spelling}` attribute requires a function body"),
                 ));
             }
         }
@@ -2662,6 +2804,8 @@ mod owner_tests {
             globals: Vec::new(),
             global_instances: Vec::new(),
             vtables: Vec::new(),
+            available_functions: Vec::new(),
+            available_function_instances: Vec::new(),
         };
 
         let diagnostics =

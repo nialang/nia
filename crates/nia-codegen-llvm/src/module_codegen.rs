@@ -560,6 +560,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         time_codegen_module_stage(self.timings, "optimize_module", &self.source.name, || {
             optimize_module(&self.module, target, level).map_err(Self::diagnostic_from_llvm_error)
         })?;
+        self.verify_inline_always_calls()?;
         time_codegen_module_stage(self.timings, "emit_object", &self.source.name, || {
             target
                 .emit_object(&self.module)
@@ -583,13 +584,38 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             crate::LtoMode::Thin => "thin_lto_prelink",
             crate::LtoMode::Full => "full_lto_prelink",
         };
-        time_codegen_module_stage(self.timings, stage, &self.source.name, || {
+        let bitcode = time_codegen_module_stage(self.timings, stage, &self.source.name, || {
             match pre_link {
                 crate::LtoMode::Thin => emit_thin_lto_bitcode(&self.module, target, level),
                 crate::LtoMode::Full => emit_full_lto_bitcode(&self.module, target, level),
             }
             .map_err(Self::diagnostic_from_llvm_error)
-        })
+        })?;
+        self.verify_inline_always_calls()?;
+        Ok(bitcode)
+    }
+
+    /// `@[inlineAlways]` promises that no direct call to the function
+    /// remains. Every callee's body is in this unit, defined here or copied
+    /// in, and cycles are rejected before code generation, so a call left
+    /// after optimization is a compiler defect, never a property of the
+    /// program; it is reported instead of producing a binary that breaks the
+    /// promise.
+    fn verify_inline_always_calls(&self) -> Result<(), Diagnostic> {
+        let remaining = self
+            .module
+            .direct_calls_to_functions_with_attribute("alwaysinline");
+        let Some((caller, callee)) = remaining.first() else {
+            return Ok(());
+        };
+        Err(Diagnostic::internal_error_at(
+            nia_diagnostic::codes::INVALID_BACKEND_IR,
+            Span::default(),
+            format!(
+                "LLVM left {} call(s) to `@[inlineAlways]` functions, first `{callee}` in `{caller}`",
+                remaining.len()
+            ),
+        ))
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
@@ -803,6 +829,60 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .map_err(Self::diagnostic_from_llvm_error)
     }
 
+    fn emit_function_instance_body(
+        &mut self,
+        instance: &'a nia_backend_ir::BackendFunctionInstance,
+    ) -> Result<(), Diagnostic> {
+        let Some(function_body) = &instance.function_body else {
+            if !instance.linkage.is_extern() {
+                return Err(self.error(
+                    instance.span,
+                    format!(
+                        "missing function instance body for `{}` {:?} with args {:?}",
+                        self.symbol_debug_name(instance.name),
+                        instance.def_id,
+                        instance.args
+                    ),
+                ));
+            }
+            return Ok(());
+        };
+        let Some(llvm_function) = self.function_instance_value(
+            instance.def_id,
+            instance.arg_module_id,
+            instance.self_arg,
+            &instance.args,
+            &instance.const_args,
+        ) else {
+            return Err(self.error(instance.span, "missing function instance"));
+        };
+        let mut codegen = FunctionCodegen::new(
+            self,
+            FunctionCodegenInput {
+                params: &instance.params,
+                return_type: instance.return_type,
+                local_names: &instance.local_names,
+                span: instance.span,
+                closure_owner: BackendClosureEntryOwner::FunctionInstance(
+                    nia_function_ir::FunctionInstanceKey {
+                        def_id: instance.def_id,
+                        arg_module_id: instance.arg_module_id,
+                        self_arg: instance.self_arg,
+                        args: instance.args.clone(),
+                        const_args: instance.const_args.clone(),
+                    },
+                ),
+                tracks_caller: instance
+                    .attributes
+                    .contains(&nia_backend_ir::BackendFunctionAttribute::TrackCaller),
+                is_extern: instance.linkage.is_extern(),
+            },
+            llvm_function,
+        )?;
+        codegen.emit_function_body(function_body)?;
+        Ok(())
+    }
+
     fn emit_function_bodies(&mut self) -> Result<(), Diagnostic> {
         for &index in self.partition.function_definitions() {
             let function = &self.source.functions[index];
@@ -833,53 +913,49 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         for &index in self.partition.function_instance_definitions() {
             let instance = &self.source.function_instances[index];
-            let Some(function_body) = &instance.function_body else {
-                if !instance.linkage.is_extern() {
-                    return Err(self.error(
-                        instance.span,
-                        format!(
-                            "missing function instance body for `{}` {:?} with args {:?}",
-                            self.symbol_debug_name(instance.name),
-                            instance.def_id,
-                            instance.args
-                        ),
-                    ));
-                }
-                continue;
+            self.emit_function_instance_body(instance)?;
+        }
+        // Copies of `@[inlineAlways]` functions defined in other units. Each
+        // call to them in this unit is inlined; the copy itself produces no
+        // symbol, so the owner's definition stays the only one.
+        for def_id in &self.declarations.available_functions {
+            let Some(function) = self.program.function(*def_id) else {
+                return Err(self.error(Span::default(), "missing inlined function copy"));
             };
-            let Some(llvm_function) = self.function_instance_value(
+            let Some(function_body) = &function.function_body else {
+                return Err(self.error(function.span, "inlined function copy has no body"));
+            };
+            let Some(llvm_function) = self.functions.get(def_id).copied() else {
+                return Err(self.error(function.span, "missing inlined function declaration"));
+            };
+            llvm_function
+                .as_global_value()
+                .set_linkage(Linkage::AvailableExternally);
+            let mut codegen = FunctionCodegen::new(self, function, llvm_function)?;
+            codegen.emit_function_body(function_body)?;
+        }
+        for key in &self.declarations.available_function_instances {
+            let Some(instance) = self.program.function_instance(
+                key.def_id,
+                key.arg_module_id,
+                key.self_arg,
+                &key.args,
+                &key.const_args,
+            ) else {
+                return Err(self.error(Span::default(), "missing inlined function instance copy"));
+            };
+            self.emit_function_instance_body(instance)?;
+            if let Some(llvm_function) = self.function_instance_value(
                 instance.def_id,
                 instance.arg_module_id,
                 instance.self_arg,
                 &instance.args,
                 &instance.const_args,
-            ) else {
-                return Err(self.error(instance.span, "missing function instance"));
-            };
-            let mut codegen = FunctionCodegen::new(
-                self,
-                FunctionCodegenInput {
-                    params: &instance.params,
-                    return_type: instance.return_type,
-                    local_names: &instance.local_names,
-                    span: instance.span,
-                    closure_owner: BackendClosureEntryOwner::FunctionInstance(
-                        nia_function_ir::FunctionInstanceKey {
-                            def_id: instance.def_id,
-                            arg_module_id: instance.arg_module_id,
-                            self_arg: instance.self_arg,
-                            args: instance.args.clone(),
-                            const_args: instance.const_args.clone(),
-                        },
-                    ),
-                    tracks_caller: instance
-                        .attributes
-                        .contains(&nia_backend_ir::BackendFunctionAttribute::TrackCaller),
-                    is_extern: instance.linkage.is_extern(),
-                },
-                llvm_function,
-            )?;
-            codegen.emit_function_body(function_body)?;
+            ) {
+                llvm_function
+                    .as_global_value()
+                    .set_linkage(Linkage::AvailableExternally);
+            }
         }
         for &index in self.partition.closure_entry_definitions() {
             let entry = &self.source.closure_entries[index];
