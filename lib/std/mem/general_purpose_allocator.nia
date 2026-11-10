@@ -14,6 +14,16 @@
 // including one remembered from a failed checked teardown. Deferred cleanup
 // uses `defer allocator.deinit().?;`, with `IntoError` converting the error.
 //
+// Freed memory is retained for reuse rather than returned to the child on
+// every free: returning a page costs a system call, and the next request then
+// pays for fresh zeroed pages on first touch. Up to `maxEmptySmallPages` empty
+// small pages stay on their size-class lists, and freed large blocks of at most
+// `maxCachedLargeBlockSize` bytes are cached, `maxCachedLargeBlocks` and
+// `maxCachedLargeBytes` at most, then reused by best fit for requests at least
+// half their size. Retained memory counts toward `capacity` and keeps
+// `isEmpty` false; `trim` releases it under the same cleanup contract as
+// `deinit`, which releases it too.
+//
 // Large allocations validate the backing base plus header offset before
 // publishing metadata, rejecting malformed child addresses. If malformed
 // metadata is rejected but the rollback release fails, the child block is kept
@@ -44,6 +54,10 @@ using super::layout::Layout;
 
 const maxSmallSize: usize = 2048;
 const minSlotSize: usize = 16;
+const maxEmptySmallPages: usize = 8;
+const maxCachedLargeBlocks: usize = 8;
+const maxCachedLargeBytes: usize = 64 * 1024 * 1024;
+const maxCachedLargeBlockSize: usize = 32 * 1024 * 1024;
 @[if pointerWidth == 64]
 const smallMagic: usize = 0x6e69615f67707331;
 @[if pointerWidth == 32]
@@ -79,10 +93,19 @@ struct LargeHeader {
     next: ?&mut LargeHeader,
 }
 
+// A freed large backing block kept for reuse; the record lives at its base.
+struct CachedBlock {
+    backing: Block,
+    next: ?&mut CachedBlock,
+}
+
 pub struct GeneralPurposeAllocator {
     child: &mut Allocator,
     smallPages: ?&mut SmallPage,
     largeAllocations: ?&mut LargeHeader,
+    cachedLarge: ?&mut CachedBlock,
+    cachedLargeCount: usize,
+    cachedLargeBytes: usize,
     pendingFree: ?Block,
     deinitLeak: bool,
 }
@@ -93,9 +116,50 @@ extend GeneralPurposeAllocator {
             child,
             smallPages: null,
             largeAllocations: null,
+            cachedLarge: null,
+            cachedLargeCount: 0,
+            cachedLargeBytes: 0,
             pendingFree: null,
             deinitLeak: false,
         }
+    }
+
+    // Returns retained free memory to the child: empty small pages, cached
+    // large blocks, and pending rollback storage. Every release is attempted
+    // and the first error is returned; memory whose release failed stays
+    // retained, so a retry revisits only it.
+    pub fun trim(&mut self) Error!() {
+        let mut cleanup: error::CleanupAccumulator[Error] = .init();
+        let mut current = self.smallPages;
+        let mut previous: ?&mut SmallPage = null;
+        loop {
+            if current is mut ?item {
+                let next = item.next;
+                if item.usedCount != 0 {
+                    previous = ?item;
+                } else if self.child.free(item.block) is err! {
+                    cleanup.attempt(err!);
+                    previous = ?item;
+                } else if previous is mut ?prev {
+                    prev.next = next;
+                } else {
+                    self.smallPages = next;
+                }
+                current = next;
+            } else {
+                break;
+            }
+        }
+        let cached = self.detachCachedLarge();
+        self.releaseCachedList(cached, &mut cleanup);
+        if self.pendingFree is ?block {
+            if self.child.free(block) is err! {
+                cleanup.attempt(err!);
+            } else {
+                self.pendingFree = null;
+            }
+        }
+        cleanup.finish()
     }
 
     pub fun deinit(&mut self) Error!() {
@@ -117,10 +181,11 @@ extend GeneralPurposeAllocator {
         let small = self.smallPages;
         let large = self.largeAllocations;
         let pending = self.pendingFree;
+        let cached = self.detachCachedLarge();
         self.smallPages = null;
         self.largeAllocations = null;
         self.pendingFree = null;
-        self.freeDetachedLists(small, large, pending)
+        self.freeDetachedLists(small, large, cached, pending)
     }
 
     fun hasLiveAllocations(&self) bool {
@@ -160,6 +225,7 @@ extend GeneralPurposeAllocator {
                 large = item.next;
                 continue;
             }
+            total = saturatingAdd(total, self.cachedLargeBytes);
             if self.pendingFree is ?block {
                 return saturatingAdd(total, block.size());
             }
@@ -193,6 +259,7 @@ extend GeneralPurposeAllocator {
     pub fun isEmpty(&self) bool {
         self.smallPages.isNull()
             and self.largeAllocations.isNull()
+            and self.cachedLarge.isNull()
             and self.pendingFree.isNull()
     }
 }
@@ -384,7 +451,7 @@ extend GeneralPurposeAllocator {
         if page.usedCount == 0 {
             return .Invalid!;
         }
-        if page.usedCount == 1 {
+        if page.usedCount == 1 and self.emptySmallPageCount() >= maxEmptySmallPages {
             // Keep the user's allocation live if releasing its page fails, so
             // the caller still owns a block it can retry freeing.
             return self.releaseEmptySmallPage(page);
@@ -518,7 +585,10 @@ extend GeneralPurposeAllocator {
         let totalSize = withHeader.checkedAdd(layout.size()).okOr(Error::OutOfMemory).?;
         let blockAlign = cmp::max(root::builtin::align[LargeHeader](), layout.align());
         let backingLayout = Layout::init(totalSize, blockAlign).?;
-        let backing = self.child.alloc(backingLayout).?;
+        let backing = match self.takeCachedLarge(totalSize, blockAlign) {
+            ?block => block,
+            null => self.child.alloc(backingLayout).?,
+        };
         let base = backing.ptr() as usize;
         if backing.size() < totalSize or base % blockAlign != 0 {
             self.releaseOrRetain(backing);
@@ -586,6 +656,9 @@ extend GeneralPurposeAllocator {
                         prev.next = next;
                     } else {
                         self.largeAllocations = next;
+                    }
+                    if self.cacheLarge(header.backing) {
+                        return !();
                     }
                     if self.child.free(header.backing) is err! {
                         header.next = self.largeAllocations;
@@ -658,6 +731,7 @@ extend GeneralPurposeAllocator {
         &mut self,
         small: ?&mut SmallPage,
         large: ?&mut LargeHeader,
+        cached: ?&mut CachedBlock,
         pending: ?Block,
     ) Error!() {
         let mut cleanup: error::CleanupAccumulator[Error] = .init();
@@ -689,15 +763,168 @@ extend GeneralPurposeAllocator {
                     cleanup.attempt(err!);
                 }
                 header = next;
-                continue;
+            } else {
+                break;
             }
-            if pending is ?block {
-                if self.child.free(block) is err! {
-                    self.pendingFree = ?block;
+        }
+
+        self.releaseCachedList(cached, &mut cleanup);
+        if pending is ?block {
+            if self.child.free(block) is err! {
+                self.pendingFree = ?block;
+                cleanup.attempt(err!);
+            }
+        }
+        cleanup.finish()
+    }
+
+    // Takes the whole large-block cache, leaving it empty.
+    fun detachCachedLarge(&mut self) ?&mut CachedBlock {
+        let cached = self.cachedLarge;
+        self.cachedLarge = null;
+        self.cachedLargeCount = 0;
+        self.cachedLargeBytes = 0;
+        cached
+    }
+
+    // Releases a detached cache list; blocks whose release fails go back on
+    // the cache.
+    fun releaseCachedList(
+        &mut self,
+        cached: ?&mut CachedBlock,
+        cleanup: &mut error::CleanupAccumulator[Error],
+    ) () {
+        let mut current = cached;
+        loop {
+            if current is mut ?item {
+                let next = item.next;
+                let backing = item.backing;
+                if self.child.free(backing) is err! {
+                    self.pushCachedLarge(item);
                     cleanup.attempt(err!);
                 }
+                current = next;
+            } else {
+                return;
             }
-            return cleanup.finish();
+        }
+    }
+
+    fun pushCachedLarge(&mut self, item: &mut CachedBlock) () {
+        item.next = self.cachedLarge;
+        self.cachedLarge = ?item;
+        self.cachedLargeCount += 1;
+        self.cachedLargeBytes = saturatingAdd(self.cachedLargeBytes, item.backing.size());
+    }
+
+    // Keeps a freed large backing block for reuse, evicting the least recently
+    // freed blocks to make room: a recent free is the likeliest to be asked
+    // for again.
+    fun cacheLarge(&mut self, backing: Block) bool {
+        let size = backing.size();
+        if size > maxCachedLargeBlockSize
+            or size < root::builtin::size[CachedBlock]()
+            or size > maxCachedLargeBytes
+        {
+            return false;
+        }
+        while self.cachedLargeCount >= maxCachedLargeBlocks
+            or size > maxCachedLargeBytes - self.cachedLargeBytes
+        {
+            if not self.evictOldestCachedLarge() {
+                return false;
+            }
+        }
+        let mut item = backing.ptr() as &mut CachedBlock;
+        item.* = .{ backing, next: null };
+        self.pushCachedLarge(item);
+        true
+    }
+
+    // Releases the least recently cached block; false if there is none or its
+    // release fails, in which case it stays cached.
+    fun evictOldestCachedLarge(&mut self) bool {
+        let mut previous: ?&mut CachedBlock = null;
+        let mut current = self.cachedLarge;
+        loop {
+            if current is mut ?item {
+                if item.next is ?_ {
+                    previous = ?item;
+                    current = item.next;
+                    continue;
+                }
+                // The record lives inside the block, so read it before release.
+                let backing = item.backing;
+                if self.child.free(backing) is error! {
+                    return false;
+                }
+                if previous is mut ?prev {
+                    prev.next = null;
+                } else {
+                    self.cachedLarge = null;
+                }
+                self.cachedLargeCount -= 1;
+                self.cachedLargeBytes -= backing.size();
+                return true;
+            } else {
+                return false;
+            }
+        }
+    }
+
+    // The smallest cached block that holds `size` bytes at `align`, unless
+    // that would leave more than half of it unused.
+    fun takeCachedLarge(&mut self, size: usize, align: usize) ?Block {
+        let mut best: ?&mut CachedBlock = null;
+        let mut bestPrevious: ?&mut CachedBlock = null;
+        let mut previous: ?&mut CachedBlock = null;
+        let mut current = self.cachedLarge;
+        loop {
+            if current is mut ?item {
+                let candidate = item.backing.size();
+                let fits = candidate >= size
+                    and candidate - size <= size
+                    and item.backing.ptr() as usize % align == 0;
+                let better = match best {
+                    ?chosen => candidate < chosen.backing.size(),
+                    null => true,
+                };
+                if fits and better {
+                    best = ?item;
+                    bestPrevious = previous;
+                }
+                previous = ?item;
+                current = item.next;
+            } else {
+                break;
+            }
+        }
+        let chosen = match best {
+            ?item => item,
+            null => return null,
+        };
+        if bestPrevious is mut ?prev {
+            prev.next = chosen.next;
+        } else {
+            self.cachedLarge = chosen.next;
+        }
+        self.cachedLargeCount -= 1;
+        self.cachedLargeBytes -= chosen.backing.size();
+        ?chosen.backing
+    }
+
+    fun emptySmallPageCount(&self) usize {
+        let mut count: usize = 0;
+        let mut page = self.smallPages;
+        loop {
+            if page is ?item {
+                if item.usedCount == 0 {
+                    count += 1;
+                }
+                page = item.next;
+            } else {
+                return count;
+            }
         }
     }
 }

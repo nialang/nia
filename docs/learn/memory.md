@@ -163,6 +163,12 @@ child allocator, or a buffer, to get its own memory from.
 | `FixedBufferAllocator` | allocation from a caller-provided buffer, with no system calls | the buffer's owner |
 | `PoolAllocator[T]` | many values of one type that are created and freed often | `deinit` |
 
+A general-purpose allocator keeps a bounded amount of freed memory for its next
+allocations instead of returning every page to its child at once, so freeing and
+allocating again does not cost a system call each time. That memory still
+counts in `capacity()`, and `isEmpty()` stays false until it is released by
+`trim`, which returns it to the child, or by `deinit`.
+
 An arena reclaims space only when its most recent allocation is freed; the rest
 is released together, either by `reset`, which keeps the memory for the next
 round, or by `deinit`, which returns it to the child allocator. It suits work

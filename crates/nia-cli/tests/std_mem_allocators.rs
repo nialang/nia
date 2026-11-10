@@ -488,16 +488,17 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
-fn emit_exe_std_mem_general_allocator_preserves_block_when_empty_page_release_fails() {
-    let root = temp_dir(
-        "emit_exe_std_mem_general_allocator_preserves_block_when_empty_page_release_fails",
-    );
+fn emit_exe_std_mem_general_allocator_retains_empty_pages_and_retries_releases() {
+    let root =
+        temp_dir("emit_exe_std_mem_general_allocator_retains_empty_pages_and_retries_releases");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
+using std;
 using std::mem;
+using std::os;
 using std::process;
 
 struct FailOnceAllocator {
@@ -528,26 +529,56 @@ extend FailOnceAllocator : mem::Allocator {
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let mut child = FailOnceAllocator::init();
+    child.failures = 0;
+    let mut scratch = mem::PageAllocator::init();
     let mut allocator = mem::GeneralPurposeAllocator::init(&mut child);
-    let layout = mem::Layout::init(32, 8).?;
-    let block = allocator.alloc(layout).?;
-    if allocator.used() != block.size() {
-        return process::ExitCode(1)!;
+    // A 1500-byte block takes a 2048-byte slot, and the page header takes the
+    // first slot, so nine pages hold exactly this many blocks. Eight empty
+    // pages are retained; the ninth to empty is released.
+    let layout = mem::Layout::init(1500, 8).?;
+    let count = 9 * (os::pageSize() / 2048 - 1);
+    let mut blocks = std::ArrayList[mem::Block]::init();
+    for _ in 0..count {
+        blocks.push(&mut scratch, allocator.alloc(layout).?).?;
     }
 
-    match allocator.free(block) {
-        !ok => { _ = ok; return process::ExitCode(2)!; },
-        mem::Error::System! => {},
-        error! => { _ = error; return process::ExitCode(3)!; },
+    child.failures = 1;
+    let mut failed: usize = 0;
+    for &block in blocks.iter() {
+        match allocator.free(block) {
+            !ok => { _ = ok; },
+            mem::Error::System! => {
+                // The failed release keeps the block live so it can be freed again.
+                failed += 1;
+                if allocator.used() != block.size() or allocator.isEmpty() {
+                    return process::ExitCode(1)!;
+                }
+                allocator.free(block).?;
+            },
+            error! => { _ = error; return process::ExitCode(2)!; },
+        }
     }
-    if allocator.used() != block.size() or allocator.isEmpty() {
+    if failed != 1 or allocator.used() != 0 or allocator.isEmpty() {
+        return process::ExitCode(3)!;
+    }
+    if allocator.capacity() != 8 * os::pageSize() {
         return process::ExitCode(4)!;
     }
 
-    allocator.free(block).?;
-    if allocator.used() != 0 or not allocator.isEmpty() {
-        return process::ExitCode(5)!;
+    child.failures = 1;
+    match allocator.trim() {
+        !ok => { _ = ok; return process::ExitCode(5)!; },
+        mem::Error::System! => {},
+        error! => { _ = error; return process::ExitCode(6)!; },
     }
+    if allocator.capacity() != os::pageSize() or allocator.isEmpty() {
+        return process::ExitCode(7)!;
+    }
+    allocator.trim().?;
+    if not allocator.isEmpty() or allocator.capacity() != 0 {
+        return process::ExitCode(8)!;
+    }
+    blocks.deinit(&mut scratch).?;
     allocator.deinit().?;
     !()
 }
@@ -608,6 +639,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
     allocator.free(reused).?;
     allocator.free(second).?;
+    allocator.trim().?;
     if not allocator.isEmpty() {
         return process::ExitCode(3)!;
     }
@@ -740,6 +772,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
     let empty_layout = mem::Layout::init(0, 4096).?;
     block = reallocOrExit(&mut allocator, block, empty_layout, 10).?;
+    allocator.trim().?;
     if not block.isEmpty() or not allocator.isEmpty() {
         return process::ExitCode(6)!;
     }
@@ -748,6 +781,137 @@ pub fun main(init: process::Init) process::ExitCode!() {
         return process::ExitCode(7)!;
     }
     _ = allocator.deinit().?;
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_mem_general_purpose_allocator_reuses_freed_large_blocks() {
+    let root = temp_dir("emit_exe_std_mem_general_purpose_allocator_reuses_freed_large_blocks");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::mem;
+using std::process;
+
+struct CountingAllocator {
+    page: mem::PageAllocator,
+    allocs: usize,
+    frees: usize,
+}
+
+extend CountingAllocator {
+    fun init() CountingAllocator {
+        .{ page: mem::PageAllocator::init(), allocs: 0, frees: 0 }
+    }
+}
+
+extend CountingAllocator : mem::Allocator {
+    fun alloc(&mut self, layout: mem::Layout) mem::Error!mem::Block {
+        self.allocs += 1;
+        self.page.alloc(layout)
+    }
+
+    fun free(&mut self, block: mem::Block) mem::Error!() {
+        self.frees += 1;
+        self.page.free(block)
+    }
+
+    fun resize(&mut self, block: mem::Block, newLayout: mem::Layout) bool {
+        self.page.resize(block, newLayout)
+    }
+
+    fun remap(&mut self, block: mem::Block, newLayout: mem::Layout) ?mem::Block {
+        self.page.remap(block, newLayout)
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut child = CountingAllocator::init();
+    let mut allocator = mem::GeneralPurposeAllocator::init(&mut child);
+
+    let layout = mem::Layout::init(65536, 8).?;
+    let first = allocator.alloc(layout).?;
+    let firstAddr = first.ptr() as usize;
+    allocator.free(first).?;
+    if child.frees != 0 or allocator.used() != 0 or allocator.isEmpty() {
+        return process::ExitCode(1)!;
+    }
+
+    // The same request takes the cached block back.
+    let second = allocator.alloc(layout).?;
+    if second.ptr() as usize != firstAddr or child.allocs != 1 {
+        return process::ExitCode(2)!;
+    }
+    allocator.free(second).?;
+
+    // A request needing under half of the cached block gets its own.
+    let quarter = allocator.alloc(mem::Layout::init(16384, 8).?).?;
+    if child.allocs != 2 {
+        return process::ExitCode(3)!;
+    }
+    allocator.free(quarter).?;
+
+    // A block past the per-block limit goes straight back to the child.
+    let huge = allocator.alloc(mem::Layout::init(40 * 1024 * 1024, 8).?).?;
+    allocator.free(huge).?;
+    if child.allocs != 3 or child.frees != 1 {
+        return process::ExitCode(4)!;
+    }
+
+    allocator.trim().?;
+    if child.frees != 3 or not allocator.isEmpty() or allocator.capacity() != 0 {
+        return process::ExitCode(5)!;
+    }
+
+    // Past the block limit the least recently freed block is released and the
+    // most recent ones stay cached.
+    let mut scratch = mem::PageAllocator::init();
+    let mut blocks = std::ArrayList[mem::Block]::init();
+    for _ in 0..9 {
+        blocks.push(&mut scratch, allocator.alloc(layout).?).?;
+    }
+    for &block in blocks.iter() {
+        allocator.free(block).?;
+    }
+    if child.frees != 4 {
+        return process::ExitCode(6)!;
+    }
+    let again = allocator.alloc(layout).?;
+    if child.allocs != 12 {
+        return process::ExitCode(7)!;
+    }
+    allocator.free(again).?;
+    allocator.trim().?;
+    if child.frees != 12 or not allocator.isEmpty() {
+        return process::ExitCode(8)!;
+    }
+    blocks.deinit(&mut scratch).?;
+    allocator.deinit().?;
     !()
 }
 "#,
@@ -840,6 +1004,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
                 } },
     }
     allocator.free(large).?;
+    allocator.trim().?;
     if not allocator.isEmpty() {
         return process::ExitCode(6)!;
     }
