@@ -24,6 +24,7 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
 | `std::checksum` | `Adler32`, `Crc32`, and `Crc32C` checksums for detecting accidental corruption |
 | `std::builtin` | Compiler-backed intrinsics (layout, bits, memory, SIMD, atomics, `asm`); see [builtins reference](../docs/reference/builtins.md) |
 | `std::cmp` | `Ordering`, `min`, and `max` |
+| `std::cpu` | Runtime CPU feature detection, including operating-system vector-state support |
 | `std::collections` | Allocator-explicit `ArrayList`, `HashMap`, `HashSet`, ordered `TreeMap`, and `TreeSet` with borrowed iterators |
 | `std::crypto` | Cryptographic digests: `Sha256` |
 | `std::cstring` | NUL-terminated `CString` owners and `CStringView` borrows for C interop |
@@ -46,6 +47,12 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
 | `std::test` | Assertions, an explicit in-process test runner, and `FailingAllocator` fault injection |
 | `std::time` | Monotonic `Instant` readings and `Duration` spans for measuring elapsed time |
 | `std::unicode` | UTF-8 decoding and scalar-value validation |
+
+`std::cpu::supports(feature: builtin::target::CpuFeature) bool` reports whether
+the running process can use a CPU feature. Build-guaranteed features fold to
+`true` in optimized code; other features use a cached runtime query. On x86,
+AVX-family features require operating-system register-state support as well as
+hardware support. See [Runtime CPU Queries](../docs/guides/targets.md#runtime-cpu-queries).
 
 ## Conventions
 

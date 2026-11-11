@@ -137,6 +137,29 @@ choose one only when every machine that runs the program has it. As with
 platform-specific code, check each level a program supports:
 `nia check src/main.nia --cpu x86_64-v3`.
 
+### Runtime CPU Queries
+
+`std::cpu::supports` answers whether the running process can use a feature:
+
+```nia
+using std::cpu;
+
+pub fun canUseAvx2() bool {
+    cpu::supports(.Avx2)
+}
+```
+
+It takes the same `CpuFeature` enum as `target::hasFeature`. When the build
+level already guarantees a feature, the answer is `true` and optimized calls
+fold away. Otherwise, x86 detection checks CPUID and, for AVX, FMA, F16C, and
+AVX-512, the operating system's register-state support. The result is cached
+without allocation. Features of another architecture are `false`. AArch64's
+current feature, `Neon`, is guaranteed by its baseline.
+
+A positive runtime query does not change how the surrounding function is
+compiled. Use `target::hasFeature` for choices fixed by the build and
+`cpu::supports` when the decision depends on the machine running the program.
+
 ## Build Profiles
 
 A build is either a `debug` build, the default, or a `release` build, selected

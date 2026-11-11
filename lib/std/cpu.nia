@@ -1,0 +1,19 @@
+// Runtime CPU queries. Build-guaranteed features need no runtime detection.
+using root::builtin::target;
+
+@[if arch == "x86" or arch == "x86_64"]
+module x86;
+
+// Whether this process can use a feature, including the operating system's
+// register-state support. The answer is cached, and concurrent first calls
+// may perform the same detection independently.
+@[inlineAlways]
+pub fun supports(feature: target::CpuFeature) bool {
+    if target::hasFeature(feature) {
+        return true;
+    }
+    @[if arch == "x86" or arch == "x86_64"]
+    return x86::supports(feature);
+    @[if arch == "aarch64"]
+    return false;
+}

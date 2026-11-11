@@ -17,6 +17,7 @@ pub module build;
 pub module cmp;
 pub module checksum;
 pub module collections;
+pub module cpu;
 pub module crypto;
 pub module cstring;
 pub module error;

@@ -49,6 +49,7 @@ pub enum CpuFeature {
 // hasFeature(...)]`, the answer depends on the CPU level the code is built
 // for, not on the machine compiling or running it, so it is the same
 // constant everywhere in one build and folds away.
+@[inlineAlways]
 pub const fun hasFeature(feature: CpuFeature) bool {
     match feature {
         .Sse2 => sse2,
