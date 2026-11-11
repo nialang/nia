@@ -1397,6 +1397,9 @@ fn symbol_visibility(linkage: &nia_backend_ir::BackendLinkage) -> Visibility {
 }
 
 /// Hides a compiler-generated symbol, which never has an external ABI name.
+/// Keeps a compiler-generated symbol with external linkage out of the
+/// image's exports. Local linkage must keep default visibility, as LLVM
+/// requires; a local symbol is never exported anyway.
 pub(super) fn hide_compiler_symbol(global: GlobalValue<'_>) {
     global.set_visibility(Visibility::Hidden);
 }

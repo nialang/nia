@@ -304,8 +304,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 // Giving each object a private definition also avoids COFF's
                 // duplicate weak-data symbol behavior when several modules
                 // contain the same logical source path.
+                // Internal linkage keeps default visibility: hidden local
+                // data is a private-extern symbol on Mach-O, which collides
+                // between objects that name the same source file.
                 global.set_linkage(Linkage::Internal);
-                declarations::hide_compiler_symbol(global);
                 global.set_constant(true);
                 global
                     .set_initializer(&initializer)
@@ -358,7 +360,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         // Each module owns its caller-location records. Their addresses are
         // runtime values, not symbols that should be coalesced by the linker.
         global.set_linkage(Linkage::Internal);
-        declarations::hide_compiler_symbol(global);
         global.set_constant(true);
         global
             .set_initializer(&initializer)
