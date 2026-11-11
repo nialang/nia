@@ -2494,7 +2494,11 @@ modules, and everything it re-exports. `using Enum::*` imports every variant.
 Importing the same name twice into one namespace and scope is an error,
 whether by name or by wildcard. Imported items enter the namespace of their
 kind: functions, statics, constants, and enum variants are values; structs,
-unions, enums, traits, and type aliases are types.
+unions, enums, traits, and type aliases are types. Modules have a namespace
+of their own, so a selected name imports everything it names: after `pub
+module parse;` and `pub using parse::parse;` in `text`, `using text::parse;`
+brings in both the module and the function, and the call `parse(input)` and
+the path `parse::Error` both resolve.
 
 ### Re-Exports
 

@@ -1578,3 +1578,35 @@ fun main() i32 {
         "{diagnostics:?}"
     );
 }
+
+#[test]
+fn a_child_module_does_not_hide_a_reexported_value_of_the_same_name() {
+    let root = temp_dir("module_and_reexported_value_share_a_name");
+    write(&root.join("root.nia"), "pub module api;");
+    write(
+        &root.join("api.nia"),
+        "pub module answer;\nmodule implementation;\npub using implementation::answer;\n",
+    );
+    write(&root.join("api/answer.nia"), "pub fun detail() i32 { 2 }");
+    write(
+        &root.join("api/implementation.nia"),
+        "pub fun answer() i32 { 40 }",
+    );
+    let external = root.join("external.nia");
+    let mut map = ModuleMap::new();
+    map.insert(
+        "dep",
+        SourcePath::new(root.join("root.nia").to_string_lossy()),
+    )
+    .unwrap();
+    for source in [
+        "fun main() i32 { dep::api::answer() + dep::api::answer::detail() }",
+        "using dep::api; fun main() i32 { api::answer() + api::answer::detail() }",
+        "using dep::api::answer; fun main() i32 { answer() + answer::detail() }",
+        "using dep::api::{answer as a}; fun main() i32 { a() + a::detail() }",
+    ] {
+        write(&external, source);
+        let program = check_program_with_map(external.to_string_lossy().into_owned(), map.clone());
+        assert_no_error_diagnostics(&program.diagnostics);
+    }
+}

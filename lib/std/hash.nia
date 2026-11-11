@@ -9,7 +9,6 @@ pub(root) module wyhash;
 using root::hash::fnv;
 using root::hash::siphash;
 using root::hash::impls;
-using root::hash::wyhash;
 using root::hash::xxhash;
 
 pub using fnv::{Fnv1a32, Fnv1a64};

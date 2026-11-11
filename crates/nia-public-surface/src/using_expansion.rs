@@ -676,12 +676,13 @@ fn expand_root_group_item(
                 current.module_id,
                 &name.name,
             ) {
-                return UsingExpansion::resolved(vec![ResolvedEntry {
+                let module = ResolvedEntry {
                     name: name.alias.unwrap_or(name.name),
                     name_span: name.alias_span.unwrap_or(name.name_span),
                     scope: child_scope(context, current.module_id, &name.name),
                     kind: ResolvedEntryKind::Module(module_id),
-                }]);
+                };
+                return with_module_entry(module, resolve_current_single(current, name, source));
             }
             if let Some(module_id) = local_modules.get(&name.name).copied() {
                 return UsingExpansion::resolved(vec![ResolvedEntry {
@@ -838,20 +839,7 @@ fn expand_module_host(
             UsingExpansion::resolved(entries)
         }
         UsingSelector::Single(name) => {
-            if let Some(module_id) = visible_child_module(
-                context.graph,
-                context.accessing_module,
-                target_module,
-                &name.name,
-            ) {
-                return UsingExpansion::resolved(vec![ResolvedEntry {
-                    name: name.alias.unwrap_or(name.name),
-                    name_span: name.alias_span.unwrap_or(name.name_span),
-                    scope: child_scope(context, target_module, &name.name),
-                    kind: ResolvedEntryKind::Module(module_id),
-                }]);
-            }
-            resolve_module_single(context, target_surface, target_module, name, source.clone())
+            resolve_module_single_with_child(context, target_surface, target_module, name, source)
         }
         UsingSelector::Group(items) => {
             let mut expansion = UsingExpansion::default();
@@ -874,23 +862,10 @@ fn expand_group_item(
 ) -> UsingExpansion {
     match item {
         UsingGroupItem::Name(name) => {
-            if let Some(module_id) = visible_child_module(
-                context.graph,
-                context.accessing_module,
-                current_module,
-                &name.name,
-            ) {
-                return UsingExpansion::resolved(vec![ResolvedEntry {
-                    name: name.alias.unwrap_or(name.name),
-                    name_span: name.alias_span.unwrap_or(name.name_span),
-                    scope: child_scope(context, current_module, &name.name),
-                    kind: ResolvedEntryKind::Module(module_id),
-                }]);
-            }
             let Some(surface) = context.surfaces.get(current_module) else {
                 return UsingExpansion::module_unavailable(current_module);
             };
-            resolve_module_single(context, surface, current_module, name, source.clone())
+            resolve_module_single_with_child(context, surface, current_module, name, source)
         }
         UsingGroupItem::Nested { host, selector } => {
             let namespace = match resolve_public_namespace_path(context, current_module, host) {
@@ -1233,6 +1208,50 @@ fn resolve_module_single(
             declaration_path,
         );
     }
+    UsingExpansion::resolved(entries)
+}
+
+/// Resolves one selected name of a module host in every namespace.
+///
+/// Modules, values, and types are separate namespaces: a visible child module
+/// does not hide a value or type of the same name, so the selector imports
+/// each of them.
+fn resolve_module_single_with_child(
+    context: &UsingExpansionContext<'_>,
+    target_surface: &ModulePublicSurface,
+    target_module: ModuleId,
+    name: &UsingName,
+    source: PublicSource,
+) -> UsingExpansion {
+    let items = resolve_module_single(context, target_surface, target_module, name, source);
+    let Some(module_id) = visible_child_module(
+        context.graph,
+        context.accessing_module,
+        target_module,
+        &name.name,
+    ) else {
+        return items;
+    };
+    let module = ResolvedEntry {
+        name: name.alias.unwrap_or(name.name),
+        name_span: name.alias_span.unwrap_or(name.name_span),
+        scope: child_scope(context, target_module, &name.name),
+        kind: ResolvedEntryKind::Module(module_id),
+    };
+    with_module_entry(module, items)
+}
+
+/// Combines a resolved module with the same name's value and type entries.
+/// The name already resolved as a module, so an item lookup failure is not
+/// a failure of the selector.
+fn with_module_entry(module: ResolvedEntry, items: UsingExpansion) -> UsingExpansion {
+    let mut entries = vec![module];
+    entries.extend(
+        items
+            .entries
+            .into_iter()
+            .filter(|entry| matches!(entry.kind, ResolvedEntryKind::Item(_))),
+    );
     UsingExpansion::resolved(entries)
 }
 

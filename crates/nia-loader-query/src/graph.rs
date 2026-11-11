@@ -1141,6 +1141,27 @@ pub(crate) fn add_visible_declared_module_path_following(
             }
             continue;
         };
+        // Modules, values, and types are separate namespaces, so a child
+        // module does not hide a value or type of the same name that this
+        // module re-exports. A path's last segment may name either; load the
+        // re-export's source too, or the public surface silently lacks it.
+        if is_terminal {
+            let source_processing = (processing == UsedModulePathProcessing::Never)
+                .then_some(UsedModulePathProcessing::Never);
+            if let Some(reexport_source) = add_public_reexport_source_module(
+                graph,
+                current,
+                segment,
+                source_processing,
+                reexports,
+                fact_memo,
+            )? && matches!(
+                processing,
+                UsedModulePathProcessing::Always | UsedModulePathProcessing::IfSelectedItem
+            ) {
+                mark_process_used_paths_and_process(db, graph, reexport_source, fact_memo)?;
+            }
+        }
         current = next;
         if processing.is_provider_demand() {
             process_provider_request(graph, accessing_module, current, &processing, fact_memo)?;
