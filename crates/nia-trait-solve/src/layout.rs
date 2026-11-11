@@ -63,6 +63,12 @@ impl TraitSolver<'_> {
             Some(TyKind::ClosureState { captures, .. }) => captures
                 .iter()
                 .all(|capture| self.intrinsic_sized_shape(*capture) || self.layout_of(*capture)),
+            // Tuples synthesized while checking a body are not necessarily
+            // roots of the earlier layout product. Like arrays and closure
+            // states, their sizedness follows their component types.
+            Some(TyKind::Tuple(elements)) => {
+                elements.iter().all(|element| self.layout_of(*element))
+            }
             Some(
                 TyKind::Pointer { .. }
                 | TyKind::VolatilePointer { .. }

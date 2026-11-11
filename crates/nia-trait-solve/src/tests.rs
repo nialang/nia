@@ -883,6 +883,52 @@ fn sized_lookup_matches_layout_tuple_elements_structurally() {
 }
 
 #[test]
+fn body_synthesized_tuples_are_sized_without_a_tuple_layout_root() {
+    let module_id = ModuleIdAllocator::new()
+        .expect("create allocator")
+        .allocate()
+        .expect("allocate module");
+    let type_store = TypeStore::new().expect("create type store");
+    let append = type_store.append_for_module(module_id);
+    let scalar = append.test_primitive(PrimitiveTy::U32);
+    let slice_pointee = append.test_intern(TyKind::SlicePointee { elem: scalar });
+    let tuple = append.test_intern(TyKind::Tuple(vec![scalar, scalar]));
+    let nested = append.test_intern(TyKind::Tuple(vec![scalar, tuple]));
+    let invalid = append.test_intern(TyKind::Tuple(vec![scalar, slice_pointee]));
+    let normalization = TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
+    let context = TraitSolverContext {
+        type_store: &type_store,
+        normalization: &normalization,
+        trait_impls: &[],
+        trait_impl_index: None,
+        layouts: None,
+        program_layouts: None,
+        local_module_id: module_id,
+        local_enums: &HashMap::new(),
+        program_fieldless_enum: None,
+        const_expr_value: None,
+        impl_is_visible: None,
+    };
+    let mut solver = context.solver(&[]);
+    for (ty, expected) in [(tuple, true), (nested, true), (invalid, false)] {
+        assert_eq!(
+            solver
+                .proves(TraitGoal {
+                    self_ty: ty,
+                    trait_id: TraitId::Builtin(BuiltinTrait::Sized),
+                    trait_args: Vec::new(),
+                    trait_const_args: Vec::new(),
+                })
+                .expect("prove tuple sizedness"),
+            expected
+        );
+    }
+}
+
+#[test]
 fn failed_array_element_match_does_not_publish_const_length_inference() {
     let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
