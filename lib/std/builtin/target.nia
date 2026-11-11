@@ -17,3 +17,147 @@ pub const endian: &[char];
 
 @[builtin("target.pointerWidth")]
 pub const pointerWidth: usize;
+
+// A CPU feature that generated code may rely on. The variants correspond to
+// the feature names of `hasFeature` in `@[if ...]` conditions; CPU Levels in
+// the platform support reference lists the level that first guarantees each.
+pub enum CpuFeature {
+    Sse2,
+    Sse3,
+    Ssse3,
+    Sse4_1,
+    Sse4_2,
+    Popcnt,
+    Cmpxchg16b,
+    Avx,
+    Avx2,
+    Fma,
+    Bmi1,
+    Bmi2,
+    Lzcnt,
+    Movbe,
+    F16c,
+    Avx512f,
+    Avx512bw,
+    Avx512cd,
+    Avx512dq,
+    Avx512vl,
+    Neon,
+}
+
+// Whether the code being generated may use `feature`. Like `@[if
+// hasFeature(...)]`, the answer depends on the CPU level the code is built
+// for, not on the machine compiling or running it, so it is the same
+// constant everywhere in one build and folds away.
+pub const fun hasFeature(feature: CpuFeature) bool {
+    match feature {
+        .Sse2 => sse2,
+        .Sse3 => sse3,
+        .Ssse3 => ssse3,
+        .Sse4_1 => sse4_1,
+        .Sse4_2 => sse4_2,
+        .Popcnt => popcnt,
+        .Cmpxchg16b => cmpxchg16b,
+        .Avx => avx,
+        .Avx2 => avx2,
+        .Fma => fma,
+        .Bmi1 => bmi1,
+        .Bmi2 => bmi2,
+        .Lzcnt => lzcnt,
+        .Movbe => movbe,
+        .F16c => f16c,
+        .Avx512f => avx512f,
+        .Avx512bw => avx512bw,
+        .Avx512cd => avx512cd,
+        .Avx512dq => avx512dq,
+        .Avx512vl => avx512vl,
+        .Neon => neon,
+    }
+}
+
+// One private constant per feature, chosen by the condition language, which
+// alone defines what each feature name means.
+@[if hasFeature("sse2")]
+const sse2: bool = true;
+@[if not hasFeature("sse2")]
+const sse2: bool = false;
+@[if hasFeature("sse3")]
+const sse3: bool = true;
+@[if not hasFeature("sse3")]
+const sse3: bool = false;
+@[if hasFeature("ssse3")]
+const ssse3: bool = true;
+@[if not hasFeature("ssse3")]
+const ssse3: bool = false;
+@[if hasFeature("sse4_1")]
+const sse4_1: bool = true;
+@[if not hasFeature("sse4_1")]
+const sse4_1: bool = false;
+@[if hasFeature("sse4_2")]
+const sse4_2: bool = true;
+@[if not hasFeature("sse4_2")]
+const sse4_2: bool = false;
+@[if hasFeature("popcnt")]
+const popcnt: bool = true;
+@[if not hasFeature("popcnt")]
+const popcnt: bool = false;
+@[if hasFeature("cmpxchg16b")]
+const cmpxchg16b: bool = true;
+@[if not hasFeature("cmpxchg16b")]
+const cmpxchg16b: bool = false;
+@[if hasFeature("avx")]
+const avx: bool = true;
+@[if not hasFeature("avx")]
+const avx: bool = false;
+@[if hasFeature("avx2")]
+const avx2: bool = true;
+@[if not hasFeature("avx2")]
+const avx2: bool = false;
+@[if hasFeature("fma")]
+const fma: bool = true;
+@[if not hasFeature("fma")]
+const fma: bool = false;
+@[if hasFeature("bmi1")]
+const bmi1: bool = true;
+@[if not hasFeature("bmi1")]
+const bmi1: bool = false;
+@[if hasFeature("bmi2")]
+const bmi2: bool = true;
+@[if not hasFeature("bmi2")]
+const bmi2: bool = false;
+@[if hasFeature("lzcnt")]
+const lzcnt: bool = true;
+@[if not hasFeature("lzcnt")]
+const lzcnt: bool = false;
+@[if hasFeature("movbe")]
+const movbe: bool = true;
+@[if not hasFeature("movbe")]
+const movbe: bool = false;
+@[if hasFeature("f16c")]
+const f16c: bool = true;
+@[if not hasFeature("f16c")]
+const f16c: bool = false;
+@[if hasFeature("avx512f")]
+const avx512f: bool = true;
+@[if not hasFeature("avx512f")]
+const avx512f: bool = false;
+@[if hasFeature("avx512bw")]
+const avx512bw: bool = true;
+@[if not hasFeature("avx512bw")]
+const avx512bw: bool = false;
+@[if hasFeature("avx512cd")]
+const avx512cd: bool = true;
+@[if not hasFeature("avx512cd")]
+const avx512cd: bool = false;
+@[if hasFeature("avx512dq")]
+const avx512dq: bool = true;
+@[if not hasFeature("avx512dq")]
+const avx512dq: bool = false;
+@[if hasFeature("avx512vl")]
+const avx512vl: bool = true;
+@[if not hasFeature("avx512vl")]
+const avx512vl: bool = false;
+@[if hasFeature("neon")]
+const neon: bool = true;
+@[if not hasFeature("neon")]
+const neon: bool = false;

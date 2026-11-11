@@ -2176,6 +2176,7 @@ fn emit_exe_has_feature_selects_source_for_the_cpu_level() {
     std::fs::write(
         &main,
         r#"
+using std::builtin::target;
 using std::process;
 
 @[if hasFeature("avx2")]
@@ -2195,6 +2196,18 @@ fun kind() i32 {
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
+    // Ordinary code reads the same answers as the conditions above.
+    let byKind = if kind() == 3 { 3 } else if kind() == 2 { 2 } else { 1 };
+    let byQuery = if target::hasFeature(.Avx2) {
+        3
+    } else if target::hasFeature(target::CpuFeature::Ssse3) {
+        2
+    } else {
+        1
+    };
+    if byKind != byQuery or target::hasFeature(.Neon) {
+        return process::ExitCode(9)!;
+    }
     process::ExitCode(kind())!
 }
 "#,

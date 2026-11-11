@@ -94,6 +94,49 @@ Platform-specific interfaces in the standard library live under
 the portable modules instead, `std::fs`, `std::process`, and `std::io`, which
 work the same on every target.
 
+## CPU-Specific Code
+
+Newer processors of one target add instructions, and the
+[CPU level](../reference/platform-support.md#cpu-levels) of a build says which
+the code may use. `hasFeature("name")` in a condition tests the level, so one
+source can carry a path for a wider vector unit next to a portable one:
+
+```nia
+using std::builtin::target;
+
+@[if arch == "x86_64"]
+@[if hasFeature("avx2")]
+fun chunkBytes() usize {
+    32
+}
+
+@[if not (arch == "x86_64" and hasFeature("avx2"))]
+fun chunkBytes() usize {
+    16
+}
+
+// The same answer as a value, for code that differs only in a number.
+const unroll: usize = if target::hasFeature(.Avx2) { 4 } else { 2 };
+```
+
+The level comes from the build, never from the machine compiling it, so a
+default build is portable and takes the 16-byte path. Select a level with
+`--cpu`, or declare one for release builds in the manifest:
+
+```sh
+nia build --cpu x86_64-v3
+```
+
+```toml
+[profile.release]
+cpu = "x86_64-v3"
+```
+
+A build for a level fails with an illegal instruction on an older processor, so
+choose one only when every machine that runs the program has it. As with
+platform-specific code, check each level a program supports:
+`nia check src/main.nia --cpu x86_64-v3`.
+
 ## Build Profiles
 
 A build is either a `debug` build, the default, or a `release` build, selected

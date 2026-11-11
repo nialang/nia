@@ -179,6 +179,99 @@ fn check_prunes_by_cpu_level_and_keeps_levels_apart_in_the_cache() {
     );
 }
 
+/// A program asserting, at compile time, what `std::builtin::target::hasFeature`
+/// reports for every feature; `flip` inverts the expectation of one feature.
+fn feature_assertions(
+    expected: nia_target::CpuFeatures,
+    flip: Option<nia_target::CpuFeature>,
+) -> String {
+    // `nia check` evaluates a file's consts only once the file has a function
+    // to check; a const initializer must name `error` by its full path; and
+    // an `if` over a call to another module's const fun is misread as runtime
+    // code, so each answer is named first. All three are older limitations.
+    let mut source = String::from("using std::builtin::target;\n\nfun main() i32 {\n    0\n}\n");
+    for (index, feature) in nia_target::CPU_FEATURES.into_iter().enumerate() {
+        let want = expected.contains(feature) != (flip == Some(feature));
+        source.push_str(&format!(
+            "const HAS_{index}: bool = target::hasFeature(.{feature:?});\n\
+             const CHECK_{index}: usize = if HAS_{index} == {want} {{ 1 }} else {{ std::builtin::error(\"{feature} should be {want}\") }};\n"
+        ));
+    }
+    source
+}
+
+#[test]
+fn target_feature_query_matches_the_cpu_level_on_every_target() {
+    // The std enum and the compiler's table must name the same features.
+    let std_source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib/std/builtin/target.nia"),
+    )
+    .expect("read std target module");
+    let start = std_source
+        .find("pub enum CpuFeature {")
+        .expect("CpuFeature enum");
+    let body = &std_source[start
+        ..std_source[start..]
+            .find('}')
+            .map(|end| start + end)
+            .expect("enum end")];
+    let declared = body
+        .lines()
+        .skip(1)
+        .map(|line| line.trim().trim_end_matches(','))
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    let table = nia_target::CPU_FEATURES.map(|feature| format!("{feature:?}"));
+    assert_eq!(
+        declared, table,
+        "std::builtin::target::CpuFeature must list CPU_FEATURES in order"
+    );
+
+    let root = temp_dir("target_feature_query");
+    let main = root.join("main.nia");
+    let check = |target: &str, level: &str| {
+        support::nia_command()
+            .args(["--target", target, "check", "--cpu", level])
+            .arg(&main)
+            .output_timeout_for_compiler("check the feature query")
+    };
+    use nia_target::CpuLevel;
+    for (target, level) in [
+        ("x86_64-unknown-linux", CpuLevel::Baseline),
+        ("x86_64-unknown-linux", CpuLevel::X86_64V2),
+        ("x86_64-unknown-linux", CpuLevel::X86_64V3),
+        ("x86_64-unknown-linux", CpuLevel::X86_64V4),
+        ("x86_64-apple-macos", CpuLevel::Baseline),
+        ("x86-unknown-linux", CpuLevel::Baseline),
+        ("aarch64-unknown-linux", CpuLevel::Baseline),
+    ] {
+        let config = nia_target::TargetConfig::parse(target).expect("maintained target");
+        let expected = nia_target::CpuFeatures::for_level(config, level).expect("named level");
+        std::fs::write(&main, feature_assertions(expected, None)).expect("write assertions");
+        let output = check(target, level.name());
+        assert!(
+            output.status.success(),
+            "{target} {level}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    // A wrong expectation must fail, so the assertions above were evaluated.
+    let config =
+        nia_target::TargetConfig::parse("x86_64-unknown-linux").expect("maintained target");
+    let expected =
+        nia_target::CpuFeatures::for_level(config, CpuLevel::X86_64V3).expect("named level");
+    std::fs::write(
+        &main,
+        feature_assertions(expected, Some(nia_target::CpuFeature::Avx2)),
+    )
+    .expect("write a wrong assertion");
+    let output = check("x86_64-unknown-linux", "x86_64-v3");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "a wrong expectation passed");
+    assert!(stderr.contains("avx2 should be false"), "{stderr}");
+}
+
 /// Linking resolves every symbol that generated code calls, so a target that
 /// lowers some operation to a routine the image lacks fails here. The program
 /// zero-fills a large array, which the code generator lowers to a library

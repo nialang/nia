@@ -373,6 +373,24 @@ using std::builtin::target;
 const pointer_bytes: usize = target::pointerWidth / 8;
 ```
 
+The module also answers what `hasFeature` answers in `@[if]` conditions:
+
+| Declaration | Result |
+| --- | --- |
+| `enum CpuFeature` | one variant per [CPU feature](platform-support.md#cpu-levels): `Sse2`, `Ssse3`, `Sse4_1`, `Avx2`, `Avx512bw`, `Neon`, and the others in that table |
+| `const fun hasFeature(feature: CpuFeature) bool` | whether the code being built may use `feature` |
+
+The answer depends on the CPU level of the build, so it is one constant
+throughout a build and folds away. Unlike `@[if hasFeature(...)]`, code that
+branches on it is checked for every level; use it for differences that are only
+values. The feature is an enum, so a misspelled name is a compile-time error.
+
+```nia
+using std::builtin::target;
+
+const vector_bytes: usize = if target::hasFeature(.Avx2) { 32 } else { 16 };
+```
+
 ## Built-In Methods
 
 These methods exist on structural types without an import. `len()` comes from
