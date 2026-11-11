@@ -228,13 +228,13 @@ pub fun build(b: &mut build::Build) build::Error!() {
 /// `x86_64-v2` and above, so the instruction shows which level was used.
 #[cfg(target_arch = "x86_64")]
 #[test]
-fn artifacts_follow_their_own_cpu_level_or_the_invocation_level() {
+fn artifacts_follow_their_own_level_then_cpu_option_then_profile() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let root = nia_test_support::test_dir("artifact-cpu-levels");
     std::fs::create_dir_all(root.join("src")).expect("source directory");
     std::fs::write(
         root.join("nia.toml"),
-        "[package]\nname = \"cpu_levels\"\nversion = \"0.1.0\"\nprotocol-epoch = 3\n\n[[executable]]\nname = \"plain\"\npath = \"src/main.nia\"\n",
+        "[package]\nname = \"cpu_levels\"\nversion = \"0.1.0\"\nprotocol-epoch = 3\n\n[[executable]]\nname = \"plain\"\npath = \"src/main.nia\"\n\n[profile.release]\ncpu = \"x86_64-v2\"\n",
     )
     .expect("package manifest");
     std::fs::write(
@@ -284,33 +284,47 @@ pub fun build(b: &mut build::Build) build::Error!() {
         let bytes = std::fs::read(exe(name)).expect("read executable");
         bytes.windows(4).any(|w| w == [0x66, 0x0f, 0x38, 0x00])
     };
-    let build = |step: &str, cpu: Option<&str>| {
+    let build = |step: &str, release: bool, cpu: Option<&str>| {
         let mut command = support::nia_command();
         command
             .args(["build", step, "-O2", "-q", "--root"])
             .arg(&*root);
+        if release {
+            command.arg("--release");
+        }
         if let Some(cpu) = cpu {
             command.args(["--cpu", cpu]);
         }
         let output = command.output_timeout_in_session("build at a CPU level");
         assert!(
             output.status.success(),
-            "{step} {cpu:?}: {}",
+            "{step} {release} {cpu:?}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
         let status = Command::new(exe(step)).status_timeout("run built executable");
-        assert_eq!(status.code(), Some(0), "{step} {cpu:?}");
+        assert_eq!(status.code(), Some(0), "{step} {release} {cpu:?}");
     };
 
-    build("plain", None);
-    assert!(!uses_pshufb("plain"), "the default level is the baseline");
-    build("plain", Some("x86_64-v2"));
-    assert!(uses_pshufb("plain"), "an unpinned artifact follows --cpu");
+    build("plain", false, None);
+    assert!(!uses_pshufb("plain"), "the debug profile declares no level");
+    build("plain", true, None);
+    assert!(
+        uses_pshufb("plain"),
+        "release follows [profile.release] cpu"
+    );
+    // An explicit `--cpu baseline` is a choice, not an absent option.
+    build("plain", true, Some("baseline"));
+    assert!(!uses_pshufb("plain"), "--cpu overrides the profile");
+    build("plain", false, Some("x86_64-v2"));
+    assert!(
+        uses_pshufb("plain"),
+        "--cpu applies without a profile level"
+    );
     // The cache key holds the level, so the baseline build is not the v2 one.
-    build("plain", None);
+    build("plain", false, None);
     assert!(!uses_pshufb("plain"), "returning to the baseline rebuilds");
-    build("pinned", None);
-    assert!(uses_pshufb("pinned"), "withCpu pins the artifact's level");
+    build("pinned", false, Some("baseline"));
+    assert!(uses_pshufb("pinned"), "withCpu wins over --cpu");
 
     // The printed plan shows the pinned level and the unpinned rule.
     let plan = support::nia_command()
@@ -341,6 +355,38 @@ pub fun build(b: &mut build::Build) build::Error!() {
     assert!(
         stderr.contains("CPU level `x86_64-v2` is for x86_64 targets, not `aarch64-unknown-linux`"),
         "{stderr}"
+    );
+
+    // A build script can test the target before pinning, so its level is a
+    // claim to check. The manifest is shared by every target and cannot, so
+    // its x86_64 level just does not apply to an AArch64 build.
+    std::fs::write(
+        root.join("build.nia"),
+        r#"using std::build;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    _ = b;
+    !()
+}
+"#,
+    )
+    .expect("build script without a pinned artifact");
+    let cross = support::nia_command()
+        .args([
+            "--target",
+            "aarch64-unknown-linux",
+            "build",
+            "plain",
+            "--release",
+            "-q",
+            "--root",
+        ])
+        .arg(&*root)
+        .output_timeout_in_session("cross build with an x86_64 profile level");
+    assert!(
+        cross.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cross.stderr)
     );
 }
 

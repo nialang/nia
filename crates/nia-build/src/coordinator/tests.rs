@@ -78,7 +78,8 @@ fn test_invocation() -> BuildInvocation {
         optimization: OptimizationMode::O0,
         profile: nia_target_config::BuildProfile::Debug,
         link_time_optimization: nia_driver::LinkTimeOptimization::Off,
-        cpu: nia_target::CpuLevel::Baseline,
+        cpu: None,
+        profile_cpu: None,
     }
 }
 

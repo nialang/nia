@@ -205,7 +205,7 @@ names a step.
 | `-k, --keep-going` | after a failure, keeps running the actions that do not depend on it |
 | `-j, --jobs <count>` | limits concurrent actions |
 | `--lto <off\|thin\|full>` | selects link-time optimization for the build runner, which is built at `-O0`; artifacts use `withLto` |
-| `--cpu <level>` | selects the [CPU level](platform-support.md#cpu-levels) of artifacts built for the artifact target that do not choose one with `withCpu` |
+| `--cpu <level>` | selects the [CPU level](platform-support.md#cpu-levels) of artifacts built for the artifact target, over the manifest's `[profile.*] cpu`; artifacts pinned with `withCpu` keep their level |
 | `-q`, `-v` … `-vvv`, `--progress <mode>` | progress output; see [Progress Output](#progress-output) |
 
 These options inspect the build instead of, or in addition to, running it:

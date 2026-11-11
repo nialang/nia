@@ -36,6 +36,9 @@ fixtures = { path = "tests/fixtures" }
 
 [registries]
 nia = "https://packages.example.test"
+
+[profile.release]
+cpu = "x86_64-v3"
 ```
 
 ## `[package]`
@@ -166,6 +169,32 @@ key into the agent instead.
 Maps registry names to `https://` base URLs without credentials, a query, or a
 fragment. Names use lower-case ASCII letters, digits, and `-`. Only the root
 manifest (the workspace root in a workspace) may declare registries.
+
+## `[profile.debug]` And `[profile.release]`
+
+Settings for builds of one [profile](cli.md#options): `[profile.debug]` for the
+default `--debug` builds, `[profile.release]` for `--release` builds. Only these
+two profiles exist.
+
+| Key | Meaning |
+| --- | --- |
+| `cpu` | The [CPU level](platform-support.md#cpu-levels) of executables, objects, and archives the build produces for its artifact target. |
+
+Profiles describe how this package's own builds run, so only the manifest of
+the package a build starts from applies; a dependency's profiles never affect
+the build that uses it. In a workspace every member builds under the workspace
+root's profiles, and a member that declares `[profile]` is an error.
+
+`cpu` takes a named level such as `x86_64-v3`, never `native`: a manifest is
+shared and committed, and `native` describes whichever machine runs the build,
+so it is only an invocation choice, `nia build --cpu native`. The manifest is
+also shared by every target the package is built for, so a named level applies
+only to targets of its architecture: with `cpu = "x86_64-v3"`, an
+`aarch64-unknown-linux` build uses its baseline.
+
+`nia build --cpu` overrides the profile's level, and an artifact a build script
+pins with [`withCpu`](../guides/build-scripts.md#artifact-configuration)
+overrides both.
 
 ## `[workspace]`
 

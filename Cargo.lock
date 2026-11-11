@@ -1535,6 +1535,7 @@ dependencies = [
  "nia-git",
  "nia-ids",
  "nia-query",
+ "nia-target",
  "semver",
  "serde",
  "toml",

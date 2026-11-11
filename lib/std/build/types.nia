@@ -80,16 +80,15 @@ pub enum LtoMode: i32 {
 
 // The oldest processor an artifact may run on; code built for a level faults
 // with an illegal instruction on an older one. An artifact that selects none
-// follows `nia build --cpu` when it is built for the invocation's artifact
-// target, and the baseline otherwise.
+// and is built for the invocation's artifact target follows `nia build --cpu`,
+// then the root manifest's profile; any other artifact uses the baseline.
+// There is no `native` level here: a build script is committed source and
+// cannot name the machine that runs it, so `native` is only `--cpu native`.
 pub enum CpuLevel: i32 {
     Baseline = 0,
     X86_64V2 = 1,
     X86_64V3 = 2,
     X86_64V4 = 3,
-    // The processor of the machine running the build; only for an artifact
-    // built for that machine's target.
-    Native = 4,
     _
 }
 

@@ -268,7 +268,6 @@ extend PlanEncoder {
             ?.X86_64V2 => 2,
             ?.X86_64V3 => 3,
             ?.X86_64V4 => 4,
-            ?.Native => 5,
             ?_ => return invalidPlan(),
         }).?;
         self.writeCount(defines.len()).?;

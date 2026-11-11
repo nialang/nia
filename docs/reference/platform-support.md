@@ -85,8 +85,10 @@ Within one target, newer processors add instructions. A CPU level names the
 oldest processor generated code may run on: the code uses every instruction the
 level guarantees, so on an older processor it stops with an illegal-instruction
 fault, and nothing diagnoses that ahead of time. `nia emit --backend`, `--llvm`,
-`--obj`, and `--exe` and `nia build` accept `--cpu <level>`, and a build script
-can pin an artifact's level with
+`--obj`, and `--exe` and `nia build` accept `--cpu <level>`. A package declares
+the level of its builds per profile in
+[`[profile.*]`](manifest.md#profiledebug-and-profilerelease), and a build
+script can pin one artifact's level with
 [`withCpu`](../guides/build-scripts.md#artifact-configuration):
 
 | Level | Targets | Guarantees beyond the level before it |
@@ -98,10 +100,23 @@ can pin an artifact's level with
 | `native` | the host only | everything the processor running the compiler reports |
 
 The `x86_64-v*` levels are the x86-64 psABI microarchitecture levels. `native`
-is accepted only when the target is the host, and its output may fail on any
-other machine, even one of the same target. The level changes the selected
-instructions, not the program's meaning; compiled objects and executables are
-cached separately per level, and for `native` per the detected processor.
+is accepted only by `--cpu`, only when the target is the host, and its output
+may fail on any other machine, even one of the same target. The level changes
+the selected instructions, not the program's meaning; compiled objects and
+executables are cached separately per level, and for `native` per the detected
+processor.
+
+In `nia build`, each artifact's level is the first of these that applies:
+
+1. the level its build script pins with `withCpu`;
+2. `--cpu`, for an artifact built for the invocation's artifact target;
+3. the `cpu` of the root manifest's profile for this build, for an artifact
+   built for the artifact target when the level belongs to its architecture;
+4. `baseline`.
+
+An artifact built for another target, such as a tool the build runs on the
+host, therefore stays at the baseline in a cross build unless its script pins
+a level.
 
 ```sh
 nia emit --exe -O2 --cpu x86_64-v3 src/main.nia

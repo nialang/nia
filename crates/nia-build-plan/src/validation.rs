@@ -212,6 +212,14 @@ pub(super) fn canonicalize_artifacts(
                 reason: "LTO requires an executable",
             });
         }
+        // A build script is committed source; it cannot describe the machine
+        // that happens to run the build.
+        if artifact.configuration.cpu == Some(nia_target::CpuLevel::Native) {
+            return Err(PlanError::InvalidArtifactConfiguration {
+                artifact: artifact.key.clone(),
+                reason: "the `native` CPU level describes the machine running the build; select it with `nia build --cpu native`",
+            });
+        }
         for define in &artifact.configuration.defines {
             if define.name.is_empty() || define.name.contains('\0') {
                 return Err(PlanError::InvalidArtifactConfiguration {

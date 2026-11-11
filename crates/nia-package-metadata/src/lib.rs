@@ -400,6 +400,28 @@ pub struct ManifestArtifact {
     pub runtime: ArtifactRuntime,
 }
 
+/// Settings a manifest declares for one build profile.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProfileSettings {
+    /// CPU level of artifacts built for the invocation's artifact target that
+    /// select none themselves. A named level applies only to targets of its
+    /// architecture, and `native` is never a manifest value.
+    pub cpu: Option<nia_target::CpuLevel>,
+}
+
+/// The `[profile.debug]` and `[profile.release]` tables of a manifest.
+///
+/// Only the profiles of the package a build starts from apply, which are
+/// those of its workspace root when it belongs to a workspace. A
+/// dependency's profiles never affect the build that uses it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BuildProfiles {
+    /// Settings for `--debug` builds, the default profile.
+    pub debug: ProfileSettings,
+    /// Settings for `--release` builds.
+    pub release: ProfileSettings,
+}
+
 /// Declarative local package manifest used to name and select package content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageManifest {
@@ -415,6 +437,9 @@ pub struct PackageManifest {
     pub source: PackageSourceSelection,
     /// Dependencies selected for this package.
     pub dependencies: Vec<PackageDependency>,
+    /// Profiles governing a build that starts at this package: its own, or
+    /// its workspace root's when it is a workspace member.
+    pub profiles: BuildProfiles,
 }
 
 /// Workspace membership and shared declarations from a workspace root.
@@ -426,6 +451,7 @@ pub struct WorkspaceManifest {
     pub exclude: Vec<String>,
     pub package: WorkspacePackageFields,
     pub dependencies: BTreeMap<String, DependencySource>,
+    pub profiles: BuildProfiles,
 }
 
 /// One validated package selected from a workspace member list.
@@ -2881,6 +2907,7 @@ impl PackageManifest {
             artifacts: Vec::new(),
             source: PackageSourceSelection::default(),
             dependencies: Vec::new(),
+            profiles: BuildProfiles::default(),
         }
     }
 
@@ -3042,6 +3069,10 @@ impl PackageManifest {
         }
         manifest.dependencies = dependencies;
         validate_package_id(&manifest.package)?;
+        manifest.profiles = match &workspace {
+            Some(workspace) => workspace.profiles,
+            None => build_profiles(&raw.profile)?,
+        };
         Ok(manifest)
     }
 
@@ -3210,6 +3241,7 @@ impl WorkspaceManifest {
             exclude,
             package,
             dependencies,
+            profiles: build_profiles(&raw.profile)?,
         })
     }
 
@@ -3530,6 +3562,15 @@ fn read_package_manifest(
                 ),
             ));
         }
+        // Every member builds under the workspace root's profiles.
+        if relative != "." && !raw.profile.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "workspace member `{relative}` declares `[profile]`; configure profiles in the workspace root nia.toml"
+                ),
+            ));
+        }
     }
     Ok((raw, workspace))
 }
@@ -3810,6 +3851,46 @@ struct RawPackageManifest {
     executables: Vec<RawArtifact>,
     #[serde(default, rename = "test")]
     tests: Vec<RawArtifact>,
+    #[serde(default)]
+    profile: BTreeMap<String, RawProfile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawProfile {
+    #[serde(default)]
+    cpu: Option<String>,
+}
+
+/// Validates the `[profile.*]` tables of one manifest.
+fn build_profiles(raw: &BTreeMap<String, RawProfile>) -> io::Result<BuildProfiles> {
+    let invalid = |message: String| io::Error::new(io::ErrorKind::InvalidData, message);
+    let mut profiles = BuildProfiles::default();
+    for (name, profile) in raw {
+        let settings = match name.as_str() {
+            "debug" => &mut profiles.debug,
+            "release" => &mut profiles.release,
+            _ => {
+                return Err(invalid(format!(
+                    "unknown build profile `{name}`; profiles are `debug` and `release`"
+                )));
+            }
+        };
+        if let Some(cpu) = &profile.cpu {
+            let level = nia_target::CpuLevel::parse(cpu)
+                .map_err(|error| invalid(format!("profile.{name}.cpu: {error}")))?;
+            // A committed manifest cannot describe the machine that happens
+            // to build it.
+            if level == nia_target::CpuLevel::Native {
+                return Err(invalid(format!(
+                    "profile.{name}.cpu: `native` describes the machine running a build, \
+                     which a manifest cannot name; select it with `nia build --cpu native`"
+                )));
+            }
+            settings.cpu = Some(level);
+        }
+    }
+    Ok(profiles)
 }
 
 #[derive(Deserialize)]
@@ -7145,6 +7226,105 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    fn profile_test_root(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "nia-profiles-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn profiles_declare_named_cpu_levels() {
+        let root = profile_test_root("levels");
+        let write = |profiles: &str| {
+            std::fs::write(
+                root.join("nia.toml"),
+                format!("[package]\nname = \"app\"\nversion = \"1.0.0\"\n{profiles}"),
+            )
+            .unwrap();
+        };
+        write("[profile.release]\ncpu = \"x86_64-v3\"\n");
+        let manifest = PackageManifest::read(&root).unwrap();
+        assert_eq!(
+            manifest.profiles,
+            BuildProfiles {
+                debug: ProfileSettings::default(),
+                release: ProfileSettings {
+                    cpu: Some(nia_target::CpuLevel::X86_64V3),
+                },
+            }
+        );
+
+        let rejected = |profiles: &str, expected: &str| {
+            write(profiles);
+            let error = PackageManifest::read(&root).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{profiles}");
+            assert!(error.to_string().contains(expected), "{profiles}: {error}");
+        };
+        // A committed manifest cannot describe the machine that builds it.
+        rejected(
+            "[profile.release]\ncpu = \"native\"\n",
+            "profile.release.cpu: `native` describes the machine running a build",
+        );
+        rejected(
+            "[profile.debug]\ncpu = \"x86-64-v3\"\n",
+            "profile.debug.cpu: unknown CPU level `x86-64-v3`",
+        );
+        rejected(
+            "[profile.bench]\ncpu = \"x86_64-v2\"\n",
+            "unknown build profile `bench`; profiles are `debug` and `release`",
+        );
+        rejected(
+            "[profile.release]\nopt-level = 3\n",
+            "unknown field `opt-level`",
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn workspace_members_build_under_the_root_profiles() {
+        let root = profile_test_root("workspace");
+        let member = root.join("app");
+        std::fs::create_dir_all(&member).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"app\"]\n[profile.release]\ncpu = \"x86_64-v2\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            member.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        let manifest = PackageManifest::read(&member).unwrap();
+        assert_eq!(
+            manifest.profiles.release.cpu,
+            Some(nia_target::CpuLevel::X86_64V2)
+        );
+
+        // A member's own table would never apply, so it is an error.
+        std::fs::write(
+            member.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n[profile.release]\ncpu = \"x86_64-v3\"\n",
+        )
+        .unwrap();
+        let error = PackageManifest::read(&member).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            error.to_string().contains(
+                "workspace member `app` declares `[profile]`; configure profiles in the workspace root nia.toml"
+            ),
+            "{error}"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn workspace_members_reject_linked_directories() {
@@ -8115,6 +8295,7 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                     library_path: None,
                     artifacts: Vec::new(),
                     source: PackageSourceSelection::default(),
+                    profiles: BuildProfiles::default(),
                     dependencies: vec![PackageDependency {
                         name: "json".into(),
                         source: DependencySource::Registry {

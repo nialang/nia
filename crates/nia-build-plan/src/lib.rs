@@ -3008,7 +3008,6 @@ mod tests {
         let x86_64 = TargetConfig::parse("x86_64-unknown-linux").unwrap();
         let aarch64 = TargetConfig::parse("aarch64-unknown-linux").unwrap();
         assert!(freeze_emit_at(x86_64, nia_target::CpuLevel::X86_64V3).is_ok());
-        assert!(freeze_emit_at(x86_64, nia_target::CpuLevel::Native).is_ok());
         assert!(freeze_emit_at(aarch64, nia_target::CpuLevel::Baseline).is_ok());
         assert!(matches!(
             freeze_emit_at(aarch64, nia_target::CpuLevel::X86_64V2),
@@ -3017,13 +3016,11 @@ mod tests {
                 ..
             })
         ));
-        // `native` names the processor of the host the plan was made for.
+        // `native` is chosen per invocation with `--cpu`, never pinned.
         assert!(matches!(
-            freeze_emit_at(aarch64, nia_target::CpuLevel::Native),
-            Err(PlanError::InvalidCpuLevel {
-                error: nia_target::CpuLevelError::NativeForeignTarget { .. },
-                ..
-            })
+            freeze_emit_at(x86_64, nia_target::CpuLevel::Native),
+            Err(PlanError::InvalidArtifactConfiguration { reason, .. })
+                if reason.contains("select it with `nia build --cpu native`")
         ));
     }
 

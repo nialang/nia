@@ -2052,26 +2052,33 @@ fn link_time_optimization_tag(policy: LinkTimeOptimization) -> u8 {
     }
 }
 
-// An artifact that names no LTO mode follows the level it is built at.
-/// The CPU level a compiler action generates code for: the artifact's own
-/// level, else the invocation's `--cpu` when the action builds for the
-/// invocation's artifact target, else the baseline. `--cpu` qualifies the
-/// artifact target, so it does not reach a host tool in a cross build.
+/// The CPU level a compiler action generates code for, most specific first:
+/// the artifact's own `withCpu` level; then, for an action that builds for
+/// the invocation's artifact target, `--cpu`, then the root package's level
+/// for the selected profile when it names a level of the target's
+/// architecture; and otherwise the baseline. `--cpu` and profiles describe
+/// the artifact target, so in a cross build neither reaches a host tool.
 fn action_cpu(
     plan: &BuildPlan,
     invocation: &BuildInvocation,
     target: &TargetConfig,
     configuration: &ArtifactConfiguration,
 ) -> CpuLevel {
-    configuration
-        .cpu
-        .unwrap_or(if target == plan.artifact_target() {
-            invocation.cpu
-        } else {
-            CpuLevel::Baseline
-        })
+    if let Some(cpu) = configuration.cpu {
+        return cpu;
+    }
+    if target != plan.artifact_target() {
+        return CpuLevel::Baseline;
+    }
+    // A manifest is shared by every target the package is built for, so a
+    // profile's x86_64 level says nothing about an AArch64 build.
+    let profile_cpu = invocation
+        .profile_cpu
+        .filter(|cpu| cpu.check(*target, None).is_ok());
+    invocation.cpu.or(profile_cpu).unwrap_or(CpuLevel::Baseline)
 }
 
+// An artifact that names no LTO mode follows the level it is built at.
 fn artifact_lto_policy(
     policy: Option<ArtifactLto>,
     level: OptimizationMode,

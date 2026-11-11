@@ -73,7 +73,7 @@ pub(crate) enum RuntimeMode {
 pub(crate) struct Cli {
     pub(crate) resource_root: Option<PathBuf>,
     pub(crate) target: Option<nia_target::TargetConfig>,
-    pub(crate) cpu: nia_target::CpuLevel,
+    pub(crate) cpu: Option<nia_target::CpuLevel>,
     pub(crate) module_map: ModuleMap,
     pub(crate) optimization: NiaOptimizationLevel,
     pub(crate) profile: BuildProfile,
@@ -690,7 +690,7 @@ fn parse_project_add(scanned: &Scanned) -> CliResult<ProjectAdd> {
 struct GlobalOptions {
     resource_root: Option<PathBuf>,
     target: Option<nia_target::TargetConfig>,
-    cpu: nia_target::CpuLevel,
+    cpu: Option<nia_target::CpuLevel>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
     profile: BuildProfile,
@@ -768,14 +768,13 @@ impl GlobalOptions {
                 nia_target::CpuLevel::parse(value(occurrence))
                     .map_err(|error| err(error.to_string()))
             })
-            .transpose()?
-            .unwrap_or_default();
+            .transpose()?;
         // A level is checked against the artifact target here, while the
         // command line can still be blamed; without `--target` that is the
         // host. A host outside the maintained matrix must name a target,
         // which toolchain resolution reports.
         let host = nia_target::TargetConfig::host();
-        if let Some(artifact_target) = target.or(host) {
+        if let (Some(cpu), Some(artifact_target)) = (cpu, target.or(host)) {
             cpu.check(artifact_target, host)
                 .map_err(|error| err(error.to_string()))?;
         }

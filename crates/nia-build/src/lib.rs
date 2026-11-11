@@ -128,9 +128,10 @@ pub struct BuildRequest {
     pub profile: BuildProfile,
     /// Cross-module optimization used for final executable products.
     pub link_time_optimization: LinkTimeOptimization,
-    /// CPU level of artifacts built for the artifact target that select none,
-    /// already checked against that target.
-    pub cpu: nia_target::CpuLevel,
+    /// `--cpu`: CPU level of artifacts built for the artifact target that
+    /// select none, already checked against that target. It overrides the
+    /// root package's profile.
+    pub cpu: Option<nia_target::CpuLevel>,
     /// List the plan's steps instead of running one.
     pub list: bool,
     /// Keep running actions that do not depend on a failed one.
@@ -172,7 +173,7 @@ impl BuildRequest {
             optimization: OptimizationMode::O0,
             profile: BuildProfile::Debug,
             link_time_optimization: LinkTimeOptimization::for_level(BUILD_RUNNER_OPTIMIZATION),
-            cpu: nia_target::CpuLevel::Baseline,
+            cpu: None,
             list: false,
             keep_going: false,
             dry_run: false,
@@ -250,7 +251,7 @@ impl BuildRequest {
     /// Selects the CPU level of artifacts that are built for the artifact
     /// target and select none. Callers check it against that target.
     pub fn with_cpu(mut self, cpu: nia_target::CpuLevel) -> Self {
-        self.cpu = cpu;
+        self.cpu = Some(cpu);
         self
     }
 
@@ -446,8 +447,11 @@ pub struct BuildInvocation {
     pub profile: BuildProfile,
     /// Cross-module optimization inherited from the request.
     pub link_time_optimization: LinkTimeOptimization,
-    /// CPU level inherited from the request.
-    pub cpu: nia_target::CpuLevel,
+    /// `--cpu` inherited from the request.
+    pub cpu: Option<nia_target::CpuLevel>,
+    /// CPU level the root package's manifest declares for the selected
+    /// profile, if any.
+    pub profile_cpu: Option<nia_target::CpuLevel>,
 }
 
 /// Result of consulting the generated build-runner executable cache.
@@ -3178,16 +3182,27 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         }
     })?;
     let build_script = package_root.join("build.nia");
-    let manifest_artifacts = if package_root.join("nia.toml").is_file() {
-        nia_package_metadata::PackageManifest::read(&package_root)
-            .map_err(|error| BuildError::ResolvePackageGraph {
-                path: package_root.clone(),
-                error,
-            })?
-            .artifacts
+    let manifest = if package_root.join("nia.toml").is_file() {
+        Some(
+            nia_package_metadata::PackageManifest::read(&package_root).map_err(|error| {
+                BuildError::ResolvePackageGraph {
+                    path: package_root.clone(),
+                    error,
+                }
+            })?,
+        )
     } else {
-        Vec::new()
+        None
     };
+    // The build starts at this package, so its profiles, which are its
+    // workspace root's for a member, are the ones that apply.
+    let profile_cpu = manifest
+        .as_ref()
+        .and_then(|manifest| match request.profile {
+            BuildProfile::Debug => manifest.profiles.debug.cpu,
+            BuildProfile::Release => manifest.profiles.release.cpu,
+        });
+    let manifest_artifacts = manifest.map_or_else(Vec::new, |manifest| manifest.artifacts);
 
     let build_dir = normalize_host_path(layout.out_dir());
     let cache_dir = normalize_host_path(layout.cache_dir());
@@ -3227,6 +3242,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         profile: request.profile,
         link_time_optimization: request.link_time_optimization,
         cpu: request.cpu,
+        profile_cpu,
     })
 }
 
