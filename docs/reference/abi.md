@@ -414,6 +414,27 @@ is a duplicate definition, as with any other symbol; a C library linked as a
 shared library or import library defines nothing in the image and does not
 conflict.
 
+### Trap Reports
+
+A debug build of an executable reports each failed runtime check (see
+[Unchecked Operations And Traps](language.md#unchecked-operations-and-traps))
+through the runtime routine `__nia_trap`, which writes the report and traps:
+
+```c
+void __nia_trap(const SourceLocation *location, uint32_t info, uint32_t lane,
+                uint64_t lhs_low, uint64_t lhs_high,
+                uint64_t rhs_low, uint64_t rhs_high);   /* never returns */
+```
+
+`location` has the layout of `std::SourceLocation`. `info` holds the cause in
+bits 0-7, the lane type's width class in bits 8-11 (8, 16, 32, 64, 128 bits,
+pointer width, `bool`), whether the lane type is signed in bit 12, whether
+each operand is signed in bits 13 and 31, and the lane count of a vector
+operation in bits 16-30. `lane` is the first failing lane of a vector
+operation. Each operand is passed widened to 128 bits as two halves. The
+symbol belongs to the Nia runtime; release code, separately compiled objects
+and libraries, and bare programs do not reference it.
+
 Objects use the platform's position-independent code model on Linux and macOS,
 so Nia objects link into position-independent executables and shared objects
 without text relocations.

@@ -1711,7 +1711,12 @@ fn executable_root_defs(
                 )
             })?;
             let mut functions = vec![start];
+            let reports = reports_failed_checks(db)?;
             for export in runtime.required_exports() {
+                // The reporter is code only reports call.
+                if export.definition_name() == nia_toolchain::TRAP_REPORT_SYMBOL && !reports {
+                    continue;
+                }
                 let identity = nia_source::SourceIdentity::new(export.module_identity());
                 let key = nia_imports::StableModuleKey::from_source_identity(identity);
                 let export_module = graph.module_id_for_stable_key(&key).ok_or_else(|| {

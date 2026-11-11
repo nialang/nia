@@ -437,9 +437,17 @@ impl<'a> Encoder<'a> {
             )
         };
         let index = self.index;
+        // A copied body reports its failed checks at its own module's
+        // locations, so those locations are part of this unit.
+        let module_locations = |module_id| {
+            index
+                .module(module_id)
+                .and_then(|module| module.trap_locations.as_deref())
+        };
         self.len(declarations.available_functions.len());
         for def_id in &declarations.available_functions {
             self.function(index.function(*def_id).ok_or_else(missing)?);
+            self.trap_locations(module_locations(def_id.module_id));
         }
         self.len(declarations.available_function_instances.len());
         for key in &declarations.available_function_instances {
@@ -454,11 +462,33 @@ impl<'a> Encoder<'a> {
                     )
                     .ok_or_else(missing)?,
             );
+            self.trap_locations(module_locations(key.def_id.module_id));
         }
         Ok(())
     }
 
+    /// Whether failed checks report, and every location they can report.
+    fn trap_locations(&mut self, locations: Option<&nia_source::SourceLineIndex>) {
+        let Some(locations) = locations else {
+            self.builder.write_u8(0);
+            return;
+        };
+        self.builder.write_u8(1);
+        self.builder.write_str(locations.file());
+        let (line_starts, wide_chars) = locations.layout();
+        self.len(line_starts.len());
+        for start in line_starts {
+            self.u32(*start);
+        }
+        self.len(wide_chars.len());
+        for (offset, extra) in wide_chars {
+            self.u32(*offset);
+            self.builder.write_u8(*extra);
+        }
+    }
+
     fn partition_definitions(&mut self, partition: &CodegenPartition, module: &BackendModule) {
+        self.trap_locations(module.trap_locations.as_deref());
         self.len(partition.global_definitions().len());
         for &index in partition.global_definitions() {
             self.global(&module.globals[index]);
@@ -2228,6 +2258,7 @@ mod tests {
             source_identity: SourceIdentity::new(identity),
             symbol_package_identity: "test/package@0".into(),
             name: identity.to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: TargetDataLayout::LP64,
@@ -2276,6 +2307,7 @@ mod tests {
             source_identity: SourceIdentity::new(identity),
             symbol_package_identity: "test/package@0".into(),
             name: identity.to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: TargetDataLayout::LP64,

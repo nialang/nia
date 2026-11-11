@@ -156,7 +156,20 @@ impl SourceRuntimeSpec {
     pub fn target(&self) -> &TargetConfig {
         &self.target
     }
+
+    /// Whether `identity` names a source file of the runtime package itself.
+    /// Runtime code never reports its own traps: startup code runs before
+    /// the image is relocated, and the reporter must not report itself.
+    pub fn owns_source(&self, identity: &str) -> bool {
+        identity
+            .strip_prefix(&self.package.directory_identity())
+            .is_some_and(|rest| rest.starts_with('/'))
+    }
 }
+
+/// The runtime's C ABI entry point for reporting a failed runtime check.
+/// See "Trap Reports" in the ABI reference for its contract.
+pub const TRAP_REPORT_SYMBOL: &str = "__nia_trap";
 
 /// Canonical startup selection shared by driver, loader, and compiler.
 /// This selects Nia startup injection, independently of OS or library linkage.
@@ -202,7 +215,10 @@ impl RuntimeSpec {
             Os::Windows => ("start/freestanding/windows/startup.nia", "niaWindowsStart"),
             Os::Macos => ("start/freestanding/macos/startup.nia", "niaDarwinStart"),
         };
-        let mut required_exports = vec![RuntimeExport::new(package.identity(startup.0), startup.1)];
+        let mut required_exports = vec![
+            RuntimeExport::new(package.identity(startup.0), startup.1),
+            RuntimeExport::new(package.identity("builtins/trap.nia"), TRAP_REPORT_SYMBOL),
+        ];
         if (target.os(), target.arch()) == (Os::Windows, Arch::X86_64) {
             required_exports.push(RuntimeExport::new(
                 package.identity("builtins/windows/x86_64.nia"),
@@ -1225,10 +1241,13 @@ mod tests {
             if target.os() == Os::Macos {
                 assert_eq!(
                     source.required_exports(),
-                    [RuntimeExport::new(
-                        "toolchain:/runtime/start/freestanding/macos/startup.nia",
-                        "niaDarwinStart",
-                    )]
+                    [
+                        RuntimeExport::new(
+                            "toolchain:/runtime/start/freestanding/macos/startup.nia",
+                            "niaDarwinStart",
+                        ),
+                        RuntimeExport::new("toolchain:/runtime/builtins/trap.nia", "__nia_trap",),
+                    ]
                 );
             } else if target.os() == Os::Windows {
                 assert_eq!(
@@ -1238,6 +1257,7 @@ mod tests {
                             "toolchain:/runtime/start/freestanding/windows/startup.nia",
                             "niaWindowsStart",
                         ),
+                        RuntimeExport::new("toolchain:/runtime/builtins/trap.nia", "__nia_trap",),
                         RuntimeExport::new(
                             "toolchain:/runtime/builtins/windows/x86_64.nia",
                             "__chkstk",
@@ -1247,10 +1267,13 @@ mod tests {
             } else {
                 assert_eq!(
                     source.required_exports(),
-                    [RuntimeExport::new(
-                        "toolchain:/runtime/start/freestanding/linux/startup.nia",
-                        "niaStartStack",
-                    )]
+                    [
+                        RuntimeExport::new(
+                            "toolchain:/runtime/start/freestanding/linux/startup.nia",
+                            "niaStartStack",
+                        ),
+                        RuntimeExport::new("toolchain:/runtime/builtins/trap.nia", "__nia_trap",),
+                    ]
                 );
             }
             assert_eq!(source.target(), &target);

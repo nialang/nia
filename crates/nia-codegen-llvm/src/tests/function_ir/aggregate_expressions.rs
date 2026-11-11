@@ -35,6 +35,7 @@ fn validates_aggregate_products_with_structurally_equal_const_args() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,

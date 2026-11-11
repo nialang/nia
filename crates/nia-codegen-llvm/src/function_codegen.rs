@@ -10,6 +10,7 @@ mod literals;
 mod memory;
 mod ops;
 mod place;
+mod traps;
 mod value;
 
 use std::collections::{HashMap, HashSet};
@@ -584,7 +585,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_range_bound(expr.span, range, *bound)
             }
             FunctionExprKind::Trap => {
-                self.emit_trap(expr.span)?;
+                self.emit_trap(expr.span, traps::TrapCheck::explicit())?;
                 Err(self.error(expr.span, "trap does not produce a value"))
             }
             FunctionExprKind::InlineAsm(asm) => {
@@ -993,9 +994,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             Some(TyKind::Vector { lanes, .. }) => *lanes,
             _ => return Err(self.error(expr.span, "extract argument is not a SIMD vector")),
         };
+        let vector_ty = vector.ty;
         let vector = self.emit_expr(vector)?.into_vector_value()?;
         let index = self.emit_expr(index)?.into_int_value()?;
-        self.emit_vector_index_bounds_check(expr.span, index, lanes, "extract")?;
+        self.emit_vector_index_bounds_check(expr.span, vector_ty, index, lanes, "extract")?;
         self.builder
             .build_extract_element(vector, index, "extract")
             .map_err(|_| self.error(expr.span, "failed to extract vector lane"))
@@ -1012,10 +1014,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             Some(TyKind::Vector { lanes, .. }) => *lanes,
             _ => return Err(self.error(expr.span, "insert argument is not a SIMD vector")),
         };
+        let vector_ty = vector.ty;
         let vector = self.emit_expr(vector)?.into_vector_value()?;
         let index = self.emit_expr(index)?.into_int_value()?;
         let value = self.emit_expr(value)?;
-        self.emit_vector_index_bounds_check(expr.span, index, lanes, "insert")?;
+        self.emit_vector_index_bounds_check(expr.span, vector_ty, index, lanes, "insert")?;
         self.builder
             .build_insert_element(vector, value, index, "insert")
             .map_err(|_| self.error(expr.span, "failed to insert vector lane"))
@@ -1024,6 +1027,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_vector_index_bounds_check(
         &mut self,
         span: Span,
+        vector_ty: InternedTyId,
         index: nia_llvm::values::IntValue<'ctx>,
         lanes: u32,
         name: &str,
@@ -1051,7 +1055,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_conditional_branch(in_bounds, operation, trap)
             .map_err(|_| self.error(span, "failed to branch on SIMD lane bounds"))?;
         self.builder.position_at_end(trap);
-        self.emit_trap(span)?;
+        self.emit_trap(span, traps::TrapCheck::lane_index(vector_ty, index.into()))?;
         self.builder.position_at_end(operation);
         Ok(())
     }
@@ -1864,24 +1868,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map_err(|_| self.error(span, "failed to extend counted loop index"))?;
         }
         self.builder.position_at_end(after);
-        Ok(())
-    }
-
-    fn emit_trap(&mut self, span: Span) -> Result<(), Diagnostic> {
-        if self.current_block_has_terminator() {
-            return Ok(());
-        }
-        let intrinsic = nia_llvm::intrinsics::Intrinsic::find("llvm.trap")
-            .and_then(|intrinsic| intrinsic.get_declaration(&self.module.module, &[]))
-            .ok_or_else(|| self.error(span, "failed to declare trap intrinsic"))?;
-        self.builder
-            .build_call(intrinsic, &[], "trap")
-            .map_err(|_| self.error(span, "failed to build trap call"))?;
-        if !self.current_block_has_terminator() {
-            self.builder
-                .build_unreachable()
-                .map_err(|_| self.error(span, "failed to build trap terminator"))?;
-        }
         Ok(())
     }
 

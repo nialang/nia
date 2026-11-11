@@ -60,10 +60,13 @@ fn darwin_startup_selects_main_entry_and_libsystem_runtime_modules() {
     assert_eq!(source.entry_point().linker_symbol(), "_main");
     assert_eq!(
         source.required_exports(),
-        [RuntimeExport::new(
-            "toolchain:/runtime/start/freestanding/macos/startup.nia",
-            "niaDarwinStart",
-        )]
+        [
+            RuntimeExport::new(
+                "toolchain:/runtime/start/freestanding/macos/startup.nia",
+                "niaDarwinStart",
+            ),
+            RuntimeExport::new("toolchain:/runtime/builtins/trap.nia", "__nia_trap"),
+        ]
     );
 
     let program = load_program_request(

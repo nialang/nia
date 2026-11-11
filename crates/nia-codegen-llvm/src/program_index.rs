@@ -1402,6 +1402,7 @@ mod tests {
             source_identity: nia_source::SourceIdentity::new(name),
             symbol_package_identity: "test/package@0".into(),
             name: name.to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -1686,6 +1687,7 @@ mod tests {
                 source_identity: nia_source::SourceIdentity::new("main"),
                 symbol_package_identity: "test/package@0".into(),
                 name: "main".to_string(),
+                trap_locations: None,
                 const_eval: BackendConstFacts::default(),
                 layouts: BackendLayouts {
                     target: nia_layout::TargetDataLayout::LP64,
@@ -1895,6 +1897,7 @@ mod tests {
             source_identity: nia_source::SourceIdentity::new("owner"),
             symbol_package_identity: "test/package@0".into(),
             name: "owner".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -2140,6 +2143,7 @@ mod tests {
             source_identity: nia_source::SourceIdentity::new("left"),
             symbol_package_identity: "test/package@0".into(),
             name: "left".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts {
                 array_lengths: [(left_expr.clone(), 4)].into_iter().collect(),
             },
@@ -2158,6 +2162,7 @@ mod tests {
             source_identity: nia_source::SourceIdentity::new("right"),
             symbol_package_identity: "test/package@0".into(),
             name: "right".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts {
                 array_lengths: [(right_expr.clone(), 4)].into_iter().collect(),
             },

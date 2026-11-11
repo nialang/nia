@@ -247,6 +247,7 @@ fn validates_backend_ir_call_signatures_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -553,6 +554,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -659,6 +661,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,

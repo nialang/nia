@@ -2763,6 +2763,7 @@ mod owner_tests {
             source_identity: SourceIdentity::new("stale-membership.nia"),
             symbol_package_identity: "test/package@0".into(),
             name: "stale-membership".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: TargetDataLayout::LP64,
@@ -2861,6 +2862,7 @@ mod owner_tests {
             source_identity: SourceIdentity::new("vtable-symbols.nia"),
             symbol_package_identity: "test/package@0".into(),
             name: "vtable-symbols".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: TargetDataLayout::LP64,

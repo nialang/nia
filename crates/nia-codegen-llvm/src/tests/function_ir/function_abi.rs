@@ -14,6 +14,7 @@ fn emits_function_body_from_function_ir_when_available() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: Default::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -205,6 +206,7 @@ fn scopes_template_local_promotions_to_function_instances() {
         source_identity: nia_source::SourceIdentity::new("main"),
         symbol_package_identity: "test/package@0".into(),
         name: "main".to_string(),
+        trap_locations: None,
         const_eval: BackendConstFacts::default(),
         layouts: BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
@@ -502,6 +504,7 @@ fn validates_variadic_function_declarations_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -899,6 +902,7 @@ fn validates_function_instance_abi_metadata_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -974,6 +978,7 @@ fn validates_aggregate_instance_abi_metadata_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -1111,6 +1116,7 @@ fn validates_global_instance_metadata_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,

@@ -25,6 +25,7 @@ pub(super) fn single_module_program(
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts,
             structs,

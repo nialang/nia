@@ -466,6 +466,7 @@ mod tests {
             source_identity: SourceIdentity::new("generic-enum-contract.nia"),
             symbol_package_identity: "test/generic-enum@0".into(),
             name: "generic-enum-contract".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: TargetDataLayout::LP64,

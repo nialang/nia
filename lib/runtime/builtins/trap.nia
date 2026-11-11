@@ -1,0 +1,307 @@
+using std::{atomic, builtin, SourceLocation};
+using std::builtin::target;
+using std::os::FileHandle;
+
+// Reports a failed runtime check on standard error, then traps.
+//
+// Native support ABI called by the checks the compiler generates; see "Trap
+// Reports" in the ABI reference. `info` packs the cause (bits 0-7), the lane
+// width (bits 8-11), whether the lane type is signed (bit 12), whether the
+// left operand is signed (bit 13), the lane count (bits 16-30, 0 for a
+// scalar) and whether the right operand is signed (bit 31). Operands arrive zero- or sign-extended to 128 bits as low and high
+// halves; `lane` is the first failing lane of a vector operation.
+//
+// It never returns; the C ABI has no `never`, so the compiler marks its calls
+// `noreturn`. Only a check that has already failed reaches it, so a second
+// failure while reporting, on any thread, traps without a report.
+@[inlineNever]
+extern fun __nia_trap(
+    location: &SourceLocation,
+    info: u32,
+    lane: u32,
+    lhsLow: u64,
+    lhsHigh: u64,
+    rhsLow: u64,
+    rhsHigh: u64,
+) () {
+    if builtin::atomicRmw[u8](reporting, atomic::Xchg, 1, atomic::AcqRel) == 0 {
+        let check = Check::decode(info, lane, lhsLow, lhsHigh, rhsLow, rhsHigh);
+        let mut line = Line::init();
+        line.push(&b"nia: ");
+        line.pushLocation(location);
+        line.push(&b": ");
+        check.describe(&mut line);
+        line.push(&b"\n");
+        writeAll(line.text());
+    }
+    builtin::trap()
+}
+
+static mut reporting: u8 = 0;
+
+// What the failed check tested. The enum is open: a cause this runtime does
+// not know still reports, as a plain trap.
+enum Cause: u8 {
+    Add = 1,
+    Sub,
+    Mul,
+    Neg,
+    Div,
+    Rem,
+    ShlAmount,
+    ShrAmount,
+    ShlOverflow,
+    LaneIndex,
+    Explicit,
+    _,
+}
+
+// The width of a checked integer type. The enum is open: an unknown width
+// reports as `integer`.
+enum Width: u8 {
+    W8,
+    W16,
+    W32,
+    W64,
+    W128,
+    Pointer,
+    Bool,
+    _,
+}
+
+// The lane type of a checked operation.
+struct Element {
+    width: Width,
+    signed: bool,
+}
+
+extend Element {
+    fun bits(self) usize {
+        match self.width {
+            .W8 => 8,
+            .W16 => 16,
+            .W32 => 32,
+            .W64 => 64,
+            .W128 => 128,
+            _ => target::pointerWidth,
+        }
+    }
+}
+
+// An operand widened to 128 bits, with the signedness of its type.
+struct Operand {
+    bits: u128,
+    signed: bool,
+}
+
+extend Operand {
+    fun init(low: u64, high: u64, signed: bool) Operand {
+        .{ bits: ((high as u128) << 64) | low as u128, signed }
+    }
+
+    fun isZero(self) bool {
+        self.bits == 0
+    }
+}
+
+struct Check {
+    cause: Cause,
+    element: Element,
+    lanes: u32,
+    lane: u32,
+    lhs: Operand,
+    rhs: Operand,
+}
+
+extend Check {
+    fun decode(info: u32, lane: u32, lhsLow: u64, lhsHigh: u64, rhsLow: u64, rhsHigh: u64) Check {
+        let element = Element {
+            width: ((info >> 8) & 0xf) as u8 as Width,
+            signed: ((info >> 12) & 1) != 0,
+        };
+        let lhsSigned = ((info >> 13) & 1) != 0;
+        let rhsSigned = (info >> 31) != 0;
+        .{
+            cause: (info & 0xff) as u8 as Cause,
+            element,
+            lanes: (info >> 16) & 0x7fff,
+            lane,
+            lhs: .init(lhsLow, lhsHigh, lhsSigned),
+            rhs: .init(rhsLow, rhsHigh, rhsSigned),
+        }
+    }
+
+    fun describe(&self, line: &mut Line) () {
+        match self.cause {
+            .Add => self.overflow(line, &b" + "),
+            .Sub => self.overflow(line, &b" - "),
+            .Mul => self.overflow(line, &b" * "),
+            .Neg => {
+                self.heading(line, &b"integer overflow");
+                line.push(&b"-(");
+                line.pushOperand(self.rhs);
+                line.push(&b") does not fit in ");
+                line.pushElement(self.element);
+            }
+            .Div => self.division(line, &b"division by zero", &b" / "),
+            .Rem => self.division(line, &b"remainder by zero", &b" % "),
+            .ShlAmount => self.shiftAmount(line, &b" << "),
+            .ShrAmount => self.shiftAmount(line, &b" >> "),
+            .ShlOverflow => self.overflow(line, &b" << "),
+            .LaneIndex => {
+                line.push(&b"vector lane index ");
+                line.pushOperand(self.lhs);
+                line.push(&b" is out of range for ");
+                line.pushType(self.element, self.lanes);
+            }
+            .Explicit => line.push(&b"explicit trap"),
+            _ => line.push(&b"trap"),
+        }
+    }
+
+    // `integer overflow: 250 + 10 does not fit in u8`, naming the lane of a
+    // vector operation.
+    fun overflow(&self, line: &mut Line, operator: &[u8]) () {
+        self.heading(line, &b"integer overflow");
+        line.pushOperand(self.lhs);
+        line.push(operator);
+        line.pushOperand(self.rhs);
+        line.push(&b" does not fit in ");
+        line.pushElement(self.element);
+    }
+
+    // `shift amount out of range: 1 << 40, where u32 allows 0..32`.
+    fun shiftAmount(&self, line: &mut Line, operator: &[u8]) () {
+        self.heading(line, &b"shift amount out of range");
+        line.pushOperand(self.lhs);
+        line.push(operator);
+        line.pushOperand(self.rhs);
+        line.push(&b", where ");
+        line.pushElement(self.element);
+        line.push(&b" allows 0..");
+        line.pushUnsigned(self.element.bits() as u128);
+    }
+
+    // A zero divisor, or a signed `MIN / -1` whose quotient overflows.
+    fun division(&self, line: &mut Line, byZero: &[u8], operator: &[u8]) () {
+        if not self.rhs.isZero() {
+            return self.overflow(line, operator);
+        }
+        self.heading(line, byZero);
+        line.pushOperand(self.lhs);
+        line.push(operator);
+        line.push(&b"0 in ");
+        line.pushElement(self.element);
+    }
+
+    fun heading(&self, line: &mut Line, summary: &[u8]) () {
+        line.push(summary);
+        if self.lanes != 0 {
+            line.push(&b" in lane ");
+            line.pushUnsigned(self.lane as u128);
+            line.push(&b" of ");
+            line.pushType(self.element, self.lanes);
+        }
+        line.push(&b": ");
+    }
+}
+
+// One report line in fixed storage: reporting must not allocate. Text past
+// the end is dropped.
+struct Line {
+    bytes: [u8; 512],
+    len: usize,
+}
+
+extend Line {
+    fun init() Line {
+        .{ bytes: [0; 512], len: 0 }
+    }
+
+    fun text(&self) &[u8] {
+        &self.bytes[..self.len]
+    }
+
+    fun push(&mut self, text: &[u8]) () {
+        for &byte in text {
+            if self.len == self.bytes.len() {
+                return;
+            }
+            self.bytes[self.len] = byte;
+            self.len += 1;
+        }
+    }
+
+    fun pushLocation(&mut self, location: &SourceLocation) () {
+        self.push(location.file());
+        self.push(&b":");
+        self.pushUnsigned(location.line() as u128);
+        self.push(&b":");
+        self.pushUnsigned(location.column() as u128);
+    }
+
+    fun pushOperand(&mut self, operand: Operand) () {
+        if operand.signed and (operand.bits >> 127) != 0 {
+            self.push(&b"-");
+            // The magnitude of a negative two's-complement value, which
+            // fits in 128 unsigned bits even for the minimum.
+            return self.pushUnsigned(~operand.bits + 1);
+        }
+        self.pushUnsigned(operand.bits);
+    }
+
+    fun pushUnsigned(&mut self, value: u128) () {
+        let mut digits: [u8; 39] = [0; 39];
+        let mut start = digits.len();
+        let mut rest = value;
+        loop {
+            start -= 1;
+            digits[start] = b'0' + (rest % 10) as u8;
+            rest /= 10;
+            if rest == 0 {
+                break;
+            }
+        }
+        self.push(&digits[start..]);
+    }
+
+    fun pushElement(&mut self, element: Element) () {
+        if element.width == .Bool {
+            return self.push(&b"bool");
+        }
+        if element.signed {
+            self.push(&b"i");
+        } else {
+            self.push(&b"u");
+        }
+        match element.width {
+            .Pointer => self.push(&b"size"),
+            .W8 => self.pushUnsigned(8),
+            .W16 => self.pushUnsigned(16),
+            .W32 => self.pushUnsigned(32),
+            .W64 => self.pushUnsigned(64),
+            .W128 => self.pushUnsigned(128),
+            _ => self.push(&b"nteger"),
+        }
+    }
+
+    fun pushType(&mut self, element: Element, lanes: u32) () {
+        self.pushElement(element);
+        if lanes != 0 {
+            self.push(&b"x");
+            self.pushUnsigned(lanes as u128);
+        }
+    }
+}
+
+fun writeAll(bytes: &[u8]) () {
+    let stderr = FileHandle::stderr();
+    let mut rest = bytes;
+    while rest.len() != 0 {
+        if stderr.writeSome(rest) is !count and count != 0 {
+            rest = &rest[count..];
+        } else {
+            return;
+        }
+    }
+}

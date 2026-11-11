@@ -490,6 +490,38 @@ fn emit_backend_module_finalization_allocation(
     );
 }
 
+/// Span resolution for every module whose failed runtime checks report:
+/// reports are on (see [`reports_failed_checks`]), and the module is not part
+/// of the runtime. Other modules trap without a report.
+fn backend_trap_locations(
+    db: &QueryDb<CompilerContext>,
+    runtime: &RuntimeSpec,
+    checked_modules: &[Arc<CheckedModule>],
+) -> QueryResult<HashMap<ModuleId, Arc<nia_source::SourceLineIndex>>> {
+    let RuntimeSpec::Source(runtime) = runtime else {
+        return Ok(HashMap::new());
+    };
+    if !reports_failed_checks(db)? {
+        return Ok(HashMap::new());
+    }
+    let mut locations = HashMap::new();
+    for module in checked_modules {
+        if runtime.owns_source(module.path.identity().normalized_path()) {
+            continue;
+        }
+        let text = db
+            .context()
+            .loader_facts()
+            .module_source_text(module.id)?
+            .unwrap_or_else(|| Arc::from(""));
+        locations.insert(
+            module.id,
+            Arc::new(nia_source::SourceLineIndex::new(&module.path, &text)),
+        );
+    }
+    Ok(locations)
+}
+
 pub(in crate::query) fn provide_backend_lowering_inputs(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<ProgramBackendLoweringInputs> {
@@ -643,12 +675,14 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         .map(|module| (module.id, module.stable_key.source_identity().clone()))
         .collect();
     let symbol_package_identities = symbol_package_identities(db, &graph)?;
+    let trap_locations = backend_trap_locations(db, &runtime, &checked_modules)?;
     let inputs = time_provider(
         db.context().timings(),
         "backend_lowering.module_inputs",
         || {
             BackendLoweringInputs::new(BackendLoweringInputsParts {
                 cpu_features: *db.get(CompilerCpuFeaturesQuery)?,
+                trap_locations,
                 symbols: db.context().symbols(),
                 source_identities,
                 symbol_package_identities,

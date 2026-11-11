@@ -543,6 +543,9 @@ pub trait BackendProgramFacts: Sync {
 pub struct BackendLowerModuleInput<'a> {
     /// Instruction sets guaranteed throughout this build.
     pub cpu_features: nia_target::CpuFeatures,
+    /// Resolves the module's spans for runtime check reports, or `None` when
+    /// its checks trap without a report.
+    pub trap_locations: Option<std::sync::Arc<nia_source::SourceLineIndex>>,
     /// Stable module identity shared by all local products.
     pub module_id: ModuleId,
     /// Path-independent source identity used for deterministic ownership.

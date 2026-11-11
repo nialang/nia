@@ -331,6 +331,7 @@ pub fun main() i32 {
 
     let input = BackendLowerModuleInput {
         cpu_features: nia_target::CpuFeatures::baseline(target),
+        trap_locations: None,
         module_id,
         source_identity: nia_source::SourceIdentity::new("main"),
         symbol_package_identity: "test/package@0".into(),

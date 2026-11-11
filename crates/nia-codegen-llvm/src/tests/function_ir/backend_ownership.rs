@@ -23,6 +23,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
         source_identity: nia_source::SourceIdentity::new("main"),
         symbol_package_identity: "test/package@0".into(),
         name: "main".to_string(),
+        trap_locations: None,
         const_eval,
         layouts: BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
@@ -100,6 +101,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -194,6 +196,7 @@ fn validates_backend_ir_error_type_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -478,6 +481,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -619,6 +623,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -790,6 +795,7 @@ fn validates_backend_ir_vtable_structure_and_function_refs_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -1122,6 +1128,7 @@ fn validates_backend_ir_dynamic_trait_method_slot_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,
@@ -1349,6 +1356,7 @@ fn emits_const_only_extern_method_instances_with_c_abi() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout::LP64,

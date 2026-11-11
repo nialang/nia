@@ -392,6 +392,30 @@ impl QueryKey<CompilerContext> for CompilerCpuFeaturesQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CompilerBuildProfileQuery;
+
+impl QueryKey<CompilerContext> for CompilerBuildProfileQuery {
+    type Value = nia_target_config::BuildProfile;
+    fn name() -> &'static str {
+        "compiler_build_profile"
+    }
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        Ok(db.context().loader_facts().profile())
+    }
+}
+
+/// Whether failed runtime checks report before trapping: the program links
+/// the runtime that supplies the reporter, and it is a debug build. Release
+/// builds trap without a report and link no reporter; measured on the json
+/// benchmark, reports in every check site grew release code by 28%.
+pub(super) fn reports_failed_checks(db: &QueryDb<CompilerContext>) -> QueryResult<bool> {
+    Ok(matches!(
+        db.get(CompilerRuntimeQuery)?.as_ref(),
+        RuntimeSpec::Source(_)
+    ) && *db.get(CompilerBuildProfileQuery)? == nia_target_config::BuildProfile::Debug)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CompilerRuntimeQuery;
 
 impl QueryKey<CompilerContext> for CompilerRuntimeQuery {

@@ -28,6 +28,7 @@ fn module_with_global(
         source_identity: SourceIdentity::new(name),
         symbol_package_identity: "test/package@0".into(),
         name: name.to_string(),
+        trap_locations: None,
         const_eval: BackendConstFacts::default(),
         layouts: BackendLayouts {
             target: TargetDataLayout::LP64,

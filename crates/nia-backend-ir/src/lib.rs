@@ -1180,6 +1180,10 @@ pub struct BackendModule {
     pub symbol_package_identity: String,
     /// Human-readable module name retained for diagnostics.
     pub name: String,
+    /// Resolves this module's spans for the reports of failed runtime
+    /// checks, or `None` when its checks trap without a report: the program
+    /// links no runtime that reports, or the module belongs to the runtime.
+    pub trap_locations: Option<std::sync::Arc<nia_source::SourceLineIndex>>,
     /// Const-evaluation facts consumed by backend lowering.
     pub const_eval: BackendConstFacts,
     /// Target layout facts copied across the backend boundary.

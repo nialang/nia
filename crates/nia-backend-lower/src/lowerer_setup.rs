@@ -244,6 +244,7 @@ impl<'a> ModuleLowerer<'a> {
             source_identity: self.input.source_identity.clone(),
             symbol_package_identity: self.input.symbol_package_identity.clone(),
             name: self.input.module_name.clone(),
+            trap_locations: self.input.trap_locations.clone(),
             const_eval: nia_backend_ir::BackendConstFacts {
                 array_lengths: self.input.const_array_lengths.clone(),
             },

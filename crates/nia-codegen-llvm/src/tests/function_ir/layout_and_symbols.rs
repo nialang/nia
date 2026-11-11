@@ -729,6 +729,7 @@ fn rejects_mixed_target_layouts_across_backend_modules() {
         source_identity: nia_source::SourceIdentity::new(name),
         symbol_package_identity: "test/package@0".into(),
         name: name.to_string(),
+        trap_locations: None,
         const_eval: BackendConstFacts::default(),
         layouts: BackendLayouts {
             target,
@@ -797,6 +798,7 @@ fn rejects_generated_llvm_symbol_collisions_before_emission() {
         source_identity: nia_source::SourceIdentity::new("main"),
         symbol_package_identity: "test/package@0".into(),
         name: "main".to_string(),
+        trap_locations: None,
         const_eval: BackendConstFacts::default(),
         layouts: BackendLayouts {
             target: nia_layout::TargetDataLayout::LP64,
@@ -1142,6 +1144,7 @@ fn rejects_malformed_layout_contracts_before_llvm() {
             source_identity: nia_source::SourceIdentity::new("main"),
             symbol_package_identity: "test/package@0".into(),
             name: "main".to_string(),
+            trap_locations: None,
             const_eval: BackendConstFacts::default(),
             layouts: BackendLayouts {
                 target: nia_layout::TargetDataLayout {

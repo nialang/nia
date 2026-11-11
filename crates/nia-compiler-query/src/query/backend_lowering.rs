@@ -29,6 +29,7 @@ pub(super) struct BackendLoweringInputs {
     functions: HashMap<GlobalDefId, ProgramFunctionSignature>,
     runtime: RuntimeSpec,
     cpu_features: nia_target::CpuFeatures,
+    trap_locations: HashMap<ModuleId, Arc<nia_source::SourceLineIndex>>,
 }
 
 pub(super) struct BackendLoweringInputsParts {
@@ -43,6 +44,8 @@ pub(super) struct BackendLoweringInputsParts {
     pub(super) const_modules: Vec<Arc<nia_const_ir::ResolvedConstModule>>,
     pub(super) target: nia_target::TargetConfig,
     pub(super) cpu_features: nia_target::CpuFeatures,
+    /// Span resolution for the modules whose runtime checks report.
+    pub(super) trap_locations: HashMap<ModuleId, Arc<nia_source::SourceLineIndex>>,
     pub(super) type_store: Arc<nia_ty::TypeStore>,
     pub(super) visible_extensions: Vec<Arc<VisibleExtensionsValue>>,
     pub(super) extension_methods: Arc<ExtensionMethodIndexValue>,
@@ -417,6 +420,7 @@ impl BackendLoweringInputs {
             functions: parts.functions,
             runtime: parts.runtime,
             cpu_features: parts.cpu_features,
+            trap_locations: parts.trap_locations,
         })
     }
 
@@ -476,6 +480,7 @@ impl BackendLoweringInputs {
         };
         Ok(BackendLowerModuleInput {
             cpu_features: self.cpu_features,
+            trap_locations: self.trap_locations.get(&checked_module.id).cloned(),
             module_id: checked_module.id,
             source_identity: checked_module.path.identity(),
             symbol_package_identity: symbol_package_identity.clone(),
@@ -762,6 +767,7 @@ mod tests {
 
         let inputs = BackendLoweringInputs {
             cpu_features: nia_target::CpuFeatures::default(),
+            trap_locations: HashMap::new(),
             symbols: nia_symbol_table::SymbolTable::new(),
             source_identities: HashMap::new(),
             symbol_package_identities: HashMap::new(),

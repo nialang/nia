@@ -2594,6 +2594,20 @@ ones; the count's type affects neither the result type nor the mode. For
 integer vectors each rule applies per lane, and any failing lane traps the
 whole operation. Floating-point arithmetic follows IEEE-754 and never traps.
 
+In a debug build of an executable, a trap first writes one line to standard
+error naming what failed, the operation's type and operands, and where:
+
+```text
+nia: src/main.nia:12:9: integer overflow: 250 + 10 does not fit in u8
+nia: src/scan.nia:40:17: integer overflow in lane 5 of u8x16: 200 + 100 does not fit in u8
+nia: src/table.nia:7:13: division by zero: 7 / 0 in i32
+```
+
+Inside a `@[trackCaller]` function the location is the tracked call site, as
+for `std::callerLocation()`. The program then traps exactly as it would
+without the report. A release build, an object or library compiled on its own,
+a `--runtime bare` program, and the runtime itself trap without a report.
+
 ## Pointers At The C Boundary
 
 String literals are arrays, not pointers, and there is no implicit array-to-

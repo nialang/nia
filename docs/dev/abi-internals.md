@@ -203,6 +203,16 @@ resource under the internal runtime package identity, not public std API.
   reachability follows calls.
 - Native helpers referenced implicitly by codegen, such as Windows `__chkstk`,
   are rooted by runtime source module and definition.
+- The trap reporter `__nia_trap` (`builtins/trap.nia`) is a runtime export
+  rooted only when failed checks report: a debug build with the freestanding
+  runtime (`reports_failed_checks` in nia-compiler-query). Backend lowering
+  then gives every non-runtime module a `SourceLineIndex`, which codegen uses
+  to resolve each check's span and which the object fingerprint encodes.
+  Runtime modules never report, so the reporter cannot re-enter itself, and
+  startup code runs before relocation without a reporter call. Report calls
+  carry distinct location records, which deliberately keeps LLVM from merging
+  trap blocks; that cost, about 28% of release `.text` on the json benchmark,
+  is why release builds keep the bare trap.
 - On Darwin the source entry is `main`, spelled `_main` for Mach-O; `dyld`
   enters through `LC_MAIN` and it forwards to `niaDarwinStart`.
 - Linux executables are static-pie by default. `_start` passes `__ehdr_start`
