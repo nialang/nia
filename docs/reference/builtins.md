@@ -166,6 +166,7 @@ On x86-64, `u8x16` and `i16x8` operands compile to single instructions such as
 | `const fun extract[V](vector: V, index: usize) Lane` | one lane |
 | `const fun insert[V](vector: V, index: usize, value: Lane) V` | a copy with one lane replaced |
 | `const fun bitmask[V](mask: V) usize` | packs a `boolxN` mask, lane 0 in the least significant bit |
+| `const fun shuffle[V, N: usize](first: V, second: V, indices: [usize; N]) Lane x N` | lanes chosen from `first` and `second` |
 
 `V` is a concrete [vector type](language.md#simd-vector-types) and `Lane` its
 lane type; these functions do not accept a generic `V`, even one bounded by
@@ -173,6 +174,26 @@ lane type; these functions do not accept a generic `V`, even one bounded by
 from the vector. An out-of-range lane index is a compile-time error during
 constant evaluation and traps at runtime before any lane is accessed. `bitmask`
 accepts at most as many lanes as the target pointer has bits.
+
+`shuffle` reads its operands as one sequence of `2L` lanes, where `L` is the
+lane count of `V`: indices below `L` select lanes of `first`, and indices from
+`L` to `2L - 1` select lane `index - L` of `second`. `indices` must be known at
+compile time, as a literal or a `const`; an index of `2L` or more is a
+compile-time error. The result has `V`'s lane type and one lane per index, so
+it may be narrower or wider than `V`. Pass the same vector twice to rearrange a
+single vector.
+
+```nia
+using std::builtin;
+
+fun interleaveLow(a: u8x16, b: u8x16) u8x16 {
+    builtin::shuffle(a, b, [0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23])
+}
+
+fun highHalf(v: i32x4) i32x2 {
+    builtin::shuffle(v, v, [2, 3])
+}
+```
 
 ```nia
 using std::builtin;

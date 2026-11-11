@@ -3271,6 +3271,87 @@ fun recovery() u8 {
 }
 
 #[test]
+fn checks_shuffle_builtin() {
+    let checked = pipeline(
+        r#"
+const LANES: [usize; 2] = [3, 4];
+
+fun interleave(a: u8x4, b: u8x4) u8x8 {
+    std::builtin::shuffle(a, b, [0, 4, 1, 5, 2, 6, 3, 7])
+}
+
+fun narrow(a: i32x4) i32x2 {
+    std::builtin::shuffle(a, a, LANES)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let checked = pipeline(
+        r#"
+fun out_of_range(v: u8x4) u8x4 {
+    std::builtin::shuffle(v, v, [0, 8, 1, 2])
+}
+
+fun not_constant(v: u8x4, i: usize) u8x2 {
+    std::builtin::shuffle(v, v, [0, i])
+}
+
+fun mismatched(a: u8x4, b: u16x4) u8x4 {
+    std::builtin::shuffle(a, b, [0, 1, 2, 3])
+}
+
+fun not_vector(a: u8) u8x2 {
+    std::builtin::shuffle(a, a, [0, 1])
+}
+
+fun arity(v: u8x4) u8x4 {
+    std::builtin::shuffle(v, v)
+}
+
+fun wrong_result(v: u8x4) u8x4 {
+    std::builtin::shuffle(v, v, [0, 1])
+}
+"#,
+    );
+    let count = |text: &str| {
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains(text))
+            .count()
+    };
+    for (text, expected) in [
+        (
+            "shuffle lane index `8` is out of range; two u8x4 operands have 8 lanes",
+            1,
+        ),
+        (
+            "shuffle lane indices must be a non-empty compile-time array",
+            1,
+        ),
+        ("shuffle operand: expected u8x4, got u16x4", 1),
+        (
+            "builtin `shuffle` requires a SIMD vector argument, got u8",
+            1,
+        ),
+        (
+            "builtin `shuffle` requires two vectors and an array of lane indices",
+            1,
+        ),
+        ("expected u8x4, got u8x2", 1),
+    ] {
+        assert_eq!(
+            count(text),
+            expected,
+            "`{text}` in {:?}",
+            checked.diagnostics
+        );
+    }
+    assert_eq!(checked.diagnostics.len(), 6, "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_load_unaligned_builtin() {
     let checked = pipeline(
         r#"

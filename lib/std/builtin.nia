@@ -78,5 +78,5 @@ pub using place::{
     SliceMut,
 };
 pub using primitive::charFromU32;
-pub using simd::{bitmask, extract, insert, splat};
+pub using simd::{bitmask, extract, insert, shuffle, splat};
 pub using source::callerLocation;

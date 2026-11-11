@@ -2185,6 +2185,44 @@ impl Analyzer<'_> {
                 )
                 .map(Some)
             }
+            BuiltinFunction::Shuffle => {
+                let [
+                    ConstValue::Vector(first),
+                    ConstValue::Vector(second),
+                    indices,
+                ] = args
+                else {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `shuffle` expects two vectors and lane indices"
+                            .to_string(),
+                    });
+                };
+                let ConstValue::Array(indices) = indices else {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `shuffle` requires an array of lane indices".to_string(),
+                    });
+                };
+                indices
+                    .iter()
+                    .map(|index| {
+                        let index = const_vector_index(span, index, "shuffle")?;
+                        first
+                            .iter()
+                            .chain(second)
+                            .nth(index)
+                            .cloned()
+                            .ok_or_else(|| ConstError {
+                                span,
+                                message: format!(
+                                    "builtin `shuffle` lane index {index} is out of range"
+                                ),
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|lanes| Some(ConstValue::Vector(lanes)))
+            }
             BuiltinFunction::SaturatingAdd | BuiltinFunction::SaturatingSub => {
                 let name = builtin.name();
                 let subtract = builtin == BuiltinFunction::SaturatingSub;
@@ -2566,7 +2604,7 @@ impl Analyzer<'_> {
     }
 }
 
-fn builtin_function(signature: &FunctionSignature) -> Option<BuiltinFunction> {
+pub(super) fn builtin_function(signature: &FunctionSignature) -> Option<BuiltinFunction> {
     signature
         .attributes
         .iter()

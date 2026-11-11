@@ -449,7 +449,7 @@ pub enum TypedExprKind {
     Intrinsic {
         /// The operation.
         op: nia_ids::IntrinsicOp,
-        /// Operands in evaluation order; exactly `op.arity()` of them.
+        /// Operands in evaluation order, as many as `op.arity()` accepts.
         args: Vec<TypedExpr>,
     },
     /// Converts a `u32` candidate into an optional `char`.

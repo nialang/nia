@@ -1792,8 +1792,11 @@ impl<'a> BodyChecker<'a> {
         type_arg: Option<nia_ids::InternedTyId>,
         args: &[Expr],
     ) -> TypedExprKind {
+        if let (nia_ids::BuiltinFunction::Shuffle, [first, second, indices]) = (builtin, args) {
+            return self.lower_shuffle(first, second, indices);
+        }
         if let Some(op) = builtin.intrinsic()
-            && args.len() == op.arity()
+            && op.arity().accepts(args.len())
         {
             return TypedExprKind::Intrinsic {
                 op,
@@ -1929,6 +1932,45 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             None => TypedExprKind::Error,
+        }
+    }
+
+    /// Lowers `shuffle(first, second, indices)` to the intrinsic with one
+    /// constant `usize` operand per lane index. Type checking has evaluated
+    /// the indices and rejected the call unless they are valid, so a failure
+    /// here only follows an earlier error.
+    fn lower_shuffle(&mut self, first: &Expr, second: &Expr, indices: &Expr) -> TypedExprKind {
+        let lanes = self
+            .with_const_context(|this| {
+                let expr =
+                    this.lower_const_expr(indices)
+                        .map_err(|err| nia_const_eval::ConstError {
+                            span: err.span,
+                            message: err.message,
+                        })?;
+                this.evaluate_const_expr(&expr)
+            })
+            .ok();
+        let Some(nia_const_eval::ConstValue::Array(lanes)) = lanes else {
+            return TypedExprKind::Error;
+        };
+        let usize_ty = self.primitive(nia_ty::PrimitiveTy::Usize);
+        let mut args = vec![self.lower_expr(first), self.lower_expr(second)];
+        for lane in lanes {
+            let nia_const_eval::ConstValue::Int(lane) = lane else {
+                return TypedExprKind::Error;
+            };
+            args.push(TypedExpr {
+                span: indices.span,
+                ty: usize_ty,
+                kind: TypedExprKind::BuiltinValue(BuiltinConst::Int(nia_ty::IntConst::unsigned(
+                    lane.bits(),
+                ))),
+            });
+        }
+        TypedExprKind::Intrinsic {
+            op: nia_ids::IntrinsicOp::Shuffle,
+            args,
         }
     }
 

@@ -590,11 +590,11 @@ impl<'a> FunctionIrValidator<'a> {
                 self.validate_value_expr(rhs)?;
             }
             FunctionExprKind::Intrinsic { op, args } => {
-                if args.len() != op.arity() {
+                if !op.arity().accepts(args.len()) {
                     return Err(FunctionIrError::new(
                         expr.span,
                         format!(
-                            "intrinsic `{}` takes {} operand(s), found {}",
+                            "intrinsic `{}` takes {}, found {}",
                             op.name(),
                             op.arity(),
                             args.len()

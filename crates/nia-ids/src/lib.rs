@@ -598,6 +598,15 @@ macro_rules! builtin_functions {
                 }
             }
 
+            /// Whether the compiler gives each call its own result type
+            /// rather than the declared one: the byte array of `embed`, or
+            /// the vector of `shuffle`, whose lane count is the number of
+            /// indices. The declared result type is a placeholder, so it
+            /// must not drive generic inference.
+            pub const fn specializes_return_type(self) -> bool {
+                matches!(self, Self::Embed | Self::Shuffle)
+            }
+
             /// The intrinsic operation a call to this builtin lowers to, if
             /// it lowers to an intrinsic expression.
             pub const fn intrinsic(self) -> Option<IntrinsicOp> {
@@ -668,6 +677,8 @@ builtin_functions! {
     SaturatingAdd = 28, "saturatingAdd", const_capable: true, intrinsic: SaturatingAdd;
     /// Subtracts integers, clamping the result to the type's range.
     SaturatingSub = 29, "saturatingSub", const_capable: true, intrinsic: SaturatingSub;
+    /// Selects lanes from two vectors by compile-time indices.
+    Shuffle = 30, "shuffle", const_capable: true, intrinsic: Shuffle;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -705,20 +716,56 @@ pub enum IntrinsicOp {
     /// The difference clamped to the type's range, lane by lane for a
     /// vector. Operands: two integers or integer vectors of the result type.
     SaturatingSub,
+    /// A vector of lanes chosen from two vectors. Operands: the two vectors
+    /// of one type with `L` lanes, then one constant `usize` lane index per
+    /// result lane; an index below `L` selects that lane of the first vector
+    /// and an index from `L` to `2L - 1` the lane `index - L` of the second.
+    Shuffle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How many operands an intrinsic operation takes.
+pub enum IntrinsicArity {
+    /// Exactly this many operands.
+    Exactly(usize),
+    /// This many operands or more.
+    AtLeast(usize),
+}
+
+impl IntrinsicArity {
+    /// Whether an operation with this arity can take `count` operands.
+    pub const fn accepts(self, count: usize) -> bool {
+        match self {
+            Self::Exactly(expected) => count == expected,
+            Self::AtLeast(minimum) => count >= minimum,
+        }
+    }
+}
+
+impl std::fmt::Display for IntrinsicArity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exactly(count) => write!(f, "{count} operand(s)"),
+            Self::AtLeast(count) => write!(f, "at least {count} operand(s)"),
+        }
+    }
 }
 
 impl IntrinsicOp {
-    /// The number of operands the operation takes.
-    pub const fn arity(self) -> usize {
+    /// How many operands the operation takes.
+    pub const fn arity(self) -> IntrinsicArity {
         match self {
             Self::LoadUnaligned
             | Self::Splat
             | Self::Bitmask
             | Self::Ctz
             | Self::Clz
-            | Self::Popcount => 1,
-            Self::ExtractElement | Self::SaturatingAdd | Self::SaturatingSub => 2,
-            Self::InsertElement => 3,
+            | Self::Popcount => IntrinsicArity::Exactly(1),
+            Self::ExtractElement | Self::SaturatingAdd | Self::SaturatingSub => {
+                IntrinsicArity::Exactly(2)
+            }
+            Self::InsertElement => IntrinsicArity::Exactly(3),
+            Self::Shuffle => IntrinsicArity::AtLeast(3),
         }
     }
 
@@ -741,6 +788,7 @@ impl IntrinsicOp {
             Self::Popcount => 8,
             Self::SaturatingAdd => 9,
             Self::SaturatingSub => 10,
+            Self::Shuffle => 11,
         }
     }
 
@@ -757,6 +805,7 @@ impl IntrinsicOp {
             Self::Popcount => "popcount",
             Self::SaturatingAdd => "saturatingAdd",
             Self::SaturatingSub => "saturatingSub",
+            Self::Shuffle => "shuffle",
         }
     }
 }

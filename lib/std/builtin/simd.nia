@@ -28,3 +28,13 @@ where V: Simd;
 @[builtin("bitmask")]
 pub const fun bitmask[V](vector: V) usize
 where V: SimdMask;
+
+// Builds a vector from lanes of `first` and `second`, which have the same
+// vector type with `L` lanes. `indices` is a compile-time array with one entry
+// per result lane: an index below `L` selects that lane of `first`, and an
+// index from `L` to `2L - 1` selects lane `index - L` of `second`. The result
+// has the operands' lane type and as many lanes as `indices` has entries; the
+// compiler specializes the `V` below to that vector type.
+@[builtin("shuffle")]
+pub const fun shuffle[V, N: usize](first: V, second: V, indices: [usize; N]) V
+where V: Simd;

@@ -311,6 +311,7 @@ pub mod known {
     known_symbol!(POPCOUNT, "popcount");
     known_symbol!(SATURATING_ADD, "saturatingAdd");
     known_symbol!(SATURATING_SUB, "saturatingSub");
+    known_symbol!(SHUFFLE, "shuffle");
     known_symbol!(ATOMIC_LOAD, "atomicLoad");
     known_symbol!(ATOMIC_STORE, "atomicStore");
     known_symbol!(ATOMIC_RMW, "atomicRmw");
@@ -473,6 +474,7 @@ pub mod known {
         (POPCOUNT, "popcount"),
         (SATURATING_ADD, "saturatingAdd"),
         (SATURATING_SUB, "saturatingSub"),
+        (SHUFFLE, "shuffle"),
         (ATOMIC_LOAD, "atomicLoad"),
         (ATOMIC_STORE, "atomicStore"),
         (ATOMIC_RMW, "atomicRmw"),
@@ -580,6 +582,7 @@ impl ToSymbolId for nia_ids::BuiltinFunction {
             Self::Popcount => known::POPCOUNT,
             Self::SaturatingAdd => known::SATURATING_ADD,
             Self::SaturatingSub => known::SATURATING_SUB,
+            Self::Shuffle => known::SHUFFLE,
             Self::AtomicLoad => known::ATOMIC_LOAD,
             Self::AtomicStore => known::ATOMIC_STORE,
             Self::AtomicRmw => known::ATOMIC_RMW,

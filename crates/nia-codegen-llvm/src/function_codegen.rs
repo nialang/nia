@@ -24,7 +24,7 @@ use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionBody, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody, FunctionExpr,
     FunctionExprKind, FunctionLocal, FunctionLocalKind, FunctionOp, FunctionRange, FunctionScopeId,
-    FunctionTerminator,
+    FunctionTerminator, shuffle_lane_index,
 };
 use nia_ids::{GlobalDefId, InternedTyId, IntrinsicOp, LocalId};
 use nia_llvm::{
@@ -733,6 +733,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             (IntrinsicOp::SaturatingAdd, [lhs, rhs]) => self.emit_saturating(expr, "add", lhs, rhs),
             (IntrinsicOp::SaturatingSub, [lhs, rhs]) => self.emit_saturating(expr, "sub", lhs, rhs),
+            (IntrinsicOp::Shuffle, [first, second, indices @ ..]) if !indices.is_empty() => {
+                self.emit_shuffle(expr, first, second, indices)
+            }
             // Every operation is named so that a new one is a compile error
             // here until it is emitted.
             (
@@ -745,18 +748,62 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 | IntrinsicOp::Clz
                 | IntrinsicOp::Popcount
                 | IntrinsicOp::SaturatingAdd
-                | IntrinsicOp::SaturatingSub,
+                | IntrinsicOp::SaturatingSub
+                | IntrinsicOp::Shuffle,
                 _,
             ) => Err(self.error(
                 expr.span,
                 format!(
-                    "intrinsic `{}` takes {} operand(s), found {}",
+                    "intrinsic `{}` takes {}, found {}",
                     op.name(),
                     op.arity(),
                     args.len()
                 ),
             )),
         }
+    }
+
+    /// Emits a `shufflevector`. Every index is a constant below twice the
+    /// operand lane count; the backend validator has checked both.
+    fn emit_shuffle(
+        &mut self,
+        expr: &FunctionExpr,
+        first: &FunctionExpr,
+        second: &FunctionExpr,
+        indices: &[FunctionExpr],
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let first = self.emit_expr(first)?.into_vector_value()?;
+        let second = self.emit_expr(second)?.into_vector_value()?;
+        let i32_ty = self.module.context.i32_type();
+        let mask = indices
+            .iter()
+            .map(|index| {
+                let lane = shuffle_lane_index(index)
+                    .and_then(|lane| u32::try_from(lane).ok())
+                    .ok_or_else(|| {
+                        self.error(index.span, "shuffle lane index is not a constant")
+                    })?;
+                Ok(BasicValueEnum::from(
+                    i32_ty.const_int(u64::from(lane), false)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, Diagnostic>>()?;
+        let mask = BasicTypeEnum::from(i32_ty)
+            .vector_type(
+                u32::try_from(mask.len())
+                    .map_err(|_| self.error(expr.span, "shuffle has too many result lanes"))?,
+            )
+            .map_err(|error| {
+                self.error(
+                    expr.span,
+                    format!("failed to create shuffle mask type: {error:?}"),
+                )
+            })?
+            .const_vector(&mask)
+            .map_err(|_| self.error(expr.span, "failed to create shuffle mask"))?;
+        self.builder
+            .build_shuffle_vector(first, second, mask, "shuffle")
+            .map_err(|_| self.error(expr.span, "failed to build shuffle"))
     }
 
     /// Emits `llvm.{s,u}{operation}.sat` on the result type; for a vector it

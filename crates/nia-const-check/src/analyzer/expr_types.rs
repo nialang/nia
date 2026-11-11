@@ -723,6 +723,8 @@ impl Analyzer<'_> {
             .into_iter()
             .chain(args.iter().cloned())
             .collect::<Vec<_>>();
+        let specialized_return = super::env_impl::builtin_function(&signature)
+            .is_some_and(BuiltinFunction::specializes_return_type);
         let instantiation = match self.instantiate_resolved_function_generics(
             span,
             ConstFunctionInstantiationInput {
@@ -730,7 +732,7 @@ impl Analyzer<'_> {
                 signature: &signature,
                 generic_args,
                 arg_exprs: &call_args,
-                expected_return: expected,
+                expected_return: expected.filter(|_| !specialized_return),
                 initial: resolved_callee.target_instantiation,
             },
         ) {
@@ -743,7 +745,7 @@ impl Analyzer<'_> {
         self.resolved_call_instantiations
             .insert(span, instantiation.clone());
         if let Some(return_ty) =
-            self.builtin_function_call_return_type(&signature, &call_args, expected)
+            self.builtin_function_call_return_type(&signature, &instantiation, &call_args, expected)
         {
             return Some(return_ty);
         }
@@ -758,20 +760,11 @@ impl Analyzer<'_> {
     fn builtin_function_call_return_type(
         &mut self,
         signature: &FunctionSignature,
+        instantiation: &ConstGenericInstantiation,
         args: &[ResolvedConstExpr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        let builtin = signature
-            .attributes
-            .iter()
-            .find_map(|attribute| match attribute {
-                FunctionAttribute::Builtin(builtin) => Some(*builtin),
-                FunctionAttribute::Naked
-                | FunctionAttribute::TrackCaller
-                | FunctionAttribute::InlineNever
-                | FunctionAttribute::InlineAlways => None,
-            })?;
-        match builtin {
+        match super::env_impl::builtin_function(signature)? {
             BuiltinFunction::ConstError => expected,
             BuiltinFunction::Embed => {
                 let [path] = args else {
@@ -792,6 +785,26 @@ impl Analyzer<'_> {
                     };
                     Some(ty)
                 })
+            }
+            // `shuffle[V, N: usize](first: V, second: V, indices: [usize; N])`
+            // gives a vector of `V`'s lane type with `N` lanes.
+            BuiltinFunction::Shuffle => {
+                let [vector_param, lanes_param] = signature.generic_params.as_slice() else {
+                    return None;
+                };
+                let vector_ty = *instantiation.type_substitutions.get(&vector_param.name)?;
+                let TyKind::Vector { elem, .. } = self.ty_kind(vector_ty)? else {
+                    return None;
+                };
+                let lanes = match &instantiation
+                    .const_substitutions
+                    .get(&lanes_param.name)?
+                    .value
+                {
+                    ConstGenericValue::Int(lanes) => u32::try_from(lanes.bits()).ok()?,
+                    _ => return None,
+                };
+                self.intern_current_ty(TyKind::Vector { elem, lanes })
             }
             _ => None,
         }

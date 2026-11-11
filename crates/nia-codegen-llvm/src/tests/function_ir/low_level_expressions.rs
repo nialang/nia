@@ -499,6 +499,28 @@ fn validates_low_level_builtin_contracts_before_llvm() {
             },
         ),
         builtin(
+            i32x4_ty,
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Shuffle,
+                args: vec![value(i32x4_ty), value(boolx4_ty), value(usize_ty)],
+            },
+        ),
+        builtin(
+            boolx4_ty,
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Shuffle,
+                args: vec![
+                    value(i32x4_ty),
+                    value(i32x4_ty),
+                    FunctionExpr {
+                        span,
+                        ty: usize_ty,
+                        kind: FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Usize(8)),
+                    },
+                ],
+            },
+        ),
+        builtin(
             optional_char_ty,
             FunctionExprKind::CharFromU32 {
                 value: Box::new(value(i32_ty)),
@@ -590,6 +612,9 @@ fn validates_low_level_builtin_contracts_before_llvm() {
         "bit intrinsic has an invalid contract: result type",
         "saturating arithmetic has an invalid contract: result is not an integer or integer vector",
         "saturating arithmetic has an invalid contract: operand type does not match the result type",
+        "SIMD shuffle has an invalid contract: operands do not have the same type",
+        "SIMD shuffle has an invalid contract: result is not a vector of the operand lane type with one lane per index",
+        "SIMD shuffle has an invalid contract: lane index is not a constant below twice the operand lane count",
         "char conversion has an invalid contract: operand type",
         "char conversion has an invalid contract: result type",
     ] {

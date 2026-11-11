@@ -93,6 +93,7 @@ fn builtin_function_const_capabilities_are_explicit() {
                 | BuiltinFunction::Popcount
                 | BuiltinFunction::SaturatingAdd
                 | BuiltinFunction::SaturatingSub
+                | BuiltinFunction::Shuffle
         );
         assert_eq!(builtin.is_const_capable(), expected, "{}", builtin.name());
     }

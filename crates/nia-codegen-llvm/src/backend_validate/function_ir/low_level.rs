@@ -32,6 +32,9 @@ impl BackendValidator<'_> {
             (IntrinsicOp::SaturatingAdd | IntrinsicOp::SaturatingSub, [lhs, rhs]) => {
                 self.validate_saturating(result_ty, lhs, rhs, span)
             }
+            (IntrinsicOp::Shuffle, [first, second, indices @ ..]) if !indices.is_empty() => {
+                self.validate_shuffle(result_ty, first, second, indices, span)
+            }
             // Every operation is named so that a new one is a compile error
             // here until it has a contract.
             (
@@ -44,7 +47,8 @@ impl BackendValidator<'_> {
                 | IntrinsicOp::Clz
                 | IntrinsicOp::Popcount
                 | IntrinsicOp::SaturatingAdd
-                | IntrinsicOp::SaturatingSub,
+                | IntrinsicOp::SaturatingSub
+                | IntrinsicOp::Shuffle,
                 _,
             ) => {
                 for arg in args {
@@ -53,7 +57,7 @@ impl BackendValidator<'_> {
                 self.invalid_low_level_builtin(
                     op.name(),
                     span,
-                    &format!("takes {} operand(s), found {}", op.arity(), args.len()),
+                    &format!("takes {}, found {}", op.arity(), args.len()),
                 );
             }
         }
@@ -85,6 +89,56 @@ impl BackendValidator<'_> {
                 "saturating arithmetic",
                 span,
                 "operand type does not match the result type",
+            );
+        }
+    }
+
+    fn validate_shuffle(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        first: &FunctionExpr,
+        second: &FunctionExpr,
+        indices: &[FunctionExpr],
+        span: Span,
+    ) {
+        self.validate_expr(first);
+        self.validate_expr(second);
+        let operand = match self.index.ty_kind(first.ty) {
+            Some(TyKind::Vector { elem, lanes }) => Some((*elem, *lanes)),
+            _ => None,
+        };
+        let Some((elem, lanes)) = operand else {
+            self.invalid_low_level_builtin("SIMD shuffle", span, "operand is not a vector");
+            return;
+        };
+        if !self.same_type(first.ty, second.ty) {
+            self.invalid_low_level_builtin(
+                "SIMD shuffle",
+                span,
+                "operands do not have the same type",
+            );
+        }
+        let result_matches = matches!(
+            self.index.ty_kind(result_ty),
+            Some(TyKind::Vector { elem: result_elem, lanes: result_lanes })
+                if *result_elem == elem
+                    && usize::try_from(*result_lanes).is_ok_and(|count| count == indices.len())
+        );
+        if !result_matches {
+            self.invalid_low_level_builtin(
+                "SIMD shuffle",
+                span,
+                "result is not a vector of the operand lane type with one lane per index",
+            );
+        }
+        let limit = u64::from(lanes) * 2;
+        if !indices.iter().all(|index| {
+            nia_function_ir::shuffle_lane_index(index).is_some_and(|lane| lane < limit)
+        }) {
+            self.invalid_low_level_builtin(
+                "SIMD shuffle",
+                span,
+                "lane index is not a constant below twice the operand lane count",
             );
         }
     }

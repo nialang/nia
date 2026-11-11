@@ -220,6 +220,12 @@ impl<'a> BodyChecker<'a> {
                 self.record_builtin_function_call(call_span, value_node, builtin, None);
                 self.check_bitmask_builtin_call(call_span, builtin_span, name, type_args, args)
             }
+            BuiltinFunction::Shuffle => {
+                self.reject_builtin_type_arg(builtin_span, name, type_args);
+                let result_ty = self.check_shuffle_builtin_call(call_span, args);
+                self.record_builtin_function_call(call_span, value_node, builtin, result_ty);
+                result_ty.unwrap_or_else(|| self.error())
+            }
             BuiltinFunction::SaturatingAdd | BuiltinFunction::SaturatingSub => self
                 .check_saturating_builtin_call(
                     call_span,
@@ -1011,6 +1017,92 @@ impl<'a> BodyChecker<'a> {
             self.expect_expr_type(arg, result_ty, actual, "saturating arithmetic operand");
         }
         result_ty
+    }
+
+    /// Checks `shuffle(first, second, indices)`: two vectors of one type with
+    /// `L` lanes and a compile-time array of lane indices below `2L`. Returns
+    /// the result type, a vector of the operands' lane type with one lane per
+    /// index, or `None` after reporting why there is none.
+    fn check_shuffle_builtin_call(
+        &mut self,
+        call_span: Span,
+        args: &[Expr],
+    ) -> Option<InternedTyId> {
+        let name = BuiltinFunction::Shuffle.name();
+        let [first, second, indices] = args else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                call_span,
+                format!("builtin `{name}` requires two vectors and an array of lane indices"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return None;
+        };
+        let vector_ty = self.check_expr(first);
+        // Reports a non-vector operand; the lane type itself comes from the
+        // vector kind below.
+        self.vector_lane_ty(first.span, name, vector_ty);
+        let second_ty = self.check_expr_with_expected(second, Some(vector_ty));
+        self.expect_expr_type(second, vector_ty, second_ty, "shuffle operand");
+        self.check_expr(indices);
+        let lane_indices = self.const_shuffle_indices(indices)?;
+        let Some(TyKind::Vector { elem, lanes }) = self.interner.get(vector_ty).cloned() else {
+            return None;
+        };
+        let limit = u128::from(lanes) * 2;
+        if let Some(index) = lane_indices.iter().find(|index| **index >= limit) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                indices.span,
+                format!(
+                    "shuffle lane index `{index}` is out of range; two {} operands have {limit} lanes",
+                    self.ty_name(vector_ty)
+                ),
+            ));
+            return None;
+        }
+        let lanes = u32::try_from(lane_indices.len()).ok()?;
+        Some(self.interner.intern(TyKind::Vector { elem, lanes }))
+    }
+
+    /// The lane indices of a `shuffle` index argument: a non-empty array of
+    /// non-negative integers known at compile time. Reports when it is not.
+    fn const_shuffle_indices(&mut self, indices: &Expr) -> Option<Vec<u128>> {
+        let value = self
+            .with_const_context(|this| {
+                let expr =
+                    this.lower_const_expr(indices)
+                        .map_err(|err| nia_const_eval::ConstError {
+                            span: err.span,
+                            message: err.message,
+                        })?;
+                this.evaluate_const_expr(&expr)
+            })
+            .ok();
+        let lanes = match value {
+            Some(nia_const_eval::ConstValue::Array(values)) if !values.is_empty() => values
+                .iter()
+                .map(|value| match value {
+                    nia_const_eval::ConstValue::Int(value)
+                        if value.as_i128().is_none_or(|value| value >= 0) =>
+                    {
+                        Some(value.bits())
+                    }
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>(),
+            _ => None,
+        };
+        if lanes.is_none() {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                indices.span,
+                "shuffle lane indices must be a non-empty compile-time array of non-negative integers",
+            ));
+        }
+        lanes
     }
 
     fn is_saturating_operand_ty(&self, ty: InternedTyId) -> bool {

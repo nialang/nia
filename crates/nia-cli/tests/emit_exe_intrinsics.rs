@@ -1929,6 +1929,84 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_shuffle_selects_lanes_from_both_vectors() {
+    let root = temp_dir("emit_exe_shuffle_selects_lanes_from_both_vectors");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::builtin;
+using std::process;
+
+// Const evaluation, including a result narrower than its operands and
+// indices named by a const.
+const WIDE: i32x4 = builtin::insert(builtin::splat[i32x4](10), 3, 13);
+const PAIR: i32x2 = builtin::shuffle(WIDE, WIDE, [3, 4]);
+const LANES: [usize; 2] = [0, 7];
+const NAMED: i32x2 = builtin::shuffle(WIDE, WIDE, LANES);
+
+@[inlineNever]
+fun reverse(v: u8x16) u8x16 {
+    builtin::shuffle(v, v, [15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0])
+}
+
+@[inlineNever]
+fun interleave(a: u8x4, b: u8x4) u8x8 {
+    builtin::shuffle(a, b, [0, 4, 1, 5, 2, 6, 3, 7])
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if builtin::extract(PAIR, 0) != 13 or builtin::extract(PAIR, 1) != 10 {
+        return process::ExitCode(1)!;
+    }
+    if builtin::extract(NAMED, 0) != 10 or builtin::extract(NAMED, 1) != 13 {
+        return process::ExitCode(2)!;
+    }
+    let mut bytes: [u8; 16] = [0; 16];
+    for i in 0..16 {
+        bytes[i] = i as u8;
+    }
+    let reversed = reverse(builtin::loadUnaligned[u8x16](&bytes[0]));
+    for i in 0..16 {
+        if builtin::extract(reversed, i) != (15 - i) as u8 {
+            return process::ExitCode(3)!;
+        }
+    }
+    let low = builtin::loadUnaligned[u8x4](&bytes[0]);
+    let high = builtin::loadUnaligned[u8x4](&bytes[8]);
+    let mixed = interleave(low, high);
+    if builtin::extract(mixed, 0) != 0 or builtin::extract(mixed, 1) != 8
+        or builtin::extract(mixed, 6) != 3 or builtin::extract(mixed, 7) != 11 {
+        return process::ExitCode(4)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    for optimization in ["-O0", "-O2"] {
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--exe")
+            .arg(optimization)
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit shuffle executable");
+        assert!(
+            output.status.success(),
+            "{optimization} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&exe).status_timeout("run shuffle executable");
+        assert_eq!(status.code(), Some(0), "{optimization}");
+    }
+}
+
+#[test]
 fn emit_exe_char_checks_unicode_scalar_values() {
     let root = temp_dir("emit_exe_char_checks_unicode_scalar_values");
     let main = root.join("main.nia");

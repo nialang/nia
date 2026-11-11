@@ -32,8 +32,8 @@ use nia_ids::{
     ModuleId, ValueBuiltin,
 };
 use nia_item_signatures::{
-    FunctionAttribute, FunctionSignature, GenericParamSignatureKind, ItemSignatures,
-    ProgramTraitImplSignature, WherePredicateSignature,
+    FunctionSignature, GenericParamSignatureKind, ItemSignatures, ProgramTraitImplSignature,
+    WherePredicateSignature,
 };
 use nia_local_resolve::LocalResolution;
 use nia_provider_summary::{ProviderDemand, ProviderRequest};

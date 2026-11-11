@@ -511,7 +511,7 @@ pub enum FunctionExprKind {
     Intrinsic {
         /// The operation.
         op: nia_ids::IntrinsicOp,
-        /// Operands in evaluation order; exactly `op.arity()` of them.
+        /// Operands in evaluation order, as many as `op.arity()` accepts.
         args: Vec<FunctionExpr>,
     },
     /// Converts a `u32` scalar to `Optional[char]` after validity checks.
@@ -794,6 +794,18 @@ pub enum FunctionBuiltinValue {
     },
     /// A target-typed integer bit pattern produced by constant evaluation.
     Int(IntConst),
+}
+
+/// The lane a `shuffle` index operand selects, if it is the constant its
+/// contract requires.
+pub fn shuffle_lane_index(index: &FunctionExpr) -> Option<u64> {
+    match &index.kind {
+        FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Usize(lane)) => Some(*lane),
+        FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(lane)) => {
+            u64::try_from(lane.bits()).ok()
+        }
+        _ => None,
+    }
 }
 
 /// Inline assembly option affecting optimizer assumptions.
