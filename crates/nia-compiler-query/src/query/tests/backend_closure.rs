@@ -1228,3 +1228,73 @@ static mut item: T;
         Some(nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::U64))
     )));
 }
+
+#[test]
+fn closure_bodies_inline_leaves_their_owner_features_allow() {
+    // A closure is generated with its owner's features, so leaf inlining in
+    // its body follows the owner's rule: a feature-free leaf inlines in every
+    // closure, a feature leaf only in a closure whose owner has its features.
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        r#"
+@[cpuFeatures("avx2")]
+fun wide() i32 { 7 }
+
+fun plain() i32 { 3 }
+
+@[inlineNever]
+fun apply(f: &fun(i32) i32, x: i32) i32 { f(x) }
+
+pub fun baseline(x: i32) i32 {
+    apply(\y: i32 -> wide() + plain() + y, x)
+}
+
+@[cpuFeatures("avx2")]
+pub fun featured(x: i32) i32 {
+    apply(\y: i32 -> wide() + plain() + y, x)
+}
+
+pub fun main() i32 { baseline(1) + featured(2) }
+"#,
+    );
+    let module_id = fixture.entry_id();
+    let codegen = CompilerDatabase::new(
+        CompileRequest::new(fixture.freestanding_program())
+            .with_optimization(NiaOptimizationLevel::O2),
+    )
+    .codegen_program();
+    let backend = &codegen.backend_lowering;
+    assert!(backend.diagnostics.is_empty(), "{:?}", backend.diagnostics);
+    let module = backend
+        .program
+        .modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .expect("entry backend module");
+    // A leaf inlined everywhere is pruned and has no backend function.
+    let def_id = |name: &str| {
+        module
+            .functions
+            .iter()
+            .find(|function| function.name == sym(name))
+            .map(|function| function.def_id)
+    };
+    let calls = |owner: &str, callee: &str| {
+        let owner = def_id(owner).expect("closure owner");
+        let entry = module
+            .closure_entries
+            .iter()
+            .find(|entry| entry.key.closure_id.owner == owner)
+            .expect("closure entry");
+        def_id(callee).is_some_and(|callee| {
+            format!("{:?}", entry.function_body).contains(&format!("{callee:?}"))
+        })
+    };
+    assert!(
+        calls("baseline", "wide"),
+        "baseline closure inlined a feature leaf"
+    );
+    assert!(!calls("baseline", "plain"));
+    assert!(!calls("featured", "wide"));
+    assert!(!calls("featured", "plain"));
+}
