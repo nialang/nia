@@ -35,6 +35,26 @@ impl BackendValidator<'_> {
             (IntrinsicOp::Shuffle, [first, second, indices @ ..]) if !indices.is_empty() => {
                 self.validate_shuffle(result_ty, first, second, indices, span)
             }
+            (IntrinsicOp::Lookup16, [table, indices]) => {
+                self.validate_expr(table);
+                self.validate_expr(indices);
+                let is_bytes = |ty| {
+                    matches!(
+                        self.index.ty_kind(ty),
+                        Some(TyKind::Vector {
+                            elem: PrimitiveTy::U8,
+                            lanes: 16
+                        })
+                    )
+                };
+                if !is_bytes(result_ty) || !is_bytes(table.ty) || !is_bytes(indices.ty) {
+                    self.invalid_low_level_builtin(
+                        "table lookup",
+                        span,
+                        "result or operand is not u8x16",
+                    );
+                }
+            }
             // Every operation is named so that a new one is a compile error
             // here until it has a contract.
             (
@@ -48,7 +68,8 @@ impl BackendValidator<'_> {
                 | IntrinsicOp::Popcount
                 | IntrinsicOp::SaturatingAdd
                 | IntrinsicOp::SaturatingSub
-                | IntrinsicOp::Shuffle,
+                | IntrinsicOp::Shuffle
+                | IntrinsicOp::Lookup16,
                 _,
             ) => {
                 for arg in args {

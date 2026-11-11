@@ -3271,6 +3271,49 @@ fun recovery() u8 {
 }
 
 #[test]
+fn checks_lookup16_builtin() {
+    let checked = pipeline(
+        r#"
+fun classify(table: u8x16, bytes: u8x16) u8x16 {
+    std::builtin::lookup16(table, bytes)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let checked = pipeline(
+        r#"
+fun wide(table: u16x8, bytes: u8x16) u8x16 {
+    std::builtin::lookup16(table, bytes)
+}
+
+fun arity(table: u8x16) u8x16 {
+    std::builtin::lookup16(table)
+}
+
+fun typed(table: u8x16, bytes: u8x16) u8x16 {
+    std::builtin::lookup16[u8x16](table, bytes)
+}
+"#,
+    );
+    let count = |text: &str| {
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains(text))
+            .count()
+    };
+    for text in [
+        "lookup16 operand: expected u8x16, got u16x8",
+        "builtin `lookup16` requires a table and indices",
+        "builtin `lookup16` does not take a type argument",
+    ] {
+        assert_eq!(count(text), 1, "`{text}` in {:?}", checked.diagnostics);
+    }
+    assert_eq!(checked.diagnostics.len(), 3, "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_shuffle_builtin() {
     let checked = pipeline(
         r#"

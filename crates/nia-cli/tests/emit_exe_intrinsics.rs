@@ -2007,6 +2007,107 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_lookup16_zeroes_out_of_range_indices() {
+    let root = temp_dir("emit_exe_lookup16_zeroes_out_of_range_indices");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::builtin;
+using std::process;
+
+const TABLE_BYTES: [u8; 16] =
+    [100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115];
+// Every index class: in range, exactly 16, and with the high bit set.
+const INDEX_BYTES: [u8; 16] = [15, 0, 7, 16, 200, 255, 1, 14, 128, 17, 2, 3, 127, 4, 5, 6];
+
+const CONST_LOOKUP: u8x16 = builtin::lookup16(
+    builtin::splat[u8x16](9u8),
+    builtin::insert(builtin::splat[u8x16](3u8), 5, 16u8),
+);
+
+@[inlineNever]
+fun lookup(table: u8x16, indices: u8x16) u8x16 {
+    builtin::lookup16(table, indices)
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if builtin::extract(CONST_LOOKUP, 0) != 9 or builtin::extract(CONST_LOOKUP, 5) != 0 {
+        return process::ExitCode(1)!;
+    }
+    let table = builtin::loadUnaligned[u8x16](&TABLE_BYTES[0]);
+    let result = lookup(table, builtin::loadUnaligned[u8x16](&INDEX_BYTES[0]));
+    for i in 0..16 {
+        let index = INDEX_BYTES[i];
+        let expected: u8 = if index < 16 { 100 + index } else { 0 };
+        if builtin::extract(result, i) != expected {
+            return process::ExitCode(2)!;
+        }
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    for optimization in ["-O0", "-O2"] {
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--exe")
+            .arg(optimization)
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit lookup16 executable");
+        assert!(
+            output.status.success(),
+            "{optimization} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&exe).status_timeout("run lookup16 executable");
+        assert_eq!(status.code(), Some(0), "{optimization}");
+    }
+}
+
+#[test]
+fn lookup16_uses_the_aarch64_table_instruction() {
+    // `tbl` already gives 0 for an index of 16 or more, so AArch64 needs no
+    // generic gather; LLVM does not form `tbl` from that gather by itself.
+    let root = temp_dir("lookup16_uses_the_aarch64_table_instruction");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+pub fun lookup(table: u8x16, indices: u8x16) u8x16 {
+    std::builtin::lookup16(table, indices)
+}
+"#,
+    )
+    .expect("write test source");
+    let output = support::nia_command()
+        .args([
+            "--target",
+            "aarch64-unknown-linux",
+            "emit",
+            "--llvm",
+            "--runtime",
+            "bare",
+        ])
+        .arg(&main)
+        .output_timeout_for_build("emit aarch64 lookup16 IR");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ir = String::from_utf8(output.stdout).expect("LLVM IR is UTF-8");
+    assert!(ir.contains("@llvm.aarch64.neon.tbl1.v16i8("), "{ir}");
+    assert!(!ir.contains("lookup16.gather"), "{ir}");
+}
+
+#[test]
 fn emit_exe_char_checks_unicode_scalar_values() {
     let root = temp_dir("emit_exe_char_checks_unicode_scalar_values");
     let main = root.join("main.nia");

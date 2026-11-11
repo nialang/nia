@@ -679,6 +679,8 @@ builtin_functions! {
     SaturatingSub = 29, "saturatingSub", const_capable: true, intrinsic: SaturatingSub;
     /// Selects lanes from two vectors by compile-time indices.
     Shuffle = 30, "shuffle", const_capable: true, intrinsic: Shuffle;
+    /// Looks up bytes of a 16-byte table by run-time indices.
+    Lookup16 = 31, "lookup16", const_capable: true, intrinsic: Lookup16;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -721,6 +723,10 @@ pub enum IntrinsicOp {
     /// result lane; an index below `L` selects that lane of the first vector
     /// and an index from `L` to `2L - 1` the lane `index - L` of the second.
     Shuffle,
+    /// A `u8x16` whose lane `i` is lane `indices[i]` of `table`, or 0 when
+    /// that index is 16 or more. Operands: the table, the indices, both
+    /// `u8x16`.
+    Lookup16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -761,7 +767,7 @@ impl IntrinsicOp {
             | Self::Ctz
             | Self::Clz
             | Self::Popcount => IntrinsicArity::Exactly(1),
-            Self::ExtractElement | Self::SaturatingAdd | Self::SaturatingSub => {
+            Self::ExtractElement | Self::SaturatingAdd | Self::SaturatingSub | Self::Lookup16 => {
                 IntrinsicArity::Exactly(2)
             }
             Self::InsertElement => IntrinsicArity::Exactly(3),
@@ -789,6 +795,7 @@ impl IntrinsicOp {
             Self::SaturatingAdd => 9,
             Self::SaturatingSub => 10,
             Self::Shuffle => 11,
+            Self::Lookup16 => 12,
         }
     }
 
@@ -806,6 +813,7 @@ impl IntrinsicOp {
             Self::SaturatingAdd => "saturatingAdd",
             Self::SaturatingSub => "saturatingSub",
             Self::Shuffle => "shuffle",
+            Self::Lookup16 => "lookup16",
         }
     }
 }

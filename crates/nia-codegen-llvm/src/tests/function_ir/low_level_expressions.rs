@@ -506,6 +506,13 @@ fn validates_low_level_builtin_contracts_before_llvm() {
             },
         ),
         builtin(
+            i32x4_ty,
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Lookup16,
+                args: vec![value(i32x4_ty), value(i32x4_ty)],
+            },
+        ),
+        builtin(
             boolx4_ty,
             FunctionExprKind::Intrinsic {
                 op: IntrinsicOp::Shuffle,
@@ -615,6 +622,7 @@ fn validates_low_level_builtin_contracts_before_llvm() {
         "SIMD shuffle has an invalid contract: operands do not have the same type",
         "SIMD shuffle has an invalid contract: result is not a vector of the operand lane type with one lane per index",
         "SIMD shuffle has an invalid contract: lane index is not a constant below twice the operand lane count",
+        "table lookup has an invalid contract: result or operand is not u8x16",
         "char conversion has an invalid contract: operand type",
         "char conversion has an invalid contract: result type",
     ] {

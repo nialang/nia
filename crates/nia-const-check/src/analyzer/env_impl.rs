@@ -2185,6 +2185,30 @@ impl Analyzer<'_> {
                 )
                 .map(Some)
             }
+            BuiltinFunction::Lookup16 => {
+                let [ConstValue::Vector(table), ConstValue::Vector(indices)] = args else {
+                    return Err(ConstError {
+                        span,
+                        message: "builtin `lookup16` expects a table and indices".to_string(),
+                    });
+                };
+                indices
+                    .iter()
+                    .map(|index| {
+                        let ConstValue::Int(index) = index else {
+                            return Err(ConstError {
+                                span,
+                                message: "builtin `lookup16` requires byte indices".to_string(),
+                            });
+                        };
+                        Ok(usize::try_from(index.bits())
+                            .ok()
+                            .and_then(|index| table.get(index).cloned())
+                            .unwrap_or(ConstValue::Int(IntConst::unsigned(0))))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|lanes| Some(ConstValue::Vector(lanes)))
+            }
             BuiltinFunction::Shuffle => {
                 let [
                     ConstValue::Vector(first),

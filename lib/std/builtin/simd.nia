@@ -38,3 +38,10 @@ where V: SimdMask;
 @[builtin("shuffle")]
 pub const fun shuffle[V, N: usize](first: V, second: V, indices: [usize; N]) V
 where V: Simd;
+
+// Looks up bytes of a 16-byte table: lane `i` of the result is lane
+// `indices[i]` of `table`, or 0 when that index is 16 or more. Unlike
+// `shuffle`, the indices are run-time values, which makes this the
+// building block of byte classification and nibble lookups.
+@[builtin("lookup16")]
+pub const fun lookup16(table: u8x16, indices: u8x16) u8x16;

@@ -220,6 +220,11 @@ impl<'a> BodyChecker<'a> {
                 self.record_builtin_function_call(call_span, value_node, builtin, None);
                 self.check_bitmask_builtin_call(call_span, builtin_span, name, type_args, args)
             }
+            BuiltinFunction::Lookup16 => {
+                self.record_builtin_function_call(call_span, value_node, builtin, None);
+                self.reject_builtin_type_arg(builtin_span, name, type_args);
+                self.check_lookup16_builtin_call(call_span, args)
+            }
             BuiltinFunction::Shuffle => {
                 self.reject_builtin_type_arg(builtin_span, name, type_args);
                 let result_ty = self.check_shuffle_builtin_call(call_span, args);
@@ -1017,6 +1022,28 @@ impl<'a> BodyChecker<'a> {
             self.expect_expr_type(arg, result_ty, actual, "saturating arithmetic operand");
         }
         result_ty
+    }
+
+    /// Checks `lookup16(table, indices)`: two `u8x16` operands.
+    fn check_lookup16_builtin_call(&mut self, call_span: Span, args: &[Expr]) -> InternedTyId {
+        let bytes = self.interner.intern(TyKind::Vector {
+            elem: PrimitiveTy::U8,
+            lanes: 16,
+        });
+        if args.len() != 2 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                call_span,
+                "builtin `lookup16` requires a table and indices",
+            ));
+        }
+        for (index, arg) in args.iter().enumerate() {
+            let actual = self.check_expr_with_expected(arg, Some(bytes));
+            if index < 2 {
+                self.expect_expr_type(arg, bytes, actual, "lookup16 operand");
+            }
+        }
+        bytes
     }
 
     /// Checks `shuffle(first, second, indices)`: two vectors of one type with

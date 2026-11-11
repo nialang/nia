@@ -736,6 +736,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             (IntrinsicOp::Shuffle, [first, second, indices @ ..]) if !indices.is_empty() => {
                 self.emit_shuffle(expr, first, second, indices)
             }
+            (IntrinsicOp::Lookup16, [table, indices]) => self.emit_lookup16(expr, table, indices),
             // Every operation is named so that a new one is a compile error
             // here until it is emitted.
             (
@@ -749,7 +750,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 | IntrinsicOp::Popcount
                 | IntrinsicOp::SaturatingAdd
                 | IntrinsicOp::SaturatingSub
-                | IntrinsicOp::Shuffle,
+                | IntrinsicOp::Shuffle
+                | IntrinsicOp::Lookup16,
                 _,
             ) => Err(self.error(
                 expr.span,
@@ -761,6 +763,83 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 ),
             )),
         }
+    }
+
+    /// Emits `lookup16`. AArch64's `tbl` has exactly its semantics, an index
+    /// of 16 or more giving 0, so it is called directly. Elsewhere the lookup
+    /// is a lane-by-lane gather on the low four index bits, then a select
+    /// that zeroes out-of-range lanes; x86 code generation turns that into
+    /// `pshufb` and a mask whenever the CPU has SSSE3.
+    fn emit_lookup16(
+        &mut self,
+        expr: &FunctionExpr,
+        table: &FunctionExpr,
+        indices: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let table = self.emit_expr(table)?.into_vector_value()?;
+        let indices = self.emit_expr(indices)?.into_vector_value()?;
+        let bytes_ty = BasicValueEnum::from(table).get_type()?;
+        if self.module.target.arch() == nia_target::Arch::Aarch64 {
+            let intrinsic = nia_llvm::intrinsics::Intrinsic::find("llvm.aarch64.neon.tbl1")
+                .and_then(|intrinsic| intrinsic.get_declaration(&self.module.module, &[bytes_ty]))
+                .ok_or_else(|| self.error(expr.span, "failed to declare table lookup"))?;
+            let call = self
+                .builder
+                .build_call(intrinsic, &[table.into(), indices.into()], "lookup16")
+                .map_err(|_| self.error(expr.span, "failed to build table lookup"))?;
+            return call
+                .try_as_basic_value()
+                .unwrap_basic()
+                .map_err(|_| self.error(expr.span, "table lookup did not produce a value"));
+        }
+        let i8_ty = self.module.context.i8_type();
+        let splat = |this: &Self, value: u64| -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+            let lanes = vec![BasicValueEnum::from(i8_ty.const_int(value, false)?); 16];
+            BasicTypeEnum::from(i8_ty)
+                .vector_type(16)
+                .and_then(|ty| ty.const_vector(&lanes))
+                .map(Into::into)
+                .map_err(|_| this.error(expr.span, "failed to create lookup constant"))
+        };
+        let in_range = self
+            .builder
+            .build_basic_int_compare(
+                nia_llvm::IntPredicate::ULT,
+                indices.into(),
+                splat(self, 16)?,
+                "lookup16.in_range",
+            )
+            .map_err(|_| self.error(expr.span, "failed to compare lookup indices"))?;
+        let low_bits = self
+            .builder
+            .build_basic_and(indices.into(), splat(self, 15)?, "lookup16.index")
+            .map_err(|_| self.error(expr.span, "failed to mask lookup indices"))?
+            .into_vector_value()?;
+        let zero = bytes_ty
+            .const_zero()
+            .map_err(|_| self.error(expr.span, "failed to create zero vector"))?;
+        let i32_ty = self.module.context.i32_type();
+        let mut gathered = zero.into_vector_value()?;
+        for lane in 0..16 {
+            let lane = i32_ty.const_int(lane, false)?;
+            let index = self
+                .builder
+                .build_extract_element(low_bits, lane, "lookup16.lane_index")
+                .map_err(|_| self.error(expr.span, "failed to read lookup index"))?
+                .into_int_value()?;
+            let byte = self
+                .builder
+                .build_extract_element(table, index, "lookup16.byte")
+                .map_err(|_| self.error(expr.span, "failed to read table byte"))?;
+            gathered = self
+                .builder
+                .build_insert_element(gathered, byte, lane, "lookup16.gather")
+                .map_err(|_| self.error(expr.span, "failed to gather table bytes"))?
+                .into_vector_value()?;
+        }
+        self.builder
+            .build_select(in_range, gathered.into(), zero, "lookup16")
+            .map_err(|_| self.error(expr.span, "failed to zero out-of-range lookups"))
     }
 
     /// Emits a `shufflevector`. Every index is a constant below twice the

@@ -136,6 +136,9 @@ pub mod intrinsics {
                 "llvm.usub.sat" => Some(Self {
                     name: "llvm.usub.sat",
                 }),
+                "llvm.aarch64.neon.tbl1" => Some(Self {
+                    name: "llvm.aarch64.neon.tbl1",
+                }),
                 "llvm.bswap" => Some(Self { name: "llvm.bswap" }),
                 "llvm.sqrt" => Some(Self { name: "llvm.sqrt" }),
                 "llvm.floor" => Some(Self { name: "llvm.floor" }),

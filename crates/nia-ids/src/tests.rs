@@ -94,6 +94,7 @@ fn builtin_function_const_capabilities_are_explicit() {
                 | BuiltinFunction::SaturatingAdd
                 | BuiltinFunction::SaturatingSub
                 | BuiltinFunction::Shuffle
+                | BuiltinFunction::Lookup16
         );
         assert_eq!(builtin.is_const_capable(), expected, "{}", builtin.name());
     }

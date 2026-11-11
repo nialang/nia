@@ -167,6 +167,7 @@ On x86-64, `u8x16` and `i16x8` operands compile to single instructions such as
 | `const fun insert[V](vector: V, index: usize, value: Lane) V` | a copy with one lane replaced |
 | `const fun bitmask[V](mask: V) usize` | packs a `boolxN` mask, lane 0 in the least significant bit |
 | `const fun shuffle[V, N: usize](first: V, second: V, indices: [usize; N]) Lane x N` | lanes chosen from `first` and `second` |
+| `const fun lookup16(table: u8x16, indices: u8x16) u8x16` | lane `i` is `table[indices[i]]`, or 0 when that index is 16 or more |
 
 `V` is a concrete [vector type](language.md#simd-vector-types) and `Lane` its
 lane type; these functions do not accept a generic `V`, even one bounded by
@@ -194,6 +195,33 @@ fun highHalf(v: i32x4) i32x2 {
     builtin::shuffle(v, v, [2, 3])
 }
 ```
+
+`lookup16` is the run-time counterpart of `shuffle` for bytes: the indices are
+a vector, so each lane can choose a different table entry. An index of 16 or
+more gives 0 for that lane instead of wrapping, so an index vector can mark
+lanes to clear. A typical use classifies bytes by their low four bits:
+
+```nia
+using std::builtin;
+
+// Lanes holding an ASCII digit `'0'..='9'` become 1; all others become 0.
+fun digitLanes(bytes: u8x16) u8x16 {
+    // Entry `n` is 1 when a byte with high four bits 3 and low four bits `n`
+    // is a digit.
+    let digits: [u8; 16] = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0];
+    let table = builtin::loadUnaligned[u8x16](&digits[0]);
+    let low = bytes & builtin::splat[u8x16](15u8);
+    let high = bytes >> builtin::splat[u8x16](4u8);
+    // A byte whose high four bits are not 3 gets an index of 16 or more,
+    // so its lane becomes 0.
+    let outside = (high ^ builtin::splat[u8x16](3u8)) << builtin::splat[u8x16](4u8);
+    builtin::lookup16(table, low | outside)
+}
+```
+
+On AArch64 `lookup16` is a single `tbl`. On x86-64 it becomes `pshufb` and a
+mask when the CPU has SSSE3; the default baseline CPU does not, so it is
+computed lane by lane there.
 
 ```nia
 using std::builtin;
