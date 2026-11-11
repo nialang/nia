@@ -148,7 +148,11 @@ fn compiler_builtins_fingerprint_inner(
     let mut definition = QueryFingerprintBuilder::new(BUILTINS_DEFINITION_DOMAIN);
     definition.write_str(symbols.zero_fill.unwrap_or_default());
     definition.write_u8(u8::from(symbols.windows_fltused));
+    definition.write_u8(u8::from(symbols.u64_div_rem));
+    definition.write_u8(u8::from(symbols.i64_div_rem));
     definition.write_u8(u8::from(symbols.u128_div_rem));
+    definition.write_u8(u8::from(symbols.u64_shifts));
+    definition.write_u8(u8::from(symbols.u128_shifts));
     definition.write_u8(u8::from(symbols.i128_div_rem));
     definition.write_u8(u8::from(symbols.u128_from_f32));
     definition.write_u8(u8::from(symbols.u128_from_f64));
@@ -3193,6 +3197,55 @@ mod tests {
             ir_fingerprints(&make(PrimitiveTy::I32), LlvmCodegenOptions::default()),
             ir_fingerprints(&make(PrimitiveTy::I64), LlvmCodegenOptions::default())
         );
+    }
+
+    #[test]
+    fn builtin_fingerprints_distinguish_wide_runtime_dependencies() {
+        let target = TargetMachineIdentity {
+            triple: "i686-unknown-linux-gnu".to_string(),
+            cpu: "generic".to_string(),
+            features: String::new(),
+            relocation_model: nia_llvm::target::TargetRelocationModel::Pic,
+            code_model: nia_llvm::target::TargetCodeModel::Default,
+        };
+        let baseline = CompilerBuiltinSymbols::default();
+        let variants = [
+            CompilerBuiltinSymbols {
+                u64_div_rem: true,
+                ..baseline
+            },
+            CompilerBuiltinSymbols {
+                i64_div_rem: true,
+                ..baseline
+            },
+            CompilerBuiltinSymbols {
+                u64_shifts: true,
+                ..baseline
+            },
+            CompilerBuiltinSymbols {
+                u128_shifts: true,
+                ..baseline
+            },
+        ];
+        for lto in [None, Some(crate::LtoMode::Thin), Some(crate::LtoMode::Full)] {
+            let fingerprint = |symbols: &CompilerBuiltinSymbols| {
+                compiler_builtins_fingerprint_inner(
+                    symbols,
+                    LlvmCodegenOptions::default(),
+                    &target,
+                    lto,
+                )
+                .fingerprint
+            };
+            let mut distinct = std::collections::HashSet::new();
+            distinct.insert(fingerprint(&baseline));
+            for symbols in variants {
+                assert!(
+                    distinct.insert(fingerprint(&symbols)),
+                    "{symbols:?} {lto:?}"
+                );
+            }
+        }
     }
 
     #[test]

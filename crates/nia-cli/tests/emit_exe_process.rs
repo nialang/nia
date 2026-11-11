@@ -3483,22 +3483,23 @@ pub fun main(init: process::Init) process::ExitCode!() {
     )
     .expect("write test source");
 
-    let output = support::nia_command()
-        .arg("emit")
-        .arg("--exe")
-        .arg(&main)
-        .arg("-o")
-        .arg(&exe)
-        .output_timeout_for_build("run nia emit --exe");
-
-    assert!(
-        output.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let status = Command::new(&exe).status_timeout("run emitted executable");
-    assert_eq!(status.code(), Some(0));
+    // Size optimization can turn shifts inside the division runtime itself
+    // into compiler-rt calls. Link and execute that dependency closure too.
+    for level in ["-O0", "-Oz"] {
+        let output = support::nia_command()
+            .args(["emit", "--exe", level])
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit wide division executable");
+        assert!(
+            output.status.success(),
+            "{level} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&exe).status_timeout("run wide division executable");
+        assert_eq!(status.code(), Some(0), "{level}");
+    }
 }
 
 #[test]
@@ -3587,22 +3588,23 @@ pub fun main(init: process::Init) process::ExitCode!() {
     )
     .expect("write test source");
 
-    let output = support::nia_command()
-        .arg("emit")
-        .arg("--exe")
-        .arg(&main)
-        .arg("-o")
-        .arg(&exe)
-        .output_timeout_for_build("run nia emit --exe");
-
-    assert!(
-        output.status.success(),
-        "stderr:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let status = Command::new(&exe).status_timeout("run emitted executable");
-    assert_eq!(status.code(), Some(0));
+    // Size optimization can turn shifts inside the division runtime itself
+    // into compiler-rt calls. Link and execute that dependency closure too.
+    for level in ["-O0", "-Oz"] {
+        let output = support::nia_command()
+            .args(["emit", "--exe", level])
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit wide division executable");
+        assert!(
+            output.status.success(),
+            "{level} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&exe).status_timeout("run wide division executable");
+        assert_eq!(status.code(), Some(0), "{level}");
+    }
 }
 
 #[test]

@@ -20,6 +20,7 @@ use nia_ty::{PrimitiveTy, TyKind};
 use crate::program_index::ProgramIndex;
 
 mod memory;
+mod shifts;
 
 pub(crate) fn required_symbols(
     index: &ProgramIndex,
@@ -36,6 +37,22 @@ pub(crate) fn required_symbols(
         windows_fltused: target.object_format() == nia_target::ObjectFormat::Coff,
     };
     collector.collect_program(index);
+    // Wide arithmetic/conversion helpers also contain shifts that LLVM may
+    // lower to libcalls, especially under size optimization.
+    collector.symbols.u128_shifts |= collector.symbols.u128_div_rem
+        || collector.symbols.i128_div_rem
+        || collector.symbols.u128_from_f32
+        || collector.symbols.u128_from_f64
+        || collector.symbols.i128_from_f32
+        || collector.symbols.i128_from_f64
+        || collector.symbols.f32_from_u128
+        || collector.symbols.f64_from_u128
+        || collector.symbols.f32_from_i128
+        || collector.symbols.f64_from_i128;
+    collector.symbols.u64_shifts |= target.pointer_width() < 64
+        && (collector.symbols.u128_shifts
+            || collector.symbols.u64_div_rem
+            || collector.symbols.i64_div_rem);
     collector.symbols
 }
 
@@ -49,6 +66,8 @@ pub(crate) struct CompilerBuiltinSymbols {
     pub(crate) windows_fltused: bool,
     pub(crate) u64_div_rem: bool,
     pub(crate) i64_div_rem: bool,
+    pub(crate) u64_shifts: bool,
+    pub(crate) u128_shifts: bool,
     pub(crate) u128_div_rem: bool,
     pub(crate) i128_div_rem: bool,
     pub(crate) u128_from_f32: bool,
@@ -73,6 +92,12 @@ impl CompilerBuiltinSymbols {
             self.u64_div_rem.then_some("__umoddi3"),
             self.i64_div_rem.then_some("__divdi3"),
             self.i64_div_rem.then_some("__moddi3"),
+            self.u64_shifts.then_some("__ashldi3"),
+            self.u64_shifts.then_some("__lshrdi3"),
+            self.u64_shifts.then_some("__ashrdi3"),
+            self.u128_shifts.then_some("__ashlti3"),
+            self.u128_shifts.then_some("__lshrti3"),
+            self.u128_shifts.then_some("__ashrti3"),
             self.u128_div_rem.then_some("__udivti3"),
             self.u128_div_rem.then_some("__umodti3"),
             self.i128_div_rem.then_some("__divti3"),
@@ -197,6 +222,17 @@ impl CompilerBuiltinCollector {
     }
 
     fn collect_expr(&mut self, index: &ProgramIndex, expr: &FunctionExpr) {
+        match index.ty_kind(expr.ty) {
+            Some(TyKind::Primitive(PrimitiveTy::U128 | PrimitiveTy::I128)) => {
+                self.symbols.u128_shifts = true;
+            }
+            Some(TyKind::Primitive(PrimitiveTy::U64 | PrimitiveTy::I64))
+                if self.wide_i64_div_rem =>
+            {
+                self.symbols.u64_shifts = true;
+            }
+            _ => {}
+        }
         if self.windows_fltused
             && matches!(
                 index.ty_kind(expr.ty),
@@ -575,6 +611,12 @@ fn emit_definitions<'ctx>(
     pointer_bits: u32,
 ) -> Result<(), Diagnostic> {
     memory::emit_memory_routines(context, module, pointer_bits, symbols.zero_fill)?;
+    if symbols.u64_shifts {
+        shifts::emit(context, module, 64, false).map_err(diagnostic_from_llvm_error)?;
+    }
+    if symbols.u128_shifts {
+        shifts::emit(context, module, 128, windows_i128_abi).map_err(diagnostic_from_llvm_error)?;
+    }
     if symbols.windows_fltused {
         let global = module
             .add_global(context.i32_type().into(), None, "_fltused")
@@ -1784,6 +1826,7 @@ mod tests {
             CompilerBuiltinSymbols {
                 u128_div_rem: true,
                 i128_div_rem: true,
+                u128_shifts: true,
                 u128_from_f64: true,
                 f64_from_u128: true,
                 ..CompilerBuiltinSymbols::default()
@@ -1807,6 +1850,12 @@ mod tests {
                 "{symbol} does not use the Windows compiler-rt ABI:\n{signature}"
             );
         }
+        for symbol in ["__ashlti3", "__lshrti3", "__ashrti3"] {
+            assert!(
+                ir.contains(&format!("define hidden <2 x i64> @{symbol}(ptr ")),
+                "{symbol} must use the Windows compiler-rt ABI:\n{ir}"
+            );
+        }
         assert!(
             ir.contains("define hidden <2 x i64> @__fixunsdfti(double "),
             "Windows float-to-i128 helper must return the vector ABI:\n{ir}"
@@ -1818,6 +1867,53 @@ mod tests {
         assert!(
             ir.contains("%rem.carry") && !ir.contains("i129"),
             "wide division must preserve carry without widening the remainder:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn wide_shift_builtins_use_compiler_rt_abi_without_recursive_wide_shifts() {
+        let context = Context::create().expect("create LLVM context");
+        let module = context
+            .create_module("nia.shift.compiler_builtins")
+            .expect("create LLVM module");
+        emit_definitions(
+            &context,
+            &module,
+            CompilerBuiltinSymbols {
+                u64_shifts: true,
+                u128_shifts: true,
+                ..CompilerBuiltinSymbols::default()
+            },
+            false,
+            64,
+        )
+        .expect("emit shift builtins");
+        module.verify().expect("verify shift builtin module");
+
+        let ir = module.ir_string().expect("render shift builtin IR");
+        for symbol in ["__ashldi3", "__lshrdi3", "__ashrdi3"] {
+            assert!(
+                ir.contains(&format!("define hidden i64 @{symbol}(i64 ")),
+                "{symbol}:\n{ir}"
+            );
+        }
+        for symbol in ["__ashlti3", "__lshrti3", "__ashrti3"] {
+            assert!(
+                ir.contains(&format!("define hidden i128 @{symbol}(i128 ")),
+                "{symbol}:\n{ir}"
+            );
+        }
+        assert!(ir.contains("define hidden i128 @__ashlti3(i128 "), "{ir}");
+        assert!(
+            !ir.lines()
+                .any(|line| line.contains("call") && line.contains("@__ashl")),
+            "{ir}"
+        );
+        assert!(
+            !ir.lines().any(|line| line.contains("shl i128")
+                || line.contains("lshr i128")
+                || line.contains("ashr i128")),
+            "{ir}"
         );
     }
 
