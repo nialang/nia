@@ -293,26 +293,6 @@ bytes and `boolx16` is 2 bytes.
 
 Crosses the C boundary: not by value. Pass a pointer.
 
-## CPU Feature Check Support
-
-Debug entries for [function CPU features](language.md#function-cpu-features)
-call the native support symbol `__nia_check_cpu_features` with the C signature
-`void __nia_check_cpu_features(uint32_t required)`. Bit `i` selects the feature
-whose discriminant is `i` in `std::builtin::target::CpuFeature`.
-
-The helper returns only when every requested feature, including the operating
-system's register-state support, is available. Otherwise it reports the missing
-feature and traps. It must use only the build's guaranteed features and must
-remain out of line across the checked boundary. The Nia runtime supplies it
-when reachable functions need checks. A bare object or library with checked
-entries requires its final link to provide this support ABI. Release entries
-do not reference it.
-
-The checked entry preserves the function's calling convention, including
-indirect results and caller-location metadata. The specialized implementation
-is an internal compiler symbol; taking the function's address obtains the
-checked entry in debug builds.
-
 ## The C ABI Boundary
 
 Every `extern fun` declaration or definition, `extern static`, and

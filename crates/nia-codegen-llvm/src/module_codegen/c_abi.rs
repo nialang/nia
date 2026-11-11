@@ -314,18 +314,6 @@ impl<'ctx> ModuleCodegen<'ctx, '_> {
         return_type: InternedTyId,
         span: Span,
     ) -> Result<(), Diagnostic> {
-        for (loc, attribute) in self.c_signature_attributes(params, return_type, span)? {
-            function.add_attribute(loc, attribute);
-        }
-        Ok(())
-    }
-
-    pub(super) fn c_signature_attributes(
-        &self,
-        params: impl IntoIterator<Item = (InternedTyId, Span)>,
-        return_type: InternedTyId,
-        span: Span,
-    ) -> Result<Vec<(AttributeLoc, Attribute<'ctx>)>, Diagnostic> {
         let params = self.c_params(params)?;
         let ret = self.c_return_type(return_type, span)?;
         let abi = self.classify_c(&params, ret.as_ref());
@@ -337,7 +325,10 @@ impl<'ctx> ModuleCodegen<'ctx, '_> {
             .is_some()
             .then(|| self.c_natural_llvm_type(return_type, span))
             .transpose()?;
-        self.c_abi_attributes(&abi, &arg_types, result_type, span)
+        for (loc, attribute) in self.c_abi_attributes(&abi, &arg_types, result_type, span)? {
+            function.add_attribute(loc, attribute);
+        }
+        Ok(())
     }
 
     /// The attributes a classified signature places on a declaration or call

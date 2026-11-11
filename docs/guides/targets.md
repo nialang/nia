@@ -187,8 +187,8 @@ pub fun doubled(value: u8x32) u8x32 {
 attribute changes code generation for `doubleAvx2`; it does not change
 `@[if hasFeature(...)]` inside that function. The
 [language reference](../reference/language.md#function-cpu-features) defines
-closure inheritance, inlining, and debug entry checks. A release build relies
-on the explicit branch to avoid calling an unsupported function.
+closure inheritance and inlining. Calls are not checked in any profile: the
+explicit branch is what keeps an unsupported processor out of `doubleAvx2`.
 
 ## Build Profiles
 

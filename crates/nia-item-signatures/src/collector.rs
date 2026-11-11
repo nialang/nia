@@ -1196,7 +1196,7 @@ impl<'a> SignatureCollector<'a> {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::ITEM_SIGNATURE,
                 function.span,
-                "`@[cpuFeatures]` cannot be combined with `@[naked]`: naked functions have no checked entry wrapper",
+                "`@[cpuFeatures]` cannot be combined with `@[naked]`: a naked function has no generated code for the features to apply to",
             ));
         }
         if context == FunctionAttributeContext::TopLevel

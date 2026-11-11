@@ -60,16 +60,10 @@ fn darwin_startup_selects_main_entry_and_libsystem_runtime_modules() {
     assert_eq!(source.entry_point().linker_symbol(), "_main");
     assert_eq!(
         source.required_exports(),
-        [
-            RuntimeExport::new(
-                "toolchain:/runtime/start/freestanding/macos/startup.nia",
-                "niaDarwinStart",
-            ),
-            RuntimeExport::cpu_feature_checks(
-                "toolchain:/runtime/builtins/cpu.nia",
-                "__nia_check_cpu_features"
-            )
-        ]
+        [RuntimeExport::new(
+            "toolchain:/runtime/start/freestanding/macos/startup.nia",
+            "niaDarwinStart",
+        )]
     );
 
     let program = load_program_request(
@@ -205,9 +199,6 @@ fn query_loader_loads_std_package_root_children_on_demand() {
     assert_module_not_loaded(&program, "lib/std/build/core.nia");
     assert_module_not_loaded(&program, "lib/std/atomic.nia");
     assert_module_not_loaded(&program, "lib/std/io/debug.nia");
-    assert_module_not_loaded(&program, "lib/std/cpu.nia");
-    let cpu_support = module_by_suffix(&program, "lib/runtime/builtins/cpu.nia");
-    assert!(!cpu_support.process_used_paths && !cpu_support.process_declared_children);
 }
 
 #[test]

@@ -100,21 +100,11 @@ impl RuntimeEntryPoint {
     }
 }
 
-/// A native support requirement discovered during executable reachability.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeExportRequirement {
-    /// Required whenever this runtime is selected.
-    Always,
-    /// A reachable function needs a debug CPU-feature entry check.
-    CpuFeatureChecks,
-}
-
 /// A source definition retained even when only native codegen references it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeExport {
     module_identity: String,
     definition_name: String,
-    requirement: RuntimeExportRequirement,
 }
 
 impl RuntimeExport {
@@ -123,24 +113,7 @@ impl RuntimeExport {
         Self {
             module_identity: module_identity.into(),
             definition_name: definition_name.into(),
-            requirement: RuntimeExportRequirement::Always,
         }
-    }
-
-    /// A native support definition needed only by debug code generation.
-    pub fn cpu_feature_checks(
-        module_identity: impl Into<String>,
-        definition_name: impl Into<String>,
-    ) -> Self {
-        Self {
-            requirement: RuntimeExportRequirement::CpuFeatureChecks,
-            ..Self::new(module_identity, definition_name)
-        }
-    }
-
-    /// The native-code requirement that retains this definition.
-    pub fn requirement(&self) -> RuntimeExportRequirement {
-        self.requirement
     }
 
     /// Stable source identity of the module owning this definition.
@@ -230,10 +203,6 @@ impl RuntimeSpec {
             Os::Macos => ("start/freestanding/macos/startup.nia", "niaDarwinStart"),
         };
         let mut required_exports = vec![RuntimeExport::new(package.identity(startup.0), startup.1)];
-        required_exports.push(RuntimeExport::cpu_feature_checks(
-            package.identity("builtins/cpu.nia"),
-            "__nia_check_cpu_features",
-        ));
         if (target.os(), target.arch()) == (Os::Windows, Arch::X86_64) {
             required_exports.push(RuntimeExport::new(
                 package.identity("builtins/windows/x86_64.nia"),
@@ -1256,16 +1225,10 @@ mod tests {
             if target.os() == Os::Macos {
                 assert_eq!(
                     source.required_exports(),
-                    [
-                        RuntimeExport::new(
-                            "toolchain:/runtime/start/freestanding/macos/startup.nia",
-                            "niaDarwinStart",
-                        ),
-                        RuntimeExport::cpu_feature_checks(
-                            "toolchain:/runtime/builtins/cpu.nia",
-                            "__nia_check_cpu_features"
-                        )
-                    ]
+                    [RuntimeExport::new(
+                        "toolchain:/runtime/start/freestanding/macos/startup.nia",
+                        "niaDarwinStart",
+                    )]
                 );
             } else if target.os() == Os::Windows {
                 assert_eq!(
@@ -1274,10 +1237,6 @@ mod tests {
                         RuntimeExport::new(
                             "toolchain:/runtime/start/freestanding/windows/startup.nia",
                             "niaWindowsStart",
-                        ),
-                        RuntimeExport::cpu_feature_checks(
-                            "toolchain:/runtime/builtins/cpu.nia",
-                            "__nia_check_cpu_features"
                         ),
                         RuntimeExport::new(
                             "toolchain:/runtime/builtins/windows/x86_64.nia",
@@ -1288,16 +1247,10 @@ mod tests {
             } else {
                 assert_eq!(
                     source.required_exports(),
-                    [
-                        RuntimeExport::new(
-                            "toolchain:/runtime/start/freestanding/linux/startup.nia",
-                            "niaStartStack",
-                        ),
-                        RuntimeExport::cpu_feature_checks(
-                            "toolchain:/runtime/builtins/cpu.nia",
-                            "__nia_check_cpu_features"
-                        )
-                    ]
+                    [RuntimeExport::new(
+                        "toolchain:/runtime/start/freestanding/linux/startup.nia",
+                        "niaStartStack",
+                    )]
                 );
             }
             assert_eq!(source.target(), &target);

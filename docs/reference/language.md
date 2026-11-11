@@ -1178,17 +1178,9 @@ use that feature. Nia does not generate alternative implementations or choose
 one automatically; [explicit dispatch](../guides/targets.md#function-cpu-features)
 selects the function to call.
 
-In a debug build, a function requiring features beyond the build's guarantee
-has a checked entry compiled with only the build's features. It checks support
-before calling the specialized body. Function pointers and closure entries
-also use that checked boundary. Unsupported features produce a diagnostic on
-standard error and trap. The check is controlled by the profile, independently
-of the optimization level. The [runtime ABI](abi.md#cpu-feature-check-support)
-defines the support required when linking debug objects without Nia's runtime.
-
-A release build calls the specialized function directly. Calling it on an
-unsupported processor can execute an illegal instruction; the caller is
-responsible for dispatching correctly.
+Calls to the function are not checked, in any build profile. Calling it on a
+processor without its features can execute an illegal instruction; the caller
+is responsible for dispatching correctly.
 
 Inlining requires the callee's features to be available in the caller: the
 caller's own features together with the build's. A direct call to an

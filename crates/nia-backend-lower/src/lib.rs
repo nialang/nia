@@ -543,8 +543,6 @@ pub trait BackendProgramFacts: Sync {
 pub struct BackendLowerModuleInput<'a> {
     /// Instruction sets guaranteed throughout this build.
     pub cpu_features: nia_target::CpuFeatures,
-    /// Generate checked entries for additional function features in debug.
-    pub check_cpu_features: bool,
     /// Stable module identity shared by all local products.
     pub module_id: ModuleId,
     /// Path-independent source identity used for deterministic ownership.

@@ -561,9 +561,7 @@ pub enum CpuFeature {
     Neon,
 }
 
-/// Every CPU feature, in display order. A feature appears after every
-/// feature it implies, so a scan from the end meets an implying feature
-/// before the features it implies (the runtime checker relies on this).
+/// Every CPU feature, in display order.
 pub const CPU_FEATURES: [CpuFeature; 21] = [
     CpuFeature::Sse2,
     CpuFeature::Sse3,
@@ -816,16 +814,6 @@ impl CpuFeatures {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn features_follow_the_features_they_imply() {
-        for (index, feature) in CPU_FEATURES.into_iter().enumerate() {
-            for implied in CpuFeatures::default().enabling(feature).iter() {
-                let implied_index = CPU_FEATURES.iter().position(|f| *f == implied);
-                assert!(implied_index <= Some(index), "{feature} implies {implied}");
-            }
-        }
-    }
 
     #[test]
     fn outermost_features_name_what_the_programmer_wrote() {

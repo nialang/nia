@@ -459,10 +459,6 @@ impl FrontendCacheNamespace {
                 builder.write_str(runtime.entry_point().linker_symbol());
                 builder.write_u64(runtime.required_exports().len() as u64);
                 for export in runtime.required_exports() {
-                    builder.write_u8(match export.requirement() {
-                        nia_toolchain::RuntimeExportRequirement::Always => 0,
-                        nia_toolchain::RuntimeExportRequirement::CpuFeatureChecks => 1,
-                    });
                     builder.write_str(export.module_identity());
                     builder.write_str(export.definition_name());
                 }

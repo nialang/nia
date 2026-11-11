@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Function-local instruction sets, their ABI boundaries, and checked entries.
+//! Function-local instruction sets and their ABI and inlining boundaries.
 mod support;
 
 use nia_test_support::{CommandExt, test_dir};
@@ -102,7 +102,7 @@ pub fun viaGenericOverride() i32 { generic(Other {}) }
 }
 
 #[test]
-fn feature_boundaries_survive_inlining_and_profile_changes() {
+fn feature_boundaries_survive_inlining_in_every_profile() {
     let _resources =
         nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Build);
     let root = test_dir("cpu_feature_ir");
@@ -152,13 +152,9 @@ pub fun buildCondition() i32 {
             ir.contains("ret i32 2"),
             "function features changed build-time conditions: {ir}"
         );
-        assert_eq!(
-            ir.contains("call void @__nia_check_cpu_features"),
-            profile == "--debug",
-            "{ir}"
-        );
-        // The identity function is a leaf-inline candidate. Its feature
-        // boundary must still be present in the baseline dispatcher at O2.
+        // The identity function is a leaf-inline candidate of Nia's inliner,
+        // which runs before this IR is printed. Its feature boundary must
+        // still be present in the baseline dispatcher.
         let dispatch = ir
             .split("@dispatch(")
             .nth(1)
@@ -171,7 +167,7 @@ pub fun buildCondition() i32 {
 }
 
 #[test]
-fn checked_features_round_trip_through_all_callable_forms() {
+fn feature_functions_round_trip_through_all_callable_forms() {
     let _resources =
         nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Build);
     let root = test_dir("cpu_feature_runtime");
@@ -336,38 +332,6 @@ pub fun f() i32 { generic(Value {}) }
 }
 
 #[test]
-fn runtime_feature_failure_names_the_missing_instruction_set() {
-    let _resources =
-        nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Build);
-    let root = test_dir("cpu_feature_failure");
-    let source = root.join("main.nia");
-    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
-    // Ask the actual runtime support ABI for a feature of another ISA. This
-    // deterministically tests failure even on a host with every x86 feature.
-    let missing = 1 << 20;
-    std::fs::write(&source, format!("using std::process; extern fun __nia_check_cpu_features(required: u32) (); @[cpuFeatures(\"avx2\")] pub fun main(init: process::Init) process::ExitCode!() {{ _ = init; __nia_check_cpu_features({missing}u32); !() }}")).expect("write source");
-    let output = support::nia_command()
-        .args(["emit", "--exe"])
-        .arg(&source)
-        .arg("-o")
-        .arg(&exe)
-        .output_timeout_for_build("build missing CPU feature diagnostic");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let output =
-        Command::new(&exe).output_timeout_for_runtime("run missing CPU feature diagnostic");
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("required CPU feature") && stderr.contains("is unavailable"),
-        "{stderr}"
-    );
-}
-
-#[test]
 fn feature_edits_and_profiles_match_clean_objects() {
     let _resources =
         nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Compiler);
@@ -411,7 +375,9 @@ fn feature_edits_and_profiles_match_clean_objects() {
         std::fs::write(
             &source,
             format!(
-                "@[cpuFeatures(\"{feature}\")] pub extern fun f(value: u64) u64 {{ value + 1 }}"
+                // A variable shift compiles to `shlx` only with BMI2, so
+                // each feature edit changes the generated code.
+                "@[cpuFeatures(\"{feature}\")] pub extern fun f(value: u64) u64 {{ value << (value & 63) }}"
             ),
         )
         .expect("edit feature");
@@ -432,60 +398,4 @@ fn feature_edits_and_profiles_match_clean_objects() {
             }
         }
     }
-}
-
-#[test]
-fn unused_features_do_not_root_debug_runtime_support() {
-    let _resources =
-        nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Compiler);
-    let root = test_dir("cpu_feature_runtime_roots");
-    let source = root.join("main.nia");
-    std::fs::write(
-        &source,
-        r#"
-using std::process;
-@[if arch == "x86_64"]
-@[cpuFeatures("avx2")]
-fun unused() i32 { 7 }
-pub fun main(init: process::Init) process::ExitCode!() { _ = init; !() }
-"#,
-    )
-    .expect("write source");
-    let output = support::nia_command()
-        .args(["emit", "--llvm", "--runtime", "freestanding"])
-        .arg(&source)
-        .output_timeout_for_compiler("inspect unused CPU runtime roots");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(!String::from_utf8_lossy(&output.stdout).contains("__nia_check_cpu_features"));
-}
-
-#[test]
-fn malformed_cpu_runtime_support_is_a_user_diagnostic() {
-    let _resources =
-        nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Compiler);
-    let root = test_dir("cpu_feature_support_signature");
-    let source = root.join("main.nia");
-    std::fs::write(
-        &source,
-        r#"
-extern fun __nia_check_cpu_features(required: u64) ();
-@[cpuFeatures("avx2")]
-pub fun f() () { __nia_check_cpu_features(0u64); }
-"#,
-    )
-    .expect("write malformed native support declaration");
-    let output = support::nia_command()
-        .args(["--target", "x86_64-unknown-linux", "emit", "--llvm"])
-        .arg(&source)
-        .output_timeout_for_compiler("diagnose malformed CPU support ABI");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        !output.status.success() && stderr.contains("must have C signature"),
-        "{stderr}"
-    );
-    assert!(!stderr.contains("internal compiler error"), "{stderr}");
 }

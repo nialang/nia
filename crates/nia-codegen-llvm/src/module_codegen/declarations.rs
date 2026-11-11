@@ -819,7 +819,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             value
                 .as_global_value()
                 .set_visibility(symbol_visibility(&function.linkage));
-            self.declare_cpu_implementation(value, &function.attributes)?;
+            self.declare_function_attributes(value, &function.attributes)?;
             if function.linkage.is_extern() {
                 self.apply_c_declaration_attributes(
                     value,
@@ -830,17 +830,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     function.return_type,
                     function.span,
                 )?;
-                if self.implementation_entry(value) != value {
-                    self.apply_c_declaration_attributes(
-                        self.implementation_entry(value),
-                        function
-                            .params
-                            .iter()
-                            .map(|param| (param.passing_ty, param.span)),
-                        function.return_type,
-                        function.span,
-                    )?;
-                }
             }
             self.functions.insert(function.def_id, value);
         }
@@ -875,7 +864,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             value
                 .as_global_value()
                 .set_visibility(symbol_visibility(&instance.linkage));
-            self.declare_cpu_implementation(value, &instance.attributes)?;
+            self.declare_function_attributes(value, &instance.attributes)?;
             if instance.linkage.is_extern() {
                 self.apply_c_declaration_attributes(
                     value,
@@ -932,7 +921,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .add_function(&entry.symbol, ty, Some(Linkage::External))
                 .map_err(Self::diagnostic_from_llvm_error)?;
             hide_compiler_symbol(value.as_global_value());
-            self.declare_cpu_implementation(value, &entry.attributes)?;
+            self.declare_function_attributes(value, &entry.attributes)?;
             self.closure_entries
                 .borrow_mut()
                 .insert(entry.key.clone(), value);
@@ -947,7 +936,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Result<(), Diagnostic> {
         for attribute in attributes {
             match attribute {
-                nia_backend_ir::BackendFunctionAttribute::CpuFeatures { features, .. } => {
+                nia_backend_ir::BackendFunctionAttribute::CpuFeatures(features) => {
                     let additions = features
                         .iter()
                         .map(|feature| format!("+{}", feature.llvm_name()))
@@ -994,7 +983,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     ) && attributes.iter().any(|attribute| {
                         matches!(
                             attribute,
-                            nia_backend_ir::BackendFunctionAttribute::CpuFeatures { .. }
+                            nia_backend_ir::BackendFunctionAttribute::CpuFeatures(_)
                         )
                     }) {
                         continue;

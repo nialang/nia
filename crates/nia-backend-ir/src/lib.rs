@@ -1691,13 +1691,8 @@ pub enum BackendFunctionAttribute {
     InlineNever,
     /// Inline every direct call to this function, at every level.
     InlineAlways,
-    /// Enabled instruction sets and whether entry needs a baseline guard.
-    CpuFeatures {
-        /// Additional features, including their dependencies.
-        features: nia_target::CpuFeatures,
-        /// Debug entry checks before executing feature-specific code.
-        checked: bool,
-    },
+    /// Additional instruction sets, including their dependencies.
+    CpuFeatures(nia_target::CpuFeatures),
 }
 
 /// Features required by a backend function, in addition to the build's set.
@@ -1705,10 +1700,7 @@ pub fn function_cpu_features(attributes: &[BackendFunctionAttribute]) -> nia_tar
     attributes.iter().fold(
         nia_target::CpuFeatures::default(),
         |features, attribute| match attribute {
-            BackendFunctionAttribute::CpuFeatures {
-                features: additional,
-                ..
-            } => features.union(*additional),
+            BackendFunctionAttribute::CpuFeatures(additional) => features.union(*additional),
             _ => features,
         },
     )

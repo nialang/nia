@@ -662,11 +662,10 @@ impl<'a> Encoder<'a> {
                 BackendFunctionAttribute::TrackCaller => 1,
                 BackendFunctionAttribute::InlineNever => 2,
                 BackendFunctionAttribute::InlineAlways => 3,
-                BackendFunctionAttribute::CpuFeatures { .. } => 4,
+                BackendFunctionAttribute::CpuFeatures(_) => 4,
             });
-            if let BackendFunctionAttribute::CpuFeatures { features, checked } = attribute {
+            if let BackendFunctionAttribute::CpuFeatures(features) = attribute {
                 self.u32(features.bits());
-                self.bool(*checked);
             }
         }
     }

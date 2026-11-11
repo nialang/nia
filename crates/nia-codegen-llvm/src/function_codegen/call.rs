@@ -60,11 +60,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         args: &[nia_llvm::values::BasicValueEnum<'ctx>],
         name: &str,
     ) -> nia_llvm::LlvmResult<nia_llvm::values::CallSiteValue<'ctx>> {
-        let (target, always_inline) = self
+        let call = self.builder.build_call(function, args, name)?;
+        if self
             .module
-            .direct_call_entry(function, &self.function.closure_owner);
-        let call = self.builder.build_call(target, args, name)?;
-        if always_inline {
+            .direct_call_inlines(function, &self.function.closure_owner)
+        {
             call.add_attribute(
                 nia_llvm::AttributeLoc::Function,
                 self.module.context.create_enum_attribute(

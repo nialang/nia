@@ -649,8 +649,6 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
         || {
             BackendLoweringInputs::new(BackendLoweringInputsParts {
                 cpu_features: *db.get(CompilerCpuFeaturesQuery)?,
-                check_cpu_features: *db.get(CompilerBuildProfileQuery)?
-                    == nia_target_config::BuildProfile::Debug,
                 symbols: db.context().symbols(),
                 source_identities,
                 symbol_package_identities,

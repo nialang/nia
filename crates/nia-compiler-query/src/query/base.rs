@@ -392,19 +392,6 @@ impl QueryKey<CompilerContext> for CompilerCpuFeaturesQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct CompilerBuildProfileQuery;
-
-impl QueryKey<CompilerContext> for CompilerBuildProfileQuery {
-    type Value = nia_target_config::BuildProfile;
-    fn name() -> &'static str {
-        "compiler_build_profile"
-    }
-    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        Ok(db.context().loader_facts().profile())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CompilerRuntimeQuery;
 
 impl QueryKey<CompilerContext> for CompilerRuntimeQuery {

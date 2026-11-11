@@ -71,7 +71,7 @@ impl ModuleLowerer<'_> {
                         .filter(|attribute| {
                             matches!(
                                 attribute,
-                                nia_backend_ir::BackendFunctionAttribute::CpuFeatures { .. }
+                                nia_backend_ir::BackendFunctionAttribute::CpuFeatures(_)
                             )
                         })
                         .collect()

@@ -31,11 +31,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionAttribute::InlineNever => Some(BackendFunctionAttribute::InlineNever),
                 FunctionAttribute::InlineAlways => Some(BackendFunctionAttribute::InlineAlways),
                 FunctionAttribute::CpuFeatures(features) => {
-                    Some(BackendFunctionAttribute::CpuFeatures {
-                        features: *features,
-                        checked: self.input.check_cpu_features
-                            && !features.is_subset_of(self.input.cpu_features),
-                    })
+                    Some(BackendFunctionAttribute::CpuFeatures(*features))
                 }
                 FunctionAttribute::Builtin(_) => None,
             })
