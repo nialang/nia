@@ -43,6 +43,7 @@ impl Driver {
                 timings,
                 self.config.toolchain.identity().fingerprint(),
                 self.config.artifact_target,
+                self.config.cpu,
             );
             let optimization = preparation.optimization;
             let diagnostics = preparation.diagnostics;
@@ -183,6 +184,7 @@ impl Driver {
                     timings,
                     self.config.toolchain.identity().fingerprint(),
                     self.config.artifact_target,
+                    self.config.cpu,
                 ),
             );
             if !output.diagnostics.is_empty() {
@@ -317,6 +319,7 @@ impl Driver {
             timings,
             self.config.toolchain.identity().fingerprint(),
             self.config.artifact_target,
+            self.config.cpu,
         );
         let session = database.query_session();
         let object_cache = self.object_cache.as_ref().map(|cache| {
@@ -477,6 +480,7 @@ impl Driver {
                     timings,
                     self.config.toolchain.identity().fingerprint(),
                     self.config.artifact_target,
+                    self.config.cpu,
                 ),
                 cache,
             );

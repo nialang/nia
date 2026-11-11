@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn caches_target_machine_per_thread_and_complete_identity() {
         std::thread::spawn(|| {
-            let identity = TargetMachine::baseline_identity("x86_64-unknown-linux-gnu", "generic");
+            let identity = TargetMachine::cpu_identity("x86_64-unknown-linux-gnu", "generic");
             let initial_constructions = target_machine_constructions();
             let first = with_target_machine(
                 &identity,

@@ -14,10 +14,10 @@ startup or linker integration for.
 
 The global `--target <name>` option selects a target. Without it the compiler
 targets its own host; a host outside the target list must name a target
-explicitly. Generated code uses the target's baseline CPU, never the build
-host's CPU features, so an artifact runs on every machine of its target.
-Native object emission is also limited by the targets built into the LLVM that
-the compiler links.
+explicitly. Generated code uses the target's baseline CPU unless a
+[CPU level](#cpu-levels) is selected, so by default an artifact runs on every
+machine of its target. Native object emission is also limited by the targets
+built into the LLVM that the compiler links.
 
 ## Targets
 
@@ -77,6 +77,32 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = separator();
     !()
 }
+```
+
+## CPU Levels
+
+Within one target, newer processors add instructions. A CPU level names the
+oldest processor generated code may run on: the code uses every instruction the
+level guarantees, so on an older processor it stops with an illegal-instruction
+fault, and nothing diagnoses that ahead of time. `nia emit --llvm`, `--obj`, and
+`--exe` accept `--cpu <level>`:
+
+| Level | Targets | Guarantees beyond the level before it |
+| --- | --- | --- |
+| `baseline` (default) | all | the target's baseline CPU: SSE2 on x86_64 (SSSE3 on `x86_64-apple-macos`), NEON on AArch64 |
+| `x86_64-v2` | x86_64 | SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, CMPXCHG16B (Nehalem, 2009, and later) |
+| `x86_64-v3` | x86_64 | AVX, AVX2, FMA, BMI1, BMI2, LZCNT, MOVBE, F16C (Haswell, 2013; Zen 1; and later) |
+| `x86_64-v4` | x86_64 | AVX-512 F, BW, CD, DQ, VL (Skylake-X, Zen 4; many consumer Intel processors lack it) |
+| `native` | the host only | everything the processor running the compiler reports |
+
+The `x86_64-v*` levels are the x86-64 psABI microarchitecture levels. `native`
+is accepted only when the target is the host, and its output may fail on any
+other machine, even one of the same target. The level changes the selected
+instructions, not the program's meaning; compiled objects and executables are
+cached separately per level, and for `native` per the detected processor.
+
+```sh
+nia emit --exe -O2 --cpu x86_64-v3 src/main.nia
 ```
 
 ## Runtime Model

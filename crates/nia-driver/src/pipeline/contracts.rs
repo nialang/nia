@@ -257,6 +257,9 @@ pub struct DriverConfig {
     pub toolchain: std::sync::Arc<ToolchainLayout>,
     /// Target configuration for emitted artifacts.
     pub artifact_target: TargetConfig,
+    /// Oldest processor of `artifact_target` that generated code may run
+    /// on. Callers check it against the target before building.
+    pub cpu: nia_target::CpuLevel,
     /// Optional persistent artifact-cache directory.
     pub artifact_cache_dir: Option<PathBuf>,
     /// Whether frontend cache hits receive semantic verification.
@@ -270,6 +273,7 @@ impl DriverConfig {
         Self {
             toolchain,
             artifact_target,
+            cpu: nia_target::CpuLevel::Baseline,
             artifact_cache_dir: None,
             verify_frontend_cache: false,
         }
@@ -278,6 +282,12 @@ impl DriverConfig {
     /// Overrides the artifact target while retaining the toolchain.
     pub fn with_artifact_target(mut self, artifact_target: TargetConfig) -> Self {
         self.artifact_target = artifact_target;
+        self
+    }
+
+    /// Selects the CPU level of generated code.
+    pub fn with_cpu(mut self, cpu: nia_target::CpuLevel) -> Self {
+        self.cpu = cpu;
         self
     }
 }

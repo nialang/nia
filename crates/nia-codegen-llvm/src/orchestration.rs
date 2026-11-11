@@ -269,7 +269,7 @@ pub(super) fn emit_lto_modules(
         };
     }
     let target_identity = match time_codegen_stage(timings, "llvm_codegen.target_identity", || {
-        Ok::<_, nia_llvm::LlvmError>(options.target_machine_identity())
+        options.target_machine_identity()
     }) {
         Ok(identity) => Arc::new(identity),
         Err(error) => {

@@ -143,6 +143,7 @@ pub(crate) enum OptionId {
     DiagnosticsFormat,
     ResourceRoot,
     Target,
+    Cpu,
     Root,
     Package,
     Workspace,
@@ -712,6 +713,14 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         scope: Scope::GLOBAL,
         usage: "--target <name>",
         about: "compile artifacts for a maintained target (default: host)",
+    },
+    OptionSpec {
+        id: OptionId::Cpu,
+        names: &["--cpu"],
+        arity: Arity::Value,
+        scope: EMIT_OPTIMIZED,
+        usage: "--cpu <level>",
+        about: "generate code for a CPU level of the target (default: baseline)",
     },
     OptionSpec {
         id: OptionId::Help,

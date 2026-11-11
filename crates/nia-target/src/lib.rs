@@ -341,6 +341,174 @@ impl fmt::Display for TargetConfig {
     }
 }
 
+/// The oldest processor that generated code may run on.
+///
+/// Code built for a level uses every instruction that level guarantees, so it
+/// fails with an illegal-instruction fault on an older processor. A level is
+/// not part of the target: one target accepts several levels, and the target
+/// name never mentions one. Persistent identities that depend on generated
+/// code must therefore record the level beside the target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum CpuLevel {
+    /// Every processor of the target.
+    #[default]
+    Baseline,
+    /// x86-64 psABI level 2: adds SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT and
+    /// CMPXCHG16B (Nehalem, 2009, and later).
+    X86_64V2,
+    /// x86-64 psABI level 3: adds AVX, AVX2, FMA, BMI1, BMI2, LZCNT, MOVBE
+    /// and F16C (Haswell, 2013, Zen 1, and later).
+    X86_64V3,
+    /// x86-64 psABI level 4: adds AVX-512 F, BW, CD, DQ and VL (Skylake-X and
+    /// Zen 4; many consumer Intel processors lack it).
+    X86_64V4,
+    /// The processor of the machine running the compiler, with every feature
+    /// it reports. Only valid when the target is that machine's.
+    Native,
+}
+
+/// Every CPU level, in display order.
+pub const CPU_LEVELS: [CpuLevel; 5] = [
+    CpuLevel::Baseline,
+    CpuLevel::X86_64V2,
+    CpuLevel::X86_64V3,
+    CpuLevel::X86_64V4,
+    CpuLevel::Native,
+];
+
+impl CpuLevel {
+    /// Canonical name, accepted by [`CpuLevel::parse`].
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::X86_64V2 => "x86_64-v2",
+            Self::X86_64V3 => "x86_64-v3",
+            Self::X86_64V4 => "x86_64-v4",
+            Self::Native => "native",
+        }
+    }
+
+    /// Parses a canonical level name, such as `x86_64-v3`.
+    pub fn parse(name: &str) -> Result<Self, CpuLevelError> {
+        CPU_LEVELS
+            .into_iter()
+            .find(|level| level.name() == name)
+            .ok_or_else(|| CpuLevelError::Unknown {
+                name: name.to_string(),
+            })
+    }
+
+    /// Checks that this level can describe a processor of `target` when the
+    /// compiler runs on `host`, or `None` on a host outside the maintained
+    /// matrix. A named level must belong to the target's architecture, and
+    /// `Native` needs the target to be the host because it describes the
+    /// host's processor.
+    pub fn check(
+        self,
+        target: TargetConfig,
+        host: Option<TargetConfig>,
+    ) -> Result<(), CpuLevelError> {
+        match self {
+            Self::Baseline => Ok(()),
+            Self::X86_64V2 | Self::X86_64V3 | Self::X86_64V4 => {
+                if target.arch() == Arch::X86_64 {
+                    Ok(())
+                } else {
+                    Err(CpuLevelError::WrongArchitecture {
+                        level: self,
+                        target,
+                    })
+                }
+            }
+            Self::Native => {
+                if host == Some(target) {
+                    Ok(())
+                } else {
+                    Err(CpuLevelError::NativeForeignTarget { target, host })
+                }
+            }
+        }
+    }
+
+    /// The LLVM CPU model for this level on `target`, or `None` for
+    /// [`CpuLevel::Native`], which only the running host can name.
+    pub const fn llvm_cpu(self, target: TargetConfig) -> Option<&'static str> {
+        match self {
+            Self::Baseline => Some(target.baseline_cpu()),
+            Self::X86_64V2 => Some("x86-64-v2"),
+            Self::X86_64V3 => Some("x86-64-v3"),
+            Self::X86_64V4 => Some("x86-64-v4"),
+            Self::Native => None,
+        }
+    }
+}
+
+impl fmt::Display for CpuLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// A CPU level that does not exist or does not fit the target.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CpuLevelError {
+    /// No level has this name.
+    Unknown {
+        /// The rejected spelling.
+        name: String,
+    },
+    /// A named level of another architecture.
+    WrongArchitecture {
+        /// The requested level.
+        level: CpuLevel,
+        /// The target it does not belong to.
+        target: TargetConfig,
+    },
+    /// `native` for a target other than the host.
+    NativeForeignTarget {
+        /// The requested target.
+        target: TargetConfig,
+        /// The host, when it is a maintained target.
+        host: Option<TargetConfig>,
+    },
+}
+
+impl fmt::Display for CpuLevelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unknown { name } => {
+                write!(f, "unknown CPU level `{name}`; CPU levels are ")?;
+                for (index, level) in CPU_LEVELS.iter().enumerate() {
+                    if index != 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "`{level}`")?;
+                }
+                Ok(())
+            }
+            Self::WrongArchitecture { level, target } => write!(
+                f,
+                "CPU level `{level}` is for x86_64 targets, not `{target}`"
+            ),
+            Self::NativeForeignTarget {
+                target,
+                host: Some(host),
+            } => write!(
+                f,
+                "CPU level `native` describes this machine (`{host}`), not target `{target}`; \
+                 name a CPU level for `{target}` instead"
+            ),
+            Self::NativeForeignTarget { target, host: None } => write!(
+                f,
+                "CPU level `native` describes this machine, which is not a maintained target; \
+                 name a CPU level for `{target}` instead"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CpuLevelError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,5 +589,68 @@ mod tests {
         let expected = None;
 
         assert_eq!(TargetConfig::host(), expected);
+    }
+
+    #[test]
+    fn cpu_levels_round_trip_their_names() {
+        for level in CPU_LEVELS {
+            assert_eq!(CpuLevel::parse(level.name()), Ok(level));
+        }
+        assert_eq!(CpuLevel::default(), CpuLevel::Baseline);
+        let error = CpuLevel::parse("x86-64-v3").expect_err("LLVM spelling is not a level name");
+        assert_eq!(
+            error.to_string(),
+            "unknown CPU level `x86-64-v3`; CPU levels are `baseline`, `x86_64-v2`, `x86_64-v3`, `x86_64-v4`, `native`"
+        );
+    }
+
+    #[test]
+    fn cpu_levels_fit_only_their_architecture() {
+        let x86_64 = TargetConfig::parse("x86_64-unknown-linux").expect("maintained target");
+        let aarch64 = TargetConfig::parse("aarch64-unknown-linux").expect("maintained target");
+        let x86 = TargetConfig::parse("x86-unknown-linux").expect("maintained target");
+        for target in SUPPORTED_TARGETS {
+            assert_eq!(CpuLevel::Baseline.check(target, None), Ok(()));
+            assert_eq!(
+                CpuLevel::Baseline.llvm_cpu(target),
+                Some(target.baseline_cpu())
+            );
+        }
+        for level in [CpuLevel::X86_64V2, CpuLevel::X86_64V3, CpuLevel::X86_64V4] {
+            assert_eq!(level.check(x86_64, None), Ok(()));
+            for target in [aarch64, x86] {
+                assert_eq!(
+                    level.check(target, None),
+                    Err(CpuLevelError::WrongArchitecture { level, target })
+                );
+            }
+        }
+        assert_eq!(CpuLevel::X86_64V3.llvm_cpu(x86_64), Some("x86-64-v3"));
+        assert_eq!(
+            CpuLevel::X86_64V2
+                .check(aarch64, None)
+                .expect_err("x86 level")
+                .to_string(),
+            "CPU level `x86_64-v2` is for x86_64 targets, not `aarch64-unknown-linux`"
+        );
+    }
+
+    #[test]
+    fn native_cpu_level_requires_the_host_target() {
+        let linux = TargetConfig::parse("x86_64-unknown-linux").expect("maintained target");
+        let windows = TargetConfig::parse("x86_64-pc-windows-msvc").expect("maintained target");
+        assert_eq!(CpuLevel::Native.check(windows, Some(windows)), Ok(()));
+        assert_eq!(CpuLevel::Native.llvm_cpu(windows), None);
+        let foreign = CpuLevel::Native
+            .check(linux, Some(windows))
+            .expect_err("native names the host");
+        assert_eq!(
+            foreign.to_string(),
+            "CPU level `native` describes this machine (`x86_64-pc-windows-msvc`), not target `x86_64-unknown-linux`; name a CPU level for `x86_64-unknown-linux` instead"
+        );
+        assert!(matches!(
+            CpuLevel::Native.check(linux, None),
+            Err(CpuLevelError::NativeForeignTarget { host: None, .. })
+        ));
     }
 }

@@ -143,6 +143,10 @@ artifact with its dependencies.
 | `--obj` | writes one native object file per codegen unit into `--out-dir <dir>`, including the [compiler support routines](abi.md#compiler-support-routines) |
 | `--exe` | writes a freestanding executable to `-o <file>`, or without `-o` next to the source file, as `main` (`main.exe` on Windows) for `main.nia` |
 
+`--backend`, `--llvm`, `--obj`, and `--exe` accept `--cpu <level>`, which
+selects the oldest processor the generated code may run on; see
+[CPU Levels](platform-support.md#cpu-levels).
+
 `--exe` also accepts the linking options: `-L <dir>` and `-l <name>` for native
 libraries, `--link-arg <arg>`, `--lto <off|thin|full>`, `--linker <program>`
 and `--linker-flavor <flavor>` to replace LLD, and on Linux

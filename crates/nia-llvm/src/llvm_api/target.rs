@@ -103,10 +103,10 @@ pub struct TargetMachineIdentity {
 }
 
 impl TargetMachine {
-    /// Names the portable machine for `triple`: a baseline CPU and no extra
-    /// features, so an artifact runs on every machine of its target rather
-    /// than only on the build host.
-    pub fn baseline_identity(triple: &str, cpu: &str) -> TargetMachineIdentity {
+    /// Names the machine for `triple` by its CPU model alone, with no
+    /// further features, so an artifact runs on every processor that model
+    /// describes rather than only on the build host.
+    pub fn cpu_identity(triple: &str, cpu: &str) -> TargetMachineIdentity {
         TargetMachineIdentity {
             triple: triple.to_string(),
             cpu: cpu.to_string(),
@@ -114,6 +114,20 @@ impl TargetMachine {
             relocation_model: TargetRelocationModel::Pic,
             code_model: TargetCodeModel::Default,
         }
+    }
+
+    /// Names the processor of the machine running the compiler, with every
+    /// feature LLVM detects on it. The identity spells out the model and
+    /// features, not "native", so artifacts built on two different machines
+    /// never share a cache entry.
+    pub fn host_identity(triple: &str) -> LlvmResult<TargetMachineIdentity> {
+        let cpu = llvm_owned_string(unsafe { llvm_sys::target_machine::LLVMGetHostCPUName() })?;
+        let features =
+            llvm_owned_string(unsafe { llvm_sys::target_machine::LLVMGetHostCPUFeatures() })?;
+        Ok(TargetMachineIdentity {
+            features,
+            ..Self::cpu_identity(triple, &cpu)
+        })
     }
 
     /// Recreates a target machine from an exact previously captured identity.
@@ -387,7 +401,7 @@ pub(crate) fn test_host_identity() -> TargetMachineIdentity {
     let triple =
         llvm_owned_string(unsafe { llvm_sys::target_machine::LLVMGetDefaultTargetTriple() })
             .expect("default triple");
-    TargetMachine::baseline_identity(&triple, "generic")
+    TargetMachine::cpu_identity(&triple, "generic")
 }
 
 #[cfg(test)]
@@ -410,7 +424,7 @@ mod tests {
 
     #[test]
     fn baseline_identity_declares_the_object_pic_contract() {
-        let identity = TargetMachine::baseline_identity("x86_64-unknown-linux-gnu", "generic");
+        let identity = TargetMachine::cpu_identity("x86_64-unknown-linux-gnu", "generic");
         assert_eq!(identity.relocation_model, TargetRelocationModel::Pic);
         assert_eq!(identity.code_model, TargetCodeModel::Default);
     }

@@ -128,15 +128,23 @@ pub struct LlvmCodegenOptions {
     pub toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     /// Artifact target whose machine generates code; never the build host.
     pub target: nia_target::TargetConfig,
+    /// Oldest processor of the target that the code may run on, already
+    /// checked against the target.
+    pub cpu: nia_target::CpuLevel,
 }
 
 impl LlvmCodegenOptions {
-    /// Portable machine identity for the artifact target.
-    pub fn target_machine_identity(&self) -> nia_llvm::target::TargetMachineIdentity {
-        nia_llvm::target::TargetMachine::baseline_identity(
-            &self.target.llvm_triple(),
-            self.target.baseline_cpu(),
-        )
+    /// Machine identity for the artifact target at the selected CPU level.
+    /// A named level is a fixed CPU model; `native` asks LLVM for the host's
+    /// model and features.
+    pub fn target_machine_identity(
+        &self,
+    ) -> nia_llvm::LlvmResult<nia_llvm::target::TargetMachineIdentity> {
+        let triple = self.target.llvm_triple();
+        match self.cpu.llvm_cpu(self.target) {
+            Some(cpu) => Ok(nia_llvm::target::TargetMachine::cpu_identity(&triple, cpu)),
+            None => nia_llvm::target::TargetMachine::host_identity(&triple),
+        }
     }
 }
 
@@ -150,6 +158,7 @@ impl Default for LlvmCodegenOptions {
             toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint::current(),
             target: nia_target::TargetConfig::parse("x86_64-unknown-linux")
                 .expect("maintained target"),
+            cpu: nia_target::CpuLevel::Baseline,
         }
     }
 }

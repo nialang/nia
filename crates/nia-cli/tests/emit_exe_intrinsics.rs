@@ -2072,6 +2072,102 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn cpu_level_selects_instructions_and_separates_cached_objects() {
+    // `lookup16` becomes the SSSE3 `pshufb` only when the CPU level
+    // guarantees SSSE3, which x86-64-v2 does and the baseline does not. One
+    // cache directory serves both builds, so a cache keyed without the level
+    // would hand the baseline object to the v2 build.
+    let root = temp_dir("cpu_level_selects_instructions_and_separates_cached_objects");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+pub fun lookup(table: u8x16, indices: u8x16) u8x16 {
+    std::builtin::lookup16(table, indices)
+}
+"#,
+    )
+    .expect("write test source");
+    let cache = root.join("cache");
+    // `66 0f 38 00 /r` encodes the legacy-SSE `pshufb xmm, xmm/m128`.
+    let has_pshufb = |object: &[u8]| object.windows(4).any(|w| w == [0x66, 0x0f, 0x38, 0x00]);
+    let mut objects = Vec::new();
+    for level in ["baseline", "x86_64-v2"] {
+        let out_dir = root.join(level);
+        let output = support::nia_command()
+            .args([
+                "--target",
+                "x86_64-unknown-linux",
+                "emit",
+                "--obj",
+                "-O2",
+                "--runtime",
+                "bare",
+            ])
+            .args(["--cpu", level, "--cache-dir"])
+            .arg(&cache)
+            .arg("--out-dir")
+            .arg(&out_dir)
+            .arg(&main)
+            .output_timeout_for_build("emit object at a CPU level");
+        assert!(
+            output.status.success(),
+            "{level} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let object = std::fs::read_dir(&out_dir)
+            .expect("list objects")
+            .map(|entry| entry.expect("object entry").path())
+            .find(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("0000_"))
+            })
+            .expect("source unit object");
+        objects.push(std::fs::read(object).expect("read object"));
+    }
+    assert!(!has_pshufb(&objects[0]), "baseline must not use SSSE3");
+    assert!(has_pshufb(&objects[1]), "x86_64-v2 must select pshufb");
+}
+
+#[test]
+fn emit_exe_runs_at_the_native_cpu_level() {
+    let root = temp_dir("emit_exe_runs_at_the_native_cpu_level");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::builtin;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let bytes = builtin::splat[u8x16](250u8);
+    let sum = builtin::saturatingAdd(bytes, builtin::splat[u8x16](10u8));
+    if builtin::extract(builtin::lookup16(sum, builtin::splat[u8x16](3u8)), 0) != 255 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+    let output = support::nia_command()
+        .args(["emit", "--exe", "-O2", "--cpu", "native"])
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("emit native executable");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run native executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn lookup16_uses_the_aarch64_table_instruction() {
     // `tbl` already gives 0 for an index of 16 or more, so AArch64 needs no
     // generic gather; LLVM does not form `tbl` from that gather by itself.

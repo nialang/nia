@@ -338,7 +338,13 @@ impl<'session> LlvmLtoReadinessEmitter<'session> {
         cache: Option<Arc<dyn LtoModuleWorkProductCache>>,
         session: &'session QuerySession,
     ) -> nia_ice::IceResult<Self> {
-        let target_identity = Some(Arc::new(options.target_machine_identity()));
+        let target_identity = Some(Arc::new(options.target_machine_identity().map_err(
+            |error| {
+                nia_ice::Ice::new(format!(
+                    "LLVM could not describe the target machine: {error:?}"
+                ))
+            },
+        )?));
         let internal_diagnostics = Vec::new();
         Ok(Self {
             coordinator: CodegenReadinessCoordinator::new(modules, type_store, owners),
@@ -1342,7 +1348,7 @@ fn emit_native_object_partition(
     } = prepared;
     let target_identity =
         time_codegen_stage(options.timings, "llvm_codegen.target_identity", || {
-            Ok::<_, nia_llvm::LlvmError>(options.target_machine_identity())
+            options.target_machine_identity()
         })
         .map_err(|error| vec![error.diagnostic()])?;
     let Some(module) = index.module_for_partition(&partition) else {
@@ -1503,7 +1509,7 @@ fn emit_compiler_builtins_object(
 ) -> Result<(IncrementalLinkInput<NativeObject>, WorkProductReuse), nia_diagnostic::Diagnostic> {
     let target_identity =
         time_codegen_stage(options.timings, "llvm_codegen.target_identity", || {
-            Ok::<_, nia_llvm::LlvmError>(options.target_machine_identity())
+            options.target_machine_identity()
         })
         .map_err(|error| error.diagnostic())?;
     let fingerprints =

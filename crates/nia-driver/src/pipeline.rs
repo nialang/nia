@@ -481,11 +481,13 @@ fn codegen_options(
     timings: TimingMode,
     toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
     target: nia_target::TargetConfig,
+    cpu: nia_target::CpuLevel,
 ) -> nia_codegen_llvm::LlvmCodegenOptions {
     nia_codegen_llvm::LlvmCodegenOptions {
         optimization,
         timings,
         toolchain_identity,
         target,
+        cpu,
     }
 }

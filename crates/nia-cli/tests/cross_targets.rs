@@ -81,6 +81,53 @@ fn unsupported_target_names_are_diagnosed_with_the_matrix() {
     assert!(stderr.contains("`aarch64-apple-macos`"), "{stderr}");
 }
 
+#[test]
+fn cpu_levels_are_checked_against_the_artifact_target() {
+    let reject = |args: &[&str], expected: &str| {
+        let output = support::nia_command()
+            .args(args)
+            .output_timeout_for_compiler("reject CPU level");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(stderr.contains(expected), "{args:?}: {stderr}");
+    };
+    reject(
+        &["emit", "--llvm", "--cpu", "x86-64-v3", "main.nia"],
+        "unknown CPU level `x86-64-v3`; CPU levels are `baseline`, `x86_64-v2`",
+    );
+    reject(
+        &[
+            "--target",
+            "aarch64-unknown-linux",
+            "emit",
+            "--obj",
+            "--cpu",
+            "x86_64-v3",
+            "main.nia",
+        ],
+        "CPU level `x86_64-v3` is for x86_64 targets, not `aarch64-unknown-linux`",
+    );
+    // `native` describes the machine running the compiler, so it needs the
+    // host to be the target. Pick a maintained target that is not the host.
+    let foreign = nia_target::SUPPORTED_TARGETS
+        .into_iter()
+        .find(|target| Some(*target) != nia_target::TargetConfig::host())
+        .expect("the matrix has more than one target")
+        .name();
+    reject(
+        &[
+            "--target", &foreign, "emit", "--exe", "--cpu", "native", "main.nia",
+        ],
+        "CPU level `native` describes this machine",
+    );
+    // A level changes generated code only; checking ignores it until
+    // conditional compilation can query the CPU.
+    reject(
+        &["check", "--cpu", "x86_64-v2", "main.nia"],
+        "`--cpu` is not an option of `nia check`",
+    );
+}
+
 /// Linking resolves every symbol that generated code calls, so a target that
 /// lowers some operation to a routine the image lacks fails here. The program
 /// zero-fills a large array, which the code generator lowers to a library

@@ -297,6 +297,7 @@ fn run_cli(cli: Cli) -> ExitCode {
     };
     let settings = CompileSettings {
         module_map: cli.module_map,
+        cpu: cli.cpu,
         optimization: cli.optimization,
         profile: cli.profile,
         timings: cli.timings,
@@ -396,6 +397,8 @@ fn run_clean(root: Option<PathBuf>, format: DiagnosticsFormat) -> ExitCode {
 /// Compiler settings shared by every command.
 struct CompileSettings {
     module_map: nia_driver::ModuleMap,
+    /// CPU level of generated code, already checked against the target.
+    cpu: nia_target::CpuLevel,
     optimization: NiaOptimizationLevel,
     profile: nia_target_config::BuildProfile,
     timings: nia_driver::TimingMode,
@@ -1026,7 +1029,9 @@ fn run_emit_llvm(entry: &SourceEntry, runtime: RuntimeMode, context: EmitContext
     let Some(request) = entry.request_or_report(&context.settings, runtime, format) else {
         return ExitCode::FAILURE;
     };
-    let driver = nia_driver::Driver::new(context.toolchain);
+    let driver = nia_driver::Driver::with_config(
+        nia_driver::DriverConfig::new(context.toolchain).with_cpu(context.settings.cpu),
+    );
     let output = time_summary_stage(context.settings.timings, "emit_llvm_ir", || {
         driver.emit_llvm_ir(nia_driver::EmitLlvmRequest::new(request))
     });
@@ -1064,7 +1069,7 @@ fn run_emit_obj(entry: &SourceEntry, options: EmitObjOptions, context: EmitConte
     };
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir,
-        ..nia_driver::DriverConfig::new(context.toolchain)
+        ..nia_driver::DriverConfig::new(context.toolchain).with_cpu(context.settings.cpu)
     });
     let output = time_summary_stage(context.settings.timings, "emit_native_objects", || {
         driver.emit_native_objects(nia_driver::EmitObjectRequest::new(request))
@@ -1114,7 +1119,7 @@ fn run_emit_exe(entry: &SourceEntry, options: EmitExeOptions, context: EmitConte
     });
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir,
-        ..nia_driver::DriverConfig::new(context.toolchain)
+        ..nia_driver::DriverConfig::new(context.toolchain).with_cpu(context.settings.cpu)
     });
     let output = time_summary_stage(context.settings.timings, "link_executable", || {
         let mut link = nia_driver::LinkExecutableRequest::new(request, output_path)
