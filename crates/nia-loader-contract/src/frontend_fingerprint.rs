@@ -384,7 +384,9 @@ impl FrontendModuleDependenciesCacheKey {
     }
 }
 
-/// Cache key for the entry program's provider-demand discovery plan.
+/// Logical bucket for an entry program's provider-demand discovery plans.
+/// Independent trees can share this identity; persisted records must also
+/// identify and validate their complete source snapshots before reuse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FrontendProviderDemandPlanCacheKey(QueryFingerprint);
 

@@ -2,6 +2,22 @@
 
 use super::*;
 
+fn persisted_plan_path(loader: &LoaderDatabase) -> PathBuf {
+    let context = loader.db.context();
+    let directory = context
+        .frontend_cache
+        .as_ref()
+        .expect("frontend cache")
+        .provider_demand_plan_directory(context.provider_demand_plan_key.expect("plan key"));
+    let paths = fs::read_dir(directory)
+        .expect("plan directory")
+        .map(|entry| entry.expect("plan entry").path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "fpd"))
+        .collect::<Vec<_>>();
+    assert_eq!(paths.len(), 1, "expected one persisted plan");
+    paths.into_iter().next().unwrap()
+}
+
 fn provider_plan_toolchain(root: &Path) -> Arc<nia_toolchain::ToolchainLayout> {
     let resources = root.join("resources");
     let executable = root.join("bin/nia");
@@ -36,6 +52,96 @@ fn provider_plan_toolchain(root: &Path) -> Arc<nia_toolchain::ToolchainLayout> {
         ))
         .expect("test toolchain layout"),
     )
+}
+
+/// Unrelated packages deliberately use the same relocatable identities. Even
+/// identical entry bytes do not identify a plan: their children may differ.
+#[test]
+fn shared_plans_preserve_concurrent_source_snapshots_and_relocation() {
+    let root = temp_dir("provider_plan_source_snapshots");
+    let cache_root = root.join("cache");
+    let request = |tree: &str, value: i32| {
+        let directory = root.join(tree);
+        let main = directory.join("main.nia");
+        write(&main, "module helper; fun main() i32 { 0 }");
+        write(
+            &directory.join("helper.nia"),
+            &format!("const VALUE = {value};"),
+        );
+        LoadRequest::from_source_path(SourcePath::with_identity(
+            main.to_string_lossy(),
+            "build-package:root:/main.nia",
+        ))
+        .with_toolchain_layout(test_toolchain_layout())
+        .with_frontend_cache_dir(Some(cache_root.clone()))
+    };
+    let first = LoaderDatabase::new_for_test(request("first", 1));
+    let second = LoaderDatabase::new_for_test(request("second", 2));
+    assert_eq!(
+        first.db.context().provider_demand_plan_key,
+        second.db.context().provider_demand_plan_key
+    );
+    let install_demand = |loader: &LoaderDatabase| {
+        let entry = loader.db.context().entry_path.clone();
+        let helper = SourcePath::with_identity(
+            Path::new(entry.as_str())
+                .with_file_name("helper.nia")
+                .to_string_lossy(),
+            "build-package:root:/helper.nia",
+        );
+        loader.load_program().expect("load tree");
+        loader
+            .update_provider_demands([ProviderDemand {
+                source_path: entry,
+                request: nia_compiler_query::ProviderRequest::ModuleBody {
+                    module_path: helper,
+                },
+            }])
+            .expect("activate helper body");
+    };
+    install_demand(&first);
+    install_demand(&second);
+    let barrier = std::sync::Barrier::new(2);
+    std::thread::scope(|scope| {
+        for loader in [&first, &second] {
+            let barrier = &barrier;
+            scope.spawn(move || {
+                barrier.wait();
+                nia_compiler_query::LoaderFactProvider::settle_provider_demands(loader)
+                    .expect("publish concurrent snapshot");
+            });
+        }
+    });
+    for (tree, value) in [
+        ("first", 1),
+        ("second", 2),
+        ("relocated", 1),
+        ("first", 1),
+        ("second", 2),
+    ] {
+        let warm = LoaderDatabase::new_for_test(request(tree, value));
+        warm.load_program().expect("restore tree");
+        let facts =
+            nia_compiler_query::LoaderFactProvider::provider_facts(&warm).expect("provider facts");
+        let demand = facts
+            .demands()
+            .iter()
+            .find(|demand| {
+                matches!(
+                    demand.request,
+                    nia_compiler_query::ProviderRequest::ModuleBody { .. }
+                )
+            })
+            .expect("each snapshot must remain reusable after loading another tree");
+        let nia_compiler_query::ProviderRequest::ModuleBody { module_path } = &demand.request
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            normalized_test_path(module_path.as_str()),
+            normalized_test_path(root.join(tree).join("helper.nia").to_string_lossy())
+        );
+    }
 }
 
 #[test]
@@ -354,18 +460,7 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
     );
     nia_compiler_query::LoaderFactProvider::settle_provider_demands(&cold)
         .expect("settle provider demands");
-    let plan_path = cold
-        .db
-        .context()
-        .frontend_cache
-        .as_ref()
-        .expect("frontend cache")
-        .provider_demand_plan_path(
-            cold.db
-                .context()
-                .provider_demand_plan_key
-                .expect("provider plan key"),
-        );
+    let plan_path = persisted_plan_path(&cold);
     assert!(plan_path.is_file());
 
     let warm = LoaderDatabase::new_for_test(request());
@@ -398,8 +493,17 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
             .is_empty()
     );
     assert!(
-        !plan_path.exists(),
-        "stale provider plan must be physically retired"
+        plan_path.is_file(),
+        "a snapshot mismatch must not retire another tree's reusable plan"
+    );
+    write(&main_path, "fun main() i32 { 0 }");
+    let restored = LoaderDatabase::new_for_test(request());
+    restored.load_program().expect("restore original snapshot");
+    assert_eq!(
+        nia_compiler_query::LoaderFactProvider::provider_facts(&restored)
+            .expect("original provider facts")
+            .demands(),
+        &demands
     );
 }
 
@@ -510,16 +614,7 @@ fn corrupt_provider_demand_plan_is_physically_retired() {
     );
     nia_compiler_query::LoaderFactProvider::settle_provider_demands(&seeded)
         .expect("settle provider demands");
-    let context = seeded.db.context();
-    let plan_path = context
-        .frontend_cache
-        .as_ref()
-        .expect("frontend cache")
-        .provider_demand_plan_path(
-            context
-                .provider_demand_plan_key
-                .expect("provider demand plan key"),
-        );
+    let plan_path = persisted_plan_path(&seeded);
     assert!(plan_path.is_file());
     fs::write(&plan_path, b"corrupt").expect("corrupt provider plan");
 

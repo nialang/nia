@@ -5,6 +5,10 @@
 //! frontend products use versioned logical source identities and verify their
 //! source/module-map dependencies before reuse; a cache miss or invalidated
 //! entry falls back to the in-memory query graph.
+//! Provider-demand plans are immutable source snapshots grouped by logical
+//! entry identity. Different trees can share an entry identity, so loading a
+//! nonmatching snapshot never retires it. Only a corrupt record or a candidate
+//! disproved by semantic verification is retired, by its record identity.
 //!
 //! The loader resolves logical module paths to physical source files, records
 //! module activation, and builds the compiler source-input manifest with
@@ -502,14 +506,14 @@ impl LoaderDatabase {
             .provider_demand_plan_candidate
             .lock()
             .clone();
-        if let Some(demands) = candidate
+        if let Some(candidate) = candidate
             && !self
                 .db
                 .context()
                 .provider_facts
-                .contains_all(&demands.iter().cloned().collect::<Vec<_>>())
+                .contains_all(&candidate.demands.iter().cloned().collect::<Vec<_>>())
         {
-            self.update_provider_demands_inner(demands)?;
+            self.update_provider_demands_inner(candidate.demands)?;
         }
         Ok(())
     }
@@ -523,13 +527,9 @@ impl LoaderDatabase {
             retirement.invalidate(ProviderDemandsQuery)?;
             retirement.retire(&graph::ModuleGraphRevisionQuery(previous_revision))?;
         }
-        if let (Some(cache), Some(key)) = (
-            self.db.context().frontend_cache.as_ref(),
-            self.db.context().provider_demand_plan_key,
-        ) {
-            cache.remove_provider_demand_plan(key);
-            *self.db.context().provider_demand_plan_candidate.lock() = None;
-        }
+        // Retire only the in-memory candidate. The persisted snapshot may
+        // still be used by another tree with the same logical identities.
+        *self.db.context().provider_demand_plan_candidate.lock() = None;
         self.db.context().provider_facts.clear()?;
         Ok(())
     }
@@ -544,15 +544,15 @@ impl LoaderDatabase {
         };
         let provider_facts = self.db.get(ProviderDemandsQuery)?;
         let candidate = context.provider_demand_plan_candidate.lock().take();
-        if candidate.as_ref().is_some_and(|demands| {
+        if candidate.as_ref().is_some_and(|candidate| {
             provider_facts
                 .as_snapshot()
-                .is_ok_and(|snapshot| demands == snapshot.demands())
+                .is_ok_and(|snapshot| &candidate.demands == snapshot.demands())
         }) {
             return Ok(());
         }
-        if candidate.is_some() {
-            cache.remove_provider_demand_plan(key);
+        if let Some(candidate) = candidate {
+            cache.remove_provider_demand_plan_record(key, candidate.record);
         }
         let graph = self.db.get(graph::ModuleGraphQuery)?;
         let source_paths = graph
@@ -1063,7 +1063,8 @@ pub(crate) struct LoaderContext {
     pub(crate) frontend_cache: Option<Arc<frontend_cache::PersistentFrontendCache>>,
     pub(crate) verify_frontend_cache: bool,
     pub(crate) provider_demand_plan_key: Option<FrontendProviderDemandPlanCacheKey>,
-    pub(crate) provider_demand_plan_candidate: Mutex<Option<HashSet<ProviderDemand>>>,
+    pub(crate) provider_demand_plan_candidate:
+        Mutex<Option<frontend_cache::CachedProviderDemandPlan>>,
 }
 
 impl LoaderContext {

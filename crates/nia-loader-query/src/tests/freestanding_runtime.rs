@@ -200,7 +200,10 @@ fn query_loader_loads_std_package_root_children_on_demand() {
     assert_module_not_loaded(&program, "lib/std/process/command.nia");
     assert_module_loaded(&program, host_freestanding_start_module());
     assert_module_not_loaded(&program, "lib/std/build/core.nia");
-    assert_module_not_loaded(&program, "lib/std/atomic.nia");
+    // The runtime's trap reporter imports atomic operations. Its declared
+    // imports are part of loading even before executable reachability selects
+    // the reporter body; unrelated std children still stay lazy.
+    assert_module_loaded(&program, "lib/std/atomic.nia");
     assert_module_not_loaded(&program, "lib/std/io/debug.nia");
 }
 

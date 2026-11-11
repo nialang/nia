@@ -39,11 +39,7 @@ mod provider_demand_plan;
 mod public_surface_using;
 mod used_module_path;
 
-pub(crate) use provider_demand_plan::ProviderDemandPlanIdentity;
-use provider_demand_plan::{
-    decode_provider_demand_plan, encode_provider_demand_plan,
-    provider_demand_plan_paths_are_closed, remap_provider_demands, resolve_cached_source_path,
-};
+pub(crate) use provider_demand_plan::{CachedProviderDemandPlan, ProviderDemandPlanIdentity};
 use public_surface_using::{
     public_surface_fact_symbols, read_module_using, validate_module_using, write_module_using,
 };
@@ -134,7 +130,7 @@ pub(crate) enum DependencyManifestCacheLookup {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ProviderDemandPlanCacheLookup {
-    Hit(HashSet<ProviderDemand>),
+    Hit(CachedProviderDemandPlan),
     NotFound,
     Invalidated,
     Corrupt,
@@ -552,101 +548,6 @@ impl PersistentFrontendCache {
         remove_cache_entry(&self.root, &self.dependency_manifest_path(key));
     }
 
-    pub(crate) fn load_provider_demand_plan(
-        &self,
-        identity: ProviderDemandPlanIdentity<'_>,
-        source_roots: &[SourcePath],
-        sources: &SourceDatabase,
-        symbols: &SymbolTable,
-    ) -> io::Result<ProviderDemandPlanCacheLookup> {
-        let path = self.provider_demand_plan_path(identity.key);
-        validate_cache_namespace(
-            &self.root,
-            path.parent().expect("provider demand plan cache parent"),
-        )
-        .or_else(|error| {
-            if error.kind() == io::ErrorKind::NotFound {
-                Ok(())
-            } else {
-                Err(error)
-            }
-        })?;
-        let encoded = match read_cache_entry(&path)? {
-            Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
-            Some(_) => {
-                retire_oversized(&path);
-                return Ok(ProviderDemandPlanCacheLookup::Corrupt);
-            }
-            None => return Ok(ProviderDemandPlanCacheLookup::NotFound),
-        };
-        let Some(decoded) = decode_provider_demand_plan(&encoded) else {
-            retire_corrupt(&path, &encoded);
-            return Ok(ProviderDemandPlanCacheLookup::Corrupt);
-        };
-        if !identity.matches(&decoded)
-            || path
-                != self.provider_demand_plan_path(FrontendProviderDemandPlanCacheKey::from_parts(
-                    decoded.key,
-                ))
-            || !provider_demand_plan_paths_are_closed(&decoded)
-        {
-            retire_corrupt(&path, &encoded);
-            return Ok(ProviderDemandPlanCacheLookup::Corrupt);
-        }
-        for source in &decoded.sources {
-            let Some(source_path) =
-                resolve_cached_source_path(&source.path.identity(), source_roots)
-            else {
-                retire_corrupt(&path, &encoded);
-                return Ok(ProviderDemandPlanCacheLookup::Invalidated);
-            };
-            let Ok(file) = sources.read_source(&source_path) else {
-                retire_corrupt(&path, &encoded);
-                return Ok(ProviderDemandPlanCacheLookup::Invalidated);
-            };
-            if file.text.len() != source.len
-                || source_content_fingerprint(&file.text) != source.fingerprint
-            {
-                retire_corrupt(&path, &encoded);
-                return Ok(ProviderDemandPlanCacheLookup::Invalidated);
-            }
-        }
-        if install_symbol_dictionary(&decoded.symbols, decoded.demand_symbols, symbols).is_none() {
-            retire_corrupt(&path, &encoded);
-            return Ok(ProviderDemandPlanCacheLookup::Corrupt);
-        }
-        let Some(demands) = remap_provider_demands(decoded.demands, source_roots) else {
-            retire_corrupt(&path, &encoded);
-            return Ok(ProviderDemandPlanCacheLookup::Invalidated);
-        };
-        Ok(ProviderDemandPlanCacheLookup::Hit(demands))
-    }
-
-    pub(crate) fn publish_provider_demand_plan(
-        &self,
-        identity: ProviderDemandPlanIdentity<'_>,
-        source_paths: &[SourcePath],
-        demands: &HashSet<ProviderDemand>,
-        sources: &SourceDatabase,
-        symbols: &SymbolTable,
-    ) -> io::Result<()> {
-        let path = self.provider_demand_plan_path(identity.key);
-        if path.is_file() {
-            return Ok(());
-        }
-        let parent = path
-            .parent()
-            .ok_or_else(|| io::Error::other("invalid provider demand plan path"))?;
-        ensure_cache_directory(&self.root, parent)?;
-        let encoded =
-            encode_provider_demand_plan(identity, source_paths, demands, sources, symbols)?;
-        atomic_publish(&staged_path(&path), &path, &encoded)
-    }
-
-    pub(crate) fn remove_provider_demand_plan(&self, key: FrontendProviderDemandPlanCacheKey) {
-        remove_cache_entry(&self.root, &self.provider_demand_plan_path(key));
-    }
-
     pub(crate) fn provider_summary_path(&self, key: FrontendProviderSummaryCacheKey) -> PathBuf {
         let [first, second] = key.parts();
         self.root
@@ -655,19 +556,6 @@ impl PersistentFrontendCache {
             .join(FRONTEND_CACHE.path_component)
             .join("provider-summaries")
             .join(format!("{first:016x}{second:016x}.fps"))
-    }
-
-    pub(crate) fn provider_demand_plan_path(
-        &self,
-        key: FrontendProviderDemandPlanCacheKey,
-    ) -> PathBuf {
-        let [first, second] = key.parts();
-        self.root
-            .join("artifacts")
-            .join("frontend")
-            .join(FRONTEND_CACHE.path_component)
-            .join("provider-demand-plans")
-            .join(format!("{first:016x}{second:016x}.fpd"))
     }
 
     pub(crate) fn facade_facts_path(&self, key: FrontendFacadeFactsCacheKey) -> PathBuf {
@@ -2060,7 +1948,7 @@ mod tests {
         let ProviderDemandPlanCacheLookup::Hit(restored) = restored else {
             panic!("a plan with package ownership must remain reusable");
         };
-        assert_eq!(restored, demands);
+        assert_eq!(restored.demands, demands);
         fs::remove_dir_all(root).expect("remove cache root");
     }
 
@@ -2071,7 +1959,7 @@ mod tests {
         let provider_key = FrontendProviderSummaryCacheKey::from_parts([1, 2]);
         let plan_key = FrontendProviderDemandPlanCacheKey::from_parts([3, 4]);
         let provider_path = cache.provider_summary_path(provider_key);
-        let plan_path = cache.provider_demand_plan_path(plan_key);
+        let plan_path = cache.provider_demand_plan_directory(plan_key);
         let expected_root = root
             .join("artifacts/frontend")
             .join(FRONTEND_CACHE.path_component);

@@ -801,6 +801,28 @@ pub fun main(init: process::Init) process::ExitCode!() {
         "suite compilation was not restored from its compiler emit cache: {restored}"
     );
 
+    // Different packages share logical paths such as
+    // build-package:root:/tests/unit.nia in the frontend artifact cache.
+    // Looking up a different snapshot must not retire this package's plan.
+    // This explicit interleaving reproduces the former full-suite flake
+    // without depending on test scheduling.
+    let peer = nia_test_support::test_dir("emit-cache-peer-snapshot");
+    fs::create_dir_all(peer.join("tests")).expect("create peer tests");
+    fs::copy(workspace.join("build.nia"), peer.join("build.nia")).expect("copy peer build script");
+    fs::write(
+        peer.join("tests/unit.nia"),
+        "using std::process;\npub fun main(init: process::Init) process::ExitCode!() { _ = init; !() }\n",
+    )
+    .expect("write different peer snapshot");
+    let preview_peer = build_command(&peer)
+        .args(["test", "--dry-run"])
+        .output_timeout_in_session("preview a competing source snapshot");
+    assert!(
+        preview_peer.status.success(),
+        "{}",
+        String::from_utf8_lossy(&preview_peer.stderr)
+    );
+
     // The suite's source closure needs the provider modules that checking
     // discovers. A dry run must not compile to discover them, so it predicts
     // from the provider-demand plan the last real build persisted: with the
@@ -847,6 +869,14 @@ pub fun main(init: process::Init) process::ExitCode!() {
     );
     let rebuilt = suite_compile_decision(&rebuilt.stdout);
     assert_eq!(rebuilt["status"], "miss", "{rebuilt}");
+    let built_peer = build_command(&peer)
+        .arg("test")
+        .output_timeout_in_session("publish a competing source snapshot");
+    assert!(
+        built_peer.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built_peer.stderr)
+    );
     // The rebuild persisted a plan for the edited sources.
     assert_eq!(dry_decision()["status"], "hit");
 }

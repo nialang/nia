@@ -1,6 +1,168 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+const PLAN_RECORD_DOMAIN: FingerprintDomain =
+    FingerprintDomain::new("nia.frontend.provider-demand-plan-record");
+
+fn plan_record_fingerprint(encoded: &[u8]) -> QueryFingerprint {
+    let mut builder = QueryFingerprintBuilder::new(PLAN_RECORD_DOMAIN);
+    builder.write_bytes(encoded);
+    builder.finish()
+}
+
+/// One immutable plan selected only after validating its complete source
+/// snapshot in the current tree. The record identity permits semantic
+/// verification to retire this candidate without affecting other snapshots.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CachedProviderDemandPlan {
+    pub(crate) demands: HashSet<ProviderDemand>,
+    pub(crate) record: QueryFingerprint,
+}
+
+impl PersistentFrontendCache {
+    pub(crate) fn load_provider_demand_plan(
+        &self,
+        identity: ProviderDemandPlanIdentity<'_>,
+        source_roots: &[SourcePath],
+        sources: &SourceDatabase,
+        symbols: &SymbolTable,
+    ) -> io::Result<ProviderDemandPlanCacheLookup> {
+        let directory = self.provider_demand_plan_directory(identity.key);
+        match validate_cache_namespace(&self.root, &directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(ProviderDemandPlanCacheLookup::NotFound);
+            }
+            Err(error) => return Err(error),
+        }
+        let mut paths = fs::read_dir(&directory)?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<io::Result<Vec<_>>>()?;
+        paths.retain(|path| path.extension().is_some_and(|extension| extension == "fpd"));
+        paths.sort_unstable();
+        let mut miss = ProviderDemandPlanCacheLookup::NotFound;
+        for path in paths {
+            match self.load_provider_demand_plan_record(
+                &path,
+                identity,
+                source_roots,
+                sources,
+                symbols,
+            )? {
+                hit @ ProviderDemandPlanCacheLookup::Hit(_) => return Ok(hit),
+                ProviderDemandPlanCacheLookup::NotFound => {}
+                other => miss = other,
+            }
+        }
+        Ok(miss)
+    }
+
+    fn load_provider_demand_plan_record(
+        &self,
+        path: &Path,
+        identity: ProviderDemandPlanIdentity<'_>,
+        source_roots: &[SourcePath],
+        sources: &SourceDatabase,
+        symbols: &SymbolTable,
+    ) -> io::Result<ProviderDemandPlanCacheLookup> {
+        let encoded = match read_cache_entry(path)? {
+            Some(encoded) if encoded.len() <= MAX_CACHE_ENTRY_BYTES => encoded,
+            Some(_) => {
+                retire_oversized(path);
+                return Ok(ProviderDemandPlanCacheLookup::Corrupt);
+            }
+            None => return Ok(ProviderDemandPlanCacheLookup::NotFound),
+        };
+        let Some(decoded) = decode_provider_demand_plan(&encoded) else {
+            retire_corrupt(path, &encoded);
+            return Ok(ProviderDemandPlanCacheLookup::Corrupt);
+        };
+        let record = plan_record_fingerprint(&encoded);
+        if !identity.matches(&decoded)
+            || path != self.provider_demand_plan_path(identity.key, record)
+            || !provider_demand_plan_paths_are_closed(&decoded)
+        {
+            retire_corrupt(path, &encoded);
+            return Ok(ProviderDemandPlanCacheLookup::Corrupt);
+        }
+        // Logical paths deliberately survive relocation and are shared by
+        // independent packages. A source mismatch is not corruption: this
+        // record may still be valid for another tree using the shared cache.
+        for source in &decoded.sources {
+            let Some(source_path) =
+                resolve_cached_source_path(&source.path.identity(), source_roots)
+            else {
+                return Ok(ProviderDemandPlanCacheLookup::Invalidated);
+            };
+            let Ok(file) = sources.read_source(&source_path) else {
+                return Ok(ProviderDemandPlanCacheLookup::Invalidated);
+            };
+            if file.text.len() != source.len
+                || source_content_fingerprint(&file.text) != source.fingerprint
+            {
+                return Ok(ProviderDemandPlanCacheLookup::Invalidated);
+            }
+        }
+        if install_symbol_dictionary(&decoded.symbols, decoded.demand_symbols, symbols).is_none() {
+            retire_corrupt(path, &encoded);
+            return Ok(ProviderDemandPlanCacheLookup::Corrupt);
+        }
+        let Some(demands) = remap_provider_demands(decoded.demands, source_roots) else {
+            return Ok(ProviderDemandPlanCacheLookup::Invalidated);
+        };
+        Ok(ProviderDemandPlanCacheLookup::Hit(
+            CachedProviderDemandPlan { demands, record },
+        ))
+    }
+
+    pub(crate) fn publish_provider_demand_plan(
+        &self,
+        identity: ProviderDemandPlanIdentity<'_>,
+        source_paths: &[SourcePath],
+        demands: &HashSet<ProviderDemand>,
+        sources: &SourceDatabase,
+        symbols: &SymbolTable,
+    ) -> io::Result<()> {
+        let encoded =
+            encode_provider_demand_plan(identity, source_paths, demands, sources, symbols)?;
+        let path = self.provider_demand_plan_path(identity.key, plan_record_fingerprint(&encoded));
+        let directory = self.provider_demand_plan_directory(identity.key);
+        ensure_cache_directory(&self.root, &directory)?;
+        atomic_publish(&staged_path(&path), &path, &encoded)
+    }
+
+    pub(crate) fn remove_provider_demand_plan_record(
+        &self,
+        key: FrontendProviderDemandPlanCacheKey,
+        record: QueryFingerprint,
+    ) {
+        remove_cache_entry(&self.root, &self.provider_demand_plan_path(key, record));
+    }
+
+    pub(crate) fn provider_demand_plan_directory(
+        &self,
+        key: FrontendProviderDemandPlanCacheKey,
+    ) -> PathBuf {
+        let [first, second] = key.parts();
+        self.root
+            .join("artifacts")
+            .join("frontend")
+            .join(FRONTEND_CACHE.path_component)
+            .join("provider-demand-plans")
+            .join(format!("{first:016x}{second:016x}"))
+    }
+
+    fn provider_demand_plan_path(
+        &self,
+        key: FrontendProviderDemandPlanCacheKey,
+        record: QueryFingerprint,
+    ) -> PathBuf {
+        let [first, second] = record.parts();
+        self.provider_demand_plan_directory(key)
+            .join(format!("{first:016x}{second:016x}.fpd"))
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct ProviderDemandPlanSource {
     pub(super) path: SourcePath,
