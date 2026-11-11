@@ -135,7 +135,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.module
                     .classify_function_return(self.function.return_type),
                 crate::module_codegen::AbiReturn::Direct(_)
+                    | crate::module_codegen::AbiReturn::IndirectOut(_)
             )
+            || self.is_memory_value(self.function.return_type)
         {
             return Ok(());
         }
@@ -998,8 +1000,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .module
             .classify_function_return(self.function.return_type)
         {
-            crate::module_codegen::AbiReturn::IndirectOut(_) => self.emit_memory_return(span)?,
-            crate::module_codegen::AbiReturn::Direct(_) => {
+            crate::module_codegen::AbiReturn::IndirectOut(_)
+                if self.is_memory_value(self.function.return_type) =>
+            {
+                self.emit_memory_return(span)?
+            }
+            crate::module_codegen::AbiReturn::Direct(_)
+            | crate::module_codegen::AbiReturn::IndirectOut(_) => {
                 let Some(storage) = self.function_return_storage else {
                     return Err(self.error(span, "missing cleanup return storage"));
                 };

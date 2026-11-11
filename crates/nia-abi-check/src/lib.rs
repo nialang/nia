@@ -105,7 +105,7 @@ pub struct AbiSignature {
 /// does not own a global type arena or a linear IR.
 pub fn classify_nia_signature(
     type_store: &TypeStore,
-    target: TargetDataLayout,
+    target: TargetConfig,
     params: impl IntoIterator<Item = nia_ids::InternedTyId>,
     return_type: nia_ids::InternedTyId,
     tracks_caller: bool,
@@ -114,13 +114,22 @@ pub fn classify_nia_signature(
 ) -> AbiSignature {
     let return_mode = classify_return(
         type_store,
+        target,
         return_type,
         &mut layout_of,
         &mut payloadless_enum,
     );
     let parameters = params
         .into_iter()
-        .map(|ty| classify_param(type_store, ty, &mut layout_of, &mut payloadless_enum))
+        .map(|ty| {
+            classify_param(
+                type_store,
+                target,
+                ty,
+                &mut layout_of,
+                &mut payloadless_enum,
+            )
+        })
         .collect::<Vec<_>>();
     let mut hidden_parameters = Vec::new();
     if let AbiReturn::SRet { align, .. } = return_mode {
@@ -135,7 +144,7 @@ pub fn classify_nia_signature(
         });
     }
     AbiSignature {
-        target,
+        target: TargetDataLayout::for_target(target),
         parameters,
         return_mode,
         hidden_parameters,
@@ -145,21 +154,47 @@ pub fn classify_nia_signature(
 /// Classifies one Nia parameter using the canonical ABI rules.
 pub fn classify_nia_param(
     type_store: &TypeStore,
+    target: TargetConfig,
     ty: nia_ids::InternedTyId,
     mut layout_of: impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
     mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId, nia_ids::InternedTyId) -> bool,
 ) -> AbiParam {
-    classify_param(type_store, ty, &mut layout_of, &mut payloadless_enum)
+    classify_param(
+        type_store,
+        target,
+        ty,
+        &mut layout_of,
+        &mut payloadless_enum,
+    )
 }
 
 /// Classifies one Nia return value using the canonical ABI rules.
 pub fn classify_nia_return(
     type_store: &TypeStore,
+    target: TargetConfig,
     ty: nia_ids::InternedTyId,
     mut layout_of: impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
     mut payloadless_enum: impl FnMut(nia_ids::GlobalDefId, nia_ids::InternedTyId) -> bool,
 ) -> AbiReturn {
-    classify_return(type_store, ty, &mut layout_of, &mut payloadless_enum)
+    classify_return(
+        type_store,
+        target,
+        ty,
+        &mut layout_of,
+        &mut payloadless_enum,
+    )
+}
+
+/// A Nia vector call must use the same registers in every function, even
+/// when the functions enable different CPU features. Use only the vector
+/// width guaranteed by the architecture's baseline, never the build level
+/// or the individual function's features. The i686 baseline has no SSE.
+fn vector_is_direct(target: TargetConfig, layout: Option<TypeLayout>) -> bool {
+    let limit = match target.arch() {
+        Arch::X86 => 0,
+        Arch::X86_64 | Arch::Aarch64 => 16,
+    };
+    layout.is_some_and(|layout| layout.size <= limit)
 }
 
 fn is_zst(
@@ -171,6 +206,7 @@ fn is_zst(
 
 fn classify_param(
     store: &TypeStore,
+    target: TargetConfig,
     ty: nia_ids::InternedTyId,
     layout_of: &mut impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
     payloadless_enum: &mut impl FnMut(nia_ids::GlobalDefId, nia_ids::InternedTyId) -> bool,
@@ -181,7 +217,6 @@ fn classify_param(
     match store.get(ty) {
         Some(
             TyKind::Primitive(_)
-            | TyKind::Vector { .. }
             | TyKind::Pointer { .. }
             | TyKind::VolatilePointer { .. }
             | TyKind::FunctionPointer { .. }
@@ -190,6 +225,9 @@ fn classify_param(
             | TyKind::Callable { .. }
             | TyKind::Range { .. },
         ) => AbiParam::Direct { ty },
+        Some(TyKind::Vector { .. }) if vector_is_direct(target, layout_of(ty)) => {
+            AbiParam::Direct { ty }
+        }
         Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id, ty) => {
             AbiParam::Direct { ty }
         }
@@ -216,6 +254,7 @@ fn classify_param(
 
 fn classify_return(
     store: &TypeStore,
+    target: TargetConfig,
     ty: nia_ids::InternedTyId,
     layout_of: &mut impl FnMut(nia_ids::InternedTyId) -> Option<TypeLayout>,
     payloadless_enum: &mut impl FnMut(nia_ids::GlobalDefId, nia_ids::InternedTyId) -> bool,
@@ -231,7 +270,6 @@ fn classify_return(
     match store.get(ty) {
         Some(
             TyKind::Primitive(_)
-            | TyKind::Vector { .. }
             | TyKind::Pointer { .. }
             | TyKind::VolatilePointer { .. }
             | TyKind::FunctionPointer { .. }
@@ -240,6 +278,9 @@ fn classify_return(
             | TyKind::Callable { .. }
             | TyKind::Range { .. },
         ) => AbiReturn::Direct { ty },
+        Some(TyKind::Vector { .. }) if vector_is_direct(target, layout_of(ty)) => {
+            AbiReturn::Direct { ty }
+        }
         Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id, ty) => {
             AbiReturn::Direct { ty }
         }
@@ -1522,7 +1563,6 @@ extern fun bad_return() (i32, bool);
     #[test]
     fn nia_signature_is_structured_and_omits_zst_values() {
         use nia_ids::ModuleIdAllocator;
-        use nia_layout::TargetDataLayout;
         use nia_ty::PrimitiveTy;
 
         let store = TypeStore::new().expect("create type store");
@@ -1535,7 +1575,7 @@ extern fun bad_return() (i32, bool);
         let i32_ty = append.test_primitive(PrimitiveTy::I32);
         let signature = classify_nia_signature(
             &store,
-            TargetDataLayout::LP64,
+            linux_x86_64(),
             [unit, i32_ty],
             unit,
             true,
@@ -1557,9 +1597,79 @@ extern fun bad_return() (i32, bool);
     }
 
     #[test]
+    fn nia_vectors_use_only_the_architecture_baseline_calling_convention() {
+        let store = TypeStore::new().expect("create type store");
+        let module = nia_ids::ModuleIdAllocator::new()
+            .expect("create module ID allocator")
+            .allocate()
+            .expect("allocate module ID");
+        let append = store.append_for_module(module);
+        for target in nia_target::SUPPORTED_TARGETS {
+            let data = TargetDataLayout::for_target(target);
+            for lanes in [2, 4, 8, 16, 32, 64] {
+                let ty = append.test_intern(TyKind::Vector {
+                    elem: PrimitiveTy::U8,
+                    lanes,
+                });
+                let layout =
+                    nia_layout::vector_layout(PrimitiveTy::U8, lanes, data).expect("vector layout");
+                let signature = classify_nia_signature(
+                    &store,
+                    target,
+                    [ty],
+                    ty,
+                    true,
+                    |_| Some(layout.clone()),
+                    |_, _| false,
+                );
+                let direct = target.arch() != Arch::X86 && lanes <= 16;
+                assert_eq!(
+                    signature.parameters,
+                    vec![if direct {
+                        AbiParam::Direct { ty }
+                    } else {
+                        AbiParam::Indirect {
+                            ty,
+                            align: layout.align,
+                        }
+                    }],
+                    "{target} u8x{lanes}"
+                );
+                assert_eq!(
+                    signature.return_mode,
+                    if direct {
+                        AbiReturn::Direct { ty }
+                    } else {
+                        AbiReturn::SRet {
+                            ty,
+                            align: layout.align,
+                        }
+                    },
+                    "{target} u8x{lanes}"
+                );
+                assert_eq!(
+                    signature.parameters[0],
+                    classify_nia_param(&store, target, ty, |_| Some(layout.clone()), |_, _| false,)
+                );
+                assert_eq!(
+                    signature.return_mode,
+                    classify_nia_return(&store, target, ty, |_| Some(layout.clone()), |_, _| false,)
+                );
+                assert_eq!(
+                    signature.hidden_parameters.len(),
+                    if direct { 1 } else { 2 }
+                );
+                assert!(matches!(
+                    signature.hidden_parameters.last(),
+                    Some(AbiHiddenParam::CallerLocation { .. })
+                ));
+            }
+        }
+    }
+
+    #[test]
     fn nia_signature_classifies_aggregate_returns_as_sret_with_layout_alignment() {
         use nia_ids::{DefId, GlobalDefId, ModuleIdAllocator};
-        use nia_layout::TargetDataLayout;
 
         let store = TypeStore::new().expect("create type store");
         let module = ModuleIdAllocator::new()
@@ -1571,7 +1681,7 @@ extern fun bad_return() (i32, bool);
             append.test_intern(TyKind::Tuple(vec![append.test_primitive(PrimitiveTy::I64)]));
         let signature = classify_nia_signature(
             &store,
-            TargetDataLayout::LP64,
+            linux_x86_64(),
             [],
             aggregate,
             false,

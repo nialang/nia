@@ -69,7 +69,9 @@ pub(crate) enum AbiParam {
 /// How function code holds the values of a type.
 ///
 /// The representation follows the Nia ABI: a type passed directly is an SSA
-/// value, and every type passed indirectly lives only in memory. Memory values
+/// value. Vectors are also SSA values, including those whose ABI passes an
+/// address to keep calls independent of CPU features. Other indirect types
+/// live only in memory. Memory values
 /// are built in place, read through their address, and copied with
 /// `llvm.memcpy`; they are never loaded or stored as first-class aggregates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -367,7 +369,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> nia_abi_check::AbiSignature {
         nia_abi_check::classify_nia_signature(
             self.program.type_store(),
-            self.source.layouts.target,
+            self.target,
             params,
             return_type,
             tracks_caller,
@@ -383,6 +385,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(crate) fn classify_function_return(&self, ty: InternedTyId) -> AbiReturn {
         match nia_abi_check::classify_nia_return(
             self.program.type_store(),
+            self.target,
             ty,
             |ty| self.layout_of(ty),
             |def_id, ty| {
@@ -399,6 +402,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(crate) fn value_repr(&self, ty: InternedTyId) -> ValueRepr {
+        // Vectors remain SSA values inside a function even when their ABI
+        // uses an address to cross a feature-independent call boundary.
+        if matches!(self.ty_kind(ty), Some(TyKind::Vector { .. })) {
+            return ValueRepr::Immediate;
+        }
         match self.classify_function_param(ty) {
             AbiParam::Omit => ValueRepr::ZeroSized,
             AbiParam::Direct(_) => ValueRepr::Immediate,
@@ -409,6 +417,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn classify_function_param(&self, ty: InternedTyId) -> AbiParam {
         match nia_abi_check::classify_nia_param(
             self.program.type_store(),
+            self.target,
             ty,
             |ty| self.layout_of(ty),
             |def_id, ty| {

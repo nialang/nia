@@ -185,10 +185,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .ok_or_else(|| self.error(expr.span, "call did not produce a value"))?
                     .map_err(Into::into)
             }
-            AbiReturn::IndirectOut(_) => Err(self.error(
-                expr.span,
-                "memory-represented call result reached an immediate context",
-            )),
+            AbiReturn::IndirectOut(_) => {
+                let result = self.temporary(expr.ty, "call.result", expr.span)?;
+                self.emit_call_raw_with_out(expr, callee, args, Some(result))?;
+                self.builder
+                    .build_load(
+                        self.module.llvm_basic_type(expr.ty, expr.span)?,
+                        result,
+                        "call.value",
+                    )
+                    .map_err(|_| self.error(expr.span, "failed to load indirect call result"))
+            }
             AbiReturn::Void | AbiReturn::Never => {
                 let _ = self.emit_call_raw_with_out(expr, callee, args, None)?;
                 Err(self.error(expr.span, "unit call cannot be used as a value"))
@@ -237,7 +244,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         } else if callee_is_extern(self, callee) {
             self.emit_extern_call(expr, callee, args, None)?;
         } else {
-            self.emit_call_raw_with_out(expr, callee, args, None)?;
+            let result = if matches!(
+                self.module.classify_function_return(expr.ty),
+                AbiReturn::IndirectOut(_)
+            ) {
+                Some(self.temporary(expr.ty, "call.ignored", expr.span)?)
+            } else {
+                None
+            };
+            self.emit_call_raw_with_out(expr, callee, args, result)?;
         }
         Ok(())
     }
@@ -376,10 +391,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(receiver.span, "failed to extract callable entry"))?
             .into_pointer_value()?;
         let out_ptr = match self.module.classify_function_return(return_type) {
-            AbiReturn::IndirectOut(_) => Some(
-                result
-                    .ok_or_else(|| self.error(expr.span, "callable result has no destination"))?,
-            ),
+            AbiReturn::IndirectOut(_) => Some(match result {
+                Some(result) => result,
+                None if self.value_repr(return_type)
+                    == crate::module_codegen::ValueRepr::Immediate =>
+                {
+                    self.temporary(return_type, "callable.result", expr.span)?
+                }
+                None => return Err(self.error(expr.span, "callable result has no destination")),
+            }),
             AbiReturn::Direct(_) | AbiReturn::Void | AbiReturn::Never => None,
         };
         let callable_type =
@@ -397,6 +417,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     format!("failed to call callable entry: {error:?}"),
                 )
             })?;
+        if result.is_none()
+            && self.value_repr(return_type) == crate::module_codegen::ValueRepr::Immediate
+            && let Some(out_ptr) = out_ptr
+        {
+            return self
+                .builder
+                .build_load(
+                    self.module.llvm_basic_type(return_type, expr.span)?,
+                    out_ptr,
+                    "callable.value",
+                )
+                .map(Some)
+                .map_err(|_| self.error(expr.span, "failed to load indirect callable result"));
+        }
         match call.try_as_basic_value().basic() {
             Some(value) if out_ptr.is_none() => Ok(Some(value?)),
             _ => Ok(None),

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Where expression values live.
 //!
-//! [`ValueRepr`] divides types in two, following the Nia ABI. An immediate
+//! [`ValueRepr`] divides types in two. Vectors and ABI-direct types are immediate;
+//! aggregates are memory values. Wide vectors still use addresses at calls,
+//! so their ABI stays independent of function CPU features. An immediate
 //! value is an SSA value, which [`FunctionCodegen::emit_expr`] returns. A
 //! memory value exists only in storage: [`FunctionCodegen::emit_into`] writes
 //! one into fresh storage, [`FunctionCodegen::emit_memory_operand`] gives the

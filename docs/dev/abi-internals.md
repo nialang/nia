@@ -92,8 +92,10 @@ Parameters:
 ```text
 scalar, pointer, function pointer   direct
 slice                               direct descriptor
+vector within baseline width        direct
+vector wider than baseline width    indirect address
 ZST                                 omitted
-aggregate                           indirect readonly address
+aggregate                           indirect address
 ```
 
 Returns:
@@ -101,15 +103,23 @@ Returns:
 ```text
 scalar, pointer, function pointer   direct
 slice                               direct descriptor
+vector within baseline width        direct
+vector wider than baseline width    hidden out pointer (sret)
 () and other ZSTs                   no runtime value
 aggregate                           hidden out pointer (sret)
 never                               no normal return
 ```
 
-An indirect readonly address is the by-value parameter's storage; the callee
-must not mutate it. Method receivers follow the receiver type (`&self` and
-`&mut self` are pointers, `self` is an ordinary value parameter). Generic
+An indirect address holds a fresh copy made by the caller. The callee owns that
+copy and may mutate it as the by-value parameter's storage. Method receivers
+follow the receiver type (`&self` and `&mut self` are pointers, `self` is an
+ordinary value parameter). Generic
 functions are classified after monomorphization, on concrete types only.
+
+The baseline vector width is 16 bytes on x86_64 and AArch64, and zero on
+i686. Classification consumes the artifact target, never the host or the
+selected CPU level. Function-local vector values remain SSA immediates;
+codegen spills arguments and loads indirect results at the call boundary.
 
 ### Tracked Caller Metadata
 

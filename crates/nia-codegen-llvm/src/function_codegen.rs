@@ -425,7 +425,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map_err(|_| self.error(span, "failed to build return"))
                 .map(|_| ())?,
             AbiReturn::IndirectOut(_) => {
-                return Err(self.error(span, "memory-represented result returned as a value"));
+                let destination = self
+                    .out_ptr
+                    .ok_or_else(|| self.error(span, "indirect result has no destination"))?;
+                self.builder
+                    .build_store(destination, value)
+                    .map_err(|_| self.error(span, "failed to store indirect result"))?;
+                self.builder
+                    .build_return(None)
+                    .map_err(|_| self.error(span, "failed to return indirect result"))?;
             }
             AbiReturn::Void => self
                 .builder

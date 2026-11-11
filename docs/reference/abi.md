@@ -59,6 +59,13 @@ Optimization never changes layout, ABI classification, or symbol identity. Every
 optimization level produces the same sizes, alignments, field offsets,
 parameter and return passing, static data layout, and symbol names.
 
+Nia vector parameters and results also use a calling convention independent of
+the build CPU level. On x86_64 and AArch64, vectors occupying at most 16 bytes
+are passed directly; wider vectors use the address of a caller-owned copy for
+parameters and a hidden result pointer for returns. On `x86-unknown-linux`,
+all vectors use addresses because its baseline does not guarantee SIMD
+registers. Vector operations inside a function still operate on vector values.
+
 ## Target Data Model
 
 Layout is computed from the target, never from the host. Nia has no C `long`

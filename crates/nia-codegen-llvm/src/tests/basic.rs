@@ -375,7 +375,7 @@ fun read(slot: WideSlot) u8x32 {
     let ir = &output.modules[0].ir;
     assert!(
         ir.contains("store <32 x i8> %loadtmp, ptr %0, align 32")
-            && ir.contains("load <32 x i8>, ptr %0, align 32"),
+            && ir.contains("load <32 x i8>, ptr %1, align 32"),
         "expected 32-byte vector union storage alignment:\n{ir}"
     );
 }
