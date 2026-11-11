@@ -30,6 +30,9 @@ use nia_value_resolve::ValueResolution;
 pub struct ConstCheck {
     /// Evaluated module and local initializer values.
     pub values: Arc<HashMap<ConstKey, ConstValue>>,
+    /// Initializers whose evaluation failed. Each failure was reported once,
+    /// at its root; a use of a failed constant reports nothing further.
+    pub failed: Arc<HashSet<ConstKey>>,
     /// Initializer values paired with inferred runtime types.
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
     /// Evaluated enum discriminants.
@@ -73,6 +76,8 @@ pub struct ConstEnumValues {
 pub struct ConstValues {
     /// Computed initializer values keyed by global or local identity.
     pub values: Arc<HashMap<ConstKey, ConstValue>>,
+    /// Initializers whose evaluation failed and was reported.
+    pub failed: Arc<HashSet<ConstKey>>,
     /// Initializer values paired with inferred runtime types.
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
     /// Cross-module semantic facts required through this phase.

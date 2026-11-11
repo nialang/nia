@@ -331,6 +331,7 @@ pub fn compute_module_const_values(
     analyzer.finish(())?;
     Ok(ConstValues {
         values: Arc::new(analyzer.values),
+        failed: Arc::new(analyzer.failed),
         typed_values: Arc::new(analyzer.typed_values),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
@@ -346,6 +347,7 @@ pub fn check_module_const_with_all_phases(
 ) -> ConstCheck {
     ConstCheck {
         values: values.values,
+        failed: values.failed,
         typed_values: typed_facts.typed_values,
         enum_values: enum_values.values,
         typed_enum_values: enum_values.typed_values,
@@ -367,6 +369,7 @@ pub fn compute_module_const_typed_facts(
     analyzer.enum_values = Arc::unwrap_or_clone(enum_values.values);
     analyzer.typed_enum_values = Arc::unwrap_or_clone(enum_values.typed_values);
     analyzer.values = Arc::unwrap_or_clone(values.values);
+    analyzer.failed = Arc::unwrap_or_clone(values.failed);
     analyzer.typed_values = Arc::unwrap_or_clone(values.typed_values);
     analyzer.provider_demands = Arc::unwrap_or_clone(values.provider_demands);
     analyzer.diagnostics = values.diagnostics;
@@ -397,6 +400,7 @@ pub fn evaluate_associated_const(
     analyzer.enum_values = (*facts.enum_values).clone();
     analyzer.typed_enum_values = (*facts.typed_enum_values).clone();
     analyzer.values = (*facts.values).clone();
+    analyzer.failed = (*facts.failed).clone();
     analyzer.typed_values = (*facts.typed_values).clone();
     analyzer.provider_demands = (*facts.provider_demands).clone();
     let result = analyzer.eval_user_associated_const(span, user);
@@ -473,6 +477,11 @@ pub(crate) struct Analyzer<'a> {
     diagnostics: Vec<Diagnostic>,
     provider_demands: HashSet<ProviderDemand>,
     active: HashSet<ConstKey>,
+    /// Keys whose evaluation failed; their root error was reported.
+    failed: HashSet<ConstKey>,
+    /// Whether the evaluation in progress read a failed constant. Its own
+    /// failure is then a consequence of that root, not a new error.
+    read_failed_const: bool,
     program_type_normalizations:
         RefCell<HashMap<ModuleId, Arc<nia_type_normalize::TypeNormalization>>>,
     instantiated_type_normalizations: RefCell<HashMap<InternedTyId, InternedTyId>>,
@@ -553,6 +562,8 @@ impl Analyzer<'_> {
             diagnostics: Vec::new(),
             provider_demands: HashSet::new(),
             active: HashSet::new(),
+            failed: HashSet::new(),
+            read_failed_const: false,
             program_type_normalizations: RefCell::new(HashMap::new()),
             instantiated_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
@@ -600,6 +611,8 @@ impl Analyzer<'_> {
             diagnostics: Vec::new(),
             provider_demands: HashSet::new(),
             active: HashSet::new(),
+            failed: HashSet::new(),
+            read_failed_const: false,
             program_type_normalizations: RefCell::new(HashMap::new()),
             instantiated_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
@@ -792,6 +805,10 @@ impl Analyzer<'_> {
         if let Some(value) = self.values.get(&key).cloned() {
             return Some(value);
         }
+        if self.failed.contains(&key) {
+            self.read_failed_const = true;
+            return None;
+        }
         if let Some(value) = self
             .typed_value_for_key(key)
             .map(|typed| typed.value.clone())
@@ -805,8 +822,10 @@ impl Analyzer<'_> {
                 span,
                 "cyclic const dependency",
             ));
+            self.read_failed_const = true;
             return None;
         }
+        let outer_read_failed_const = std::mem::replace(&mut self.read_failed_const, false);
         let module_id = self.key_module_id(key);
         let result = self.initializer_for_key(key).and_then(|expr| {
             self.with_execution_module(module_id, |this| {
@@ -835,13 +854,20 @@ impl Analyzer<'_> {
                         }
                     }
                     Err(err) => {
-                        this.push_engine_error(err);
+                        if !this.read_failed_const {
+                            this.push_engine_error(err);
+                        }
                         None
                     }
                 }
             })
         });
         self.active.remove(&key);
+        if result.is_none() {
+            self.failed.insert(key);
+        }
+        // A failed key is itself a failed read for the evaluation that asked.
+        self.read_failed_const = outer_read_failed_const || result.is_none();
         result.map(|value| {
             let value = self.insert_typed_key_value(key, value);
             self.values.insert(key, value.clone());

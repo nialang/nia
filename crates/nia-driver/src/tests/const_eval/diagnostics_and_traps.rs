@@ -2360,3 +2360,54 @@ fun main() i32 { 0 }
         .expect("computed global");
     assert_eq!(global.init, Some(StaticInit::Int(IntConst::unsigned(72))));
 }
+
+/// A constant whose initializer fails is reported once, at its root. Its
+/// uses, and constants computed from it, are consequences of that error:
+/// they reported "const value is not available during body check" and
+/// "failed to evaluate resolved const global" in addition.
+#[test]
+fn failed_constants_report_only_their_root() {
+    let root = temp_dir("failed_constants_report_only_their_root");
+    write(
+        &root.join("dep.nia"),
+        "pub const BAD: usize = std::builtin::error(\"dependency root\");\n",
+    );
+    for (name, source, expected) in [
+        (
+            "direct",
+            "const Y: usize = std::builtin::error(\"root\");\nfun main() i32 { Y as i32 + Y as i32 }\n",
+            "root",
+        ),
+        (
+            "through a function",
+            "const fun f() usize { std::builtin::error(\"root\") }\nconst Y: usize = f();\nfun main() i32 { Y as i32 }\n",
+            "root",
+        ),
+        (
+            "dependent constant",
+            "const A: usize = std::builtin::error(\"root\");\nconst B: usize = A + 1;\nconst C: usize = B * 2;\nfun main() i32 { (B + C) as i32 }\n",
+            "root",
+        ),
+        (
+            "local constant",
+            "fun main() i32 { const L: usize = std::builtin::error(\"root\"); L as i32 }\n",
+            "root",
+        ),
+        (
+            "other module",
+            "module dep;\nfun main() i32 { dep::BAD as i32 + dep::BAD as i32 }\n",
+            "dependency root",
+        ),
+    ] {
+        let path = root.join("main.nia");
+        write(&path, source);
+        let program = check_program(path.to_string_lossy().into_owned());
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+            .map(|d| d.diagnostic.summary.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(errors, [expected], "{name}");
+    }
+}

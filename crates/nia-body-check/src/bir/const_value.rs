@@ -58,6 +58,16 @@ impl<'a> BodyChecker<'a> {
         ty
     }
 
+    /// The use of a constant whose initializer failed: an error expression,
+    /// reported at the initializer, not here.
+    pub(super) fn failed_const_use(&self, span: Span, ty: nia_ids::InternedTyId) -> TypedExpr {
+        TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Error,
+        }
+    }
+
     pub(super) fn lower_const_value_expr(
         &mut self,
         span: Span,
@@ -667,6 +677,20 @@ impl<'a> BodyChecker<'a> {
             .map(|local| local.span)
             .unwrap_or(fallback_span);
         nia_body_ir::PromotedAllocationId::new(self.defs.module_id, span)
+    }
+
+    /// Whether `key`'s initializer failed to evaluate. Its root error was
+    /// reported, so a use lowers to an error expression without another.
+    pub(crate) fn const_key_failed(&self, key: nia_const_check::ConstKey) -> bool {
+        let module_id = match key {
+            nia_const_check::ConstKey::Global(def_id) => def_id.module_id,
+            nia_const_check::ConstKey::Local(_) => self.defs.module_id,
+        };
+        if module_id == self.defs.module_id {
+            return self.const_eval.failed.contains(&key);
+        }
+        (self.program_const_values)(module_id)
+            .is_some_and(|const_eval| const_eval.failed.contains(&key))
     }
 
     fn global_const_value_for_env(

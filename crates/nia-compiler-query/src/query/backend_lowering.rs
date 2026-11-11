@@ -151,6 +151,7 @@ impl BackendAssociatedConstEvaluator {
                         const_eval: Arc::clone(&checked.const_eval),
                         const_values: Arc::new(nia_const_check::ConstValues {
                             values: Arc::clone(&checked.const_eval.values),
+                            failed: Arc::clone(&checked.const_eval.failed),
                             typed_values: Arc::clone(&checked.const_eval.typed_values),
                             provider_demands: Arc::clone(&checked.const_eval.provider_demands),
                             diagnostics: Vec::new(),

@@ -885,6 +885,9 @@ impl<'a> BodyChecker<'a> {
         }
         if let Some(def_id) = self.global_const_use(expr) {
             let ty = forced_ty.unwrap_or_else(|| self.runtime_ty_for_global_const_use(def_id, ty));
+            if self.const_key_failed(nia_const_check::ConstKey::Global(def_id)) {
+                return self.failed_const_use(expr.span, ty);
+            }
             return self.lower_const_value_expr_with_origin(
                 expr.span,
                 ty,
@@ -920,6 +923,9 @@ impl<'a> BodyChecker<'a> {
                 Some(nia_defs::DefKind::Const) => {
                     let ty = forced_ty
                         .unwrap_or_else(|| self.runtime_ty_for_global_const_use(def_id, ty));
+                    if self.const_key_failed(nia_const_check::ConstKey::Global(def_id)) {
+                        return self.failed_const_use(expr.span, ty);
+                    }
                     return self.lower_const_value_expr_with_origin(
                         expr.span,
                         ty,
@@ -1012,6 +1018,9 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Null => TypedExprKind::Null,
             ExprKind::Ident(_) | ExprKind::SelfValue => {
                 if let Some(local_id) = self.local_const_use(expr) {
+                    if self.const_key_failed(nia_const_check::ConstKey::Local(local_id)) {
+                        return self.failed_const_use(expr.span, ty);
+                    }
                     return self.lower_const_value_expr_with_origin(
                         expr.span,
                         ty,

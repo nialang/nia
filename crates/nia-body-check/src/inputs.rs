@@ -6,6 +6,8 @@ use super::*;
 pub struct BodyConst<'a> {
     /// Evaluated const values keyed by global/local identity.
     pub values: &'a HashMap<ConstKey, ConstValue>,
+    /// Initializers whose evaluation failed and was reported at the root.
+    pub failed: &'a HashSet<ConstKey>,
     /// Const values paired with inferred runtime types.
     pub typed_values: &'a HashMap<ConstKey, TypedConstValue>,
     /// Array lengths computed by the const prerequisite phase.
@@ -21,6 +23,7 @@ impl<'a> BodyConst<'a> {
     ) -> Self {
         Self {
             values: &values.values,
+            failed: &values.failed,
             typed_values: &typed_facts.typed_values,
             array_lengths: &array_lengths.values,
         }

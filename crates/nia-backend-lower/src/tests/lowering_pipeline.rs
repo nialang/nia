@@ -131,6 +131,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     };
     let const_values = nia_const_check::ConstValues {
         values: const_eval.values.clone(),
+        failed: const_eval.failed.clone(),
         typed_values: const_eval.typed_values.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),

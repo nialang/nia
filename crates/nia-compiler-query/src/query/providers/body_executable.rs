@@ -154,6 +154,7 @@ impl BodyCheckConstInputs {
     fn into_check(self) -> ConstCheck {
         ConstCheck {
             values: self.values.values,
+            failed: self.values.failed,
             typed_values: self.typed_facts.typed_values,
             enum_values: self.enum_values.values,
             typed_enum_values: self.enum_values.typed_values,
@@ -1064,6 +1065,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         (
             nia_body_check::BodyConst {
                 values: &const_eval.values,
+                failed: &const_eval.failed,
                 typed_values: &const_eval.typed_values,
                 array_lengths: &const_eval.array_lengths,
             },
@@ -2337,6 +2339,7 @@ pub(super) fn executable_signature_checked_module(
     const_diagnostics.extend(enum_values.diagnostics.clone());
     let mut const_eval = ConstCheck {
         values: Arc::new(HashMap::new()),
+        failed: Arc::new(HashSet::new()),
         typed_values: Arc::new(HashMap::new()),
         enum_values: enum_values.values,
         typed_enum_values: enum_values.typed_values,
