@@ -272,3 +272,24 @@ fn the_reporter_never_reports_its_own_traps() {
     // User code reports.
     assert!(ir.contains("call void @__nia_trap("), "{ir}");
 }
+
+/// A builtin operator or method used only for its effect is still
+/// evaluated, so its checks run. Discarding one stopped code generation
+/// with an internal error ("builtin operator cannot be emitted as a raw
+/// call").
+#[test]
+fn discarded_operations_are_still_checked() {
+    let _resources =
+        nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Build);
+    let root = test_dir("trap_reports_discarded");
+    let body = "    _ = id(1u8) + id(2u8);\n    let xs: [u8; 3] = [1, 2, 3];\n    _ = (&xs[..]).len();\n    _ = id(250u8) + id(10u8);\n    !()\n}\n";
+    let stderr = run_failing(&root, "discarded", body, &[]);
+    assert!(
+        reports(
+            &stderr,
+            "discarded.nia:8:9: integer overflow: 250 + 10 does not fit in u8"
+        ),
+        "{stderr}"
+    );
+    run_failing(&root, "discarded", body, &["--release"]);
+}

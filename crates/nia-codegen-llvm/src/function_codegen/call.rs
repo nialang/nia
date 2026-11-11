@@ -259,6 +259,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         callee: &FunctionCallee,
         args: &[FunctionExpr],
     ) -> Result<(), Diagnostic> {
+        // A builtin operator or method computes a value rather than calling
+        // anything. Used for its effect, it is still evaluated, so that its
+        // checks run (`_ = a + b;` traps on overflow), and the value dropped.
+        if matches!(
+            callee,
+            FunctionCallee::BuiltinOperator(_) | FunctionCallee::BuiltinMethod { .. }
+        ) {
+            self.emit_call(expr, callee, args)?;
+            return Ok(());
+        }
         if let FunctionCallee::Callable(receiver) = callee {
             self.emit_callable_dispatch(expr, receiver, args, None)?;
         } else if is_c_function_pointer(self, callee) {
