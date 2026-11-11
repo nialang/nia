@@ -913,10 +913,14 @@ fun bump() i32 {
 The type may be inferred from the initializer. A static without an initializer
 needs a type and is zero-initialized (`extern static` instead refers to foreign
 storage). Initializers must be static data: literals, arithmetic on constants,
-aggregates of static data, addresses of other statics, and named `const`
-values. They cannot run code, so `static bad = { 1 + 2 };` is an error. Where a
+aggregates of static data, addresses of other statics and of functions, and
+named `const` values. They cannot run code, so `static bad = { 1 + 2 };` is an
+error, and they cannot read another static's value: `static copy = target;`
+is an error, while a `const` can hold a value both statics use. Where a
 pointer is expected, the address of another static is taken implicitly:
-`static q: &i32 = target;` stores `&target`.
+`static q: &i32 = target;` stores `&target`. The same holds for every element
+of an aggregate, and a function named where a function pointer is expected
+stores its address: `static table: [&fun(i32) i32; 1] = [next];`.
 
 Use `static`, not `const`, when data needs an address, for example when it is
 passed to foreign code.

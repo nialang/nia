@@ -69,8 +69,16 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn lower_global_static_init(&mut self, expr: &Expr, ty: InternedTyId) -> StaticInit {
-        if self
-            .node_expr_adjustments
+        self.lower_static_init_with_target(expr, ty)
+    }
+
+    /// Whether checking adjusted `expr` to the address `ty`: a static named
+    /// where a pointer is expected, or a function item where a function
+    /// pointer is. Every element of an aggregate initializer has its own
+    /// expected type, so this applies at every level, not only to the whole
+    /// initializer.
+    fn static_init_is_implicit_address(&self, expr: &Expr, ty: InternedTyId) -> bool {
+        self.node_expr_adjustments
             .get(&expr.node_key)
             .is_some_and(|plan| {
                 plan.target_ty == ty
@@ -86,21 +94,6 @@ impl<'a> BodyChecker<'a> {
                         )
                     })
             })
-        {
-            return self.lower_static_address_init(expr);
-        }
-        match &expr.kind {
-            ExprKind::String(literal) if self.static_init_target_is_array(ty) => {
-                self.lower_static_string_array_init(expr, literal)
-            }
-            ExprKind::ByteString(literal) if self.static_init_target_is_array(ty) => {
-                self.lower_static_byte_string_array_init(expr, literal)
-            }
-            ExprKind::String(_) | ExprKind::ByteString(_) => {
-                self.lower_static_string_target_mismatch(expr)
-            }
-            _ => self.lower_static_init_with_target(expr, ty),
-        }
     }
 
     pub(crate) fn lower_static_init(&mut self, expr: &Expr) -> StaticInit {
@@ -164,7 +157,12 @@ impl<'a> BodyChecker<'a> {
                         expr.span,
                         format!("const value of kind `{kind}` is not representable as static data"),
                     ));
+                    return StaticInit::Zero;
                 }
+                // Every other name is refused, and a refusal must be
+                // reported: the recovery `Zero` publishes no initializer, and
+                // an absent initializer zero-initializes the static.
+                self.diagnostics.push(self.static_name_refusal(expr));
                 StaticInit::Zero
             }
             ExprKind::ArrayLiteral { elems } => match elems {
@@ -288,6 +286,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_static_init_with_target(&mut self, expr: &Expr, ty: InternedTyId) -> StaticInit {
+        if self.static_init_is_implicit_address(expr, ty) {
+            return self.lower_static_address_init(expr);
+        }
         match &expr.kind {
             ExprKind::String(literal) if self.static_init_target_is_array(ty) => {
                 self.lower_static_string_array_init(expr, literal)
@@ -584,6 +585,32 @@ impl<'a> BodyChecker<'a> {
                 ));
                 0
             }
+        }
+    }
+
+    /// Why a name that is neither a builtin value nor a const cannot be static
+    /// data. Reading another static would copy its run-time storage, which
+    /// static data cannot do; its address, or a `const` holding the value, can.
+    fn static_name_refusal(&self, expr: &Expr) -> Diagnostic {
+        let static_value = matches!(
+            self.semantic_uses.node_value_use(&expr.node_key),
+            Some(nia_sema_ir::SemanticValueUse::Global(global))
+                if self.global_def_kind(global) == Some(nia_defs::DefKind::Global)
+        );
+        if static_value {
+            Diagnostic::user_error(
+                codes::TYPE_CHECK,
+                "a static initializer cannot read the value of another static",
+            )
+            .primary(expr.span, "this reads a static's storage")
+            .help("put the value in a `const` and use it in both statics, or store the static's address")
+            .finish()
+        } else {
+            Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                expr.span,
+                "global initializer is not representable as static data yet",
+            )
         }
     }
 

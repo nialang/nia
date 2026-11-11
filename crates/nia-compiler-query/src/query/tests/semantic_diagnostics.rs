@@ -98,10 +98,12 @@ fn inferred_module_value_types_do_not_reenter_unrelated_module_bodies() {
 fn inferred_module_value_types_follow_cross_module_initializer_dependencies() {
     let mut fixture = LoadedProgramFixture::new(
         "main.nia",
-        "module a; module b; using a; fun main() i32 { a::x }",
+        "module a; module b; using a; fun main() i32 { a::x.* }",
     );
     let entry = fixture.entry_id();
-    fixture.add_child(entry, "a", "a.nia", "using super::b; pub static x = b::y;");
+    // `x`'s type is inferred from `y`'s; an initializer may store another
+    // static's address but not read its value.
+    fixture.add_child(entry, "a", "a.nia", "using super::b; pub static x = &b::y;");
     fixture.add_child(entry, "b", "b.nia", "pub static y = 2;");
 
     let checked = fixture.database().check_program();

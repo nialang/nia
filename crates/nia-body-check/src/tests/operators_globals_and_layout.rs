@@ -704,3 +704,73 @@ fun main() i32 {
         checked.diagnostics
     );
 }
+
+/// Implicit addresses apply to every element, not only the whole initializer.
+///
+/// A function item or static named inside an aggregate was lowered as a
+/// plain name and silently published nothing, so a linked executable held a
+/// null function pointer and crashed when calling through it.
+#[test]
+fn nested_function_and_static_addresses_publish_addresses() {
+    let checked = pipeline(
+        r#"
+fun next(value: i32) i32 { value + 1 }
+static target: i32 = 5;
+static table: [&fun(i32) i32; 2] = [next, next];
+static repeated: [&fun(i32) i32; 3] = [next; 3];
+static pair: (i32, &fun(i32) i32) = (1, next);
+static pointers: [&i32; 1] = [target];
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.ir.global_inits.len(), 5);
+    fn has_address(init: &nia_static_ir::StaticInit) -> bool {
+        match init {
+            nia_static_ir::StaticInit::AddrOfFunction { .. }
+            | nia_static_ir::StaticInit::AddrOfGlobal { .. } => true,
+            nia_static_ir::StaticInit::Array(values) | nia_static_ir::StaticInit::Tuple(values) => {
+                !values.is_empty()
+                    && values.iter().all(|value| {
+                        has_address(value) || matches!(value, nia_static_ir::StaticInit::Int(_))
+                    })
+            }
+            nia_static_ir::StaticInit::Repeat { value, .. } => has_address(value),
+            _ => false,
+        }
+    }
+    for init in checked.ir.global_inits.values() {
+        if !matches!(init.as_ref(), nia_static_ir::StaticInit::Int(_)) {
+            assert!(has_address(init), "{init:?}");
+        }
+    }
+}
+
+/// A static's value is run-time storage, which static data cannot copy. It
+/// was refused without a report and the static silently held zero.
+#[test]
+fn reading_another_static_value_is_reported() {
+    let checked = pipeline(
+        r#"
+static source: i32 = 5;
+static copy: i32 = source;
+static copies: [i32; 1] = [source];
+"#,
+    );
+    assert_eq!(
+        checked.ir.global_inits.len(),
+        1,
+        "{:?}",
+        checked.ir.global_inits
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary
+                == "a static initializer cannot read the value of another static")
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+}
