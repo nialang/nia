@@ -795,58 +795,82 @@ pub fun main(init: process::Init) process::ExitCode!() {
         "{}",
         String::from_utf8_lossy(&warm.stderr)
     );
-    let cache = String::from_utf8_lossy(&warm.stdout)
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .find(|value| value["kind"] == "action-cache")
-        .expect("test build action-cache report");
-    let entries = cache["entries"].as_array().expect("cache entries");
-    let compilation = entries
-        .iter()
-        .find(|entry| {
-            entry["action"]
-                .as_str()
-                .is_some_and(|action| action.contains("nia-internal-test-compile."))
-        })
-        .unwrap_or_else(|| panic!("suite compiler action missing from cache report: {cache}"));
+    let restored = suite_compile_decision(&warm.stdout);
     assert_eq!(
-        compilation["decision"]["status"], "hit",
-        "suite compilation was not restored from its compiler emit cache: {cache}"
+        restored["status"], "hit",
+        "suite compilation was not restored from its compiler emit cache: {restored}"
     );
 
-    let dry_run = build_command(&workspace)
-        .args([
-            "test",
-            "--dry-run",
-            "--print-cache",
-            "--diagnostics-format=json",
-        ])
-        .output_timeout_in_session("predict test suite compiler cache without executing it");
-    assert!(
-        dry_run.status.success(),
-        "{}",
-        String::from_utf8_lossy(&dry_run.stderr)
+    // The suite's source closure needs the provider modules that checking
+    // discovers. A dry run must not compile to discover them, so it predicts
+    // from the provider-demand plan the last real build persisted: with the
+    // sources unchanged that plan gives the exact closure and the prediction
+    // is a hit, which the warm run above confirmed.
+    let dry_decision = || {
+        let output = build_command(&workspace)
+            .args([
+                "test",
+                "--dry-run",
+                "--print-cache",
+                "--diagnostics-format=json",
+            ])
+            .output_timeout_in_session("predict test suite compiler cache without executing it");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        suite_compile_decision(&output.stdout)
+    };
+    let predicted = dry_decision();
+    assert_eq!(predicted["status"], "hit", "{predicted}");
+    assert_eq!(predicted["publication"], "not_attempted", "{predicted}");
+
+    // After an edit the plan no longer matches the sources, and finding the
+    // new closure would mean compiling, so a dry run cannot predict.
+    fs::write(
+        workspace.join("tests/unit.nia"),
+        "using std::process;\n\npub fun main(init: process::Init) process::ExitCode!() {\n    _ = init;\n    // edited\n    !()\n}\n",
+    )
+    .expect("edit test suite");
+    let predicted = dry_decision();
+    assert_eq!(
+        predicted["status"], "unavailable",
+        "dry-run must not compile to discover a semantic source closure: {predicted}"
     );
-    let dry_cache = String::from_utf8_lossy(&dry_run.stdout)
+    assert_eq!(predicted["publication"], "not_attempted", "{predicted}");
+    let rebuilt = run();
+    assert!(
+        rebuilt.status.success(),
+        "{}",
+        String::from_utf8_lossy(&rebuilt.stderr)
+    );
+    let rebuilt = suite_compile_decision(&rebuilt.stdout);
+    assert_eq!(rebuilt["status"], "miss", "{rebuilt}");
+    // The rebuild persisted a plan for the edited sources.
+    assert_eq!(dry_decision()["status"], "hit");
+}
+
+/// The cache decision of the suite's compiler action in a `--print-cache`
+/// JSON report.
+fn suite_compile_decision(stdout: &[u8]) -> serde_json::Value {
+    let cache = String::from_utf8_lossy(stdout)
         .lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
         .find(|value| value["kind"] == "action-cache")
-        .expect("dry-run action-cache report");
-    let dry_entries = dry_cache["entries"].as_array().expect("dry-run entries");
-    let dry_compilation = dry_entries
+        .expect("action-cache report");
+    cache["entries"]
+        .as_array()
+        .expect("cache entries")
         .iter()
         .find(|entry| {
             entry["action"]
                 .as_str()
                 .is_some_and(|action| action.contains("nia-internal-test-compile."))
         })
-        .unwrap_or_else(|| {
-            panic!("suite compiler action missing from dry-run report: {dry_cache}")
-        });
-    assert_eq!(
-        dry_compilation["decision"]["status"], "unavailable",
-        "dry-run must not compile to discover a semantic source closure: {dry_cache}"
-    );
+        .unwrap_or_else(|| panic!("suite compiler action missing from cache report: {cache}"))
+        ["decision"]
+        .clone()
 }
 
 #[test]

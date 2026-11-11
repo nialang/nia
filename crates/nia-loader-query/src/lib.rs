@@ -276,9 +276,14 @@ impl LoaderDatabase {
             .as_deref()
             .map(|toolchain| toolchain.identity().fingerprint())
             .unwrap_or_else(nia_toolchain::ToolchainIdentityFingerprint::current);
-        let namespace = FrontendCacheNamespace::for_toolchain(
+        // Computed once: every frontend cache entry of this loader, including
+        // the provider-demand plan it looks up now and publishes later, uses
+        // this value, so a lookup and a publication cannot disagree.
+        let namespace = FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
             &target,
             request.runtime.clone(),
+            request.profile,
+            request.compilation_mode,
             toolchain_identity,
         );
         let runtime_package_root = request.runtime.source().map(runtime_package_root_path);
@@ -332,6 +337,7 @@ impl LoaderDatabase {
                 compilation_mode: request.compilation_mode,
                 runtime: request.runtime,
                 toolchain_identity,
+                frontend_cache_namespace: namespace,
                 package_roots_with_used_paths,
                 package_root_used_paths: request.package_root_used_paths,
                 provider_facts,
@@ -961,6 +967,14 @@ fn load_program_trace(
             compilation_mode: CompilationMode::default(),
             runtime: RuntimeSpec::Bare,
             toolchain_identity: tests::test_toolchain_layout().identity().fingerprint(),
+            // The same inputs as the fields above, as a loader derives it.
+            frontend_cache_namespace: FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
+                &TargetConfig::host().expect("tests run on a maintained host"),
+                RuntimeSpec::Bare,
+                BuildProfile::Debug,
+                CompilationMode::Normal,
+                tests::test_toolchain_layout().identity().fingerprint(),
+            ),
             package_roots_with_used_paths: HashSet::new(),
             package_root_used_paths: false,
             provider_facts: ProviderFactStore::default(),
@@ -1016,6 +1030,7 @@ pub(crate) struct LoaderContext {
     pub(crate) compilation_mode: CompilationMode,
     pub(crate) runtime: RuntimeSpec,
     pub(crate) toolchain_identity: nia_toolchain::ToolchainIdentityFingerprint,
+    frontend_cache_namespace: FrontendCacheNamespace,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
     pub(crate) package_root_used_paths: bool,
     pub(crate) provider_facts: ProviderFactStore,
@@ -1026,14 +1041,10 @@ pub(crate) struct LoaderContext {
 }
 
 impl LoaderContext {
+    /// The namespace of every frontend cache entry this loader reads or
+    /// writes, derived once from all of its loading inputs.
     pub(crate) fn frontend_cache_namespace(&self) -> FrontendCacheNamespace {
-        FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
-            &self.target,
-            self.runtime.clone(),
-            self.profile,
-            self.compilation_mode,
-            self.toolchain_identity,
-        )
+        self.frontend_cache_namespace
     }
 }
 

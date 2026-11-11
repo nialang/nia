@@ -219,6 +219,14 @@ fn test_loader_context(
         compilation_mode: nia_target_config::CompilationMode::Normal,
         runtime: RuntimeSpec::Bare,
         toolchain_identity: test_toolchain_layout().identity().fingerprint(),
+        // The same inputs as the fields above, as a loader derives it.
+        frontend_cache_namespace: FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
+            &TargetConfig::host().expect("tests run on a maintained host"),
+            RuntimeSpec::Bare,
+            nia_target_config::BuildProfile::Debug,
+            nia_target_config::CompilationMode::Normal,
+            test_toolchain_layout().identity().fingerprint(),
+        ),
         package_roots_with_used_paths: HashSet::new(),
         package_root_used_paths: false,
         provider_facts: ProviderFactStore::default(),

@@ -106,6 +106,95 @@ fn provider_demand_plan_remaps_logical_toolchain_paths_after_relocation() {
     );
 }
 
+/// Loads `main.nia` with `inputs`, records a demand for the std module it
+/// uses, settles it, and returns whether a fresh loader with the same cache
+/// then restores that demand from the persisted plan.
+fn plan_round_trip(
+    root: &Path,
+    cold: impl Fn(LoadRequest) -> LoadRequest,
+    warm: impl Fn(LoadRequest) -> LoadRequest,
+) -> bool {
+    let cache_root = root.join("cache");
+    let main_path = root.join("main.nia");
+    write(&main_path, "using std::unicode;");
+    let toolchain = provider_plan_toolchain(&root.join("toolchain"));
+    let request = || {
+        LoadRequest::new(main_path.to_string_lossy().into_owned())
+            .with_frontend_cache_dir(Some(cache_root.clone()))
+            .with_toolchain_layout(Arc::clone(&toolchain))
+    };
+    let loader = LoaderDatabase::new_for_test(cold(request()));
+    let program = loader.load_program().expect("cold program load");
+    let unicode = program
+        .modules
+        .iter()
+        .find(|module| module.path.identity().normalized_path() == "toolchain:/std/unicode.nia")
+        .expect("unicode module")
+        .path
+        .clone();
+    loader
+        .update_provider_demands([ProviderDemand {
+            source_path: unicode.clone(),
+            request: nia_compiler_query::ProviderRequest::ModuleBody {
+                module_path: unicode,
+            },
+        }])
+        .expect("cold provider update");
+    nia_compiler_query::LoaderFactProvider::settle_provider_demands(&loader)
+        .expect("settle cold provider demands");
+
+    let restored = LoaderDatabase::new_for_test(warm(request()));
+    restored.load_program().expect("warm program load");
+    nia_compiler_query::LoaderFactProvider::provider_facts(&restored)
+        .expect("warm provider facts")
+        .demands()
+        .iter()
+        .any(|demand| {
+            matches!(
+                demand.request,
+                nia_compiler_query::ProviderRequest::ModuleBody { .. }
+            )
+        })
+}
+
+/// A plan was once looked up under the default profile and mode but published
+/// under the load's own, so a test-mode or release load read its own plan as
+/// corrupt and deleted it on every build.
+#[test]
+fn provider_demand_plans_restore_under_every_loading_input() {
+    type Inputs = fn(LoadRequest) -> LoadRequest;
+    let cases: [(&str, Inputs); 4] = [
+        ("default", |request| request),
+        ("test mode", |request| {
+            request.with_compilation_mode(CompilationMode::Test)
+        }),
+        ("release", |request| {
+            request.with_profile(BuildProfile::Release)
+        }),
+        ("test release", |request| {
+            request
+                .with_profile(BuildProfile::Release)
+                .with_compilation_mode(CompilationMode::Test)
+        }),
+    ];
+    for (name, inputs) in cases {
+        let root = temp_dir(&format!("provider_plan_inputs_{}", name.replace(' ', "_")));
+        assert!(plan_round_trip(&root, inputs, inputs), "{name}");
+    }
+}
+
+/// Pruning depends on the mode, so a plan from one mode describes another
+/// mode's program wrongly; loads that differ only in mode never share one.
+#[test]
+fn provider_demand_plans_are_not_shared_across_modes() {
+    let root = temp_dir("provider_plan_modes");
+    assert!(!plan_round_trip(
+        &root,
+        |request| request.with_compilation_mode(CompilationMode::Test),
+        |request| request,
+    ));
+}
+
 #[test]
 fn provider_demand_plan_remaps_runtime_start_after_toolchain_relocation() {
     let root = temp_dir("provider_demand_plan_remaps_relocated_runtime");
