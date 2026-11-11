@@ -105,10 +105,10 @@ _ = empty;
 An array is a value, like a struct. Assigning it or passing it by value copies
 every element. `primes[i]` indexes it, and indexes are `usize`.
 
-Indexing does not check bounds. Reading past the end of an array is a bug that
-the language does not catch, as in C. When an index might be out of range, use
-the checked `get`, which returns an optional pointer (it comes from
-`std::slice`, introduced below):
+Indexing checks bounds: `primes[i]` with `i` past the end stops the program
+with a trap, and a debug build first prints which index failed and where.
+When an index might be out of range, use `get`, which returns an optional
+pointer instead (it comes from `std::slice`, introduced below):
 
 ```nia
 using std::slice;

@@ -14,6 +14,7 @@ use nia_span::Span;
 use nia_ty::TyKind;
 
 use super::FunctionCodegen;
+use super::traps::TrapCause;
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_addr_of(
@@ -116,7 +117,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         };
         let (base_ptr, base_len) = self.emit_slice_base(span, lhs, elem_ty)?;
         let start = self.emit_range_start(range)?;
-        let end = self.emit_range_end(range, base_len)?;
+        // Array and slice bases know their length. A pointer base is a run
+        // of elements whose length the program guarantees, so its explicit
+        // range is not checked.
+        let checked = matches!(
+            self.module.ty_kind(lhs.ty),
+            Some(TyKind::Array { .. } | TyKind::Slice { .. })
+        );
+        let end = self.emit_checked_range_end(span, range, base_len, start, checked)?;
         let len = self
             .builder
             .build_int_sub(end, start, "slicelen")
@@ -133,8 +141,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let index_value = self.emit_usize_value(index)?;
         match self.module.ty_kind(lhs.ty) {
-            Some(TyKind::Array { .. }) => {
+            Some(TyKind::Array { len, .. }) => {
+                let len = self.module.array_len(len, span)?;
                 let base_ptr = self.emit_array_base_addr(lhs)?;
+                self.emit_index_check(span, index_value, len)?;
                 let array_ty = self.module.llvm_basic_type(lhs.ty, span)?;
                 let zero = self.module.context.i64_type().const_int(0, false)?;
                 unsafe {
@@ -158,6 +168,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .into_struct_value()
                     .map_err(|_| self.error(span, "index base slice value is not a struct"))?;
                 let base_ptr = self.extract_slice_ptr(span, slice)?;
+                let len = self.extract_slice_len(span, slice)?;
+                self.emit_bound_check(span, TrapCause::Index, index_value, len, false)?;
                 let elem_ty = self.module.llvm_basic_type(*elem, span)?;
                 unsafe {
                     self.builder
@@ -276,16 +288,82 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn emit_range_end(
+    /// Traps unless `index < len` for an array of constant length `len`.
+    fn emit_index_check(
         &mut self,
+        span: Span,
+        index: IntValue<'ctx>,
+        len: u64,
+    ) -> Result<(), Diagnostic> {
+        let len = index.get_type()?.const_int(len, false)?;
+        self.emit_bound_check(span, TrapCause::Index, index, len, false)
+    }
+
+    /// The exclusive end of `range` over a base of `base_len` elements. When
+    /// `checked`, the end must not pass `base_len` and the start must not pass
+    /// the end. An inclusive end is compared before adding one, so
+    /// `..=usize::MAX` cannot wrap around.
+    fn emit_checked_range_end(
+        &mut self,
+        span: Span,
         range: &FunctionSliceRange,
         base_len: IntValue<'ctx>,
+        start: IntValue<'ctx>,
+        checked: bool,
     ) -> Result<IntValue<'ctx>, Diagnostic> {
-        let end = if let Some(end) = &range.end {
+        let written = if let Some(end) = &range.end {
             self.emit_usize_value(end)?
         } else {
             base_len
         };
+        if checked {
+            let (cause, order) = if range.inclusive {
+                (TrapCause::SliceInclusiveEnd, TrapCause::SliceInclusiveOrder)
+            } else {
+                (TrapCause::SliceEnd, TrapCause::SliceOrder)
+            };
+            self.emit_bound_check(span, cause, written, base_len, !range.inclusive)?;
+            // `start <= end`; for `a..=b`, `start <= b + 1`, which cannot
+            // overflow now that `b < len`.
+            let end = self.emit_range_end_from(range, written)?;
+            self.emit_bound_check_reporting(span, order, start, end, written)?;
+            return Ok(end);
+        }
+        self.emit_range_end_from(range, written)
+    }
+
+    /// Traps unless `start <= end`, reporting `start` against `written`, the
+    /// end as the program wrote it.
+    fn emit_bound_check_reporting(
+        &mut self,
+        span: Span,
+        cause: TrapCause,
+        start: IntValue<'ctx>,
+        end: IntValue<'ctx>,
+        written: IntValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let in_order = self
+            .builder
+            .build_int_compare(nia_llvm::IntPredicate::ULE, start, end, "slice.ordered")
+            .map_err(|_| self.error(span, "failed to compare slice bounds"))?;
+        let context = self.module.context;
+        let fail = context.append_basic_block(self.llvm_function, "slice.unordered")?;
+        let ok = context.append_basic_block(self.llvm_function, "slice.ordered")?;
+        self.builder
+            .build_conditional_branch(in_order, ok, fail)
+            .map_err(|_| self.error(span, "failed to branch on slice bounds"))?;
+        self.builder.position_at_end(fail);
+        self.emit_trap(span, super::traps::TrapCheck::bound(cause, start, written))?;
+        self.builder.position_at_end(ok);
+        Ok(())
+    }
+
+    /// The exclusive end for the end `end` the range wrote.
+    fn emit_range_end_from(
+        &mut self,
+        range: &FunctionSliceRange,
+        end: IntValue<'ctx>,
+    ) -> Result<IntValue<'ctx>, Diagnostic> {
         if range.inclusive {
             self.builder
                 .build_int_add(
@@ -602,7 +680,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let index_value = self.emit_usize_value(index)?;
         match self.module.ty_kind(base_ty) {
-            Some(TyKind::Array { .. }) => {
+            Some(TyKind::Array { len, .. }) => {
+                let len = self.module.array_len(len, span)?;
+                self.emit_index_check(span, index_value, len)?;
                 let array_ty = self.module.llvm_basic_type(base_ty, span)?;
                 let zero = self.module.context.i64_type().const_int(0, false)?;
                 unsafe {
@@ -634,6 +714,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .into_struct_value()
                     .map_err(|_| self.error(span, "loaded slice base is not a struct"))?;
                 let ptr = self.extract_slice_ptr(span, slice)?;
+                let len = self.extract_slice_len(span, slice)?;
+                self.emit_bound_check(span, TrapCause::Index, index_value, len, false)?;
                 let elem_ty = self.module.llvm_basic_type(*elem, span)?;
                 unsafe {
                     self.builder

@@ -293,3 +293,100 @@ fn discarded_operations_are_still_checked() {
     );
     run_failing(&root, "discarded", body, &["--release"]);
 }
+
+/// Array and slice indexing and slicing are checked in every profile;
+/// pointer bases are not.
+#[test]
+fn array_and_slice_bounds_are_checked() {
+    let _resources =
+        nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Build);
+    let root = test_dir("trap_reports_bounds");
+    let setup = "    let xs: [u8; 3] = [1, 2, 3];\n    let s = &xs[..];\n";
+    for (name, statement, report) in [
+        (
+            "array",
+            "_ = xs[id(3usize)];",
+            "7:9: index 3 is out of bounds for length 3",
+        ),
+        (
+            "slice",
+            "_ = s[id(5usize)];",
+            "7:9: index 5 is out of bounds for length 3",
+        ),
+        (
+            "place",
+            "let mut ys: [u8; 3] = [0; 3]; ys[id(4usize)] = 1;",
+            "7:35: index 4 is out of bounds for length 3",
+        ),
+        (
+            "end",
+            "_ = &s[0..id(4usize)];",
+            "7:9: slice end 4 is out of bounds for length 3",
+        ),
+        (
+            "inclusive_end",
+            "_ = &s[0..=id(3usize)];",
+            "7:9: inclusive slice end 3 is out of bounds for length 3",
+        ),
+        (
+            "maximum_end",
+            "_ = &s[0..=id(18446744073709551615usize)];",
+            "7:9: inclusive slice end 18446744073709551615 is out of bounds for length 3",
+        ),
+        (
+            "order",
+            "_ = &s[id(2usize)..id(1usize)];",
+            "7:9: slice start 2 is after its end 1",
+        ),
+        (
+            "inclusive_order",
+            "_ = &s[id(3usize)..=id(1usize)];",
+            "7:9: slice start 3 is after its inclusive end 1",
+        ),
+        (
+            "array_end",
+            "_ = &xs[1..id(9usize)];",
+            "7:9: slice end 9 is out of bounds for length 3",
+        ),
+    ] {
+        let body = format!("{setup}    {statement}\n    !()\n}}\n");
+        let stderr = run_failing(&root, name, &body, &[]);
+        assert!(
+            reports(&stderr, &format!("{name}.nia:{report}")),
+            "{name}: {stderr}"
+        );
+        // Release builds check too, and trap without a report.
+        let stderr = run_failing(&root, name, &body, &["--release"]);
+        assert!(!stderr.contains("nia: "), "{name}: {stderr}");
+    }
+    // Bounds that hold, including an empty inclusive range and indexing
+    // through a pointer, which stays unchecked.
+    let source = root.join("valid.nia");
+    std::fs::write(
+        &source,
+        format!(
+            "{PRELUDE}{setup}    _ = s[id(2usize)];\n    _ = &s[id(3usize)..];\n    \
+             _ = &s[id(1usize)..=id(2usize)];\n    _ = &s[id(2usize)..=id(1usize)];\n    \
+             let p = &xs;\n    _ = p[0];\n    !()\n}}\n"
+        ),
+    )
+    .expect("write valid program");
+    let exe = root.join(format!("valid{}", std::env::consts::EXE_SUFFIX));
+    let output = support::nia_command()
+        .args(["emit", "--exe"])
+        .arg(&source)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("build valid bounds");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = Command::new(&exe).output_timeout_for_runtime("run valid bounds");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

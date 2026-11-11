@@ -527,9 +527,10 @@ fun use_arrays() i32 {
 }
 ```
 
-Indexing and slicing do not check bounds; see
-[Unchecked Operations](#unchecked-operations-and-traps). The standard library
-provides checked slice operations.
+Indexing and slicing an array or slice check bounds and trap when they fail;
+through a pointer they do not. See
+[Unchecked Operations And Traps](#unchecked-operations-and-traps). The standard
+library's `get` returns an optional instead of trapping.
 
 ### Ranges
 
@@ -2569,8 +2570,8 @@ same condition is a compile-time error.
 
 Unchecked: the program must guarantee validity, and violating it is undefined.
 
-- Array, slice, and pointer indexing and slicing, including an explicit range
-  on a pointer base.
+- Pointer indexing, and slicing a pointer base with an explicit range: a
+  pointer carries no length.
 - Dereferencing a pointer, including one produced by a cast or from an integer.
 - Reading a union field other than the one last written.
 - Reading uninitialized storage (`let x: T;`).
@@ -2586,6 +2587,8 @@ Trapping at runtime:
 | integer `/`, `%` | the divisor is zero, or a signed operation is `MIN / -1` or `MIN % -1` |
 | `<<`, `>>` | the count is negative or at least the bit width of the left operand |
 | `<<` | the shifted result does not fit the type |
+| array or slice index `a[i]` | `i` is not below the length |
+| array or slice range `&a[s..e]`, `&a[s..=e]` | the end passes the length, or `s` passes the end |
 | `std::builtin::extract`, `insert` | the lane index is out of range |
 | `std::builtin::trap()` | always |
 
@@ -2601,6 +2604,7 @@ error naming what failed, the operation's type and operands, and where:
 nia: src/main.nia:12:9: integer overflow: 250 + 10 does not fit in u8
 nia: src/scan.nia:40:17: integer overflow in lane 5 of u8x16: 200 + 100 does not fit in u8
 nia: src/table.nia:7:13: division by zero: 7 / 0 in i32
+nia: src/parse.nia:31:20: index 5 is out of bounds for length 3
 ```
 
 Inside a `@[trackCaller]` function the location is the tracked call site, as

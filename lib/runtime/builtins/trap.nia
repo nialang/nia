@@ -53,6 +53,11 @@ enum Cause: u8 {
     ShlOverflow,
     LaneIndex,
     Explicit,
+    Index,
+    SliceEnd,
+    SliceInclusiveEnd,
+    SliceOrder,
+    SliceInclusiveOrder,
     _,
 }
 
@@ -155,6 +160,15 @@ extend Check {
                 line.pushType(self.element, self.lanes);
             }
             .Explicit => line.push(&b"explicit trap"),
+            .Index => self.bound(line, &b"index ", &b" is out of bounds for length "),
+            .SliceEnd => self.bound(line, &b"slice end ", &b" is out of bounds for length "),
+            .SliceInclusiveEnd => {
+                self.bound(line, &b"inclusive slice end ", &b" is out of bounds for length ")
+            }
+            .SliceOrder => self.bound(line, &b"slice start ", &b" is after its end "),
+            .SliceInclusiveOrder => {
+                self.bound(line, &b"slice start ", &b" is after its inclusive end ")
+            }
             _ => line.push(&b"trap"),
         }
     }
@@ -168,6 +182,14 @@ extend Check {
         line.pushOperand(self.rhs);
         line.push(&b" does not fit in ");
         line.pushElement(self.element);
+    }
+
+    // `index 5 is out of bounds for length 3`: a position, then its bound.
+    fun bound(&self, line: &mut Line, before: &[u8], between: &[u8]) () {
+        line.push(before);
+        line.pushOperand(self.lhs);
+        line.push(between);
+        line.pushOperand(self.rhs);
     }
 
     // `shift amount out of range: 1 << 40, where u32 allows 0..32`.

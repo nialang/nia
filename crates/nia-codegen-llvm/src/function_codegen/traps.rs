@@ -31,6 +31,11 @@ pub(super) enum TrapCause {
     ShlOverflow,
     LaneIndex,
     Explicit,
+    Index,
+    SliceEnd,
+    SliceInclusiveEnd,
+    SliceOrder,
+    SliceInclusiveOrder,
 }
 
 /// One operand of a failed check and whether its type is signed. A vector
@@ -94,6 +99,24 @@ impl<'ctx> TrapCheck<'ctx> {
         }
     }
 
+    /// A position checked against a bound, both `usize`: an index against a
+    /// length, a slice end against a length, or a slice start against its end.
+    pub(super) fn bound(cause: TrapCause, value: IntValue<'ctx>, bound: IntValue<'ctx>) -> Self {
+        Self {
+            cause,
+            ty: None,
+            lhs: Some(TrapOperand {
+                value: value.into(),
+                signed: false,
+            }),
+            rhs: Some(TrapOperand {
+                value: bound.into(),
+                signed: false,
+            }),
+            failed_lanes: None,
+        }
+    }
+
     /// Restricts a vector check's report to the first lane in `mask`.
     pub(super) fn in_lanes(mut self, mask: BasicValueEnum<'ctx>) -> Self {
         self.failed_lanes = Some(mask);
@@ -102,6 +125,37 @@ impl<'ctx> TrapCheck<'ctx> {
 }
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
+    /// Continues only when `value < bound` (or `value <= bound` when
+    /// `inclusive`), both unsigned; otherwise fails with `cause`.
+    pub(super) fn emit_bound_check(
+        &mut self,
+        span: Span,
+        cause: TrapCause,
+        value: IntValue<'ctx>,
+        bound: IntValue<'ctx>,
+        inclusive: bool,
+    ) -> Result<(), Diagnostic> {
+        let predicate = if inclusive {
+            nia_llvm::IntPredicate::ULE
+        } else {
+            nia_llvm::IntPredicate::ULT
+        };
+        let in_bounds = self
+            .builder
+            .build_int_compare(predicate, value, bound, "bounds.ok")
+            .map_err(|_| self.error(span, "failed to compare a bound"))?;
+        let context = self.module.context;
+        let fail = context.append_basic_block(self.llvm_function, "bounds.fail")?;
+        let ok = context.append_basic_block(self.llvm_function, "bounds.ok")?;
+        self.builder
+            .build_conditional_branch(in_bounds, ok, fail)
+            .map_err(|_| self.error(span, "failed to branch on a bound"))?;
+        self.builder.position_at_end(fail);
+        self.emit_trap(span, TrapCheck::bound(cause, value, bound))?;
+        self.builder.position_at_end(ok);
+        Ok(())
+    }
+
     /// Ends the current block with the failure of `check`.
     pub(super) fn emit_trap(
         &mut self,
