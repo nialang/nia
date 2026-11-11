@@ -38,11 +38,6 @@ fn manifest_executables_for_foreign_targets_do_not_register_run_steps() {
     assert!(!listed.contains("run-app"), "{listed}");
 }
 
-// The file an executable artifact built for the host is written to.
-fn executable_file(name: &str) -> String {
-    format!("{name}{}", std::env::consts::EXE_SUFFIX)
-}
-
 #[test]
 fn build_separates_owned_host_and_artifact_targets() {
     let root = temp_dir("build_separates_owned_host_and_artifact_targets");
@@ -1006,7 +1001,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
         .expect("host executable artifact");
     assert_eq!(
         host_artifact.output.protocol_path(),
-        executable_file("host-tool")
+        // The plan explicitly chooses Windows as its host, independently
+        // of the machine executing this test.
+        "host-tool.exe"
     );
 
     // A per-artifact target outside the invocation pair reaches the frozen
