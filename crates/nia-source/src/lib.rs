@@ -211,6 +211,95 @@ impl SourceLocation {
     }
 }
 
+/// Resolves byte offsets of one file to [`SourceLocation`]s without the
+/// file's text, after one pass over it.
+///
+/// Code generation reports locations, for example at runtime traps, but has
+/// no source text. This index carries only what resolution needs: the start
+/// of each line, and the position and width of each character that takes
+/// more than one byte. It resolves exactly as [`SourceLocation::at`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SourceLineIndex {
+    file: String,
+    len: u32,
+    /// Byte offset at which each line after the first begins.
+    line_starts: Vec<u32>,
+    /// Each multi-byte character as (byte offset, bytes beyond the first).
+    wide_chars: Vec<(u32, u8)>,
+}
+
+impl SourceLineIndex {
+    /// Indexes `source`, displayed as `path`.
+    pub fn new(path: &SourcePath, source: &str) -> Self {
+        let mut line_starts = Vec::new();
+        let mut wide_chars = Vec::new();
+        for (index, ch) in source.char_indices() {
+            let width = ch.len_utf8();
+            if ch == '\n' {
+                line_starts.push(saturating_u32(index + width));
+            } else if width > 1 {
+                wide_chars.push((saturating_u32(index), (width - 1) as u8));
+            }
+        }
+        Self {
+            file: path.display_path().to_owned(),
+            len: saturating_u32(source.len()),
+            line_starts,
+            wide_chars,
+        }
+    }
+
+    /// The location of byte `offset`; an offset inside a character or past
+    /// the end resolves to the start of that character or to the end.
+    pub fn location(&self, offset: usize) -> SourceLocation {
+        let mut offset = saturating_u32(offset).min(self.len);
+        // An offset inside a multi-byte character moves to its start.
+        let containing = self
+            .wide_chars
+            .partition_point(|(start, _)| *start < offset);
+        if let Some((start, extra)) = containing
+            .checked_sub(1)
+            .map(|index| self.wide_chars[index])
+            && offset <= start + u32::from(extra)
+        {
+            offset = start;
+        }
+        let line = self.line_starts.partition_point(|start| *start <= offset);
+        let line_start = line
+            .checked_sub(1)
+            .map_or(0, |index| self.line_starts[index]);
+        let first = self
+            .wide_chars
+            .partition_point(|(start, _)| *start < line_start);
+        let last = self
+            .wide_chars
+            .partition_point(|(start, _)| *start < offset);
+        let extra = self.wide_chars[first..last]
+            .iter()
+            .map(|(_, extra)| u32::from(*extra))
+            .sum::<u32>();
+        SourceLocation {
+            file: self.file.clone(),
+            line: saturating_u32(line).saturating_add(1),
+            column: (offset - line_start - extra).saturating_add(1),
+        }
+    }
+
+    /// The displayed file name, which every location of this index shares.
+    pub fn file(&self) -> &str {
+        &self.file
+    }
+
+    /// Line starts and wide characters, the data that determines locations.
+    pub fn layout(&self) -> (&[u32], &[(u32, u8)]) {
+        (&self.line_starts, &self.wide_chars)
+    }
+}
+
+fn saturating_u32(value: usize) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
 fn clamp_to_char_boundary(source: &str, mut offset: usize) -> usize {
     while offset > 0 && !source.is_char_boundary(offset) {
         offset -= 1;
@@ -880,6 +969,28 @@ mod tests {
                 "toolchain:/std/collections.nia",
             )
         );
+    }
+
+    #[test]
+    fn line_index_resolves_every_offset_like_source_location_at() {
+        let path = SourcePath::new("src/main.nia");
+        for source in [
+            "",
+            "a",
+            "\n",
+            "first\n    let 文 = callerLocation();\n",
+            "ä\nöü文𝄞x\n\n  end",
+            "trailing\n",
+        ] {
+            let index = SourceLineIndex::new(&path, source);
+            for offset in 0..=source.len() + 2 {
+                assert_eq!(
+                    index.location(offset),
+                    SourceLocation::at(&path, source, offset),
+                    "{source:?} at {offset}"
+                );
+            }
+        }
     }
 
     #[test]
