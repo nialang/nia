@@ -1224,8 +1224,16 @@ impl<'a> BodyChecker<'a> {
                 // determine the generic callable signature. The instantiated
                 // argument pass performs the one authoritative body check.
                 continue;
-            } else if matches!(arg.kind, ExprKind::ArrayLiteral { .. }) {
-                self.infer_array_literal_expr(arg)
+            } else if let ExprKind::ArrayLiteral { elems } = &arg.kind {
+                self.array_literal_type_for_generic_len(
+                    substituted_param,
+                    arg.span,
+                    elems,
+                    &signature.generic_params,
+                    &substitutions.types,
+                    &substitutions.consts,
+                )
+                .unwrap_or_else(|| self.infer_array_literal_expr(arg))
             } else {
                 self.check_expr(arg)
             };
@@ -2781,6 +2789,45 @@ impl<'a> BodyChecker<'a> {
         substituted_param
             .filter(|ty| complete(*ty))
             .or_else(|| callable_pattern.filter(|ty| complete(*ty)))
+    }
+
+    /// The type an array literal contributes to inference when it is passed
+    /// to a `[E; N]` parameter whose element type `E` is known but whose
+    /// length `N` is not: `[E; len]`, with the literal's own length. `N` is
+    /// inferred from it, and the instantiated argument pass then checks the
+    /// literal against `[E; N]` once. Without it an untyped `[4, 5]` defaults
+    /// to `[i32; 2]`, which no `[usize; N]` accepts.
+    ///
+    /// The elements are not checked here, so their diagnostics are reported
+    /// once, by that later pass.
+    fn array_literal_type_for_generic_len(
+        &mut self,
+        param: InternedTyId,
+        span: Span,
+        elems: &nia_ast::ArrayElements,
+        generic_params: &[nia_item_signatures::GenericParamSignature],
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> Option<InternedTyId> {
+        let Some(TyKind::Array {
+            elem,
+            len: ArrayLenTy::GenericParam(_),
+        }) = self.interner.get(param).cloned()
+        else {
+            return None;
+        };
+        let elem = self.generic_argument_expected(
+            Some(elem),
+            None,
+            generic_params,
+            substitutions,
+            const_substitutions,
+        )?;
+        let len = crate::aggregates::explicit_array_literal_len(self, span, elems).ok()??;
+        Some(self.interner.intern(TyKind::Array {
+            len: ArrayLenTy::ConstValue(len),
+            elem,
+        }))
     }
 
     /// Returns whether a canonical type still contains a const parameter that

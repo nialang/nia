@@ -105,8 +105,11 @@ impl Analyzer<'_> {
                     &substitutions,
                     &const_substitutions,
                 );
-                let concrete_expected =
-                    expected.filter(|expected| !self.type_contains_generic(*expected));
+                let concrete_expected = expected
+                    .filter(|expected| !self.type_contains_generic(*expected))
+                    .or_else(|| {
+                        expected.and_then(|expected| self.array_with_inferred_len(expected))
+                    });
                 let inferred_arg_ty = self
                     .resolved_const_arg_runtime_type(arg_expr, concrete_expected)
                     .or_else(|| {
@@ -1853,6 +1856,28 @@ impl Analyzer<'_> {
             ConstValueType::Bool => Some(ConstValueType::Bool),
             ConstValueType::String => Some(ConstValueType::String),
         }
+    }
+
+    /// `[E; _]` for a `[E; N]` parameter whose element type `E` is known but
+    /// whose length `N` is still a generic parameter. An array argument typed
+    /// against it takes `E` for its elements and keeps its own length, from
+    /// which `N` is inferred; without it an untyped `[4, 5]` has no runtime
+    /// type and `N` cannot be inferred at all.
+    pub(super) fn array_with_inferred_len(&mut self, ty: InternedTyId) -> Option<InternedTyId> {
+        let Some(TyKind::Array {
+            elem,
+            len: ArrayLenTy::GenericParam(_),
+        }) = self.ty_kind(ty)
+        else {
+            return None;
+        };
+        if self.type_contains_generic(elem) {
+            return None;
+        }
+        self.intern_current_ty(TyKind::Array {
+            len: ArrayLenTy::Infer,
+            elem,
+        })
     }
 
     pub(super) fn type_contains_generic(&self, ty: InternedTyId) -> bool {

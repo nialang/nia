@@ -1801,7 +1801,7 @@ fn array_literal_elem_requires_expected(elem: &Expr) -> bool {
     }
 }
 
-fn explicit_array_literal_len(
+pub(crate) fn explicit_array_literal_len(
     checker: &mut BodyChecker<'_>,
     span: Span,
     elems: &nia_ast::ArrayElements,

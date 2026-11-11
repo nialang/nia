@@ -748,6 +748,52 @@ fun main() usize {
 }
 
 #[test]
+fn infers_const_generic_length_of_untyped_literal_for_known_element_type() {
+    // The parameter fixes the element type, so the untyped literal takes it
+    // instead of defaulting to `i32`, and its length gives `N`.
+    let checked = pipeline(
+        r#"
+const fun count[N: usize](values: [usize; N]) usize {
+    N
+}
+
+const AT_COMPILE_TIME: usize = count([4, 5, 6]);
+
+fun main() usize {
+    count([4, 5, 6]) + count([0; 2]) + AT_COMPILE_TIME
+}
+
+fun takes_bytes[N: usize](bytes: [u8; N]) () {
+    _ = bytes;
+}
+
+fun out_of_range() () {
+    takes_bytes([1, 300])
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(summaries.len(), 1, "{summaries:?}");
+    assert!(summaries[0].contains("300"), "{summaries:?}");
+    let lengths = checked
+        .facts
+        .iter_generic_instantiations()
+        .filter_map(|inst| match inst.const_args.as_slice() {
+            [arg] => match arg.value {
+                nia_ty::ConstGenericValue::Int(value) => Some(value.bits()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(lengths.contains(&3) && lengths.contains(&2), "{lengths:?}");
+}
+
+#[test]
 fn infers_type_and_const_generics_through_nominal_arguments() {
     let checked = pipeline(
         r#"
