@@ -1430,6 +1430,67 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_optimized_negative_constants_equal_computed_values() {
+    // A negative constant narrower than 64 bits once reached LLVM with
+    // sign-extended bits above its width. It printed as the right number but
+    // compared unequal to the same number computed at run time, so every
+    // optimized comparison below took the failure branch.
+    let root = temp_dir("emit_exe_optimized_negative_constants_equal_computed_values");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let a: i8 = 5;
+    if -a != -5 {
+        return process::ExitCode(1)!;
+    }
+    let b: i16 = 30000;
+    if b - 30005 != -5 {
+        return process::ExitCode(2)!;
+    }
+    let c: i32 = 2147483600;
+    if -c != -2147483600 {
+        return process::ExitCode(3)!;
+    }
+    let d: i64 = 5;
+    if 0 - d != -5 {
+        return process::ExitCode(4)!;
+    }
+    let e: isize = 7;
+    if -e != -7 {
+        return process::ExitCode(5)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    for optimization in ["-O0", "-O2"] {
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--exe")
+            .arg(optimization)
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit negative constant executable");
+        assert!(
+            output.status.success(),
+            "{optimization} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&exe).status_timeout("run negative constant executable");
+        assert_eq!(status.code(), Some(0), "{optimization}");
+    }
+}
+
+#[test]
 fn emit_exe_preserves_128_bit_numeric_endpoints() {
     let root = temp_dir("emit_exe_preserves_128_bit_numeric_endpoints");
     let main = root.join("main.nia");

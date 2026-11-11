@@ -142,6 +142,19 @@ pub trait BasicValue<'ctx>: AsValueRef {
     fn as_basic_value_enum(&self) -> BasicValueEnum<'ctx>;
 }
 
+/// The bits of `value` that an integer type of `width` bits holds.
+///
+/// LLVM's `ConstantInt::get` keeps an unsigned value's bits above the type's
+/// width (it only asserts that there are none), so every constant up to 64
+/// bits wide is truncated here first.
+fn truncate_to_width(value: u64, width: u32) -> u64 {
+    if width >= u64::BITS {
+        value
+    } else {
+        value & ((1_u64 << width) - 1)
+    }
+}
+
 fn validate_constant_elements<T: AsValueRef>(
     values: &[T],
     element_type: LLVMTypeRef,
@@ -699,19 +712,36 @@ impl<'ctx> IntType<'ctx> {
         unsafe { LLVMGetIntTypeWidth(self.as_type_ref()) }
     }
 
-    /// Creates an integer constant from its low 64 bits.
+    /// Creates an integer constant from its low 64 bits. For a type of at
+    /// most 64 bits the value is truncated to the type's width, so a
+    /// sign-extended value gives the same constant as its truncated bits.
+    /// For a wider type, `sign_extend` chooses how the 64 bits are extended.
     pub fn const_int(self, value: u64, sign_extend: bool) -> LlvmResult<IntValue<'ctx>> {
+        let width = self.bit_width();
+        let (value, sign_extend) = if width <= 64 {
+            (truncate_to_width(value, width), false)
+        } else {
+            (value, sign_extend)
+        };
         Ok(IntValue::new(require_value(
             unsafe { LLVMConstInt(self.as_type_ref(), value, bool_to_llvm(sign_extend)) },
             "integer constant",
         )?))
     }
 
-    /// Creates an unsigned integer constant up to 128 bits wide.
+    /// Creates an integer constant from the low bits of `value` that fit the
+    /// type, for types up to 128 bits wide.
     pub fn const_u128(self, value: u128) -> LlvmResult<IntValue<'ctx>> {
-        if self.bit_width() <= 64 {
+        let width = self.bit_width();
+        if width <= 64 {
             return Ok(IntValue::new(require_value(
-                unsafe { LLVMConstInt(self.as_type_ref(), value as u64, 0) },
+                unsafe {
+                    LLVMConstInt(
+                        self.as_type_ref(),
+                        truncate_to_width(value as u64, width),
+                        0,
+                    )
+                },
                 "integer constant",
             )?));
         }
@@ -1779,6 +1809,31 @@ mod tests {
         assert_eq!(
             error,
             LlvmError::Error("LLVM returned a null constant array value".to_string())
+        );
+    }
+
+    #[test]
+    fn integer_constants_keep_only_the_bits_of_their_type() {
+        // LLVM keeps an unsigned value's bits above the type's width; such a
+        // constant prints like the truncated number but is a different
+        // constant, so optimizations find it unequal to that number.
+        let context = Context::create().unwrap();
+        let i32_ty = context.i32_type();
+        let expected = i32_ty.const_int(0xFFFF_FFFB, false).unwrap();
+        for wide in [
+            i32_ty.const_int(-5_i64 as u64, false).unwrap(),
+            i32_ty.const_int(-5_i64 as u64, true).unwrap(),
+            i32_ty.const_u128(-5_i128 as u128).unwrap(),
+        ] {
+            assert_eq!(wide.as_value_ref(), expected.as_value_ref());
+        }
+        let i128_ty = context.i128_type();
+        assert_eq!(
+            i128_ty
+                .const_int(-5_i64 as u64, true)
+                .unwrap()
+                .as_value_ref(),
+            i128_ty.const_u128(-5_i128 as u128).unwrap().as_value_ref()
         );
     }
 
