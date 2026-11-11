@@ -73,29 +73,21 @@ fun detect() u32 {
 }
 
 // Kept separate from instruction execution so OS-state and missing-leaf
-// combinations can be tested without depending on the host processor.
+// combinations can be tested without depending on the host processor. The
+// arguments are CPUID leaf 1 ECX and EDX, leaf 7 EBX, leaf 0x80000001 ECX,
+// and XCR0.
 fun decode(c: u32, d: u32, b7: u32, extended: u32, state: u32) u32 {
-    let mut features = 0u32;
-    if (d & (1u32 << 26)) != 0 { features |= bit(.Sse2); }
-    if (c & (1u32 << 0)) != 0 { features |= bit(.Sse3); }
-    if (c & (1u32 << 9)) != 0 { features |= bit(.Ssse3); }
-    if (c & (1u32 << 19)) != 0 { features |= bit(.Sse4_1); }
-    if (c & (1u32 << 20)) != 0 { features |= bit(.Sse4_2); }
-    if (c & (1u32 << 23)) != 0 { features |= bit(.Popcnt); }
-    if (c & (1u32 << 13)) != 0 { features |= bit(.Cmpxchg16b); }
-    if (c & (1u32 << 22)) != 0 { features |= bit(.Movbe); }
-    if (b7 & (1u32 << 3)) != 0 { features |= bit(.Bmi1); }
-    if (b7 & (1u32 << 8)) != 0 { features |= bit(.Bmi2); }
-    if (extended & (1u32 << 5)) != 0 { features |= bit(.Lzcnt); }
+    let mut features = select(&[
+        (d, 26, .Sse2), (c, 0, .Sse3), (c, 9, .Ssse3), (c, 19, .Sse4_1),
+        (c, 20, .Sse4_2), (c, 23, .Popcnt), (c, 13, .Cmpxchg16b),
+        (c, 22, .Movbe), (b7, 3, .Bmi1), (b7, 8, .Bmi2), (extended, 5, .Lzcnt),
+    ]);
 
     // Hardware bits alone do not make AVX usable: XMM and YMM state must
     // survive context switches. FMA and F16C also use that AVX state.
     let avx = (c & (7u32 << 26)) == (7u32 << 26) and (state & 6) == 6;
     if avx {
-        features |= bit(.Avx);
-        if (b7 & (1u32 << 5)) != 0 { features |= bit(.Avx2); }
-        if (c & (1u32 << 12)) != 0 { features |= bit(.Fma); }
-        if (c & (1u32 << 29)) != 0 { features |= bit(.F16c); }
+        features |= bit(.Avx) | select(&[(b7, 5, .Avx2), (c, 12, .Fma), (c, 29, .F16c)]);
     }
     // Darwin saves the AVX-512 context lazily on first use. Other systems
     // must enable opmask, the upper ZMM halves and the extra ZMM registers.
@@ -103,12 +95,26 @@ fun decode(c: u32, d: u32, b7: u32, extended: u32, state: u32) u32 {
     let avx512 = avx;
     @[if os != "macos"]
     let avx512 = avx and (state & 0xe0) == 0xe0;
-    if avx512 and (b7 & (1u32 << 16)) != 0 {
-        features |= bit(.Avx512f);
-        if (b7 & (1u32 << 30)) != 0 { features |= bit(.Avx512bw); }
-        if (b7 & (1u32 << 28)) != 0 { features |= bit(.Avx512cd); }
-        if (b7 & (1u32 << 17)) != 0 { features |= bit(.Avx512dq); }
-        if (b7 & (1u32 << 31)) != 0 { features |= bit(.Avx512vl); }
+    if avx512 and has(b7, 16) {
+        features |= bit(.Avx512f) | select(&[
+            (b7, 30, .Avx512bw), (b7, 28, .Avx512cd),
+            (b7, 17, .Avx512dq), (b7, 31, .Avx512vl),
+        ]);
     }
     features
+}
+
+// The features whose `(register, bit index, feature)` entry has its bit set.
+fun select(entries: &[(u32, u32, CpuFeature)]) u32 {
+    let mut features = 0u32;
+    for &(register, index, feature) in entries {
+        if has(register, index) {
+            features |= bit(feature);
+        }
+    }
+    features
+}
+
+fun has(register: u32, index: u32) bool {
+    ((register >> index) & 1) != 0
 }
