@@ -485,6 +485,20 @@ fn validates_low_level_builtin_contracts_before_llvm() {
             },
         ),
         builtin(
+            f32_ty,
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::SaturatingAdd,
+                args: vec![value(f32_ty), value(f32_ty)],
+            },
+        ),
+        builtin(
+            i32_ty,
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::SaturatingSub,
+                args: vec![value(i32_ty), value(u32_ty)],
+            },
+        ),
+        builtin(
             optional_char_ty,
             FunctionExprKind::CharFromU32 {
                 value: Box::new(value(i32_ty)),
@@ -574,6 +588,8 @@ fn validates_low_level_builtin_contracts_before_llvm() {
         "SIMD bitmask has an invalid contract: mask exceeds the target usize width",
         "bit intrinsic has an invalid contract: operand",
         "bit intrinsic has an invalid contract: result type",
+        "saturating arithmetic has an invalid contract: result is not an integer or integer vector",
+        "saturating arithmetic has an invalid contract: operand type does not match the result type",
         "char conversion has an invalid contract: operand type",
         "char conversion has an invalid contract: result type",
     ] {

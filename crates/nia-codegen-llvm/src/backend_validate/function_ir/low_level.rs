@@ -29,7 +29,24 @@ impl BackendValidator<'_> {
             (IntrinsicOp::Ctz | IntrinsicOp::Clz | IntrinsicOp::Popcount, [value]) => {
                 self.validate_bit_intrinsic(result_ty, value, span)
             }
-            _ => {
+            (IntrinsicOp::SaturatingAdd | IntrinsicOp::SaturatingSub, [lhs, rhs]) => {
+                self.validate_saturating(result_ty, lhs, rhs, span)
+            }
+            // Every operation is named so that a new one is a compile error
+            // here until it has a contract.
+            (
+                IntrinsicOp::LoadUnaligned
+                | IntrinsicOp::Splat
+                | IntrinsicOp::ExtractElement
+                | IntrinsicOp::InsertElement
+                | IntrinsicOp::Bitmask
+                | IntrinsicOp::Ctz
+                | IntrinsicOp::Clz
+                | IntrinsicOp::Popcount
+                | IntrinsicOp::SaturatingAdd
+                | IntrinsicOp::SaturatingSub,
+                _,
+            ) => {
                 for arg in args {
                     self.validate_expr(arg);
                 }
@@ -39,6 +56,36 @@ impl BackendValidator<'_> {
                     &format!("takes {} operand(s), found {}", op.arity(), args.len()),
                 );
             }
+        }
+    }
+
+    fn validate_saturating(
+        &mut self,
+        result_ty: nia_ids::InternedTyId,
+        lhs: &FunctionExpr,
+        rhs: &FunctionExpr,
+        span: Span,
+    ) {
+        self.validate_expr(lhs);
+        self.validate_expr(rhs);
+        let is_integer = match self.index.ty_kind(result_ty) {
+            Some(TyKind::Primitive(primitive)) => primitive.is_integer(),
+            Some(TyKind::Vector { elem, .. }) => elem.is_integer(),
+            _ => false,
+        };
+        if !is_integer {
+            self.invalid_low_level_builtin(
+                "saturating arithmetic",
+                span,
+                "result is not an integer or integer vector",
+            );
+        }
+        if !self.same_type(result_ty, lhs.ty) || !self.same_type(result_ty, rhs.ty) {
+            self.invalid_low_level_builtin(
+                "saturating arithmetic",
+                span,
+                "operand type does not match the result type",
+            );
         }
     }
 

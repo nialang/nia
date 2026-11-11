@@ -1,0 +1,13 @@
+// Integer arithmetic compiler intrinsics.
+
+// Adds two integers, clamping the result to the range of `T` instead of
+// wrapping. `T` is an integer type or an integer vector; a vector is added
+// lane by lane.
+@[builtin("saturatingAdd")]
+pub const fun saturatingAdd[T](lhs: T, rhs: T) T;
+
+// Subtracts `rhs` from `lhs`, clamping the result to the range of `T`
+// instead of wrapping. `T` is an integer type or an integer vector; a vector
+// is subtracted lane by lane.
+@[builtin("saturatingSub")]
+pub const fun saturatingSub[T](lhs: T, rhs: T) T;

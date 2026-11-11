@@ -731,7 +731,23 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             (IntrinsicOp::Popcount, [value]) => {
                 self.emit_bit_intrinsic(expr, "llvm.ctpop", false, value)
             }
-            _ => Err(self.error(
+            (IntrinsicOp::SaturatingAdd, [lhs, rhs]) => self.emit_saturating(expr, "add", lhs, rhs),
+            (IntrinsicOp::SaturatingSub, [lhs, rhs]) => self.emit_saturating(expr, "sub", lhs, rhs),
+            // Every operation is named so that a new one is a compile error
+            // here until it is emitted.
+            (
+                IntrinsicOp::LoadUnaligned
+                | IntrinsicOp::Splat
+                | IntrinsicOp::ExtractElement
+                | IntrinsicOp::InsertElement
+                | IntrinsicOp::Bitmask
+                | IntrinsicOp::Ctz
+                | IntrinsicOp::Clz
+                | IntrinsicOp::Popcount
+                | IntrinsicOp::SaturatingAdd
+                | IntrinsicOp::SaturatingSub,
+                _,
+            ) => Err(self.error(
                 expr.span,
                 format!(
                     "intrinsic `{}` takes {} operand(s), found {}",
@@ -741,6 +757,42 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 ),
             )),
         }
+    }
+
+    /// Emits `llvm.{s,u}{operation}.sat` on the result type; for a vector it
+    /// works lane by lane.
+    fn emit_saturating(
+        &mut self,
+        expr: &FunctionExpr,
+        operation: &str,
+        lhs: &FunctionExpr,
+        rhs: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let lane = match self.module.ty_kind(expr.ty) {
+            Some(TyKind::Primitive(primitive)) => *primitive,
+            Some(TyKind::Vector { elem, .. }) => *elem,
+            _ => {
+                return Err(self.error(
+                    expr.span,
+                    "saturating arithmetic result is not an integer or integer vector",
+                ));
+            }
+        };
+        let sign = if lane.is_signed_integer() { 's' } else { 'u' };
+        let lhs = self.emit_expr(lhs)?;
+        let rhs = self.emit_expr(rhs)?;
+        let ty = lhs.get_type()?;
+        let intrinsic_name = format!("llvm.{sign}{operation}.sat");
+        let intrinsic = nia_llvm::intrinsics::Intrinsic::find(&intrinsic_name)
+            .and_then(|intrinsic| intrinsic.get_declaration(&self.module.module, &[ty]))
+            .ok_or_else(|| self.error(expr.span, "failed to declare saturating intrinsic"))?;
+        let call = self
+            .builder
+            .build_call(intrinsic, &[lhs, rhs], "sat")
+            .map_err(|_| self.error(expr.span, "failed to build saturating intrinsic call"))?;
+        call.try_as_basic_value()
+            .unwrap_basic()
+            .map_err(|_| self.error(expr.span, "saturating intrinsic did not produce a value"))
     }
 
     fn emit_splat(

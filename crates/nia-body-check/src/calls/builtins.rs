@@ -220,6 +220,15 @@ impl<'a> BodyChecker<'a> {
                 self.record_builtin_function_call(call_span, value_node, builtin, None);
                 self.check_bitmask_builtin_call(call_span, builtin_span, name, type_args, args)
             }
+            BuiltinFunction::SaturatingAdd | BuiltinFunction::SaturatingSub => self
+                .check_saturating_builtin_call(
+                    call_span,
+                    value_node,
+                    builtin_span,
+                    builtin,
+                    type_args,
+                    args,
+                ),
             BuiltinFunction::Ctz | BuiltinFunction::Clz | BuiltinFunction::Popcount => self
                 .check_bit_intrinsic_builtin_call(
                     call_span,
@@ -921,6 +930,95 @@ impl<'a> BodyChecker<'a> {
         let actual = self.check_expr_with_expected(&args[0], Some(result_ty));
         self.expect_expr_type(&args[0], result_ty, actual, "bit intrinsic argument");
         result_ty
+    }
+
+    /// Checks `saturatingAdd` or `saturatingSub`: two operands of one integer
+    /// or integer-vector type, returning that type.
+    ///
+    /// A written type argument gives the type. Otherwise the type is the
+    /// first operand's, unless that operand is an untyped numeric literal and
+    /// the other is not; then the literal takes the other operand's type, as
+    /// it would as an operand of `+`.
+    fn check_saturating_builtin_call(
+        &mut self,
+        call_span: Span,
+        value_node: &Expr,
+        builtin_span: Span,
+        builtin: BuiltinFunction,
+        type_args: BuiltinCallTypeArgs<'_>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        let name = builtin.name();
+        let BuiltinCallTypeArgs::Bracket(written_type_args) = type_args;
+        let explicit_ty = if written_type_args.is_empty() {
+            None
+        } else if let Some(type_arg) = self.require_builtin_type_arg(builtin_span, name, type_args)
+        {
+            Some(type_arg)
+        } else {
+            for arg in args {
+                self.check_expr(arg);
+            }
+            self.record_builtin_function_call(call_span, value_node, builtin, None);
+            return self.error();
+        };
+        if args.len() != 2 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                call_span,
+                format!("builtin `{name}` requires exactly two value arguments"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            let result_ty = explicit_ty.map_or_else(|| self.error(), |type_arg| type_arg.ty);
+            self.record_builtin_function_call(call_span, value_node, builtin, Some(result_ty));
+            return result_ty;
+        }
+        let (operand_ty, operand_span, checked_operand) = match explicit_ty {
+            Some(type_arg) => (type_arg.ty, type_arg.span, None),
+            None => {
+                let anchor = usize::from(
+                    self.is_untyped_numeric_literal_expr(&args[0])
+                        && !self.is_untyped_numeric_literal_expr(&args[1]),
+                );
+                let actual = self.check_expr(&args[anchor]);
+                let ty = self.expr_ty(&args[anchor]).unwrap_or(actual);
+                (ty, args[anchor].span, Some(anchor))
+            }
+        };
+        let result_ty = if self.is_saturating_operand_ty(operand_ty) {
+            operand_ty
+        } else {
+            if !self.is_error_recovery_ty(operand_ty) {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    operand_span,
+                    format!(
+                        "builtin `{name}` requires an integer or integer vector type, got {}",
+                        self.ty_name(operand_ty)
+                    ),
+                ));
+            }
+            self.error()
+        };
+        self.record_builtin_function_call(call_span, value_node, builtin, Some(result_ty));
+        for (index, arg) in args.iter().enumerate() {
+            if checked_operand == Some(index) {
+                continue;
+            }
+            let actual = self.check_expr_with_expected(arg, Some(result_ty));
+            self.expect_expr_type(arg, result_ty, actual, "saturating arithmetic operand");
+        }
+        result_ty
+    }
+
+    fn is_saturating_operand_ty(&self, ty: InternedTyId) -> bool {
+        match self.interner.get(ty) {
+            Some(TyKind::Primitive(primitive)) => primitive.is_integer(),
+            Some(TyKind::Vector { elem, .. }) => elem.is_integer(),
+            _ => false,
+        }
     }
 
     fn check_integer_builtin_type_arg(

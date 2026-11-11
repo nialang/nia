@@ -137,6 +137,27 @@ const trailing: u32 = std::builtin::ctz[u32](8);     // 3
 const leading: u8 = std::builtin::clz[u8](0);        // 8
 ```
 
+## Saturating Arithmetic
+
+| Declaration | Result |
+| --- | --- |
+| `const fun saturatingAdd[T](lhs: T, rhs: T) T` | `lhs + rhs`, clamped to the range of `T` |
+| `const fun saturatingSub[T](lhs: T, rhs: T) T` | `lhs - rhs`, clamped to the range of `T` |
+
+`T` is an integer type or an integer vector such as `u8x16`; a vector is
+computed lane by lane. A result past either end of the range becomes that end
+instead of wrapping or trapping. The type argument may be left out: `T` is then
+the type of the first operand, or of the second when the first is an untyped
+numeric literal and the second is not.
+
+```nia
+const full: u8 = std::builtin::saturatingAdd[u8](250, 10);   // 255
+const floor: i8 = std::builtin::saturatingSub(-100i8, 100);  // -128
+```
+
+On x86-64, `u8x16` and `i16x8` operands compile to single instructions such as
+`paddusb` and `psubsw`; scalars compile to an add and a conditional move.
+
 ## SIMD
 
 | Declaration | Meaning |

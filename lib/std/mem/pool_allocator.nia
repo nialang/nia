@@ -13,6 +13,7 @@ using root::mem::layout::LayoutBuilder;
 using root::option;
 using root::result;
 using root::math::alignment;
+using root::builtin::saturatingAdd;
 
 using allocator::Allocator;
 using root::mem::error::Error;
@@ -533,12 +534,5 @@ where T: Sized
         page.usedCount -= 1;
         page.usedBytes -= block.size();
         !()
-    }
-}
-
-fun saturatingAdd(left: usize, right: usize) usize {
-    match left.checkedAdd(right) {
-        ?value => value,
-        null => usize::MAX,
     }
 }

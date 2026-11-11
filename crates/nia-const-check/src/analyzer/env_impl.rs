@@ -1193,6 +1193,8 @@ impl ResolvedConstEnv for Analyzer<'_> {
                         | BuiltinFunction::Extract
                         | BuiltinFunction::Insert
                         | BuiltinFunction::Bitmask
+                        | BuiltinFunction::SaturatingAdd
+                        | BuiltinFunction::SaturatingSub
                 )
             }) {
                 let return_ty = ConstValueType::Runtime(return_ty);
@@ -2183,6 +2185,66 @@ impl Analyzer<'_> {
                 )
                 .map(Some)
             }
+            BuiltinFunction::SaturatingAdd | BuiltinFunction::SaturatingSub => {
+                let name = builtin.name();
+                let subtract = builtin == BuiltinFunction::SaturatingSub;
+                let pointer_width = self.input.target.pointer_width();
+                let [lhs, rhs] = args else {
+                    return Err(ConstError {
+                        span,
+                        message: format!("builtin `{name}` expects exactly two operands"),
+                    });
+                };
+                match self.active_ty_kind(return_ty) {
+                    TyKind::Primitive(primitive) => saturating_const_value(
+                        span,
+                        name,
+                        subtract,
+                        primitive,
+                        lhs,
+                        rhs,
+                        pointer_width,
+                    )
+                    .map(Some),
+                    TyKind::Vector { elem, .. } => {
+                        let (ConstValue::Vector(lhs), ConstValue::Vector(rhs)) = (lhs, rhs) else {
+                            return Err(ConstError {
+                                span,
+                                message: format!("builtin `{name}` requires vector operands"),
+                            });
+                        };
+                        if lhs.len() != rhs.len() {
+                            return Err(ConstError {
+                                span,
+                                message: format!(
+                                    "builtin `{name}` operands have different lane counts"
+                                ),
+                            });
+                        }
+                        lhs.iter()
+                            .zip(rhs)
+                            .map(|(lhs, rhs)| {
+                                saturating_const_value(
+                                    span,
+                                    name,
+                                    subtract,
+                                    elem,
+                                    lhs,
+                                    rhs,
+                                    pointer_width,
+                                )
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                            .map(|lanes| Some(ConstValue::Vector(lanes)))
+                    }
+                    _ => Err(ConstError {
+                        span,
+                        message: format!(
+                            "builtin `{name}` requires an integer or integer vector result type"
+                        ),
+                    }),
+                }
+            }
             BuiltinFunction::SliceLen => {
                 if type_args.len() > 1 || args.len() != 1 {
                     return Err(ConstError {
@@ -2388,6 +2450,64 @@ fn eval_bit_intrinsic_const(
     } else {
         IntConst::unsigned(count as u128)
     }))
+}
+
+/// Adds or subtracts two integers of `primitive`, clamping the result to its
+/// range. Both operands are in range, so the exact result fits in `i128` or
+/// `u128` before clamping for every width up to 128 bits.
+fn saturating_const_value(
+    span: Span,
+    name: &str,
+    subtract: bool,
+    primitive: PrimitiveTy,
+    lhs: &ConstValue,
+    rhs: &ConstValue,
+    pointer_width: u32,
+) -> Result<ConstValue, ConstError> {
+    let error = |message: &str| ConstError {
+        span,
+        message: format!("builtin `{name}` {message}"),
+    };
+    let Some((bits, signed)) =
+        primitive_integer_layout(primitive, pointer_width).filter(|_| primitive.is_integer())
+    else {
+        return Err(error("requires integer operands"));
+    };
+    if !(1..=u128::BITS).contains(&bits) {
+        return Err(error("does not support this integer width"));
+    }
+    let (ConstValue::Int(lhs), ConstValue::Int(rhs)) = (lhs, rhs) else {
+        return Err(error("requires integer operands"));
+    };
+    if signed {
+        let (Some(lhs), Some(rhs)) = (lhs.as_i128(), rhs.as_i128()) else {
+            return Err(error("operand is out of range"));
+        };
+        let (min, max) = if bits == i128::BITS {
+            (i128::MIN, i128::MAX)
+        } else {
+            (-(1_i128 << (bits - 1)), (1_i128 << (bits - 1)) - 1)
+        };
+        let exact = if subtract {
+            lhs.saturating_sub(rhs)
+        } else {
+            lhs.saturating_add(rhs)
+        };
+        Ok(ConstValue::Int(IntConst::from_i128(exact.clamp(min, max))))
+    } else {
+        let max = if bits == u128::BITS {
+            u128::MAX
+        } else {
+            (1_u128 << bits) - 1
+        };
+        let (lhs, rhs) = (lhs.bits() & max, rhs.bits() & max);
+        let exact = if subtract {
+            lhs.saturating_sub(rhs)
+        } else {
+            lhs.saturating_add(rhs)
+        };
+        Ok(ConstValue::Int(IntConst::unsigned(exact.min(max))))
+    }
 }
 
 fn const_vector_index(span: Span, value: &ConstValue, builtin: &str) -> Result<usize, ConstError> {

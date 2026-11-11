@@ -664,6 +664,10 @@ builtin_functions! {
     SliceLen = 26, "sliceLen", const_capable: true;
     /// Returns the lexical or forwarded caller source location.
     CallerLocation = 27, "callerLocation", const_capable: true;
+    /// Adds integers, clamping the result to the type's range.
+    SaturatingAdd = 28, "saturatingAdd", const_capable: true, intrinsic: SaturatingAdd;
+    /// Subtracts integers, clamping the result to the type's range.
+    SaturatingSub = 29, "saturatingSub", const_capable: true, intrinsic: SaturatingSub;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -695,6 +699,12 @@ pub enum IntrinsicOp {
     Clz,
     /// Set bits. Operands: the integer.
     Popcount,
+    /// The sum clamped to the type's range, lane by lane for a vector.
+    /// Operands: two integers or integer vectors of the result type.
+    SaturatingAdd,
+    /// The difference clamped to the type's range, lane by lane for a
+    /// vector. Operands: two integers or integer vectors of the result type.
+    SaturatingSub,
 }
 
 impl IntrinsicOp {
@@ -707,7 +717,7 @@ impl IntrinsicOp {
             | Self::Ctz
             | Self::Clz
             | Self::Popcount => 1,
-            Self::ExtractElement => 2,
+            Self::ExtractElement | Self::SaturatingAdd | Self::SaturatingSub => 2,
             Self::InsertElement => 3,
         }
     }
@@ -729,6 +739,8 @@ impl IntrinsicOp {
             Self::Ctz => 6,
             Self::Clz => 7,
             Self::Popcount => 8,
+            Self::SaturatingAdd => 9,
+            Self::SaturatingSub => 10,
         }
     }
 
@@ -743,6 +755,8 @@ impl IntrinsicOp {
             Self::Ctz => "ctz",
             Self::Clz => "clz",
             Self::Popcount => "popcount",
+            Self::SaturatingAdd => "saturatingAdd",
+            Self::SaturatingSub => "saturatingSub",
         }
     }
 }

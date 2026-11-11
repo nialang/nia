@@ -91,6 +91,8 @@ fn builtin_function_const_capabilities_are_explicit() {
                 | BuiltinFunction::Ctz
                 | BuiltinFunction::Clz
                 | BuiltinFunction::Popcount
+                | BuiltinFunction::SaturatingAdd
+                | BuiltinFunction::SaturatingSub
         );
         assert_eq!(builtin.is_const_capable(), expected, "{}", builtin.name());
     }

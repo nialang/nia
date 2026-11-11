@@ -4,6 +4,7 @@
 // module re-exports the public builtin vocabulary so callers can use stable
 // paths such as `std::builtin::size`.
 
+pub module arith;
 pub module atomic;
 pub module bits;
 pub module control;
@@ -18,6 +19,7 @@ pub module primitive;
 pub module simd;
 pub module target;
 
+using root::builtin::arith;
 using root::builtin::atomic;
 using root::builtin::bits;
 using root::builtin::control;
@@ -33,6 +35,7 @@ using root::builtin::simd;
 using root::builtin::target;
 using root::source;
 
+pub using arith::{saturatingAdd, saturatingSub};
 pub using atomic::{
     atomicLoad,
     atomicRmw,

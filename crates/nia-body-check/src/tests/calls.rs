@@ -3183,6 +3183,94 @@ fun missing_type(value: usize) usize {
 }
 
 #[test]
+fn checks_saturating_builtins() {
+    let checked = pipeline(
+        r#"
+fun scalars(total: usize, count: u8) usize {
+    _ = std::builtin::saturatingSub(count, 1);
+    _ = std::builtin::saturatingAdd[u8](250, 10);
+    std::builtin::saturatingAdd(1, total)
+}
+
+fun vectors(lanes: u8x16) u8x16 {
+    std::builtin::saturatingSub(lanes, lanes)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let checked = pipeline(
+        r#"
+fun float(value: f32) f32 {
+    std::builtin::saturatingAdd(value, value)
+}
+
+fun mask(value: boolx4) boolx4 {
+    std::builtin::saturatingSub(value, value)
+}
+
+fun mismatch(a: u8, b: u16) u8 {
+    std::builtin::saturatingAdd(a, b)
+}
+
+fun arity(a: u8) u8 {
+    std::builtin::saturatingAdd(a)
+}
+
+fun recovery() u8 {
+    std::builtin::saturatingAdd(missing, 1u8)
+}
+"#,
+    );
+    let count = |text: &str| {
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains(text))
+            .count()
+    };
+    assert_eq!(
+        count("requires an integer or integer vector type, got f32"),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        count("requires an integer or integer vector type, got boolx4"),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        count("builtin `saturatingAdd` requires exactly two value arguments"),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("saturating arithmetic operand")),
+        "{:?}",
+        checked.diagnostics
+    );
+    // An unknown operand is reported once and not again as a type error.
+    assert_eq!(
+        count("unknown value `missing`"),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        count("integer or integer vector type, got"),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_load_unaligned_builtin() {
     let checked = pipeline(
         r#"

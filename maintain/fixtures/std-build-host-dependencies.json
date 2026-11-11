@@ -30,6 +30,7 @@
     "std/build/types.nia",
     "std/build/validation.nia",
     "std/builtin.nia",
+    "std/builtin/arith.nia",
     "std/builtin/atomic.nia",
     "std/builtin/bits.nia",
     "std/builtin/control.nia",

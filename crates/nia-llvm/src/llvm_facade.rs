@@ -124,6 +124,18 @@ pub mod intrinsics {
                 "llvm.umul.with.overflow" => Some(Self {
                     name: "llvm.umul.with.overflow",
                 }),
+                "llvm.sadd.sat" => Some(Self {
+                    name: "llvm.sadd.sat",
+                }),
+                "llvm.uadd.sat" => Some(Self {
+                    name: "llvm.uadd.sat",
+                }),
+                "llvm.ssub.sat" => Some(Self {
+                    name: "llvm.ssub.sat",
+                }),
+                "llvm.usub.sat" => Some(Self {
+                    name: "llvm.usub.sat",
+                }),
                 "llvm.bswap" => Some(Self { name: "llvm.bswap" }),
                 "llvm.sqrt" => Some(Self { name: "llvm.sqrt" }),
                 "llvm.floor" => Some(Self { name: "llvm.floor" }),

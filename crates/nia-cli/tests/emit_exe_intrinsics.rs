@@ -1834,6 +1834,101 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn emit_exe_saturating_arithmetic_clamps_scalars_and_vectors() {
+    let root = temp_dir("emit_exe_saturating_arithmetic_clamps_scalars_and_vectors");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::builtin;
+using std::process;
+
+// Const evaluation: explicit type argument, literal inference and vectors.
+const constUnsigned: u8 = builtin::saturatingAdd[u8](250, 10);
+const constSigned: i8 = builtin::saturatingSub(-100i8, 100);
+const constLiteralFirst: u16 = builtin::saturatingSub(5, 9u16);
+const constVector: u8x16 =
+    builtin::saturatingAdd(builtin::splat[u8x16](200u8), builtin::splat[u8x16](100u8));
+const constWide: i128 = builtin::saturatingAdd(170141183460469231731687303715884105700i128, 100);
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if constUnsigned != 255 or constSigned != -128 or constLiteralFirst != 0 {
+        return process::ExitCode(1)!;
+    }
+    if builtin::extract(constVector, 15) != 255 {
+        return process::ExitCode(2)!;
+    }
+    if constWide != 170141183460469231731687303715884105727i128 {
+        return process::ExitCode(3)!;
+    }
+
+    // Unsigned and signed scalars clamp at both ends of their range.
+    let a: u8 = 250;
+    let b: u8 = 10;
+    if builtin::saturatingAdd(a, b) != 255 or builtin::saturatingSub(b, a) != 0 {
+        return process::ExitCode(4)!;
+    }
+    if builtin::saturatingAdd(a, 1) != 251 {
+        return process::ExitCode(5)!;
+    }
+    let c: i32 = 2147483600;
+    if builtin::saturatingAdd(c, 100) != 2147483647
+        or builtin::saturatingSub(-c, 100) != -2147483648 {
+        return process::ExitCode(6)!;
+    }
+    let total: usize = 18446744073709551615;
+    if builtin::saturatingAdd(1, total) != total {
+        return process::ExitCode(7)!;
+    }
+
+    // Vectors clamp lane by lane.
+    let mut bytes: [u8; 16] = [0; 16];
+    for i in 0..16 {
+        bytes[i] = (i * 20) as u8;
+    }
+    let v = builtin::loadUnaligned[u8x16](&bytes[0]);
+    let up = builtin::saturatingAdd(v, builtin::splat[u8x16](100u8));
+    let down = builtin::saturatingSub(v, builtin::splat[u8x16](100u8));
+    if builtin::extract(up, 0) != 100 or builtin::extract(up, 7) != 240
+        or builtin::extract(up, 8) != 255 {
+        return process::ExitCode(8)!;
+    }
+    if builtin::extract(down, 4) != 0 or builtin::extract(down, 5) != 0
+        or builtin::extract(down, 6) != 20 {
+        return process::ExitCode(9)!;
+    }
+    let s = builtin::splat[i16x8](-30000i16);
+    if builtin::extract(builtin::saturatingSub(s, builtin::splat[i16x8](10000i16)), 3) != -32768 {
+        return process::ExitCode(10)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    for optimization in ["-O0", "-O2"] {
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--exe")
+            .arg(optimization)
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit saturating arithmetic executable");
+        assert!(
+            output.status.success(),
+            "{optimization} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&exe).status_timeout("run saturating arithmetic executable");
+        assert_eq!(status.code(), Some(0), "{optimization}");
+    }
+}
+
+#[test]
 fn emit_exe_char_checks_unicode_scalar_values() {
     let root = temp_dir("emit_exe_char_checks_unicode_scalar_values");
     let main = root.join("main.nia");
