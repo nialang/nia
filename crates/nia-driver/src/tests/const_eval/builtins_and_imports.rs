@@ -436,3 +436,54 @@ fun main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
+
+#[test]
+fn const_builtins_resolve_through_every_import_spelling() {
+    let root = temp_dir("const_builtins_resolve_through_every_import_spelling");
+    for (index, prefix) in [
+        "using std::builtin;\nconst N: usize = builtin::error(\"stop\");",
+        "using std::builtin as b;\nconst N: usize = b::error(\"stop\");",
+        "using std::builtin::error;\nconst N: usize = error(\"stop\");",
+        "using std::builtin::{error as fail};\nconst N: usize = fail(\"stop\");",
+        "using std::builtin::control;\nconst N: usize = control::error(\"stop\");",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = root.join(format!("main{index}.nia"));
+        write(&path, &format!("{prefix}\nfun main() i32 {{ 0 }}\n"));
+        let program = check_program(path.to_string_lossy().into_owned());
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+            .map(|d| d.diagnostic.summary.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(errors, ["stop"], "{prefix}");
+    }
+}
+
+#[test]
+fn const_error_in_a_branch_typed_by_the_body_checker_is_compile_time() {
+    // An omitted-member argument makes the body checker type the whole
+    // initializer, including the `error` branch, in const context.
+    let root = temp_dir("const_error_in_a_branch_typed_by_the_body_checker");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum K { A, B }
+const fun on(k: K) bool { match k { .A => true, .B => false } }
+const A: usize = if on(.A) { 1 } else { std::builtin::error("unreachable branch") };
+const B: usize = if on(.B) { 1 } else { std::builtin::error("taken branch") };
+fun main() i32 { A as i32 }
+"#,
+    );
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let errors = program
+        .diagnostics
+        .iter()
+        .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+        .map(|d| d.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(errors, ["taken branch"]);
+}

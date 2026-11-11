@@ -201,7 +201,7 @@ impl Analyzer<'_> {
                         span,
                         message: "cannot resolve const call return type".to_string(),
                     })?;
-                if !self.inference_pattern_accepts_type_shape(instantiated_return, expected) {
+                if !self.const_call_return_accepts(instantiated_return, expected) {
                     return Err(ConstError {
                         span,
                         message: "const call return type does not match expected type".to_string(),
@@ -331,7 +331,7 @@ impl Analyzer<'_> {
                         span,
                         message: "cannot resolve const call return type".to_string(),
                     })?;
-                if !self.inference_pattern_accepts_type_shape(instantiated_return, expected) {
+                if !self.const_call_return_accepts(instantiated_return, expected) {
                     return Err(ConstError {
                         span,
                         message: "const call return type does not match expected type".to_string(),

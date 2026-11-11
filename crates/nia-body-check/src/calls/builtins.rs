@@ -78,7 +78,7 @@ impl<'a> BodyChecker<'a> {
                 for arg in args {
                     self.check_expr(arg);
                 }
-                if self.body_filter.checks_const_declarations() {
+                if self.body_filter.checks_const_declarations() || self.in_const_context() {
                     self.never()
                 } else {
                     self.diagnostics.push(Diagnostic::user_error_at(

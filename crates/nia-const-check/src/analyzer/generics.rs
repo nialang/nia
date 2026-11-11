@@ -84,6 +84,19 @@ impl Analyzer<'_> {
     /// would collect evidence. Concrete leaves use normal const-call matching;
     /// compatible constructors are still walked so readonly coercions and
     /// nested shapes are checked consistently after substitutions.
+    /// A call returning `never` never produces a value, so it is accepted
+    /// wherever a value is expected, as in runtime code.
+    pub(super) fn const_call_return_accepts(
+        &mut self,
+        returned: InternedTyId,
+        expected: InternedTyId,
+    ) -> bool {
+        matches!(
+            self.active_ty_kind(returned),
+            TyKind::Primitive(PrimitiveTy::Never)
+        ) || self.inference_pattern_accepts_type_shape(returned, expected)
+    }
+
     pub(super) fn inference_pattern_accepts_type_shape(
         &mut self,
         pattern: InternedTyId,
