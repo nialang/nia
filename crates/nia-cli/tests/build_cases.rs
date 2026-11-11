@@ -170,6 +170,61 @@ pub fun build(b: &mut build::Build) build::Error!() {
 }
 
 #[test]
+fn plan_rule_violations_blame_the_build_script() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("plan-rule-violation");
+    std::fs::create_dir_all(root.join("src")).expect("source directory");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"plan_rules\"\nversion = \"0.1.0\"\nprotocol-epoch = 3\n",
+    )
+    .expect("package manifest");
+    std::fs::write(
+        root.join("src/main.nia"),
+        "pub fun value() i32 {\n    1\n}\n",
+    )
+    .expect("module source");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let main = b.addModule(build::ModuleOptions::init("objs", fs::PathView::init("src/main.nia"))).?;
+    let objects = b.addObject(build::ObjectOptions::init("objs", main).withLto(build::LtoMode::Thin)).?;
+    _ = b.addEmitObjectStep("objs", objects).?;
+    !()
+}
+"#,
+    )
+    .expect("build script");
+
+    let output = support::nia_command()
+        .args(["build", "--list", "--root"])
+        .arg(&*root)
+        .output_timeout_in_session("reject a plan rule violation");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success());
+    // The rule names what the script declared; nothing is wrong with the
+    // handoff files, so the diagnostic must not suggest removing them.
+    assert!(
+        stderr.contains("error[E0704]: the build script declares an invalid build"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "artifact `root::objs` has invalid configuration: LTO requires an executable"
+        ),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("help: change the declaration in `build.nia`"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("stale build files"), "{stderr}");
+}
+
+#[test]
 fn run_steps_receive_arguments_after_the_separator() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let root = nia_test_support::test_dir("run-step-forwarded-arguments");

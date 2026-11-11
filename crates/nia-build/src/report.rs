@@ -252,6 +252,21 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
         BuildError::CleanupRunnerExecutable { path, error } => {
             io_plan_diagnostic("remove runner executable", path, error)
         }
+        // A draft that decodes but breaks a plan rule records what the build
+        // script declared, so the script is at fault, not the handoff files.
+        BuildError::ReadPlanDraft {
+            error:
+                crate::PlanHandoffError::Decode {
+                    error: crate::PlanCodecError::Semantic(error),
+                    ..
+                },
+            ..
+        } => vec![
+            Diagnostic::user_error(codes::BUILD_PLAN, "the build script declares an invalid build")
+                .note(error.to_string())
+                .help("change the declaration in `build.nia`")
+                .finish(),
+        ],
         BuildError::ReadPlanDraft { path, error }
         | BuildError::PublishBuildPlan { path, error } => plan_handoff_diagnostic(path, error),
         BuildError::RunnerObservations { path, error } => vec![
