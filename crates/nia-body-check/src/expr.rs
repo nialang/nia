@@ -226,6 +226,20 @@ impl<'a> BodyChecker<'a> {
                         ));
                     }
                     expected
+                } else if let Some(expected) = expected
+                    && self.enum_global_def_id(expected).is_some()
+                {
+                    // The enum is known from context; only the member is wrong.
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        expr.span,
+                        format!(
+                            "unknown variant `{}` of enum `{}`",
+                            self.symbol_name(*name),
+                            self.ty_name(expected)
+                        ),
+                    ));
+                    self.error()
                 } else {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,

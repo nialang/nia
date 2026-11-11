@@ -508,3 +508,32 @@ fn entry_module_without_runtime_items_is_still_checked() {
         "{summaries:?}"
     );
 }
+
+#[test]
+fn unknown_omitted_variant_names_the_expected_enum_once() {
+    let root = temp_dir("unknown_omitted_variant_names_the_expected_enum_once");
+    let path = root.join("main.nia");
+    write(
+        &path,
+        r#"
+enum Color { Red, Green }
+const fun known(color: Color) bool { match color { .Red => true, .Green => false } }
+const C: bool = known(.Blue);
+fun main() i32 { let color: Color = .Blue; _ = color; 0 }
+"#,
+    );
+    let program = check_program(path.to_string_lossy().into_owned());
+    let errors = program
+        .diagnostics
+        .iter()
+        .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+        .map(|d| d.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        errors,
+        [
+            "unknown variant `Blue` of enum `Color`",
+            "unknown variant `Blue` of enum `Color`"
+        ],
+    );
+}

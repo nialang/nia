@@ -800,11 +800,11 @@ pub(super) fn checked_module_diagnostics(
         let const_errors = resolve_diagnostic_bundle(&checked.const_diagnostics);
         let duplicate_call_count = const_errors
             .iter()
-            .filter(|diagnostic| redundant_const_call_argument(diagnostic, body))
+            .filter(|diagnostic| redundant_const_error(diagnostic, body))
             .count();
         let const_errors = const_errors
             .iter()
-            .filter(|diagnostic| !redundant_const_call_argument(diagnostic, body))
+            .filter(|diagnostic| !redundant_const_error(diagnostic, body))
             .cloned()
             .collect::<Vec<_>>();
         gate.suppressed_downstream += duplicate_call_count;
@@ -843,15 +843,21 @@ pub(super) fn checked_module_diagnostics(
     Ok((diagnostics, suppressed_downstream))
 }
 
-fn redundant_const_call_argument(diagnostic: &Diagnostic, body: &[Diagnostic]) -> bool {
+/// A const error is redundant only when the body check reported the same
+/// root on exactly the same node: a mismatched call argument, or an omitted
+/// member naming no variant of its expected enum, which const lowering then
+/// cannot resolve. Other const errors on that node remain independent.
+fn redundant_const_error(diagnostic: &Diagnostic, body: &[Diagnostic]) -> bool {
+    let body_root = match diagnostic.summary.as_str() {
+        "const call argument does not match expected type" => "type mismatch in call argument ",
+        "unsupported const expression" => "unknown variant `",
+        _ => return false,
+    };
     diagnostic.code.as_str() == "E0401"
-        && diagnostic.summary == "const call argument does not match expected type"
         && diagnostic.primary_span().is_some_and(|span| {
             body.iter().any(|candidate| {
                 candidate.code.as_str() == "E0301"
-                    && candidate
-                        .summary
-                        .starts_with("type mismatch in call argument ")
+                    && candidate.summary.starts_with(body_root)
                     && candidate.primary_span() == Some(span)
             })
         })
@@ -1193,7 +1199,7 @@ pub(super) fn backend_lowering_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::{
-        DiagnosticGate, redundant_const_call_argument, redundant_static_data_body_error,
+        DiagnosticGate, redundant_const_error, redundant_static_data_body_error,
         suppresses_downstream,
     };
     use nia_diagnostic::{Diagnostic, Severity, codes};
@@ -1213,9 +1219,9 @@ mod tests {
             span,
             "const call argument does not match expected type",
         );
-        assert!(redundant_const_call_argument(&generic, &body));
-        assert!(!redundant_const_call_argument(&generic, &[]));
-        assert!(!redundant_const_call_argument(
+        assert!(redundant_const_error(&generic, &body));
+        assert!(!redundant_const_error(&generic, &[]));
+        assert!(!redundant_const_error(
             &Diagnostic::user_error_at(
                 codes::CONST,
                 Span::new(7, 12),
@@ -1223,7 +1229,7 @@ mod tests {
             ),
             &body,
         ));
-        assert!(!redundant_const_call_argument(
+        assert!(!redundant_const_error(
             &Diagnostic::user_error_at(
                 codes::CONST,
                 span,
@@ -1231,13 +1237,24 @@ mod tests {
             ),
             &body,
         ));
-        assert!(!redundant_const_call_argument(
+        assert!(!redundant_const_error(
             &Diagnostic::user_error_at(codes::CONST, span, "embedded file is missing"),
             &body,
         ));
-        assert!(!redundant_const_call_argument(
+        assert!(!redundant_const_error(
             &Diagnostic::user_error_at(codes::CONST, span, "integer out of range"),
             &body,
+        ));
+        let unsupported =
+            Diagnostic::user_error_at(codes::CONST, span, "unsupported const expression");
+        assert!(!redundant_const_error(&unsupported, &body));
+        assert!(redundant_const_error(
+            &unsupported,
+            &[Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                span,
+                "unknown variant `Blue` of enum `Color`",
+            )],
         ));
     }
 
