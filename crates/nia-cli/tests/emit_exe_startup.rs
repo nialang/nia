@@ -171,9 +171,27 @@ pub module builtin;
     .expect("write custom runtime root");
     std::fs::write(
         resource_root.join("runtime/builtins.nia"),
-        "pub(root) module windows;",
+        "pub(root) module trap;
+pub(root) module windows;",
     )
     .expect("write builtins facade");
+    // Debug executables report failed checks through the runtime; this
+    // runtime supplies the smallest reporter the ABI allows, one that traps.
+    std::fs::write(
+        resource_root.join("runtime/builtins/trap.nia"),
+        "extern fun __nia_trap(location: &u8, info: u32, lane: u32, lhsLow: u64, lhsHigh: u64,          rhsLow: u64, rhsHigh: u64) () {
+    _ = location;
+    _ = info;
+    _ = lane;
+             _ = lhsLow;
+    _ = lhsHigh;
+    _ = rhsLow;
+    _ = rhsHigh;
+    std::builtin::trap()
+}
+",
+    )
+    .expect("write trap reporter");
     std::fs::write(
         resource_root.join("runtime/builtins/windows.nia"),
         "pub(root) module x86_64;",
@@ -198,6 +216,9 @@ pub type AsmOutputs;
 
 @[builtin("asm")]
 pub fun asm(config: AsmConfig) ();
+
+@[builtin("trap")]
+pub const fun trap() never;
 "#,
     )
     .expect("write custom std builtin");

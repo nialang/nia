@@ -1083,7 +1083,13 @@ fn executable_check_in_session(
             .values()
             .flat_map(|state| state.provider_demands.iter().cloned())
             .collect::<HashSet<_>>();
-        match executable_module_body_demands(db, &reachability_by_module) {
+        let checked_modules = executable_checked_module_ids(
+            &parse_ok,
+            entry_module,
+            reachability_state.reachability(),
+            &reachability_by_module,
+        );
+        match executable_module_body_demands(db, checked_modules) {
             Ok(module_demands) => demands.extend(module_demands),
             Err(error) => return_session_error!(error),
         }
@@ -1338,7 +1344,13 @@ fn executable_check_in_session(
             }
         },
     );
-    let module_body_demands = match executable_module_body_demands(db, &reachability_by_module) {
+    let checked_module_ids = executable_checked_module_ids(
+        &parse_ok_modules,
+        entry_module,
+        &reachability,
+        &reachability_by_module,
+    );
+    let module_body_demands = match executable_module_body_demands(db, checked_module_ids) {
         Ok(demands) => demands,
         Err(error) => {
             drop(executable_program_layouts);
@@ -1601,11 +1613,37 @@ fn emit_value_ref_scan_counters(
     );
 }
 
+/// The modules final checking produces, in `parse_ok` order: the entry
+/// module, whose consts and types are the program even when nothing in it is
+/// executable, and every reachable module with a reachable function or
+/// global, constants included.
+fn executable_checked_module_ids(
+    parse_ok: &[ModuleId],
+    entry_module: ModuleId,
+    reachability: &nia_executable_reachability::ExecutableReachability,
+    reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
+) -> Vec<ModuleId> {
+    parse_ok
+        .iter()
+        .copied()
+        .filter(|module_id| reachability.modules().contains(module_id))
+        .filter(|module_id| {
+            *module_id == entry_module
+                || reachability_by_module
+                    .get(*module_id)
+                    .is_some_and(|items| !items.functions.is_empty() || !items.globals.is_empty())
+        })
+        .collect()
+}
+
+/// Body activation for every module final checking produces. Discovery and
+/// finalization request the same set, so finalization never activates a
+/// module, such as one reached only through its constants, in a later round.
 fn executable_module_body_demands(
     db: &QueryDb<CompilerContext>,
-    reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
+    module_ids: Vec<ModuleId>,
 ) -> QueryResult<Vec<crate::ProviderDemand>> {
-    executable_reachable_body_modules(db, reachability_by_module)?
+    module_ids
         .into_iter()
         .map(|module_id| {
             let module_path = db.get(ModulePathQuery(module_id))?;
@@ -1879,26 +1917,18 @@ fn final_executable_checked_modules(
 ) -> QueryResult<HashMap<ModuleId, CheckedModule>> {
     let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module)?;
     let empty_module_items = nia_executable_reachability::ExecutableModuleReachability::default();
-    let modules_with_executable_items = parse_ok
-        .iter()
-        .copied()
-        .filter(|module_id| reachability.modules().contains(module_id))
-        .filter_map(|module_id| {
-            // The entry module is checked even when nothing in it is
-            // executable: its consts and types are still the program.
-            if module_id == entry_module {
-                return Some((
+    let modules_with_executable_items =
+        executable_checked_module_ids(parse_ok, entry_module, reachability, reachability_by_module)
+            .into_iter()
+            .map(|module_id| {
+                (
                     module_id,
                     reachability_by_module
                         .get(module_id)
                         .unwrap_or(&empty_module_items),
-                ));
-            }
-            let module_items = reachability_by_module.get(module_id)?;
-            (!module_items.functions.is_empty() || !module_items.globals.is_empty())
-                .then_some((module_id, module_items))
-        })
-        .collect::<Vec<_>>();
+                )
+            })
+            .collect::<Vec<_>>();
     let program_layout_cache = RefCell::new(HashMap::<ModuleId, ModuleLayouts>::new());
     let program_layout_failure = RefCell::new(None);
     for (module_id, _) in modules_with_executable_items.iter().copied() {
