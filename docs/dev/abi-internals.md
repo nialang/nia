@@ -118,7 +118,10 @@ functions are classified after monomorphization, on concrete types only.
 
 The baseline vector width is 16 bytes on x86_64 and AArch64, and zero on
 i686. Classification consumes the artifact target, never the host or the
-selected CPU level. Function-local vector values remain SSA immediates;
+selected CPU level. It compares the register width, not the memory layout:
+LLVM promotes each `<N x i1>` mask lane to at least a byte at call
+boundaries, so `boolx32` (4 bytes in memory) would need a `ymm` register with
+AVX and be split without it. Function-local vector values remain SSA immediates;
 codegen spills arguments and loads indirect results at the call boundary.
 
 ### Tracked Caller Metadata

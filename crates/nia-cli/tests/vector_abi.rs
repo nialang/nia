@@ -21,6 +21,11 @@ pub fun narrow(v: u8x16) u8x16 { v + v }
 pub fun wide(v: u8x32) u8x32 { v + v }
 @[inlineNever]
 pub fun widest(v: u8x64) u8x64 { v + v }
+@[inlineNever]
+pub fun narrowMask(m: boolx16) boolx16 { m & m }
+// Masks are bit-packed in memory but byte-per-lane in registers.
+@[inlineNever]
+pub fun wideMask(m: boolx32) boolx32 { m & m }
 "#,
     )
     .expect("write vector functions");
@@ -53,22 +58,22 @@ pub fun widest(v: u8x64) u8x64 { v + v }
                 .lines()
                 .filter(|line| line.starts_with("define "))
                 .collect::<Vec<_>>();
-            assert_eq!(definitions.len(), 3, "{target} {level}: {ir}");
-            let direct = definitions
-                .iter()
-                .filter(|line| line.contains("<16 x i8>"))
-                .count();
+            assert_eq!(definitions.len(), 5, "{target} {level}: {ir}");
+            let is_direct = |line: &&&str| line.contains("<16 x i8>") || line.contains("<16 x i1>");
+            let direct = definitions.iter().filter(is_direct).count();
             assert_eq!(
                 direct,
-                usize::from(target.arch() != nia_target::Arch::X86),
+                2 * usize::from(target.arch() != nia_target::Arch::X86),
                 "{target} {level}: {ir}"
             );
-            for line in definitions {
+            for line in &definitions {
                 assert!(
-                    !line.contains("<32 x i8>") && !line.contains("<64 x i8>"),
+                    !line.contains("<32 x i8>")
+                        && !line.contains("<64 x i8>")
+                        && !line.contains("<32 x i1>"),
                     "{target} {level}: {line}"
                 );
-                if !line.contains("<16 x i8>") {
+                if !is_direct(&line) {
                     assert!(
                         line.contains("void @") && line.matches("ptr").count() == 2,
                         "{line}"

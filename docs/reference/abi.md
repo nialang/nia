@@ -61,8 +61,10 @@ parameter and return passing, static data layout, and symbol names.
 
 Nia vector parameters and results also use a calling convention independent of
 the build CPU level. On x86_64 and AArch64, vectors occupying at most 16 bytes
-are passed directly; wider vectors use the address of a caller-owned copy for
-parameters and a hidden result pointer for returns. On `x86-unknown-linux`,
+in registers are passed directly; wider vectors use the address of a
+caller-owned copy for parameters and a hidden result pointer for returns. A
+`boolxN` mask occupies one byte per lane in registers, although it is
+bit-packed in memory, so masks of more than 16 lanes use addresses. On `x86-unknown-linux`,
 all vectors use addresses because its baseline does not guarantee SIMD
 registers. Vector operations inside a function still operate on vector values.
 

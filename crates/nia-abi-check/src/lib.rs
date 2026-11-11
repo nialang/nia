@@ -189,12 +189,25 @@ pub fn classify_nia_return(
 /// when the functions enable different CPU features. Use only the vector
 /// width guaranteed by the architecture's baseline, never the build level
 /// or the individual function's features. The i686 baseline has no SSE.
-fn vector_is_direct(target: TargetConfig, layout: Option<TypeLayout>) -> bool {
+///
+/// The width that matters is the vector's width in registers, not its size
+/// in memory: a `boolxN` mask is bit-packed in memory, but calls promote each
+/// lane to at least a byte, so `boolx32` needs a 256-bit register.
+fn vector_is_direct(
+    target: TargetConfig,
+    elem: PrimitiveTy,
+    lanes: u32,
+    layout: Option<TypeLayout>,
+) -> bool {
     let limit = match target.arch() {
         Arch::X86 => 0,
         Arch::X86_64 | Arch::Aarch64 => 16,
     };
-    layout.is_some_and(|layout| layout.size <= limit)
+    let register_bytes = match elem {
+        PrimitiveTy::Bool => Some(u64::from(lanes)),
+        _ => layout.map(|layout| layout.size),
+    };
+    register_bytes.is_some_and(|bytes| bytes <= limit)
 }
 
 fn is_zst(
@@ -225,7 +238,9 @@ fn classify_param(
             | TyKind::Callable { .. }
             | TyKind::Range { .. },
         ) => AbiParam::Direct { ty },
-        Some(TyKind::Vector { .. }) if vector_is_direct(target, layout_of(ty)) => {
+        Some(TyKind::Vector { elem, lanes })
+            if vector_is_direct(target, *elem, *lanes, layout_of(ty)) =>
+        {
             AbiParam::Direct { ty }
         }
         Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id, ty) => {
@@ -278,7 +293,9 @@ fn classify_return(
             | TyKind::Callable { .. }
             | TyKind::Range { .. },
         ) => AbiReturn::Direct { ty },
-        Some(TyKind::Vector { .. }) if vector_is_direct(target, layout_of(ty)) => {
+        Some(TyKind::Vector { elem, lanes })
+            if vector_is_direct(target, *elem, *lanes, layout_of(ty)) =>
+        {
             AbiReturn::Direct { ty }
         }
         Some(TyKind::Nominal { def_id, .. }) if payloadless_enum(*def_id, ty) => {
