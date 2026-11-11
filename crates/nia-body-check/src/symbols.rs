@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ids::{BuiltinAssociatedConst, BuiltinFunction, BuiltinTrait, BuiltinTraitMethod};
-use nia_symbol::{SymbolId, known};
+use nia_symbol::{SymbolId, ToSymbolId, known};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AsmConfigField {
@@ -23,36 +23,9 @@ pub(crate) fn asm_config_field(name: SymbolId) -> Option<AsmConfigField> {
 }
 
 pub(crate) fn builtin_function_symbol(name: SymbolId) -> Option<BuiltinFunction> {
-    match name {
-        known::ERROR => Some(BuiltinFunction::ConstError),
-        known::TRAP => Some(BuiltinFunction::Trap),
-        known::SIZE => Some(BuiltinFunction::SizeOf),
-        known::ALIGN => Some(BuiltinFunction::AlignOf),
-        known::OFFSET => Some(BuiltinFunction::Offset),
-        known::ASM => Some(BuiltinFunction::Asm),
-        known::MEMCPY => Some(BuiltinFunction::MemCopy),
-        known::MEMMOVE => Some(BuiltinFunction::MemMove),
-        known::MEMSET => Some(BuiltinFunction::MemSet),
-        known::LOAD_UNALIGNED => Some(BuiltinFunction::LoadUnaligned),
-        known::SPLAT => Some(BuiltinFunction::Splat),
-        known::EXTRACT => Some(BuiltinFunction::Extract),
-        known::INSERT => Some(BuiltinFunction::Insert),
-        known::BITMASK => Some(BuiltinFunction::Bitmask),
-        known::CTZ => Some(BuiltinFunction::Ctz),
-        known::CLZ => Some(BuiltinFunction::Clz),
-        known::POPCOUNT => Some(BuiltinFunction::Popcount),
-        known::ATOMIC_LOAD => Some(BuiltinFunction::AtomicLoad),
-        known::ATOMIC_STORE => Some(BuiltinFunction::AtomicStore),
-        known::ATOMIC_RMW => Some(BuiltinFunction::AtomicRmw),
-        known::CMPXCHG_STRONG => Some(BuiltinFunction::CmpxchgStrong),
-        known::CMPXCHG_WEAK => Some(BuiltinFunction::CmpxchgWeak),
-        known::FENCE => Some(BuiltinFunction::Fence),
-        known::EMBED => Some(BuiltinFunction::Embed),
-        known::CHAR_FROM_U32 => Some(BuiltinFunction::CharFromU32),
-        known::SLICE_LEN => Some(BuiltinFunction::SliceLen),
-        known::CALLER_LOCATION => Some(BuiltinFunction::CallerLocation),
-        _ => None,
-    }
+    BuiltinFunction::ALL
+        .into_iter()
+        .find(|builtin| builtin.symbol_id() == name)
 }
 
 pub(crate) fn builtin_associated_const_symbol(

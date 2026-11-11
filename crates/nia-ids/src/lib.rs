@@ -533,263 +533,137 @@ pub enum BuiltinConstValue {
     TargetPointerWidth,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-/// Builtin function and memory-operation identity.
-pub enum BuiltinFunction {
-    /// Constructs a compile-time error value.
-    ConstError,
-    /// Triggers a compile-time trap.
-    Trap,
-    /// Computes the size of a type.
-    SizeOf,
-    /// Computes the alignment of a type.
-    AlignOf,
-    /// Computes a field offset.
-    Offset,
-    /// Inline assembly operation.
-    Asm,
-    /// Copies a memory range.
-    MemCopy,
-    /// Moves a memory range.
-    MemMove,
-    /// Fills a memory range.
-    MemSet,
-    /// Performs an unaligned load.
-    LoadUnaligned,
-    /// Constructs a SIMD value from one lane.
-    Splat,
-    /// Extracts one SIMD lane.
-    Extract,
-    /// Inserts one SIMD lane.
-    Insert,
-    /// Builds a SIMD mask from a value.
-    Bitmask,
-    /// Counts trailing zero bits.
-    Ctz,
-    /// Counts leading zero bits.
-    Clz,
-    /// Counts set bits.
-    Popcount,
-    /// Performs an atomic load.
-    AtomicLoad,
-    /// Performs an atomic store.
-    AtomicStore,
-    /// Performs an atomic read-modify-write operation.
-    AtomicRmw,
-    /// Performs a strong compare-and-exchange.
-    CmpxchgStrong,
-    /// Performs a weak compare-and-exchange.
-    CmpxchgWeak,
-    /// Issues an atomic fence.
-    Fence,
-    /// Embeds an external resource.
-    Embed,
-    /// Converts a Unicode scalar value.
-    CharFromU32,
-    /// Returns the length of a slice.
-    SliceLen,
-    /// Returns the lexical or forwarded caller source location.
-    CallerLocation,
+/// Declares the builtin functions from one table.
+///
+/// Each row gives the variant, its serialized tag, its source name,
+/// whether const evaluation can run it, and, for a value builtin that lowers
+/// to an intrinsic expression, the intrinsic operation. Tags are persistent:
+/// never renumber a row, and never reuse a removed row's tag.
+macro_rules! builtin_functions {
+    (@intrinsic) => { None };
+    (@intrinsic $op:ident) => { Some(IntrinsicOp::$op) };
+    ($(
+        $(#[doc = $doc:literal])*
+        $variant:ident = $tag:literal, $name:literal, const_capable: $const_capable:literal
+            $(, intrinsic: $intrinsic:ident)?;
+    )*) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        /// Builtin function and memory-operation identity.
+        pub enum BuiltinFunction {
+            $($(#[doc = $doc])* $variant,)*
+        }
+
+        impl BuiltinFunction {
+            const COUNT: usize = [$($tag),*].len();
+
+            /// All builtin functions in canonical registry order.
+            pub const ALL: [Self; Self::COUNT] = [$(Self::$variant),*];
+
+            /// Returns the tag that identifies this builtin in serialized
+            /// signatures.
+            pub const fn stable_tag(self) -> u8 {
+                match self {
+                    $(Self::$variant => $tag,)*
+                }
+            }
+
+            /// Resolves a serialized tag without relying on registry order.
+            pub const fn from_stable_tag(tag: u8) -> Option<Self> {
+                match tag {
+                    $($tag => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+
+            /// Parses a canonical builtin function name.
+            pub fn from_name(name: &str) -> Option<Self> {
+                match name {
+                    $($name => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+
+            /// Returns the canonical source-level function name.
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)*
+                }
+            }
+
+            /// Reports whether this operation is valid during const
+            /// evaluation.
+            pub const fn is_const_capable(self) -> bool {
+                match self {
+                    $(Self::$variant => $const_capable,)*
+                }
+            }
+
+            /// The intrinsic operation a call to this builtin lowers to, if
+            /// it lowers to an intrinsic expression.
+            pub const fn intrinsic(self) -> Option<IntrinsicOp> {
+                match self {
+                    $(Self::$variant => builtin_functions!(@intrinsic $($intrinsic)?),)*
+                }
+            }
+        }
+    };
 }
 
-impl BuiltinFunction {
-    /// Returns the package-metadata ABI tag for this builtin.
-    pub const fn stable_tag(self) -> u32 {
-        match self {
-            Self::ConstError => 1,
-            Self::Trap => 2,
-            Self::SizeOf => 3,
-            Self::AlignOf => 4,
-            Self::Offset => 5,
-            Self::Asm => 6,
-            Self::MemCopy => 7,
-            Self::MemMove => 8,
-            Self::MemSet => 9,
-            Self::LoadUnaligned => 10,
-            Self::Splat => 11,
-            Self::Extract => 12,
-            Self::Insert => 13,
-            Self::Bitmask => 14,
-            Self::Ctz => 15,
-            Self::Clz => 16,
-            Self::Popcount => 17,
-            Self::AtomicLoad => 18,
-            Self::AtomicStore => 19,
-            Self::AtomicRmw => 20,
-            Self::CmpxchgStrong => 21,
-            Self::CmpxchgWeak => 22,
-            Self::Fence => 23,
-            Self::Embed => 24,
-            Self::CharFromU32 => 25,
-            Self::SliceLen => 26,
-            Self::CallerLocation => 27,
-        }
-    }
-
-    /// Resolves a package-metadata ABI tag without relying on registry order.
-    pub const fn from_stable_tag(tag: u32) -> Option<Self> {
-        match tag {
-            1 => Some(Self::ConstError),
-            2 => Some(Self::Trap),
-            3 => Some(Self::SizeOf),
-            4 => Some(Self::AlignOf),
-            5 => Some(Self::Offset),
-            6 => Some(Self::Asm),
-            7 => Some(Self::MemCopy),
-            8 => Some(Self::MemMove),
-            9 => Some(Self::MemSet),
-            10 => Some(Self::LoadUnaligned),
-            11 => Some(Self::Splat),
-            12 => Some(Self::Extract),
-            13 => Some(Self::Insert),
-            14 => Some(Self::Bitmask),
-            15 => Some(Self::Ctz),
-            16 => Some(Self::Clz),
-            17 => Some(Self::Popcount),
-            18 => Some(Self::AtomicLoad),
-            19 => Some(Self::AtomicStore),
-            20 => Some(Self::AtomicRmw),
-            21 => Some(Self::CmpxchgStrong),
-            22 => Some(Self::CmpxchgWeak),
-            23 => Some(Self::Fence),
-            24 => Some(Self::Embed),
-            25 => Some(Self::CharFromU32),
-            26 => Some(Self::SliceLen),
-            27 => Some(Self::CallerLocation),
-            _ => None,
-        }
-    }
-
-    /// All builtin functions in canonical registry order.
-    pub const ALL: [Self; 27] = [
-        Self::ConstError,
-        Self::Trap,
-        Self::SizeOf,
-        Self::AlignOf,
-        Self::Offset,
-        Self::Asm,
-        Self::MemCopy,
-        Self::MemMove,
-        Self::MemSet,
-        Self::LoadUnaligned,
-        Self::Splat,
-        Self::Extract,
-        Self::Insert,
-        Self::Bitmask,
-        Self::Ctz,
-        Self::Clz,
-        Self::Popcount,
-        Self::AtomicLoad,
-        Self::AtomicStore,
-        Self::AtomicRmw,
-        Self::CmpxchgStrong,
-        Self::CmpxchgWeak,
-        Self::Fence,
-        Self::Embed,
-        Self::CharFromU32,
-        Self::SliceLen,
-        Self::CallerLocation,
-    ];
-
-    /// Parses a canonical builtin function name.
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "error" => Some(Self::ConstError),
-            "trap" => Some(Self::Trap),
-            "size" => Some(Self::SizeOf),
-            "align" => Some(Self::AlignOf),
-            "offset" => Some(Self::Offset),
-            "asm" => Some(Self::Asm),
-            "memcpy" => Some(Self::MemCopy),
-            "memmove" => Some(Self::MemMove),
-            "memset" => Some(Self::MemSet),
-            "loadUnaligned" => Some(Self::LoadUnaligned),
-            "splat" => Some(Self::Splat),
-            "extract" => Some(Self::Extract),
-            "insert" => Some(Self::Insert),
-            "bitmask" => Some(Self::Bitmask),
-            "ctz" => Some(Self::Ctz),
-            "clz" => Some(Self::Clz),
-            "popcount" => Some(Self::Popcount),
-            "atomicLoad" => Some(Self::AtomicLoad),
-            "atomicStore" => Some(Self::AtomicStore),
-            "atomicRmw" => Some(Self::AtomicRmw),
-            "cmpxchgStrong" => Some(Self::CmpxchgStrong),
-            "cmpxchgWeak" => Some(Self::CmpxchgWeak),
-            "fence" => Some(Self::Fence),
-            "embed" => Some(Self::Embed),
-            "charFromU32" => Some(Self::CharFromU32),
-            "sliceLen" => Some(Self::SliceLen),
-            "callerLocation" => Some(Self::CallerLocation),
-            _ => None,
-        }
-    }
-
-    /// Returns the canonical source-level function name.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::ConstError => "error",
-            Self::Trap => "trap",
-            Self::SizeOf => "size",
-            Self::AlignOf => "align",
-            Self::Offset => "offset",
-            Self::Asm => "asm",
-            Self::MemCopy => "memcpy",
-            Self::MemMove => "memmove",
-            Self::MemSet => "memset",
-            Self::LoadUnaligned => "loadUnaligned",
-            Self::Splat => "splat",
-            Self::Extract => "extract",
-            Self::Insert => "insert",
-            Self::Bitmask => "bitmask",
-            Self::Ctz => "ctz",
-            Self::Clz => "clz",
-            Self::Popcount => "popcount",
-            Self::AtomicLoad => "atomicLoad",
-            Self::AtomicStore => "atomicStore",
-            Self::AtomicRmw => "atomicRmw",
-            Self::CmpxchgStrong => "cmpxchgStrong",
-            Self::CmpxchgWeak => "cmpxchgWeak",
-            Self::Fence => "fence",
-            Self::Embed => "embed",
-            Self::CharFromU32 => "charFromU32",
-            Self::SliceLen => "sliceLen",
-            Self::CallerLocation => "callerLocation",
-        }
-    }
-
-    /// Reports whether this operation is valid during const evaluation.
-    pub const fn is_const_capable(self) -> bool {
-        match self {
-            Self::ConstError
-            | Self::Trap
-            | Self::SizeOf
-            | Self::AlignOf
-            | Self::Offset
-            | Self::Embed
-            | Self::CharFromU32
-            | Self::SliceLen
-            | Self::CallerLocation
-            | Self::Splat
-            | Self::Extract
-            | Self::Insert
-            | Self::Bitmask
-            | Self::Ctz
-            | Self::Clz
-            | Self::Popcount => true,
-            Self::Asm
-            | Self::MemCopy
-            | Self::MemMove
-            | Self::MemSet
-            | Self::LoadUnaligned
-            | Self::AtomicLoad
-            | Self::AtomicStore
-            | Self::AtomicRmw
-            | Self::CmpxchgStrong
-            | Self::CmpxchgWeak
-            | Self::Fence => false,
-        }
-    }
+builtin_functions! {
+    /// Constructs a compile-time error value.
+    ConstError = 1, "error", const_capable: true;
+    /// Triggers a compile-time trap.
+    Trap = 2, "trap", const_capable: true;
+    /// Computes the size of a type.
+    SizeOf = 3, "size", const_capable: true;
+    /// Computes the alignment of a type.
+    AlignOf = 4, "align", const_capable: true;
+    /// Computes a field offset.
+    Offset = 5, "offset", const_capable: true;
+    /// Inline assembly operation.
+    Asm = 6, "asm", const_capable: false;
+    /// Copies a memory range.
+    MemCopy = 7, "memcpy", const_capable: false;
+    /// Moves a memory range.
+    MemMove = 8, "memmove", const_capable: false;
+    /// Fills a memory range.
+    MemSet = 9, "memset", const_capable: false;
+    /// Performs an unaligned load.
+    LoadUnaligned = 10, "loadUnaligned", const_capable: false, intrinsic: LoadUnaligned;
+    /// Constructs a SIMD value from one lane.
+    Splat = 11, "splat", const_capable: true, intrinsic: Splat;
+    /// Extracts one SIMD lane.
+    Extract = 12, "extract", const_capable: true, intrinsic: ExtractElement;
+    /// Inserts one SIMD lane.
+    Insert = 13, "insert", const_capable: true, intrinsic: InsertElement;
+    /// Builds a SIMD mask from a value.
+    Bitmask = 14, "bitmask", const_capable: true, intrinsic: Bitmask;
+    /// Counts trailing zero bits.
+    Ctz = 15, "ctz", const_capable: true, intrinsic: Ctz;
+    /// Counts leading zero bits.
+    Clz = 16, "clz", const_capable: true, intrinsic: Clz;
+    /// Counts set bits.
+    Popcount = 17, "popcount", const_capable: true, intrinsic: Popcount;
+    /// Performs an atomic load.
+    AtomicLoad = 18, "atomicLoad", const_capable: false;
+    /// Performs an atomic store.
+    AtomicStore = 19, "atomicStore", const_capable: false;
+    /// Performs an atomic read-modify-write operation.
+    AtomicRmw = 20, "atomicRmw", const_capable: false;
+    /// Performs a strong compare-and-exchange.
+    CmpxchgStrong = 21, "cmpxchgStrong", const_capable: false;
+    /// Performs a weak compare-and-exchange.
+    CmpxchgWeak = 22, "cmpxchgWeak", const_capable: false;
+    /// Issues an atomic fence.
+    Fence = 23, "fence", const_capable: false;
+    /// Embeds an external resource.
+    Embed = 24, "embed", const_capable: true;
+    /// Converts a Unicode scalar value.
+    CharFromU32 = 25, "charFromU32", const_capable: true;
+    /// Returns the length of a slice.
+    SliceLen = 26, "sliceLen", const_capable: true;
+    /// Returns the lexical or forwarded caller source location.
+    CallerLocation = 27, "callerLocation", const_capable: true;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -824,22 +698,6 @@ pub enum IntrinsicOp {
 }
 
 impl IntrinsicOp {
-    /// The operation a source builtin lowers to, if it is an intrinsic
-    /// expression.
-    pub const fn from_builtin(builtin: BuiltinFunction) -> Option<Self> {
-        Some(match builtin {
-            BuiltinFunction::LoadUnaligned => Self::LoadUnaligned,
-            BuiltinFunction::Splat => Self::Splat,
-            BuiltinFunction::Extract => Self::ExtractElement,
-            BuiltinFunction::Insert => Self::InsertElement,
-            BuiltinFunction::Bitmask => Self::Bitmask,
-            BuiltinFunction::Ctz => Self::Ctz,
-            BuiltinFunction::Clz => Self::Clz,
-            BuiltinFunction::Popcount => Self::Popcount,
-            _ => return None,
-        })
-    }
-
     /// The number of operands the operation takes.
     pub const fn arity(self) -> usize {
         match self {

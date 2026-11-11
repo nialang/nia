@@ -509,7 +509,7 @@ pub mod formats {
         PersistedFormat::new("signature-type-lowering", b"NIASL\0\0\0");
     /// Persisted item signature collection.
     pub const SIGNATURE_ITEM_SIGNATURES: PersistedFormat =
-        PersistedFormat::new("signature-item-signatures", b"NIASI2\0\0");
+        PersistedFormat::new("signature-item-signatures", b"NIASI3\0\0");
     /// Persisted extension-validation diagnostic set.
     pub const EXTENSION_VALIDATION_DIAGNOSTICS: PersistedFormat =
         PersistedFormat::new("extension-validation-diagnostics", b"NIAEV\0\0\0");

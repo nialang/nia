@@ -631,19 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn builtin_function_and_const_cache_tags_roundtrip_exhaustively() {
-        for value in BuiltinFunction::ALL {
-            let tag = builtin_function_tag(value);
-            assert_eq!(
-                read_builtin_function(&mut Cursor::new([tag].as_slice())),
-                Some(value)
-            );
-        }
-        assert_eq!(
-            read_builtin_function(&mut Cursor::new([27].as_slice())),
-            None
-        );
-
+    fn builtin_const_cache_tags_roundtrip_exhaustively() {
         for value in BuiltinConstValue::ALL {
             let tag = builtin_const_tag(value);
             assert_eq!(

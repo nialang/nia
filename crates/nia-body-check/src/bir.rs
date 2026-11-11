@@ -1792,7 +1792,7 @@ impl<'a> BodyChecker<'a> {
         type_arg: Option<nia_ids::InternedTyId>,
         args: &[Expr],
     ) -> TypedExprKind {
-        if let Some(op) = nia_ids::IntrinsicOp::from_builtin(builtin)
+        if let Some(op) = builtin.intrinsic()
             && args.len() == op.arity()
         {
             return TypedExprKind::Intrinsic {

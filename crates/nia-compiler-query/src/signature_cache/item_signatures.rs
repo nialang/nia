@@ -208,7 +208,7 @@ pub(crate) fn write_function_signature(
             item_signatures::FunctionAttribute::Naked => encoded.push(0),
             item_signatures::FunctionAttribute::Builtin(builtin) => {
                 encoded.push(1);
-                encoded.push(builtin_function_tag(*builtin));
+                encoded.push(builtin.stable_tag());
             }
             item_signatures::FunctionAttribute::TrackCaller => encoded.push(2),
             item_signatures::FunctionAttribute::InlineNever => encoded.push(3),
@@ -251,7 +251,9 @@ pub(crate) fn read_function_signature(
     for _ in 0..attribute_len {
         attributes.push(match read_u8(cursor)? {
             0 => item_signatures::FunctionAttribute::Naked,
-            1 => item_signatures::FunctionAttribute::Builtin(read_builtin_function(cursor)?),
+            1 => item_signatures::FunctionAttribute::Builtin(BuiltinFunction::from_stable_tag(
+                read_u8(cursor)?,
+            )?),
             2 => item_signatures::FunctionAttribute::TrackCaller,
             3 => item_signatures::FunctionAttribute::InlineNever,
             4 => item_signatures::FunctionAttribute::InlineAlways,
@@ -1050,74 +1052,6 @@ pub(crate) fn read_visibility(cursor: &mut Cursor<&[u8]>) -> Option<Visibility> 
         1 => Visibility::PublicSuper,
         2 => Visibility::PublicRoot,
         3 => Visibility::Public,
-        _ => return None,
-    })
-}
-
-pub(crate) fn builtin_function_tag(value: BuiltinFunction) -> u8 {
-    // These numbers are persistent format tags, not enum/ALL-list ordinals.
-    // Never renumber an existing case; append a new tag or bump the owning
-    // compatibility format when the serialized meaning changes.
-    match value {
-        BuiltinFunction::ConstError => 0,
-        BuiltinFunction::Trap => 1,
-        BuiltinFunction::SizeOf => 2,
-        BuiltinFunction::AlignOf => 3,
-        BuiltinFunction::Offset => 4,
-        BuiltinFunction::Asm => 5,
-        BuiltinFunction::MemCopy => 6,
-        BuiltinFunction::MemMove => 7,
-        BuiltinFunction::MemSet => 8,
-        BuiltinFunction::LoadUnaligned => 9,
-        BuiltinFunction::Splat => 10,
-        BuiltinFunction::Extract => 11,
-        BuiltinFunction::Insert => 12,
-        BuiltinFunction::Bitmask => 13,
-        BuiltinFunction::Ctz => 14,
-        BuiltinFunction::Clz => 15,
-        BuiltinFunction::Popcount => 16,
-        BuiltinFunction::AtomicLoad => 17,
-        BuiltinFunction::AtomicStore => 18,
-        BuiltinFunction::AtomicRmw => 19,
-        BuiltinFunction::CmpxchgStrong => 20,
-        BuiltinFunction::CmpxchgWeak => 21,
-        BuiltinFunction::Fence => 22,
-        BuiltinFunction::Embed => 23,
-        BuiltinFunction::CharFromU32 => 24,
-        BuiltinFunction::SliceLen => 25,
-        BuiltinFunction::CallerLocation => 26,
-    }
-}
-
-pub(crate) fn read_builtin_function(cursor: &mut Cursor<&[u8]>) -> Option<BuiltinFunction> {
-    Some(match read_u8(cursor)? {
-        0 => BuiltinFunction::ConstError,
-        1 => BuiltinFunction::Trap,
-        2 => BuiltinFunction::SizeOf,
-        3 => BuiltinFunction::AlignOf,
-        4 => BuiltinFunction::Offset,
-        5 => BuiltinFunction::Asm,
-        6 => BuiltinFunction::MemCopy,
-        7 => BuiltinFunction::MemMove,
-        8 => BuiltinFunction::MemSet,
-        9 => BuiltinFunction::LoadUnaligned,
-        10 => BuiltinFunction::Splat,
-        11 => BuiltinFunction::Extract,
-        12 => BuiltinFunction::Insert,
-        13 => BuiltinFunction::Bitmask,
-        14 => BuiltinFunction::Ctz,
-        15 => BuiltinFunction::Clz,
-        16 => BuiltinFunction::Popcount,
-        17 => BuiltinFunction::AtomicLoad,
-        18 => BuiltinFunction::AtomicStore,
-        19 => BuiltinFunction::AtomicRmw,
-        20 => BuiltinFunction::CmpxchgStrong,
-        21 => BuiltinFunction::CmpxchgWeak,
-        22 => BuiltinFunction::Fence,
-        23 => BuiltinFunction::Embed,
-        24 => BuiltinFunction::CharFromU32,
-        25 => BuiltinFunction::SliceLen,
-        26 => BuiltinFunction::CallerLocation,
         _ => return None,
     })
 }
