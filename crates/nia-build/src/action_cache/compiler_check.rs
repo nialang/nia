@@ -203,6 +203,8 @@ pub(crate) struct CompilerCheckCacheIdentityInput<'a> {
     pub(crate) configuration: &'a ArtifactConfiguration,
     pub(crate) manifest: &'a SourceInputManifest,
     pub(crate) toolchain: &'a ToolchainIdentity,
+    /// The driver's CPU model and features for the resolved CPU level.
+    pub(crate) cpu: &'a str,
 }
 
 impl CompilerCheckCacheIdentity {
@@ -216,7 +218,7 @@ impl CompilerCheckCacheIdentity {
             std::iter::once(&input.module.root_source)
                 .chain(input.module.imports.iter().map(|import| &import.path)),
         )?;
-        let target_identity = target_identity(input.target);
+        let target_identity = target_identity(input.target, input.cpu);
         let profile = profile_tag(input.profile);
         let compilation_mode = compilation_mode_tag(input.compilation_mode);
         let optimization = optimization_tag(input.module.optimization);
@@ -866,10 +868,14 @@ fn module_identity(module: &PlanModule) -> Vec<u8> {
     encoded
 }
 
-fn target_identity(target: &TargetConfig) -> Vec<u8> {
-    // The canonical name determines every derived target fact.
+fn target_identity(target: &TargetConfig, cpu: &str) -> Vec<u8> {
+    // The canonical name determines every derived target fact. The CPU is the
+    // model and features code generation uses, never a level name: an
+    // unselected level follows the invocation, and `native` names whichever
+    // machine runs the build.
     let mut encoded = Vec::new();
     write_text(&mut encoded, &target.name());
+    write_text(&mut encoded, cpu);
     encoded
 }
 
@@ -1030,7 +1036,7 @@ mod tests {
             byte_len: 19,
         }];
         let module_identity = module_identity(&module);
-        let target_identity = target_identity(&target);
+        let target_identity = target_identity(&target, "x86-64\0");
         let profile = profile_tag(BuildProfile::Debug);
         let compilation_mode = compilation_mode_tag(CompilationMode::Normal);
         let package_roots = vec![0, 0, 0, 0, 0, 0, 0, 0];

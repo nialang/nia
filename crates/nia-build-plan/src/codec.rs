@@ -396,6 +396,15 @@ impl Writer {
             Some(ArtifactLto::Thin) => 2,
             Some(ArtifactLto::Full) => 3,
         });
+        // Unset is its own state: it follows the invocation level.
+        self.u8(match value.cpu {
+            None => 0,
+            Some(nia_target::CpuLevel::Baseline) => 1,
+            Some(nia_target::CpuLevel::X86_64V2) => 2,
+            Some(nia_target::CpuLevel::X86_64V3) => 3,
+            Some(nia_target::CpuLevel::X86_64V4) => 4,
+            Some(nia_target::CpuLevel::Native) => 5,
+        });
         self.count(value.defines.len())?;
         for define in &value.defines {
             self.string(&define.name)?;
@@ -895,6 +904,22 @@ impl<'a> Reader<'a> {
                 });
             }
         };
+        let cpu_offset = self.offset;
+        let cpu = match self.u8()? {
+            0 => None,
+            1 => Some(nia_target::CpuLevel::Baseline),
+            2 => Some(nia_target::CpuLevel::X86_64V2),
+            3 => Some(nia_target::CpuLevel::X86_64V3),
+            4 => Some(nia_target::CpuLevel::X86_64V4),
+            5 => Some(nia_target::CpuLevel::Native),
+            tag => {
+                return Err(PlanCodecError::InvalidTag {
+                    kind: "artifact CPU level",
+                    tag,
+                    offset: cpu_offset,
+                });
+            }
+        };
         let defines = self.list(|reader| {
             Ok(ArtifactDefine {
                 name: reader.string()?,
@@ -923,6 +948,7 @@ impl<'a> Reader<'a> {
             debug_info,
             panic_strategy,
             lto,
+            cpu,
             defines,
             system_libraries,
         })
@@ -1309,6 +1335,7 @@ mod tests {
             debug_info: DebugInfo::Full,
             panic_strategy: PanicStrategy::Unwind,
             lto: Some(ArtifactLto::Thin),
+            cpu: Some(nia_target::CpuLevel::X86_64V3),
             defines: vec![ArtifactDefine {
                 name: "FEATURE".to_string(),
                 value: Some("enabled".to_string()),

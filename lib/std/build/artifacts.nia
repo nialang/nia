@@ -160,6 +160,7 @@ extend Build {
             options.debugInfo,
             options.panicStrategy,
             options.lto,
+            options.cpu,
             options.defines,
             options.systemLibraries,
         ) is primary! {
@@ -224,7 +225,7 @@ extend Build {
             targetIndex,
         );
         self.hasPendingObject = true;
-        if self.pendingObject.initialize(self.allocator, options.name, outputName, options.linkage, options.debugInfo, options.panicStrategy, options.lto, options.defines, options.systemLibraries) is primary! {
+        if self.pendingObject.initialize(self.allocator, options.name, outputName, options.linkage, options.debugInfo, options.panicStrategy, options.lto, options.cpu, options.defines, options.systemLibraries) is primary! {
             _ = self.cleanupPendingObject();
             return primary!;
         }
@@ -286,7 +287,7 @@ extend Build {
             targetIndex,
         );
         self.hasPendingStaticArchive = true;
-        if self.pendingStaticArchive.initialize(self.allocator, options.name, outputName, options.linkage, options.debugInfo, options.panicStrategy, options.lto, options.defines, options.systemLibraries) is primary! {
+        if self.pendingStaticArchive.initialize(self.allocator, options.name, outputName, options.linkage, options.debugInfo, options.panicStrategy, options.lto, options.cpu, options.defines, options.systemLibraries) is primary! {
             _ = self.cleanupPendingStaticArchive();
             return primary!;
         }

@@ -135,16 +135,27 @@ pub struct LlvmCodegenOptions {
 
 impl LlvmCodegenOptions {
     /// Machine identity for the artifact target at the selected CPU level.
-    /// A named level is a fixed CPU model; `native` asks LLVM for the host's
-    /// model and features.
     pub fn target_machine_identity(
         &self,
     ) -> nia_llvm::LlvmResult<nia_llvm::target::TargetMachineIdentity> {
-        let triple = self.target.llvm_triple();
-        match self.cpu.llvm_cpu(self.target) {
-            Some(cpu) => Ok(nia_llvm::target::TargetMachine::cpu_identity(&triple, cpu)),
-            None => nia_llvm::target::TargetMachine::host_identity(&triple),
-        }
+        target_machine_identity(self.target, self.cpu)
+    }
+}
+
+/// The machine that generates code for `target` at `cpu`. A named level is a
+/// fixed CPU model with no further features; `native` asks LLVM for the
+/// host's model and every feature it detects, so the identity of a `native`
+/// build differs between machines.
+pub fn target_machine_identity(
+    target: nia_target::TargetConfig,
+    cpu: nia_target::CpuLevel,
+) -> nia_llvm::LlvmResult<nia_llvm::target::TargetMachineIdentity> {
+    let triple = target.llvm_triple();
+    match cpu.llvm_cpu(target) {
+        Some(model) => Ok(nia_llvm::target::TargetMachine::cpu_identity(
+            &triple, model,
+        )),
+        None => nia_llvm::target::TargetMachine::host_identity(&triple),
     }
 }
 

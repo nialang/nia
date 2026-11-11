@@ -592,6 +592,7 @@ fn package_request(
     request
         .with_optimization(build_optimization(settings.optimization))
         .with_profile(settings.profile)
+        .with_cpu(settings.cpu)
         .with_timings(settings.timings)
         .with_timing_format(settings.timing_format)
 }

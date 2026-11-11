@@ -718,7 +718,7 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Cpu,
         names: &["--cpu"],
         arity: Arity::Value,
-        scope: EMIT_OPTIMIZED,
+        scope: Scope::BUILD.or(EMIT_OPTIMIZED),
         usage: "--cpu <level>",
         about: "generate code for a CPU level of the target (default: baseline)",
     },

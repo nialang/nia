@@ -393,6 +393,10 @@ pub struct ArtifactConfiguration {
     /// Whole-program optimization policy; `None` follows the optimization level
     /// the artifact is built at.
     pub lto: Option<ArtifactLto>,
+    /// Oldest processor the product may run on. `None` follows the
+    /// invocation's level when the artifact is built for the invocation's
+    /// artifact target, and is the baseline for any other target.
+    pub cpu: Option<nia_target::CpuLevel>,
     /// Ordered compiler defines.
     pub defines: Vec<ArtifactDefine>,
     /// Ordered native libraries passed to the linker.
@@ -406,6 +410,7 @@ impl Default for ArtifactConfiguration {
             debug_info: DebugInfo::None,
             panic_strategy: PanicStrategy::Abort,
             lto: None,
+            cpu: None,
             defines: Vec::new(),
             system_libraries: Vec::new(),
         }
@@ -959,6 +964,13 @@ pub enum PlanError {
         /// Stable rejection reason.
         reason: &'static str,
     },
+    /// A compiler action's CPU level does not describe its target.
+    InvalidCpuLevel {
+        /// Rejected action.
+        action: ActionKey,
+        /// Why the level does not fit the target.
+        error: nia_target::CpuLevelError,
+    },
     /// An action uses an artifact in an unsupported role.
     InvalidArtifactUse {
         /// Rejected action.
@@ -1116,6 +1128,11 @@ impl fmt::Display for PlanError {
                 f,
                 "artifact `{}` is compiled as a test but is not an executable",
                 display_node_key(artifact)
+            ),
+            Self::InvalidCpuLevel { action, error } => write!(
+                f,
+                "action `{}` has an invalid CPU level: {error}",
+                action.name()
             ),
             Self::InvalidArtifactConfiguration { artifact, reason } => write!(
                 f,
@@ -2957,6 +2974,56 @@ mod tests {
             BuildPlan::freeze(value),
             Err(PlanError::InvalidArtifactUse { reason, .. })
                 if reason == "external command programs must be executable artifacts"
+        ));
+    }
+
+    #[test]
+    fn compiler_actions_need_a_cpu_level_of_their_target() {
+        let freeze_emit_at = |target: TargetConfig, cpu: nia_target::CpuLevel| {
+            let mut value = draft(false);
+            value.host_target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
+            for artifact in &mut value.artifacts {
+                artifact.configuration.cpu = Some(cpu);
+            }
+            for action in &mut value.actions {
+                match &mut action.kind {
+                    ActionKind::CompilerCheck {
+                        target: action_target,
+                        configuration,
+                        ..
+                    }
+                    | ActionKind::CompilerEmit {
+                        target: action_target,
+                        configuration,
+                        ..
+                    } => {
+                        *action_target = target;
+                        configuration.cpu = Some(cpu);
+                    }
+                    _ => {}
+                }
+            }
+            BuildPlan::freeze(value)
+        };
+        let x86_64 = TargetConfig::parse("x86_64-unknown-linux").unwrap();
+        let aarch64 = TargetConfig::parse("aarch64-unknown-linux").unwrap();
+        assert!(freeze_emit_at(x86_64, nia_target::CpuLevel::X86_64V3).is_ok());
+        assert!(freeze_emit_at(x86_64, nia_target::CpuLevel::Native).is_ok());
+        assert!(freeze_emit_at(aarch64, nia_target::CpuLevel::Baseline).is_ok());
+        assert!(matches!(
+            freeze_emit_at(aarch64, nia_target::CpuLevel::X86_64V2),
+            Err(PlanError::InvalidCpuLevel {
+                error: nia_target::CpuLevelError::WrongArchitecture { .. },
+                ..
+            })
+        ));
+        // `native` names the processor of the host the plan was made for.
+        assert!(matches!(
+            freeze_emit_at(aarch64, nia_target::CpuLevel::Native),
+            Err(PlanError::InvalidCpuLevel {
+                error: nia_target::CpuLevelError::NativeForeignTarget { .. },
+                ..
+            })
         ));
     }
 

@@ -96,6 +96,7 @@ pub using types::{
     DebugInfo,
     PanicStrategy,
     LtoMode,
+    CpuLevel,
     ArtifactDefine,
     SystemLibrary,
     SystemLibraryMode,

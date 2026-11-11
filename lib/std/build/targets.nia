@@ -28,6 +28,7 @@ using types::{
     DebugInfo,
     PanicStrategy,
     LtoMode,
+    CpuLevel,
     ArtifactDefine,
     SystemLibrary,
     SystemLibraryMode,
@@ -51,7 +52,7 @@ extend ExecutableTarget {
         rootModule: ModuleHandle,
         targetIndex: usize,
     ) ExecutableTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init(), runtime: .Freestanding, linkage: .StaticPie, debugInfo: .None, panicStrategy: .Abort, lto: null, defines: .init(), systemLibraries: .init(), test: false }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, staticArchives: .init(), runtime: .Freestanding, linkage: .StaticPie, debugInfo: .None, panicStrategy: .Abort, lto: null, cpu: null, defines: .init(), systemLibraries: .init(), test: false }
     }
 
     pub(root) fun initialize(
@@ -65,6 +66,7 @@ extend ExecutableTarget {
         debugInfo: DebugInfo,
         panicStrategy: PanicStrategy,
         lto: ?LtoMode,
+        cpu: ?CpuLevel,
         defines: ?&[ArtifactDefine],
         systemLibraries: ?&[SystemLibrary],
     ) Error!() {
@@ -87,6 +89,7 @@ extend ExecutableTarget {
         self.debugInfo = debugInfo;
         self.panicStrategy = panicStrategy;
         self.lto = lto;
+        self.cpu = cpu;
         if defines is ?values {
             self.defines.reserve(allocator, values.len()).withBuildContext(.Retain, .Executable(self.index)).?;
             for &value in values.iter() {
@@ -119,7 +122,7 @@ extend ObjectTarget {
         rootModule: ModuleHandle,
         targetIndex: usize,
     ) ObjectTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, linkage: .Static, debugInfo: .None, panicStrategy: .Abort, lto: null, defines: .init(), systemLibraries: .init() }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, linkage: .Static, debugInfo: .None, panicStrategy: .Abort, lto: null, cpu: null, defines: .init(), systemLibraries: .init() }
     }
 
     pub(root) fun initialize(
@@ -131,6 +134,7 @@ extend ObjectTarget {
         debugInfo: DebugInfo,
         panicStrategy: PanicStrategy,
         lto: ?LtoMode,
+        cpu: ?CpuLevel,
         defines: ?&[ArtifactDefine],
         systemLibraries: ?&[SystemLibrary],
     ) Error!() {
@@ -140,6 +144,7 @@ extend ObjectTarget {
         self.debugInfo = debugInfo;
         self.panicStrategy = panicStrategy;
         self.lto = lto;
+        self.cpu = cpu;
         if defines is ?values {
             self.defines.reserve(allocator, values.len()).withBuildContext(.Retain, .Object(self.index)).?;
             for &value in values.iter() {
@@ -171,7 +176,7 @@ extend StaticArchiveTarget {
         rootModule: ModuleHandle,
         targetIndex: usize,
     ) StaticArchiveTarget {
-        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, linkage: .Static, debugInfo: .None, panicStrategy: .Abort, lto: null, defines: .init(), systemLibraries: .init() }
+        .{ index, name: .init(), rootModule, outputName: .init(), targetIndex, linkage: .Static, debugInfo: .None, panicStrategy: .Abort, lto: null, cpu: null, defines: .init(), systemLibraries: .init() }
     }
 
     pub(root) fun initialize(
@@ -183,6 +188,7 @@ extend StaticArchiveTarget {
         debugInfo: DebugInfo,
         panicStrategy: PanicStrategy,
         lto: ?LtoMode,
+        cpu: ?CpuLevel,
         defines: ?&[ArtifactDefine],
         systemLibraries: ?&[SystemLibrary],
     ) Error!() {
@@ -192,6 +198,7 @@ extend StaticArchiveTarget {
         self.debugInfo = debugInfo;
         self.panicStrategy = panicStrategy;
         self.lto = lto;
+        self.cpu = cpu;
         if defines is ?values {
             self.defines.reserve(allocator, values.len()).withBuildContext(.Retain, .StaticArchive(self.index)).?;
             for &value in values.iter() {
@@ -326,6 +333,7 @@ extend ExecutableOptions {
             debugInfo: .None,
             panicStrategy: .Abort,
             lto: null,
+            cpu: null,
             defines: null,
             systemLibraries: null,
         }
@@ -343,6 +351,7 @@ extend ExecutableOptions {
             debugInfo: self.debugInfo,
             panicStrategy: self.panicStrategy,
             lto: self.lto,
+            cpu: self.cpu,
             defines: self.defines,
             systemLibraries: self.systemLibraries,
         }
@@ -360,6 +369,7 @@ extend ExecutableOptions {
             debugInfo: self.debugInfo,
             panicStrategy: self.panicStrategy,
             lto: self.lto,
+            cpu: self.cpu,
             defines: self.defines,
             systemLibraries: self.systemLibraries,
         }
@@ -377,6 +387,7 @@ extend ExecutableOptions {
             debugInfo: self.debugInfo,
             panicStrategy: self.panicStrategy,
             lto: self.lto,
+            cpu: self.cpu,
             defines: self.defines,
             systemLibraries: self.systemLibraries,
         }
@@ -395,33 +406,39 @@ extend ExecutableOptions {
             debugInfo: self.debugInfo,
             panicStrategy: self.panicStrategy,
             lto: self.lto,
+            cpu: self.cpu,
             defines: self.defines,
             systemLibraries: self.systemLibraries,
         }
     }
 
     pub fun withLinkage(self, linkage: Linkage) ExecutableOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withDebugInfo(self, debugInfo: DebugInfo) ExecutableOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withPanicStrategy(self, panicStrategy: PanicStrategy) ExecutableOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withLto(self, lto: LtoMode) ExecutableOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: ?lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: ?lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
+    }
+
+    // Selects the oldest processor the product may run on.
+    pub fun withCpu(self, cpu: CpuLevel) ExecutableOptions {
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: ?cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withDefines(self, defines: &[ArtifactDefine]) ExecutableOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: ?defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: ?defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withSystemLibraries(self, libraries: &[SystemLibrary]) ExecutableOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: ?libraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, staticArchives: self.staticArchives, runtime: self.runtime, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: ?libraries }
     }
 }
 
@@ -436,6 +453,7 @@ extend ObjectOptions {
             debugInfo: .None,
             panicStrategy: .Abort,
             lto: null,
+            cpu: null,
             defines: null,
             systemLibraries: null,
         }
@@ -451,6 +469,7 @@ extend ObjectOptions {
             debugInfo: self.debugInfo,
             panicStrategy: self.panicStrategy,
             lto: self.lto,
+            cpu: self.cpu,
             defines: self.defines,
             systemLibraries: self.systemLibraries,
         }
@@ -466,33 +485,39 @@ extend ObjectOptions {
             debugInfo: self.debugInfo,
             panicStrategy: self.panicStrategy,
             lto: self.lto,
+            cpu: self.cpu,
             defines: self.defines,
             systemLibraries: self.systemLibraries,
         }
     }
 
     pub fun withLinkage(self, linkage: Linkage) ObjectOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withDebugInfo(self, debugInfo: DebugInfo) ObjectOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withPanicStrategy(self, panicStrategy: PanicStrategy) ObjectOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withLto(self, lto: LtoMode) ObjectOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: ?lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: ?lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
+    }
+
+    // Selects the oldest processor the product may run on.
+    pub fun withCpu(self, cpu: CpuLevel) ObjectOptions {
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: ?cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withDefines(self, defines: &[ArtifactDefine]) ObjectOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: ?defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: ?defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withSystemLibraries(self, libraries: &[SystemLibrary]) ObjectOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: ?libraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: ?libraries }
     }
 }
 
@@ -507,6 +532,7 @@ extend StaticArchiveOptions {
             debugInfo: .None,
             panicStrategy: .Abort,
             lto: null,
+            cpu: null,
             defines: null,
             systemLibraries: null,
         }
@@ -522,6 +548,7 @@ extend StaticArchiveOptions {
             debugInfo: self.debugInfo,
             panicStrategy: self.panicStrategy,
             lto: self.lto,
+            cpu: self.cpu,
             defines: self.defines,
             systemLibraries: self.systemLibraries,
         }
@@ -537,33 +564,39 @@ extend StaticArchiveOptions {
             debugInfo: self.debugInfo,
             panicStrategy: self.panicStrategy,
             lto: self.lto,
+            cpu: self.cpu,
             defines: self.defines,
             systemLibraries: self.systemLibraries,
         }
     }
 
     pub fun withLinkage(self, linkage: Linkage) StaticArchiveOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withDebugInfo(self, debugInfo: DebugInfo) StaticArchiveOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withPanicStrategy(self, panicStrategy: PanicStrategy) StaticArchiveOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withLto(self, lto: LtoMode) StaticArchiveOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: ?lto, defines: self.defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: ?lto, cpu: self.cpu, defines: self.defines, systemLibraries: self.systemLibraries }
+    }
+
+    // Selects the oldest processor the product may run on.
+    pub fun withCpu(self, cpu: CpuLevel) StaticArchiveOptions {
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: ?cpu, defines: self.defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withDefines(self, defines: &[ArtifactDefine]) StaticArchiveOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: ?defines, systemLibraries: self.systemLibraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: ?defines, systemLibraries: self.systemLibraries }
     }
 
     pub fun withSystemLibraries(self, libraries: &[SystemLibrary]) StaticArchiveOptions {
-        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, defines: self.defines, systemLibraries: ?libraries }
+        .{ name: self.name, rootModule: self.rootModule, outputName: self.outputName, target: self.target, linkage: self.linkage, debugInfo: self.debugInfo, panicStrategy: self.panicStrategy, lto: self.lto, cpu: self.cpu, defines: self.defines, systemLibraries: ?libraries }
     }
 }
 

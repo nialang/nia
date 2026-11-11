@@ -15,6 +15,7 @@ use crate::{
 };
 use nia_linker::{ExecutableForm, Interpreter, LinkOptions};
 use nia_package_metadata::DependencyScope;
+use nia_target::CpuLevel;
 use std::io::{Seek as _, SeekFrom};
 
 #[cfg(unix)]
@@ -63,7 +64,7 @@ mod source_display_path_tests {
 pub(super) struct DriverActionExecutor {
     plan: Arc<BuildPlan>,
     invocation: Arc<BuildInvocation>,
-    drivers: Arc<BTreeMap<TargetConfig, Arc<Driver>>>,
+    drivers: Arc<BTreeMap<(TargetConfig, CpuLevel), Arc<Driver>>>,
     package_dependency_classes: Arc<BTreeMap<PackageKey, BTreeSet<DependencyScope>>>,
     process_output_writer: Option<Arc<dyn crate::ProcessOutputWriter>>,
     progress: Option<ProgressSession>,
@@ -115,18 +116,28 @@ impl DriverActionExecutor {
         let invocation = Arc::new(invocation);
         let mut drivers = BTreeMap::new();
         for action in plan.actions() {
-            let target = match &action.kind {
-                ActionKind::CompilerCheck { target, .. }
-                | ActionKind::CompilerEmit { target, .. } => target,
+            let (target, configuration) = match &action.kind {
+                ActionKind::CompilerCheck {
+                    target,
+                    configuration,
+                    ..
+                }
+                | ActionKind::CompilerEmit {
+                    target,
+                    configuration,
+                    ..
+                } => (target, configuration),
                 _ => continue,
             };
-            drivers.entry(*target).or_insert_with(|| {
+            let cpu = action_cpu(&plan, &invocation, target, configuration);
+            drivers.entry((*target, cpu)).or_insert_with(|| {
                 Arc::new(Driver::with_config(
                     DriverConfig {
                         artifact_cache_dir: Some(invocation.artifact_cache_dir.clone()),
                         ..DriverConfig::new(Arc::clone(&invocation.toolchain))
                     }
-                    .with_artifact_target(*target),
+                    .with_artifact_target(*target)
+                    .with_cpu(cpu),
                 ))
             });
         }
@@ -792,7 +803,8 @@ impl DriverActionExecutor {
             )
         })?;
         let request = self.check_request(action, module_key, target, runtime, mode)?;
-        let driver = self.driver(action, target)?;
+        let driver = self.driver(action, target, configuration)?;
+        let cpu_identity = self.cpu_identity(action, driver)?;
         // The cheap manifest is sufficient for lookup. A successful check may
         // discover a different provider closure, so only its returned manifest
         // is authoritative for the record that gets published below.
@@ -824,6 +836,7 @@ impl DriverActionExecutor {
             configuration,
             manifest: &precheck_manifest,
             toolchain: self.invocation.toolchain.identity(),
+            cpu: &cpu_identity,
         });
         let miss_reason = match precheck_identity.as_ref() {
             None => ActionCacheMissReason::Uncacheable,
@@ -870,6 +883,7 @@ impl DriverActionExecutor {
                 configuration,
                 manifest: &checked.source_manifest,
                 toolchain: self.invocation.toolchain.identity(),
+                cpu: &cpu_identity,
             })
         else {
             return Ok(Some(ActionCacheOutcome::Miss(
@@ -924,7 +938,8 @@ impl DriverActionExecutor {
             artifact.mode,
         )?;
         let output = self.resolve_path(action, &artifact.output)?;
-        let driver = self.driver(action, target)?;
+        let driver = self.driver(action, target, &artifact.configuration)?;
+        let cpu_identity = self.cpu_identity(action, driver)?;
         let mut cache_link_inputs = Vec::with_capacity(static_archives.len());
         let mut linker_inputs = Vec::with_capacity(static_archives.len());
         for archive_key in static_archives {
@@ -1025,6 +1040,7 @@ impl DriverActionExecutor {
                 configuration: &artifact.configuration,
                 manifest: &precheck_manifest,
                 toolchain: self.invocation.toolchain.identity(),
+                cpu: &cpu_identity,
                 link_environment: environment,
                 link_inputs: &cache_link_inputs,
             })
@@ -1092,6 +1108,7 @@ impl DriverActionExecutor {
                     configuration: &artifact.configuration,
                     manifest: &checked.source_manifest,
                     toolchain: self.invocation.toolchain.identity(),
+                    cpu: &cpu_identity,
                     link_environment: environment,
                     link_inputs: &cache_link_inputs,
                 })
@@ -1174,6 +1191,7 @@ impl DriverActionExecutor {
             configuration: &artifact.configuration,
             manifest: &linked.source_manifest,
             toolchain: self.invocation.toolchain.identity(),
+            cpu: &cpu_identity,
             link_environment,
             link_inputs: &cache_link_inputs,
         }) else {
@@ -1208,7 +1226,7 @@ impl DriverActionExecutor {
             artifact.mode,
         )?;
         let output = self.resolve_path(action, &artifact.output)?;
-        let driver = self.driver(action, target)?;
+        let driver = self.driver(action, target, &artifact.configuration)?;
         let emit_activity = self
             .progress
             .as_ref()
@@ -1264,7 +1282,7 @@ impl DriverActionExecutor {
             artifact.mode,
         )?;
         let output = self.resolve_path(action, &artifact.output)?;
-        let driver = self.driver(action, target)?;
+        let driver = self.driver(action, target, &artifact.configuration)?;
         let emitted = driver
             .emit_native_objects(EmitObjectRequest::new(request))
             .result
@@ -1621,13 +1639,33 @@ impl DriverActionExecutor {
         &self,
         action: &PlanAction,
         target: &TargetConfig,
+        configuration: &ArtifactConfiguration,
     ) -> Result<&Driver, CoordinatorError> {
-        self.drivers.get(target).map(Arc::as_ref).ok_or_else(|| {
-            inconsistent(
-                format!("action `{}`", action.key.name()),
-                format!("compiler driver for target `{}`", target),
-            )
-        })
+        let cpu = action_cpu(&self.plan, &self.invocation, target, configuration);
+        self.drivers
+            .get(&(*target, cpu))
+            .map(Arc::as_ref)
+            .ok_or_else(|| {
+                inconsistent(
+                    format!("action `{}`", action.key.name()),
+                    format!("compiler driver for target `{target}` at CPU level `{cpu}`"),
+                )
+            })
+    }
+
+    /// The CPU model and features `driver` generates code for, which every
+    /// cache identity of its products includes.
+    fn cpu_identity(
+        &self,
+        action: &PlanAction,
+        driver: &Driver,
+    ) -> Result<String, CoordinatorError> {
+        driver
+            .cpu_identity()
+            .map_err(|error| CoordinatorError::Driver {
+                action: action.key.clone(),
+                error: Box::new(error),
+            })
     }
 
     fn resolve_source_path(
@@ -2015,6 +2053,25 @@ fn link_time_optimization_tag(policy: LinkTimeOptimization) -> u8 {
 }
 
 // An artifact that names no LTO mode follows the level it is built at.
+/// The CPU level a compiler action generates code for: the artifact's own
+/// level, else the invocation's `--cpu` when the action builds for the
+/// invocation's artifact target, else the baseline. `--cpu` qualifies the
+/// artifact target, so it does not reach a host tool in a cross build.
+fn action_cpu(
+    plan: &BuildPlan,
+    invocation: &BuildInvocation,
+    target: &TargetConfig,
+    configuration: &ArtifactConfiguration,
+) -> CpuLevel {
+    configuration
+        .cpu
+        .unwrap_or(if target == plan.artifact_target() {
+            invocation.cpu
+        } else {
+            CpuLevel::Baseline
+        })
+}
+
 fn artifact_lto_policy(
     policy: Option<ArtifactLto>,
     level: OptimizationMode,

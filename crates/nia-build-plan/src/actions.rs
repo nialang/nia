@@ -46,9 +46,36 @@ pub(crate) fn canonicalize_actions(
             });
         }
     }
+    // A CPU level names processors of one architecture, and `native` names
+    // the host's processor, so each compiler action's level must describe
+    // the target it compiles for. An unset level is resolved per target by
+    // the executor and always fits.
+    for action in actions.iter() {
+        let (ActionKind::CompilerCheck {
+            target,
+            configuration,
+            ..
+        }
+        | ActionKind::CompilerEmit {
+            target,
+            configuration,
+            ..
+        }) = &action.kind
+        else {
+            continue;
+        };
+        if let Some(cpu) = configuration.cpu
+            && let Err(error) = cpu.check(*target, Some(*host_target))
+        {
+            return Err(PlanError::InvalidCpuLevel {
+                action: action.key.clone(),
+                error,
+            });
+        }
+    }
     // Compiler actions may name any maintained target; decoding already
     // rejects names outside the matrix, and the executor creates one driver
-    // per distinct target.
+    // per distinct target and CPU level.
     for action in actions {
         match &mut action.kind {
             ActionKind::TestExecutable(CommandAction { cache_policy, .. })

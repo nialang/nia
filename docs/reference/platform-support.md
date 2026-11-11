@@ -84,8 +84,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
 Within one target, newer processors add instructions. A CPU level names the
 oldest processor generated code may run on: the code uses every instruction the
 level guarantees, so on an older processor it stops with an illegal-instruction
-fault, and nothing diagnoses that ahead of time. `nia emit --llvm`, `--obj`, and
-`--exe` accept `--cpu <level>`:
+fault, and nothing diagnoses that ahead of time. `nia emit --backend`, `--llvm`,
+`--obj`, and `--exe` and `nia build` accept `--cpu <level>`, and a build script
+can pin an artifact's level with
+[`withCpu`](../guides/build-scripts.md#artifact-configuration):
 
 | Level | Targets | Guarantees beyond the level before it |
 | --- | --- | --- |

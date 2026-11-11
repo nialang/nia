@@ -266,6 +266,7 @@ the artifact declaration and is frozen into the build plan:
 | `withDebugInfo(DebugInfo::None)` / `LineTables` / `Full` | Records the requested debug metadata in the plan. |
 | `withPanicStrategy(PanicStrategy::Abort)` / `Unwind` | Records the requested panic strategy in the plan. |
 | `withLto(LtoMode::Off)` / `Thin` / `Full` | Selects link-time optimization. Without it, the artifact follows the [default for its level](../reference/cli.md#nia-check-and-nia-emit). |
+| `withCpu(CpuLevel::Baseline)` / `X86_64V2` / `X86_64V3` / `X86_64V4` / `Native` | Selects the oldest processor the product may run on; see [CPU levels](../reference/platform-support.md#cpu-levels). Without it, an artifact built for the invocation's artifact target follows `nia build --cpu`, and any other artifact, such as a tool built for the host, uses `Baseline`. |
 | `withDefines(&[ArtifactDefine])` | Records ordered symbols in the plan. Use `ArtifactDefine::init(name)` for each symbol. |
 | `withSystemLibraries(&[SystemLibrary])` | Adds ordered native libraries for the linker. Use `SystemLibrary::init(name, mode)` with `Default`, `Static`, or `Dynamic` search mode. |
 
@@ -285,7 +286,9 @@ let app = b.addExecutable(
 ).?;
 ```
 
-Linkage, LTO, and system libraries change how the artifact is linked; linkage
+A CPU level must fit the artifact's target: the `X86_64` levels need an
+x86_64 target, and `Native` needs the host target; otherwise configuration
+fails. Linkage, LTO, and system libraries change how the artifact is linked; linkage
 applies to Linux executables. Debug information, the panic strategy, and
 defines are recorded in the plan and its cache identity, but the compiler does
 not act on them. Changing any configured field invalidates the affected check,

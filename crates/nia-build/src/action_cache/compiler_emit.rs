@@ -166,6 +166,8 @@ pub(crate) struct CompilerEmitCacheIdentityInput<'a> {
     pub(crate) toolchain: &'a ToolchainIdentity,
     pub(crate) link_environment: ExecutableCacheEnvironment,
     pub(crate) link_inputs: &'a [CompilerEmitCacheLinkInput],
+    /// The driver's CPU model and features for the resolved CPU level.
+    pub(crate) cpu: &'a str,
 }
 
 impl CompilerEmitCacheIdentity {
@@ -181,6 +183,7 @@ impl CompilerEmitCacheIdentity {
             configuration: input.configuration,
             manifest: input.manifest,
             toolchain: input.toolchain,
+            cpu: input.cpu,
         })?;
         let output = logical_path_identity(&input.artifact.output);
         let artifact = artifact_identity(input.artifact);

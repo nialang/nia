@@ -49,6 +49,17 @@ impl Driver {
         }
     }
 
+    /// The CPU model and feature string code generation uses for the
+    /// configured target and level, which a cache of generated products must
+    /// key on. For `native` this names the host's processor, so such a cache
+    /// never shares an entry between machines.
+    pub fn cpu_identity(&self) -> Result<String, DriverError> {
+        let identity =
+            nia_codegen_llvm::target_machine_identity(self.config.artifact_target, self.config.cpu)
+                .map_err(|error| DriverError::InternalDiagnostic(error.diagnostic()))?;
+        Ok(format!("{}\0{}", identity.cpu, identity.features))
+    }
+
     /// Returns the current executable cache environment fingerprint.
     pub fn executable_cache_environment(&self) -> Option<ExecutableCacheEnvironment> {
         self.executable_cache_environment_for(&LinkOptions::default())

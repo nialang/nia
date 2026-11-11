@@ -45,6 +45,7 @@ using types::{
     DebugInfo,
     PanicStrategy,
     LtoMode,
+    CpuLevel,
     OwnedSystemLibrary,
 };
 
@@ -231,6 +232,7 @@ extend PlanEncoder {
         debugInfo: DebugInfo,
         panicStrategy: PanicStrategy,
         lto: ?LtoMode,
+        cpu: ?CpuLevel,
         defines: &[string::String],
         systemLibraries: &[OwnedSystemLibrary],
     ) Error!() {
@@ -257,6 +259,16 @@ extend PlanEncoder {
             ?.Off => 1,
             ?.Thin => 2,
             ?.Full => 3,
+            ?_ => return invalidPlan(),
+        }).?;
+        // Unset follows the invocation level.
+        self.writeU8(match cpu {
+            null => 0,
+            ?.Baseline => 1,
+            ?.X86_64V2 => 2,
+            ?.X86_64V3 => 3,
+            ?.X86_64V4 => 4,
+            ?.Native => 5,
             ?_ => return invalidPlan(),
         }).?;
         self.writeCount(defines.len()).?;
@@ -333,7 +345,7 @@ extend PlanEncoder {
         self.writeBuildPath(target.outputName.text()).?;
         self.writeRuntime(target.runtime).?;
         self.writeCompilationMode(target.test).?;
-        self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
+        self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.cpu, target.defines.asSlice(), target.systemLibraries.asSlice())
     }
 
     fun writeObjectArtifact(&mut self, target: ObjectTarget, modules: &[Module]) Error!() {
@@ -344,7 +356,7 @@ extend PlanEncoder {
         self.writeBuildPath(target.outputName.text()).?;
         self.writeU8(0).?;
         self.writeCompilationMode(false).?;
-        self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
+        self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.cpu, target.defines.asSlice(), target.systemLibraries.asSlice())
     }
 
     fun writeStaticArchiveArtifact(&mut self, target: StaticArchiveTarget, modules: &[Module]) Error!() {
@@ -355,7 +367,7 @@ extend PlanEncoder {
         self.writeBuildPath(target.outputName.text()).?;
         self.writeU8(0).?;
         self.writeCompilationMode(false).?;
-        self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
+        self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.cpu, target.defines.asSlice(), target.systemLibraries.asSlice())
     }
 
     fun writeAction(
@@ -388,7 +400,7 @@ extend PlanEncoder {
                 self.writeTarget(targets[target.targetIndex].view()).?;
                 self.writeU8(1).?;
                 self.writeCompilationMode(target.test).?;
-                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
+                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.cpu, target.defines.asSlice(), target.systemLibraries.asSlice())
             },
             .EmitExecutable => {
                 let target = executables[step.payload.executable.target.index];
@@ -400,7 +412,7 @@ extend PlanEncoder {
                     let archiveTarget = staticArchives[archive.index];
                     self.writeRootNodeKey(archiveTarget.name.text()).?;
                 }
-                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
+                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.cpu, target.defines.asSlice(), target.systemLibraries.asSlice())
             },
             .EmitObject => {
                 let target = objects[step.payload.object.target.index];
@@ -408,7 +420,7 @@ extend PlanEncoder {
                 self.writeRootNodeKey(target.name.text()).?;
                 self.writeTarget(targets[target.targetIndex].view()).?;
                 self.writeCount(0).?;
-                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
+                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.cpu, target.defines.asSlice(), target.systemLibraries.asSlice())
             },
             .EmitStaticArchive => {
                 let target = staticArchives[step.payload.staticArchive.target.index];
@@ -416,7 +428,7 @@ extend PlanEncoder {
                 self.writeRootNodeKey(target.name.text()).?;
                 self.writeTarget(targets[target.targetIndex].view()).?;
                 self.writeCount(0).?;
-                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.defines.asSlice(), target.systemLibraries.asSlice())
+                self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.cpu, target.defines.asSlice(), target.systemLibraries.asSlice())
             },
             .RunExecutable => {
                 let run = step.payload.runExecutable;
@@ -644,7 +656,7 @@ extend PlanEncoder {
     }
 
     fun writeBuild(&mut self, build: &Build) Error!() {
-        self.writeBytes(b"NIA-PLN\x04").?;
+        self.writeBytes(b"NIA-PLN\x05").?;
         self.writeU32(build.protocolEpoch).?;
         self.writeRootPackage().?;
         let packageCount = PlanEncoder::addCount(build.packages.len(), 1).?;

@@ -65,6 +65,7 @@ use nia_ty::TypeStore;
 pub use output::{
     FullLtoCodegenConfig, LlvmCodegenOptions, LlvmCodegenOutput, LlvmLtoModuleOutput,
     LlvmModuleOutput, LlvmObjectOutput, LtoMode, LtoModule, NativeObject, ThinLtoCodegenConfig,
+    target_machine_identity,
 };
 use program_index::ProgramIndex;
 use readiness::{

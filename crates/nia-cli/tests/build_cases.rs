@@ -224,6 +224,126 @@ pub fun build(b: &mut build::Build) build::Error!() {
     assert!(!stderr.contains("stale build files"), "{stderr}");
 }
 
+/// Builds an artifact whose `lookup16` becomes the SSSE3 `pshufb` only at
+/// `x86_64-v2` and above, so the instruction shows which level was used.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn artifacts_follow_their_own_cpu_level_or_the_invocation_level() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("artifact-cpu-levels");
+    std::fs::create_dir_all(root.join("src")).expect("source directory");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"cpu_levels\"\nversion = \"0.1.0\"\nprotocol-epoch = 3\n\n[[executable]]\nname = \"plain\"\npath = \"src/main.nia\"\n",
+    )
+    .expect("package manifest");
+    std::fs::write(
+        root.join("src/main.nia"),
+        r#"using std::builtin;
+using std::process;
+
+@[inlineNever]
+fun lookup(table: u8x16, indices: u8x16) u8x16 {
+    builtin::lookup16(table, indices)
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let table = builtin::insert(builtin::splat[u8x16](7u8), 3, 9u8);
+    if builtin::extract(lookup(table, builtin::splat[u8x16](3u8)), 0) != 9 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("program source");
+    std::fs::write(
+        root.join("build.nia"),
+        r#"using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let main = b.addModule(build::ModuleOptions::init("pinned-main", fs::PathView::init("src/main.nia"))).?;
+    let pinned = b.addExecutable(
+        build::ExecutableOptions::init("pinned", main).withCpu(build::CpuLevel::X86_64V2),
+    ).?;
+    _ = b.addEmitExecutableStep("pinned", pinned).?;
+    !()
+}
+"#,
+    )
+    .expect("build script");
+
+    let exe = |name: &str| {
+        root.join("build/out")
+            .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
+    };
+    // `66 0f 38 00 /r` encodes the legacy-SSE `pshufb xmm, xmm/m128`.
+    let uses_pshufb = |name: &str| {
+        let bytes = std::fs::read(exe(name)).expect("read executable");
+        bytes.windows(4).any(|w| w == [0x66, 0x0f, 0x38, 0x00])
+    };
+    let build = |step: &str, cpu: Option<&str>| {
+        let mut command = support::nia_command();
+        command
+            .args(["build", step, "-O2", "-q", "--root"])
+            .arg(&*root);
+        if let Some(cpu) = cpu {
+            command.args(["--cpu", cpu]);
+        }
+        let output = command.output_timeout_in_session("build at a CPU level");
+        assert!(
+            output.status.success(),
+            "{step} {cpu:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(exe(step)).status_timeout("run built executable");
+        assert_eq!(status.code(), Some(0), "{step} {cpu:?}");
+    };
+
+    build("plain", None);
+    assert!(!uses_pshufb("plain"), "the default level is the baseline");
+    build("plain", Some("x86_64-v2"));
+    assert!(uses_pshufb("plain"), "an unpinned artifact follows --cpu");
+    // The cache key holds the level, so the baseline build is not the v2 one.
+    build("plain", None);
+    assert!(!uses_pshufb("plain"), "returning to the baseline rebuilds");
+    build("pinned", None);
+    assert!(uses_pshufb("pinned"), "withCpu pins the artifact's level");
+
+    // The printed plan shows the pinned level and the unpinned rule.
+    let plan = support::nia_command()
+        .args(["build", "--print-plan", "--root"])
+        .arg(&*root)
+        .output_timeout_in_session("print the plan");
+    let printed = String::from_utf8_lossy(&plan.stdout);
+    assert!(printed.contains(r#""cpu":"x86_64-v2""#), "{printed}");
+    assert!(printed.contains(r#""cpu":"invocation""#), "{printed}");
+
+    // A pinned level must describe the artifact's target.
+    let cross = support::nia_command()
+        .args([
+            "--target",
+            "aarch64-unknown-linux",
+            "build",
+            "pinned",
+            "--root",
+        ])
+        .arg(&*root)
+        .output_timeout_in_session("reject a pinned level for another architecture");
+    let stderr = String::from_utf8_lossy(&cross.stderr);
+    assert!(!cross.status.success());
+    assert!(
+        stderr.contains("the build script declares an invalid build"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("CPU level `x86_64-v2` is for x86_64 targets, not `aarch64-unknown-linux`"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn run_steps_receive_arguments_after_the_separator() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
