@@ -509,6 +509,257 @@ impl fmt::Display for CpuLevelError {
 
 impl std::error::Error for CpuLevelError {}
 
+/// A processor feature that conditional compilation can test with
+/// `hasFeature("name")`.
+///
+/// The table holds the features the x86-64 levels are defined by and the
+/// AArch64 vector unit. Names are Nia's own, so a future LLVM rename cannot
+/// change what a condition means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CpuFeature {
+    /// SSE2; every x86_64 processor has it.
+    Sse2,
+    /// SSE3.
+    Sse3,
+    /// Supplemental SSE3, which adds the byte shuffle `pshufb`.
+    Ssse3,
+    /// SSE4.1.
+    Sse4_1,
+    /// SSE4.2.
+    Sse4_2,
+    /// The population-count instruction.
+    Popcnt,
+    /// The 16-byte compare-and-exchange instruction.
+    Cmpxchg16b,
+    /// AVX.
+    Avx,
+    /// AVX2.
+    Avx2,
+    /// Fused multiply-add.
+    Fma,
+    /// Bit manipulation instructions, set 1.
+    Bmi1,
+    /// Bit manipulation instructions, set 2.
+    Bmi2,
+    /// The leading-zero-count instruction.
+    Lzcnt,
+    /// The byte-swapping move instruction.
+    Movbe,
+    /// Half-precision conversion instructions.
+    F16c,
+    /// AVX-512 foundation.
+    Avx512f,
+    /// AVX-512 byte and word instructions.
+    Avx512bw,
+    /// AVX-512 conflict detection.
+    Avx512cd,
+    /// AVX-512 doubleword and quadword instructions.
+    Avx512dq,
+    /// AVX-512 vector length extensions.
+    Avx512vl,
+    /// The AArch64 Advanced SIMD unit; every AArch64 processor has it.
+    Neon,
+}
+
+/// Every CPU feature, in display order.
+pub const CPU_FEATURES: [CpuFeature; 21] = [
+    CpuFeature::Sse2,
+    CpuFeature::Sse3,
+    CpuFeature::Ssse3,
+    CpuFeature::Sse4_1,
+    CpuFeature::Sse4_2,
+    CpuFeature::Popcnt,
+    CpuFeature::Cmpxchg16b,
+    CpuFeature::Avx,
+    CpuFeature::Avx2,
+    CpuFeature::Fma,
+    CpuFeature::Bmi1,
+    CpuFeature::Bmi2,
+    CpuFeature::Lzcnt,
+    CpuFeature::Movbe,
+    CpuFeature::F16c,
+    CpuFeature::Avx512f,
+    CpuFeature::Avx512bw,
+    CpuFeature::Avx512cd,
+    CpuFeature::Avx512dq,
+    CpuFeature::Avx512vl,
+    CpuFeature::Neon,
+];
+
+impl CpuFeature {
+    /// Canonical name, accepted by [`CpuFeature::parse`].
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Sse2 => "sse2",
+            Self::Sse3 => "sse3",
+            Self::Ssse3 => "ssse3",
+            Self::Sse4_1 => "sse4_1",
+            Self::Sse4_2 => "sse4_2",
+            Self::Popcnt => "popcnt",
+            Self::Cmpxchg16b => "cmpxchg16b",
+            Self::Avx => "avx",
+            Self::Avx2 => "avx2",
+            Self::Fma => "fma",
+            Self::Bmi1 => "bmi1",
+            Self::Bmi2 => "bmi2",
+            Self::Lzcnt => "lzcnt",
+            Self::Movbe => "movbe",
+            Self::F16c => "f16c",
+            Self::Avx512f => "avx512f",
+            Self::Avx512bw => "avx512bw",
+            Self::Avx512cd => "avx512cd",
+            Self::Avx512dq => "avx512dq",
+            Self::Avx512vl => "avx512vl",
+            Self::Neon => "neon",
+        }
+    }
+
+    /// Parses a canonical feature name, such as `avx2`.
+    pub fn parse(name: &str) -> Option<Self> {
+        CPU_FEATURES
+            .into_iter()
+            .find(|feature| feature.name() == name)
+    }
+
+    /// The architecture whose processors may have this feature.
+    pub const fn arch(self) -> Arch {
+        match self {
+            Self::Neon => Arch::Aarch64,
+            _ => Arch::X86_64,
+        }
+    }
+
+    /// LLVM's name for the feature in a target feature string.
+    const fn llvm_name(self) -> &'static str {
+        match self {
+            Self::Sse4_1 => "sse4.1",
+            Self::Sse4_2 => "sse4.2",
+            Self::Cmpxchg16b => "cx16",
+            Self::Bmi1 => "bmi",
+            _ => self.name(),
+        }
+    }
+
+    /// The x86-64 psABI level that first guarantees the feature; `None` for
+    /// a feature of another architecture.
+    const fn x86_64_level(self) -> Option<CpuLevel> {
+        match self {
+            Self::Sse2 => Some(CpuLevel::Baseline),
+            Self::Sse3
+            | Self::Ssse3
+            | Self::Sse4_1
+            | Self::Sse4_2
+            | Self::Popcnt
+            | Self::Cmpxchg16b => Some(CpuLevel::X86_64V2),
+            Self::Avx
+            | Self::Avx2
+            | Self::Fma
+            | Self::Bmi1
+            | Self::Bmi2
+            | Self::Lzcnt
+            | Self::Movbe
+            | Self::F16c => Some(CpuLevel::X86_64V3),
+            Self::Avx512f | Self::Avx512bw | Self::Avx512cd | Self::Avx512dq | Self::Avx512vl => {
+                Some(CpuLevel::X86_64V4)
+            }
+            Self::Neon => None,
+        }
+    }
+
+    const fn bit(self) -> u32 {
+        1 << (self as u32)
+    }
+}
+
+impl fmt::Display for CpuFeature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// The CPU features generated code may rely on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct CpuFeatures(u32);
+
+impl CpuFeatures {
+    /// Whether code may rely on `feature`.
+    pub const fn contains(self, feature: CpuFeature) -> bool {
+        self.0 & feature.bit() != 0
+    }
+
+    /// The set as stable bits for persistent identities: bit `i` is feature
+    /// `CPU_FEATURES[i]`. Appending a feature keeps every existing bit.
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    /// The features in display order.
+    pub fn iter(self) -> impl Iterator<Item = CpuFeature> {
+        CPU_FEATURES
+            .into_iter()
+            .filter(move |feature| self.contains(*feature))
+    }
+
+    fn with(self, feature: CpuFeature) -> Self {
+        Self(self.0 | feature.bit())
+    }
+
+    /// The features every processor of `target` has.
+    pub fn baseline(target: TargetConfig) -> Self {
+        let mut features = Self::default();
+        match (target.arch(), target.os()) {
+            (Arch::X86, _) => {}
+            // The macOS baseline is `core2`, which adds SSE3 and SSSE3.
+            (Arch::X86_64, Os::Macos) => {
+                features = features
+                    .with(CpuFeature::Sse2)
+                    .with(CpuFeature::Sse3)
+                    .with(CpuFeature::Ssse3);
+            }
+            (Arch::X86_64, _) => features = features.with(CpuFeature::Sse2),
+            (Arch::Aarch64, _) => features = features.with(CpuFeature::Neon),
+        }
+        features
+    }
+
+    /// The features `level` guarantees on `target`, or `None` for
+    /// [`CpuLevel::Native`], which only the processor itself can report.
+    /// The level must fit the target, as [`CpuLevel::check`] requires.
+    pub fn for_level(target: TargetConfig, level: CpuLevel) -> Option<Self> {
+        if level == CpuLevel::Native {
+            return None;
+        }
+        let mut features = Self::baseline(target);
+        if target.arch() == Arch::X86_64 {
+            for feature in CPU_FEATURES {
+                if feature.x86_64_level().is_some_and(|first| first <= level) {
+                    features = features.with(feature);
+                }
+            }
+        }
+        Some(features)
+    }
+
+    /// The features an LLVM target feature string such as
+    /// `+sse2,+avx2,-avx512f` enables on `target`, together with the
+    /// target's baseline. Features of another architecture are ignored.
+    pub fn from_llvm_features(target: TargetConfig, llvm_features: &str) -> Self {
+        let mut features = Self::baseline(target);
+        for entry in llvm_features.split(',') {
+            let Some(name) = entry.strip_prefix('+') else {
+                continue;
+            };
+            if let Some(feature) = CPU_FEATURES
+                .into_iter()
+                .find(|feature| feature.arch() == target.arch() && feature.llvm_name() == name)
+            {
+                features = features.with(feature);
+            }
+        }
+        features
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -652,5 +903,79 @@ mod tests {
             CpuLevel::Native.check(linux, None),
             Err(CpuLevelError::NativeForeignTarget { host: None, .. })
         ));
+    }
+
+    #[test]
+    fn cpu_features_round_trip_their_names_and_keep_stable_bits() {
+        for (index, feature) in CPU_FEATURES.into_iter().enumerate() {
+            assert_eq!(CpuFeature::parse(feature.name()), Some(feature));
+            assert_eq!(feature.bit(), 1 << index, "{feature}");
+        }
+        // LLVM spellings are not feature names.
+        assert_eq!(CpuFeature::parse("sse4.2"), None);
+        assert_eq!(CpuFeature::parse("bmi"), None);
+    }
+
+    #[test]
+    fn cpu_levels_imply_the_psabi_feature_sets() {
+        let linux = TargetConfig::parse("x86_64-unknown-linux").expect("maintained target");
+        let names = |level| {
+            CpuFeatures::for_level(linux, level)
+                .expect("named level")
+                .iter()
+                .map(CpuFeature::name)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(CpuLevel::Baseline), ["sse2"]);
+        assert_eq!(
+            names(CpuLevel::X86_64V2),
+            [
+                "sse2",
+                "sse3",
+                "ssse3",
+                "sse4_1",
+                "sse4_2",
+                "popcnt",
+                "cmpxchg16b"
+            ]
+        );
+        let v3 = CpuFeatures::for_level(linux, CpuLevel::X86_64V3).expect("named level");
+        assert!(v3.contains(CpuFeature::Avx2) && v3.contains(CpuFeature::Bmi2));
+        assert!(!v3.contains(CpuFeature::Avx512f));
+        let v4 = CpuFeatures::for_level(linux, CpuLevel::X86_64V4).expect("named level");
+        assert_eq!(
+            v4.iter().count(),
+            CPU_FEATURES.len() - 1,
+            "v4 has every x86 feature"
+        );
+        assert_eq!(CpuFeatures::for_level(linux, CpuLevel::Native), None);
+
+        // Baselines differ by target, not only by architecture.
+        let macos = TargetConfig::parse("x86_64-apple-macos").expect("maintained target");
+        assert!(CpuFeatures::baseline(macos).contains(CpuFeature::Ssse3));
+        let i686 = TargetConfig::parse("x86-unknown-linux").expect("maintained target");
+        assert_eq!(CpuFeatures::baseline(i686), CpuFeatures::default());
+        let aarch64 = TargetConfig::parse("aarch64-unknown-linux").expect("maintained target");
+        assert_eq!(
+            CpuFeatures::baseline(aarch64).iter().collect::<Vec<_>>(),
+            [CpuFeature::Neon]
+        );
+    }
+
+    #[test]
+    fn llvm_feature_strings_map_to_cpu_features_of_the_target() {
+        let linux = TargetConfig::parse("x86_64-unknown-linux").expect("maintained target");
+        let features =
+            CpuFeatures::from_llvm_features(linux, "+sse4.2,+bmi,-avx512f,+cx16,+neon,+unknown");
+        assert_eq!(
+            features.iter().map(CpuFeature::name).collect::<Vec<_>>(),
+            ["sse2", "sse4_2", "cmpxchg16b", "bmi1"],
+            "baseline kept, disabled and foreign features dropped"
+        );
+        let aarch64 = TargetConfig::parse("aarch64-unknown-linux").expect("maintained target");
+        assert_eq!(
+            CpuFeatures::from_llvm_features(aarch64, "+avx2"),
+            CpuFeatures::baseline(aarch64)
+        );
     }
 }

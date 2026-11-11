@@ -353,6 +353,7 @@ pub mod known {
     known_symbol!(ENV, "env");
     known_symbol!(ENDIAN, "endian");
     known_symbol!(POINTER_WIDTH, "pointerWidth");
+    known_symbol!(HAS_FEATURE, "hasFeature");
 
     /// Complete text-to-identity registry used by deterministic resolvers.
     pub const WELL_KNOWN: &[(SymbolId, &str)] = &[
@@ -515,6 +516,7 @@ pub mod known {
         (ENV, "env"),
         (ENDIAN, "endian"),
         (POINTER_WIDTH, "pointerWidth"),
+        (HAS_FEATURE, "hasFeature"),
     ];
 
     /// Returns [`MODULE`].

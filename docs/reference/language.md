@@ -1012,8 +1012,8 @@ attribute has no effect.
 
 The condition of `@[if ...]` is a small language of its own, separate from
 Nia expressions and constant evaluation. It accepts `true`, `false`, integer and
-string literals, the target fact names below, `not`, `and`, `or`, `==`, `!=`,
-and parentheses.
+string literals, the target fact names below, `hasFeature("name")`, `not`,
+`and`, `or`, `==`, `!=`, and parentheses.
 
 | Name | Type | Meaning |
 | --- | --- | --- |
@@ -1027,6 +1027,17 @@ and parentheses.
 The values for each supported target are listed in
 [Target Facts](platform-support.md#target-facts). The same facts are available
 to ordinary code as constants in `std::builtin::target`.
+
+`hasFeature("name")` is true when the generated code may use that CPU
+feature, which depends on the [CPU level](platform-support.md#cpu-levels) the
+code is built for, not on the machine compiling it. The feature names, such as
+`"ssse3"`, `"avx2"`, and `"neon"`, and the level that first guarantees each are
+listed there. An unknown name is an error; a feature of another architecture
+is simply false, so a condition can name an AArch64 feature while building for
+x86_64.
+
+An item or statement may carry several `@[if ...]` attributes; it is kept only
+when every one holds, exactly as if their conditions were joined with `and`.
 
 ```nia
 @[if os == "linux" and arch == "x86_64"]
@@ -1044,12 +1055,24 @@ fun word_size() usize {
     return 8;
     4
 }
+
+@[if arch == "x86_64"]
+@[if hasFeature("avx2")]
+fun lanes() usize {
+    32
+}
+
+@[if not (arch == "x86_64" and hasFeature("avx2"))]
+fun lanes() usize {
+    16
+}
 ```
 
 The whole file must parse, so inactive code must be syntactically valid.
-Inactive items and statements are otherwise ignored for that target, including
-any type or name errors inside them. Code meant for several
-targets is checked once per target.
+Inactive items and statements are otherwise ignored for that target and CPU
+level, including any type or name errors inside them. Code meant for several
+targets or levels is checked once for each, so `nia check` takes `--cpu` as
+well.
 
 #### Build Profiles And Tests
 

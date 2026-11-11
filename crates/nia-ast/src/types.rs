@@ -1044,6 +1044,15 @@ fn write_condition_identity(out: &mut String, condition: &ConditionExpr) {
             write_condition_identity(out, expr);
             out.push(')');
         }
+        ConditionExprKind::Call { callee, args } => {
+            out.push_str("call(");
+            write_tagged_symbol(out, "callee", *callee);
+            for arg in args {
+                out.push('|');
+                write_condition_identity(out, arg);
+            }
+            out.push(')');
+        }
         ConditionExprKind::Binary { lhs, op, rhs } => {
             out.push_str("binary(");
             write_condition_identity(out, lhs);

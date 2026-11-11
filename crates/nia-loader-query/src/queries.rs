@@ -22,7 +22,7 @@ use nia_query::{
     QueryFingerprintPolicy, QueryKey, QueryResult, QueryRetirement,
 };
 use nia_source::{SourceFile, SourceId, SourcePath, SourceRevision, SourceVersion};
-use nia_target_config::prune_item_tree_for_target_with_profile_mode_and_symbols;
+use nia_target_config::prune_item_tree;
 use std::sync::Arc;
 
 const SOURCE_STATUS_DOMAIN: FingerprintDomain = FingerprintDomain::new("nia.loader.source-status");
@@ -55,6 +55,7 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
             provider_fact_revision,
             symbols: db.context().symbols.clone(),
             target: db.context().target,
+            cpu_features: db.context().cpu_features,
             profile: db.context().profile,
             compilation_mode: db.context().compilation_mode,
             runtime: db.context().runtime.clone(),
@@ -71,6 +72,7 @@ pub(crate) struct LoadedProgramValue {
     pub(crate) provider_fact_revision: nia_loader_contract::ProviderFactRevision,
     pub(crate) symbols: nia_symbol_table::SymbolTable,
     pub(crate) target: nia_target::TargetConfig,
+    pub(crate) cpu_features: nia_target::CpuFeatures,
     pub(crate) profile: nia_target_config::BuildProfile,
     pub(crate) compilation_mode: nia_target_config::CompilationMode,
     pub(crate) runtime: RuntimeSpec,
@@ -86,6 +88,7 @@ impl LoadedProgramValue {
             provider_fact_revision: self.provider_fact_revision,
             symbols: self.symbols.clone(),
             target: self.target,
+            cpu_features: self.cpu_features,
             profile: self.profile,
             compilation_mode: self.compilation_mode,
             runtime: self.runtime.clone(),
@@ -390,12 +393,16 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             db.context().symbols.clone(),
         );
         let item_tree = ModuleItemTree::from_owned_module(raw_module);
-        let prune_result = prune_item_tree_for_target_with_profile_mode_and_symbols(
+        let context = db.context();
+        let prune_result = prune_item_tree(
             &item_tree,
-            &db.context().target,
-            db.context().profile,
-            db.context().compilation_mode,
-            Some(&db.context().symbols),
+            &nia_target_config::ConditionContext {
+                target: context.target,
+                cpu: context.cpu_features,
+                profile: context.profile,
+                mode: context.compilation_mode,
+            },
+            Some(&context.symbols),
         );
         Ok(ParsedModuleValue {
             semantic: ParsedModule {

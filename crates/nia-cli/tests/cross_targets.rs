@@ -120,11 +120,62 @@ fn cpu_levels_are_checked_against_the_artifact_target() {
         ],
         "CPU level `native` describes this machine",
     );
-    // A level changes generated code only; checking ignores it until
-    // conditional compilation can query the CPU.
+    // Printing tokens or syntax compiles nothing, so no level applies.
     reject(
-        &["check", "--cpu", "x86_64-v2", "main.nia"],
-        "`--cpu` is not an option of `nia check`",
+        &["emit", "--ast", "--cpu", "x86_64-v2", "main.nia"],
+        "`--cpu` is not an option of `nia emit --ast`",
+    );
+}
+
+#[test]
+fn check_prunes_by_cpu_level_and_keeps_levels_apart_in_the_cache() {
+    let root = temp_dir("check_prunes_by_cpu_level");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        "@[if hasFeature(\"ssse3\")]\nfun needsSsse3() i32 {\n    1\n}\n\npub fun value() i32 {\n    needsSsse3()\n}\n",
+    )
+    .expect("write source");
+    let cache = root.join("cache");
+    let check = |level: &str| {
+        support::nia_command()
+            .args([
+                "--target",
+                "x86_64-unknown-linux",
+                "check",
+                "--cpu",
+                level,
+                "--cache-dir",
+            ])
+            .arg(&cache)
+            .arg(&main)
+            .output_timeout_for_compiler("check at a CPU level")
+    };
+    // Without SSSE3 the function is pruned, so the call names nothing. The
+    // shared cache must not hand the x86_64-v2 result back to the baseline.
+    for (level, passes) in [
+        ("baseline", false),
+        ("x86_64-v2", true),
+        ("baseline", false),
+    ] {
+        let output = check(level);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.success(), passes, "{level}: {stderr}");
+        if !passes {
+            assert!(
+                stderr.contains("unknown value `needsSsse3`"),
+                "{level}: {stderr}"
+            );
+        }
+    }
+
+    std::fs::write(&main, "@[if hasFeature(\"avx3\")]\nfun f() () {}\n").expect("write source");
+    let output = check("baseline");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("unknown CPU feature `avx3`; CPU features are `sse2`, `sse3`"),
+        "{stderr}"
     );
 }
 

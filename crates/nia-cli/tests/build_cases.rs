@@ -391,6 +391,62 @@ pub fun build(b: &mut build::Build) build::Error!() {
 }
 
 #[test]
+fn build_checks_conditional_source_at_the_resolved_cpu_level() {
+    let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
+    let root = nia_test_support::test_dir("build-cpu-conditional-source");
+    std::fs::create_dir_all(root.join("src")).expect("source directory");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"cpu_source\"\nversion = \"0.1.0\"\nprotocol-epoch = 3\n\n[[executable]]\nname = \"app\"\npath = \"src/main.nia\"\n\n[profile.release]\ncpu = \"x86_64-v2\"\n",
+    )
+    .expect("package manifest");
+    std::fs::write(
+        root.join("src/main.nia"),
+        r#"using std::process;
+
+@[if hasFeature("ssse3")]
+fun code() i32 {
+    0
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    process::ExitCode(code())!
+}
+"#,
+    )
+    .expect("program source");
+    let build = |extra: &[&str]| {
+        support::nia_command()
+            .args([
+                "--target",
+                "x86_64-unknown-linux",
+                "build",
+                "app",
+                "-q",
+                "--root",
+            ])
+            .arg(&*root)
+            .args(extra)
+            .output_timeout_in_session("build conditional source")
+    };
+    // The debug profile declares no level, so `code` is pruned.
+    let output = build(&[]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(stderr.contains("unknown value `code`"), "{stderr}");
+    // `--cpu` and the release profile both select a level with SSSE3.
+    for extra in [&["--cpu", "x86_64-v2"][..], &["--release"][..]] {
+        let output = build(extra);
+        assert!(
+            output.status.success(),
+            "{extra:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
 fn run_steps_receive_arguments_after_the_separator() {
     let _resources = nia_test_support::acquire_test_resources(TestWorkload::Build);
     let root = nia_test_support::test_dir("run-step-forwarded-arguments");

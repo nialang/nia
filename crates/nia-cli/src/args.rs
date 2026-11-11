@@ -718,7 +718,9 @@ pub(crate) const OPTIONS: &[OptionSpec] = &[
         id: OptionId::Cpu,
         names: &["--cpu"],
         arity: Arity::Value,
-        scope: Scope::BUILD.or(EMIT_OPTIMIZED),
+        // The level selects instructions and, through `hasFeature`, which
+        // conditional source is checked, so every compiled command takes it.
+        scope: Scope::BUILD.or(Scope::CHECK).or(EMIT_COMPILED),
         usage: "--cpu <level>",
         about: "generate code for a CPU level of the target (default: baseline)",
     },

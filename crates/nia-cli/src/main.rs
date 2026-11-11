@@ -925,6 +925,7 @@ fn run_check(
     let driver = nia_driver::Driver::with_config(nia_driver::DriverConfig {
         artifact_cache_dir: options.cache_dir,
         ..nia_driver::DriverConfig::new(toolchain)
+            .with_cpu(options.settings.cpu.unwrap_or_default())
     });
     let output = time_summary_stage(options.settings.timings, "check", || {
         driver.check_entry(request.clone())
@@ -994,7 +995,10 @@ fn run_emit_checked(entry: &SourceEntry, runtime: RuntimeMode, context: EmitCont
     let Some(request) = entry.request_or_report(&context.settings, runtime, format) else {
         return ExitCode::FAILURE;
     };
-    let driver = nia_driver::Driver::new(context.toolchain);
+    let driver = nia_driver::Driver::with_config(
+        nia_driver::DriverConfig::new(context.toolchain)
+            .with_cpu(context.settings.cpu.unwrap_or_default()),
+    );
     let output = time_summary_stage(context.settings.timings, "check", || {
         driver.check_entry(request)
     });
@@ -1012,7 +1016,10 @@ fn run_emit_backend(entry: &SourceEntry, runtime: RuntimeMode, context: EmitCont
     let Some(request) = entry.request_or_report(&context.settings, runtime, format) else {
         return ExitCode::FAILURE;
     };
-    let driver = nia_driver::Driver::new(context.toolchain);
+    let driver = nia_driver::Driver::with_config(
+        nia_driver::DriverConfig::new(context.toolchain)
+            .with_cpu(context.settings.cpu.unwrap_or_default()),
+    );
     let output = time_summary_stage(context.settings.timings, "codegen", || {
         driver.codegen(request)
     });

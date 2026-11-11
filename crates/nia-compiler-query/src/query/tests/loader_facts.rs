@@ -364,6 +364,10 @@ impl crate::LoaderFactProvider for TestLoaderFacts {
         *target
     }
 
+    fn cpu_features(&self) -> nia_target::CpuFeatures {
+        nia_target::CpuFeatures::baseline(self.target())
+    }
+
     fn runtime(&self) -> RuntimeSpec {
         let fact = self.fact(TestLoaderFactKey::Runtime);
         let TestLoaderFactValue::Runtime(runtime) = fact.as_ref() else {

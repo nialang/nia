@@ -33,6 +33,8 @@ pub enum SyntaxKind {
     ConditionParen,
     /// Literal or name conditional-compilation operand.
     ConditionAtom,
+    /// `name(args)` conditional-compilation call, such as `hasFeature("avx2")`.
+    ConditionCall,
     /// `pub`, `pub(super)`, or `pub(root)` visibility.
     Visibility,
     /// `module name;` declaration.

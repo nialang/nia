@@ -1226,6 +1226,20 @@ fn condition_unary(p: &mut Parser<'_>, stops: &[TokenKind]) -> Option<Parsed> {
         return None;
     }
     match p.kind() {
+        TokenKind::Ident if matches!(p.nth_kind(1), Some(TokenKind::LParen)) => p.node(|p| {
+            let start = p.bump().start;
+            p.bump();
+            while !p.at(TokenKind::RParen) && !p.at(TokenKind::Eof) {
+                condition_until(p, &[TokenKind::Comma, TokenKind::RParen])?;
+                if p.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            let end = p
+                .expect(TokenKind::RParen, "expected `)` after condition arguments")?
+                .end;
+            Done::new(SyntaxKind::ConditionCall, Span::new(start, end))
+        }),
         TokenKind::True
         | TokenKind::False
         | TokenKind::Integer

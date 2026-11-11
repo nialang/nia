@@ -125,6 +125,10 @@ impl crate::LoaderFactProvider for FingerprintedLoadedProgram {
         self.program.target()
     }
 
+    fn cpu_features(&self) -> nia_target::CpuFeatures {
+        self.program.cpu_features()
+    }
+
     fn runtime(&self) -> RuntimeSpec {
         self.program.runtime()
     }

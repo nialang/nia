@@ -60,6 +60,23 @@ impl Driver {
         Ok(format!("{}\0{}", identity.cpu, identity.features))
     }
 
+    /// The CPU features conditional compilation tests for the configured
+    /// target and level. A named level's features come from Nia's table;
+    /// `native` takes the features LLVM detects on the host, the same string
+    /// code generation uses, so pruning and code generation never disagree.
+    pub fn cpu_features(&self) -> Result<nia_target::CpuFeatures, DriverError> {
+        let target = self.config.artifact_target;
+        if let Some(features) = nia_target::CpuFeatures::for_level(target, self.config.cpu) {
+            return Ok(features);
+        }
+        let identity = nia_codegen_llvm::target_machine_identity(target, self.config.cpu)
+            .map_err(|error| DriverError::InternalDiagnostic(error.diagnostic()))?;
+        Ok(nia_target::CpuFeatures::from_llvm_features(
+            target,
+            &identity.features,
+        ))
+    }
+
     /// Returns the current executable cache environment fingerprint.
     pub fn executable_cache_environment(&self) -> Option<ExecutableCacheEnvironment> {
         self.executable_cache_environment_for(&LinkOptions::default())

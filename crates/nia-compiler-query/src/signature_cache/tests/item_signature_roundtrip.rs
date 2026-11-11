@@ -12,7 +12,7 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
         (&module, source, 512),
         (&dependency, dependency_source, 128),
     ]);
-    let namespace = crate::FrontendCacheNamespace::new(
+    let namespace = crate::FrontendCacheNamespace::at_baseline_cpu(
         &nia_target::TargetConfig::host().expect("tests run on a maintained host"),
         crate::RuntimeSpec::Bare,
     );

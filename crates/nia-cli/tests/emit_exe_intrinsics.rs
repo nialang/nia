@@ -2167,6 +2167,57 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn emit_exe_has_feature_selects_source_for_the_cpu_level() {
+    let root = temp_dir("emit_exe_has_feature_selects_source_for_the_cpu_level");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::process;
+
+@[if hasFeature("avx2")]
+fun kind() i32 {
+    3
+}
+
+@[if hasFeature("ssse3") and not hasFeature("avx2")]
+fun kind() i32 {
+    2
+}
+
+@[if not hasFeature("ssse3")]
+fun kind() i32 {
+    1
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    process::ExitCode(kind())!
+}
+"#,
+    )
+    .expect("write test source");
+
+    for (level, expected) in [("baseline", 1), ("x86_64-v2", 2), ("x86_64-v3", 3)] {
+        let output = support::nia_command()
+            .args(["emit", "--exe", "--cpu", level])
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit executable at a CPU level");
+        assert!(
+            output.status.success(),
+            "{level} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&exe).status_timeout("run executable built at a CPU level");
+        assert_eq!(status.code(), Some(expected), "{level}");
+    }
+}
+
 #[test]
 fn lookup16_uses_the_aarch64_table_instruction() {
     // `tbl` already gives 0 for an index of 16 or more, so AArch64 needs no

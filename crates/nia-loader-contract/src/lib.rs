@@ -184,6 +184,9 @@ pub trait LoaderFactProvider: Send + Sync {
     fn load_diagnostics(&self) -> QueryResult<ProgramDiagnosticBundles>;
     fn symbols(&self) -> SymbolTable;
     fn target(&self) -> TargetConfig;
+    /// Features `hasFeature` reported while pruning this program. It has no
+    /// default: assuming the baseline would silently ignore `--cpu`.
+    fn cpu_features(&self) -> nia_target::CpuFeatures;
     fn profile(&self) -> BuildProfile {
         BuildProfile::default()
     }
@@ -203,6 +206,7 @@ pub struct LoadedProgram {
     pub provider_fact_revision: ProviderFactRevision,
     pub symbols: SymbolTable,
     pub target: TargetConfig,
+    pub cpu_features: nia_target::CpuFeatures,
     pub profile: BuildProfile,
     pub compilation_mode: CompilationMode,
     pub runtime: RuntimeSpec,
@@ -346,6 +350,9 @@ impl LoaderFactProvider for LoadedProgram {
     }
     fn target(&self) -> TargetConfig {
         self.target
+    }
+    fn cpu_features(&self) -> nia_target::CpuFeatures {
+        self.cpu_features
     }
     fn profile(&self) -> BuildProfile {
         self.profile

@@ -16,6 +16,7 @@ pub(super) struct LoaderKey {
     pub(super) entry_path: SourcePath,
     pub(super) module_map: ModuleMap,
     pub(super) target: TargetConfig,
+    pub(super) cpu_features: nia_target::CpuFeatures,
     pub(super) profile: BuildProfile,
     pub(super) compilation_mode: CompilationMode,
     pub(super) runtime: RuntimeSpec,

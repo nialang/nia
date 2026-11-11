@@ -12,7 +12,7 @@ fn executable_value_ref_edges_rehydrate_current_modules_and_retire_corruption() 
         (&module, source, 24),
         (&dependency, dependency_source, 18),
     ]);
-    let namespace = crate::FrontendCacheNamespace::new(
+    let namespace = crate::FrontendCacheNamespace::at_baseline_cpu(
         &nia_target::TargetConfig::host().expect("tests run on a maintained host"),
         crate::RuntimeSpec::Bare,
     );

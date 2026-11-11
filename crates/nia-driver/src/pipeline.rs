@@ -203,10 +203,16 @@ impl Driver {
     }
 
     fn loader_database(&self, request: &CheckRequest) -> nia_query::QueryResult<LoaderDatabase> {
+        let cpu_features = self.cpu_features().map_err(|error| {
+            nia_query::QueryError::internal(format!(
+                "could not determine the CPU features of the target: {error:?}"
+            ))
+        })?;
         let key = LoaderKey {
             entry_path: request.entry_path.clone(),
             module_map: request.module_map.clone(),
             target: self.config.artifact_target,
+            cpu_features,
             profile: request.profile,
             compilation_mode: request.compilation_mode,
             runtime: request.runtime.clone(),
@@ -222,6 +228,7 @@ impl Driver {
                     .with_module_map(key.module_map.clone())
                     .with_sources(self.sources.clone())
                     .with_target(key.target)
+                    .with_cpu_features(key.cpu_features)
                     .with_profile(key.profile)
                     .with_compilation_mode(key.compilation_mode)
                     .with_runtime(key.runtime.clone())

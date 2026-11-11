@@ -105,6 +105,13 @@ pub enum ConditionExprKind {
         /// Right operand.
         rhs: Box<ConditionExpr>,
     },
+    /// Call of a condition function, such as `hasFeature("avx2")`.
+    Call {
+        /// Called function name.
+        callee: SymbolId,
+        /// Arguments in source order.
+        args: Vec<ConditionExpr>,
+    },
 }
 
 /// Unary operator in a conditional attribute.

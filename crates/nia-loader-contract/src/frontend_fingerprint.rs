@@ -416,48 +416,26 @@ impl FrontendProviderDemandPlanCacheKey {
 }
 
 impl FrontendCacheNamespace {
-    /// Derives a namespace for the current toolchain, target, and runtime.
-    pub fn new(target: &TargetConfig, runtime: RuntimeSpec) -> Self {
-        Self::for_toolchain(
+    /// Derives a namespace for the current toolchain at the target's baseline
+    /// CPU, the default profile, and normal compilation. Code that loads with
+    /// any other inputs must use [`Self::for_inputs`].
+    pub fn at_baseline_cpu(target: &TargetConfig, runtime: RuntimeSpec) -> Self {
+        Self::for_inputs(
             target,
+            nia_target::CpuFeatures::baseline(*target),
             runtime,
+            nia_target_config::BuildProfile::default(),
+            nia_target_config::CompilationMode::Normal,
             nia_toolchain::ToolchainIdentityFingerprint::current(),
         )
     }
 
-    /// Derives a namespace for an explicit toolchain identity.
-    pub fn for_toolchain(
+    /// Derives a namespace from every input that changes frontend results:
+    /// the toolchain, the target and the CPU features conditions test, the
+    /// runtime, the profile, and the compilation mode.
+    pub fn for_inputs(
         target: &TargetConfig,
-        runtime: RuntimeSpec,
-        toolchain: nia_toolchain::ToolchainIdentityFingerprint,
-    ) -> Self {
-        Self::for_toolchain_with_profile(
-            target,
-            runtime,
-            nia_target_config::BuildProfile::default(),
-            toolchain,
-        )
-    }
-
-    /// Derives a namespace including the selected build profile.
-    pub fn for_toolchain_with_profile(
-        target: &TargetConfig,
-        runtime: RuntimeSpec,
-        profile: nia_target_config::BuildProfile,
-        toolchain: nia_toolchain::ToolchainIdentityFingerprint,
-    ) -> Self {
-        Self::for_toolchain_with_profile_and_mode(
-            target,
-            runtime,
-            profile,
-            nia_target_config::CompilationMode::Normal,
-            toolchain,
-        )
-    }
-
-    /// Derives a namespace including the selected profile and compilation mode.
-    pub fn for_toolchain_with_profile_and_mode(
-        target: &TargetConfig,
+        cpu: nia_target::CpuFeatures,
         runtime: RuntimeSpec,
         profile: nia_target_config::BuildProfile,
         mode: nia_target_config::CompilationMode,
@@ -470,6 +448,7 @@ impl FrontendCacheNamespace {
         }
         // The canonical name determines every derived target fact.
         builder.write_str(&target.name());
+        builder.write_u64(u64::from(cpu.bits()));
         match runtime {
             RuntimeSpec::Bare => builder.write_u8(0),
             RuntimeSpec::Source(runtime) => {
@@ -678,7 +657,7 @@ mod tests {
                 [nia_toolchain::RuntimeExport::new(module, definition)],
             )
             .expect("Windows runtime");
-            FrontendCacheNamespace::new(&target, runtime)
+            FrontendCacheNamespace::at_baseline_cpu(&target, runtime)
         };
         let original = namespace("toolchain:/runtime/probe.nia", "__chkstk");
         assert_ne!(
@@ -688,7 +667,7 @@ mod tests {
         assert_ne!(original, namespace("toolchain:/runtime/probe.nia", "other"));
         assert_ne!(
             original,
-            FrontendCacheNamespace::new(&target, RuntimeSpec::Bare)
+            FrontendCacheNamespace::at_baseline_cpu(&target, RuntimeSpec::Bare)
         );
     }
     use nia_source::SourceIdentity;
@@ -796,17 +775,17 @@ extend Value {
     #[test]
     fn frontend_cache_namespace_covers_toolchain_target_runtime_profile_and_mode() {
         let target = TargetConfig::parse("x86_64-unknown-linux").unwrap();
-        let baseline = FrontendCacheNamespace::new(&target, RuntimeSpec::Bare);
+        let baseline = FrontendCacheNamespace::at_baseline_cpu(&target, RuntimeSpec::Bare);
         let namespaces = nia_target::SUPPORTED_TARGETS
             .iter()
-            .map(|target| FrontendCacheNamespace::new(target, RuntimeSpec::Bare))
+            .map(|target| FrontendCacheNamespace::at_baseline_cpu(target, RuntimeSpec::Bare))
             .collect::<std::collections::HashSet<_>>();
 
         // Every maintained target owns a distinct namespace.
         assert_eq!(namespaces.len(), nia_target::SUPPORTED_TARGETS.len());
         assert_ne!(
             baseline,
-            FrontendCacheNamespace::new(
+            FrontendCacheNamespace::at_baseline_cpu(
                 &target,
                 RuntimeSpec::freestanding_from_package(
                     &nia_toolchain::ToolchainPackage::new("runtime", "runtime", "root.nia"),
@@ -817,25 +796,31 @@ extend Value {
         );
         assert_ne!(
             baseline,
-            FrontendCacheNamespace::for_toolchain(
+            FrontendCacheNamespace::for_inputs(
                 &target,
+                nia_target::CpuFeatures::baseline(target),
                 RuntimeSpec::Bare,
+                nia_target_config::BuildProfile::Debug,
+                nia_target_config::CompilationMode::Normal,
                 nia_toolchain::ToolchainIdentityFingerprint::from_parts([9, 11]),
             )
         );
         assert_ne!(
             baseline,
-            FrontendCacheNamespace::for_toolchain_with_profile(
+            FrontendCacheNamespace::for_inputs(
                 &target,
+                nia_target::CpuFeatures::baseline(target),
                 RuntimeSpec::Bare,
                 nia_target_config::BuildProfile::Release,
+                nia_target_config::CompilationMode::Normal,
                 nia_toolchain::ToolchainIdentityFingerprint::current(),
             )
         );
         assert_ne!(
             baseline,
-            FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
+            FrontendCacheNamespace::for_inputs(
                 &target,
+                nia_target::CpuFeatures::baseline(target),
                 RuntimeSpec::Bare,
                 nia_target_config::BuildProfile::Debug,
                 nia_target_config::CompilationMode::Test,
@@ -889,7 +874,7 @@ extend Value {
 
     #[test]
     fn check_certificate_key_separates_entry_scope_and_input() {
-        let namespace = FrontendCacheNamespace::new(&test_target(), RuntimeSpec::Bare);
+        let namespace = FrontendCacheNamespace::at_baseline_cpu(&test_target(), RuntimeSpec::Bare);
         let entry = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let other_entry =
             StableModuleKey::from_source_identity(SourceIdentity::new("src/tool.nia"));
@@ -937,7 +922,7 @@ extend Value {
 
     #[test]
     fn provider_demand_plan_key_covers_loader_graph_identity() {
-        let namespace = FrontendCacheNamespace::new(&test_target(), RuntimeSpec::Bare);
+        let namespace = FrontendCacheNamespace::at_baseline_cpu(&test_target(), RuntimeSpec::Bare);
         let entry = SourceIdentity::new("src/main.nia");
         let other_entry = SourceIdentity::new("src/tool.nia");
         let mut module_map = ModuleMap::new();
@@ -967,7 +952,7 @@ extend Value {
 
     #[test]
     fn signature_resolution_keys_cover_program_sources_module_and_item_set() {
-        let namespace = FrontendCacheNamespace::new(&test_target(), RuntimeSpec::Bare);
+        let namespace = FrontendCacheNamespace::at_baseline_cpu(&test_target(), RuntimeSpec::Bare);
         let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let dependency =
             StableModuleKey::from_source_identity(SourceIdentity::new("src/dependency.nia"));
@@ -1105,7 +1090,7 @@ extend Value {
     #[test]
     fn frontend_product_keys_separate_domains_modules_and_body_edits() {
         let target = test_target();
-        let namespace = FrontendCacheNamespace::new(&target, RuntimeSpec::Bare);
+        let namespace = FrontendCacheNamespace::at_baseline_cpu(&target, RuntimeSpec::Bare);
         let module = StableModuleKey::from_source_identity(SourceIdentity::new("src/main.nia"));
         let other_module =
             StableModuleKey::from_source_identity(SourceIdentity::new("src/other.nia"));

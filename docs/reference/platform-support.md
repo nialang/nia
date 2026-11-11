@@ -91,15 +91,18 @@ the level of its builds per profile in
 script can pin one artifact's level with
 [`withCpu`](../guides/build-scripts.md#artifact-configuration):
 
-| Level | Targets | Guarantees beyond the level before it |
+| Level | Targets | Guarantees beyond the level before it, as `hasFeature` names |
 | --- | --- | --- |
-| `baseline` (default) | all | the target's baseline CPU: SSE2 on x86_64 (SSSE3 on `x86_64-apple-macos`), NEON on AArch64 |
-| `x86_64-v2` | x86_64 | SSE3, SSSE3, SSE4.1, SSE4.2, POPCNT, CMPXCHG16B (Nehalem, 2009, and later) |
-| `x86_64-v3` | x86_64 | AVX, AVX2, FMA, BMI1, BMI2, LZCNT, MOVBE, F16C (Haswell, 2013; Zen 1; and later) |
-| `x86_64-v4` | x86_64 | AVX-512 F, BW, CD, DQ, VL (Skylake-X, Zen 4; many consumer Intel processors lack it) |
-| `native` | the host only | everything the processor running the compiler reports |
+| `baseline` (default) | all | the target's baseline CPU: `sse2` on x86_64 (also `sse3` and `ssse3` on `x86_64-apple-macos`), `neon` on AArch64, none on `x86-unknown-linux` |
+| `x86_64-v2` | x86_64 | `sse3`, `ssse3`, `sse4_1`, `sse4_2`, `popcnt`, `cmpxchg16b` (Nehalem, 2009, and later) |
+| `x86_64-v3` | x86_64 | `avx`, `avx2`, `fma`, `bmi1`, `bmi2`, `lzcnt`, `movbe`, `f16c` (Haswell, 2013; Zen 1; and later) |
+| `x86_64-v4` | x86_64 | `avx512f`, `avx512bw`, `avx512cd`, `avx512dq`, `avx512vl` (Skylake-X, Zen 4; many consumer Intel processors lack it) |
+| `native` | the host only | whichever of these features the processor running the compiler reports |
 
-The `x86_64-v*` levels are the x86-64 psABI microarchitecture levels. `native`
+[`hasFeature`](language.md#conditional-compilation) tests these names, and
+they are the only feature names it accepts. A level guarantees every feature of
+the levels before it. The `x86_64-v*` levels are the x86-64 psABI
+microarchitecture levels. `native`
 is accepted only by `--cpu`, only when the target is the host, and its output
 may fail on any other machine, even one of the same target. The level changes
 the selected instructions, not the program's meaning; compiled objects and

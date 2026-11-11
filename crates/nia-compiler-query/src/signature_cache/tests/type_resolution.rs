@@ -126,7 +126,7 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
         (&module, source, 23),
         (&dependency, dependency_source, 19),
     ]);
-    let namespace = crate::FrontendCacheNamespace::new(
+    let namespace = crate::FrontendCacheNamespace::at_baseline_cpu(
         &nia_target::TargetConfig::host().expect("tests run on a maintained host"),
         crate::RuntimeSpec::Bare,
     );

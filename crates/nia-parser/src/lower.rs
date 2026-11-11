@@ -342,6 +342,22 @@ impl Lower<'_> {
                     },
                 };
             }
+            SyntaxKind::ConditionCall => ConditionExprKind::Call {
+                callee: match node.first_token() {
+                    Some(token) => self.name(token),
+                    None => {
+                        return ConditionExpr {
+                            span,
+                            kind: ConditionExprKind::Bool(false),
+                        };
+                    }
+                },
+                args: node
+                    .child_nodes()
+                    .filter(|child| is_condition(child.kind()))
+                    .map(|child| self.condition(child))
+                    .collect(),
+            },
             SyntaxKind::ConditionNot => ConditionExprKind::Unary {
                 op: ConditionUnaryOp::Not,
                 expr: Box::new(self.child_condition(node, 0)),
@@ -842,6 +858,7 @@ fn is_condition(kind: &SyntaxKind) -> bool {
     matches!(
         kind,
         SyntaxKind::ConditionAtom
+            | SyntaxKind::ConditionCall
             | SyntaxKind::ConditionBinary
             | SyntaxKind::ConditionNot
             | SyntaxKind::ConditionParen

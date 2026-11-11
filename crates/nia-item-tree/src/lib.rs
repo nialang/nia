@@ -464,6 +464,23 @@ fn condition_declaration_eq(lhs: &ConditionExpr, rhs: &ConditionExpr) -> bool {
         | (ConditionExprKind::String(lhs), ConditionExprKind::String(rhs)) => lhs == rhs,
         (ConditionExprKind::Ident(lhs), ConditionExprKind::Ident(rhs)) => lhs == rhs,
         (
+            ConditionExprKind::Call {
+                callee: lhs_callee,
+                args: lhs_args,
+            },
+            ConditionExprKind::Call {
+                callee: rhs_callee,
+                args: rhs_args,
+            },
+        ) => {
+            lhs_callee == rhs_callee
+                && lhs_args.len() == rhs_args.len()
+                && lhs_args
+                    .iter()
+                    .zip(rhs_args)
+                    .all(|(lhs, rhs)| condition_declaration_eq(lhs, rhs))
+        }
+        (
             ConditionExprKind::Unary {
                 op: lhs_op,
                 expr: lhs_expr,

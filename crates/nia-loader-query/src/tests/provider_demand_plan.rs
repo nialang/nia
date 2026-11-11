@@ -162,6 +162,11 @@ fn plan_round_trip(
 /// corrupt and deleted it on every build.
 #[test]
 fn provider_demand_plans_restore_under_every_loading_input() {
+    let level = nia_target::CpuFeatures::for_level(
+        TargetConfig::host().expect("tests run on a maintained host"),
+        nia_target::CpuLevel::Baseline,
+    )
+    .expect("named level");
     type Inputs = fn(LoadRequest) -> LoadRequest;
     let cases: [(&str, Inputs); 4] = [
         ("default", |request| request),
@@ -181,6 +186,12 @@ fn provider_demand_plans_restore_under_every_loading_input() {
         let root = temp_dir(&format!("provider_plan_inputs_{}", name.replace(' ', "_")));
         assert!(plan_round_trip(&root, inputs, inputs), "{name}");
     }
+    let root = temp_dir("provider_plan_inputs_cpu");
+    let with_level = move |request: LoadRequest| request.with_cpu_features(level);
+    assert!(
+        plan_round_trip(&root, with_level, with_level),
+        "explicit CPU features"
+    );
 }
 
 /// Pruning depends on the mode, so a plan from one mode describes another

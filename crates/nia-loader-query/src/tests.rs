@@ -215,16 +215,22 @@ fn test_loader_context(
         ),
         symbols: SymbolTable::new(),
         target: TargetConfig::host().expect("tests run on a maintained host"),
+        cpu_features: nia_target::CpuFeatures::baseline(
+            TargetConfig::host().expect("tests run on a maintained host"),
+        ),
         profile: nia_target_config::BuildProfile::Debug,
         compilation_mode: nia_target_config::CompilationMode::Normal,
         runtime: RuntimeSpec::Bare,
         toolchain_identity: test_toolchain_layout().identity().fingerprint(),
         // The same inputs as the fields above, as a loader derives it.
-        frontend_cache_namespace: FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
+        frontend_cache_namespace: FrontendCacheNamespace::for_inputs(
             &TargetConfig::host().expect("tests run on a maintained host"),
+            nia_target::CpuFeatures::baseline(
+                TargetConfig::host().expect("tests run on a maintained host"),
+            ),
             RuntimeSpec::Bare,
-            nia_target_config::BuildProfile::Debug,
-            nia_target_config::CompilationMode::Normal,
+            BuildProfile::Debug,
+            CompilationMode::Normal,
             test_toolchain_layout().identity().fingerprint(),
         ),
         package_roots_with_used_paths: HashSet::new(),
@@ -381,7 +387,7 @@ struct PublicSurfaceFactsCacheIdentity {
 }
 
 fn provider_cache_identity(file: &SourceFile) -> ProviderCacheIdentity {
-    let namespace = FrontendCacheNamespace::new(
+    let namespace = FrontendCacheNamespace::at_baseline_cpu(
         &TargetConfig::host().expect("tests run on a maintained host"),
         RuntimeSpec::Bare,
     );
@@ -439,7 +445,7 @@ fn module_dependencies_cache_identity(
     entry_path: &SourcePath,
     module_map: &ModuleMap,
 ) -> ModuleDependenciesCacheIdentity {
-    let namespace = FrontendCacheNamespace::new(
+    let namespace = FrontendCacheNamespace::at_baseline_cpu(
         &TargetConfig::host().expect("tests run on a maintained host"),
         RuntimeSpec::Bare,
     );
@@ -465,7 +471,7 @@ fn module_dependencies_cache_identity(
 }
 
 fn public_surface_facts_cache_identity(file: &SourceFile) -> PublicSurfaceFactsCacheIdentity {
-    let namespace = FrontendCacheNamespace::new(
+    let namespace = FrontendCacheNamespace::at_baseline_cpu(
         &TargetConfig::host().expect("tests run on a maintained host"),
         RuntimeSpec::Bare,
     );

@@ -276,11 +276,15 @@ impl LoaderDatabase {
             .as_deref()
             .map(|toolchain| toolchain.identity().fingerprint())
             .unwrap_or_else(nia_toolchain::ToolchainIdentityFingerprint::current);
+        let cpu_features = request
+            .cpu_features
+            .unwrap_or_else(|| nia_target::CpuFeatures::baseline(target));
         // Computed once: every frontend cache entry of this loader, including
         // the provider-demand plan it looks up now and publishes later, uses
         // this value, so a lookup and a publication cannot disagree.
-        let namespace = FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
+        let namespace = FrontendCacheNamespace::for_inputs(
             &target,
+            cpu_features,
             request.runtime.clone(),
             request.profile,
             request.compilation_mode,
@@ -333,6 +337,7 @@ impl LoaderDatabase {
                 diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()?),
                 symbols,
                 target,
+                cpu_features,
                 profile: request.profile,
                 compilation_mode: request.compilation_mode,
                 runtime: request.runtime,
@@ -796,6 +801,10 @@ impl LoaderFactProvider for LoaderDatabase {
         self.db.context().target
     }
 
+    fn cpu_features(&self) -> nia_target::CpuFeatures {
+        self.db.context().cpu_features
+    }
+
     fn profile(&self) -> BuildProfile {
         self.db.context().profile
     }
@@ -825,6 +834,9 @@ pub struct LoadRequest {
     /// Artifact target used for conditional frontend selection; `None` uses
     /// the attached toolchain's artifact target.
     pub target: Option<TargetConfig>,
+    /// CPU features `hasFeature` reports; `None` uses the target's baseline,
+    /// which is what a load without a CPU level means.
+    pub cpu_features: Option<nia_target::CpuFeatures>,
     /// Build profile used for profile-conditional frontend selection.
     pub profile: BuildProfile,
     /// Whether test-only source participates in frontend selection.
@@ -854,6 +866,7 @@ impl LoadRequest {
             module_map: ModuleMap::default(),
             sources: SourceDatabase::new(),
             target: None,
+            cpu_features: None,
             profile: BuildProfile::default(),
             compilation_mode: CompilationMode::default(),
             runtime: RuntimeSpec::Bare,
@@ -879,6 +892,12 @@ impl LoadRequest {
     /// Selects the artifact target used by conditional item selection.
     pub fn with_target(mut self, target: TargetConfig) -> Self {
         self.target = Some(target);
+        self
+    }
+
+    /// Selects the CPU features conditional compilation tests.
+    pub fn with_cpu_features(mut self, cpu_features: nia_target::CpuFeatures) -> Self {
+        self.cpu_features = Some(cpu_features);
         self
     }
 
@@ -963,13 +982,19 @@ fn load_program_trace(
             ),
             symbols: SymbolTable::new(),
             target: TargetConfig::host().expect("tests run on a maintained host"),
+            cpu_features: nia_target::CpuFeatures::baseline(
+                TargetConfig::host().expect("tests run on a maintained host"),
+            ),
             profile: BuildProfile::default(),
             compilation_mode: CompilationMode::default(),
             runtime: RuntimeSpec::Bare,
             toolchain_identity: tests::test_toolchain_layout().identity().fingerprint(),
             // The same inputs as the fields above, as a loader derives it.
-            frontend_cache_namespace: FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
+            frontend_cache_namespace: FrontendCacheNamespace::for_inputs(
                 &TargetConfig::host().expect("tests run on a maintained host"),
+                nia_target::CpuFeatures::baseline(
+                    TargetConfig::host().expect("tests run on a maintained host"),
+                ),
                 RuntimeSpec::Bare,
                 BuildProfile::Debug,
                 CompilationMode::Normal,
@@ -1026,6 +1051,7 @@ pub(crate) struct LoaderContext {
     pub(crate) diagnostic_store: Arc<nia_diagnostic::DiagnosticStore>,
     pub(crate) symbols: SymbolTable,
     pub(crate) target: TargetConfig,
+    pub(crate) cpu_features: nia_target::CpuFeatures,
     pub(crate) profile: BuildProfile,
     pub(crate) compilation_mode: CompilationMode,
     pub(crate) runtime: RuntimeSpec,

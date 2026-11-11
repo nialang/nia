@@ -14,7 +14,7 @@
 use nia_ast::{
     ArrayElements, Attribute, AttributeKind, Block, ConditionBinaryOp, ConditionExpr,
     ConditionExprKind, ConditionUnaryOp, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
-    MatchArmBody, Module, Pattern, PatternKind, SliceRange, Stmt, StmtKind,
+    MatchArmBody, Pattern, PatternKind, SliceRange, Stmt, StmtKind,
 };
 use nia_ast_walk::Visitor;
 use nia_diagnostic::{Diagnostic, codes};
@@ -56,89 +56,31 @@ pub struct PruneResult {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-/// Prunes a module using the default symbol-resolution behavior.
-pub fn prune_module_for_target(module: Module, config: &TargetConfig) -> PruneResult {
-    prune_module_for_target_with_profile_and_symbols(module, config, BuildProfile::default(), None)
+/// Everything a condition or a conditional attribute can depend on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConditionContext {
+    /// Target whose facts `arch`, `os`, and the others name.
+    pub target: TargetConfig,
+    /// Features `hasFeature` reports: those of the CPU level the code is
+    /// generated for, so pruning depends on the level.
+    pub cpu: nia_target::CpuFeatures,
+    /// Profile selecting `@[debug]` and `@[release]` items.
+    pub profile: BuildProfile,
+    /// Mode selecting `@[test]` items.
+    pub mode: CompilationMode,
 }
 
-/// Prunes a module and uses an optional symbol provider for diagnostics.
-pub fn prune_module_for_target_with_symbols(
-    module: Module,
-    config: &TargetConfig,
-    symbols: Option<&dyn SymbolText>,
-) -> PruneResult {
-    prune_module_for_target_with_profile_and_symbols(
-        module,
-        config,
-        BuildProfile::default(),
-        symbols,
-    )
-}
-
-/// Prunes a module using a target and build profile.
-pub fn prune_module_for_target_with_profile(
-    module: Module,
-    config: &TargetConfig,
-    profile: BuildProfile,
-) -> PruneResult {
-    prune_module_for_target_with_profile_and_symbols(module, config, profile, None)
-}
-
-/// Prunes a module using a target, build profile, and optional symbol provider.
-pub fn prune_module_for_target_with_profile_and_symbols(
-    module: Module,
-    config: &TargetConfig,
-    profile: BuildProfile,
-    symbols: Option<&dyn SymbolText>,
-) -> PruneResult {
-    prune_module_for_target_with_profile_mode_and_symbols(
-        module,
-        config,
-        profile,
-        CompilationMode::Normal,
-        symbols,
-    )
-}
-
-/// Prunes a module using a target, build profile, and compilation mode.
-pub fn prune_module_for_target_with_profile_and_mode(
-    module: Module,
-    config: &TargetConfig,
-    profile: BuildProfile,
-    mode: CompilationMode,
-) -> PruneResult {
-    prune_module_for_target_with_profile_mode_and_symbols(module, config, profile, mode, None)
-}
-
-/// Prunes a module using the complete conditional-compilation context.
-pub fn prune_module_for_target_with_profile_mode_and_symbols(
-    module: Module,
-    config: &TargetConfig,
-    profile: BuildProfile,
-    mode: CompilationMode,
-    symbols: Option<&dyn SymbolText>,
-) -> PruneResult {
-    let item_tree = ModuleItemTree::from_owned_module(module);
-    prune_item_tree_for_target_with_profile_mode_and_symbols(
-        &item_tree, config, profile, mode, symbols,
-    )
-}
-
-/// Prunes an item tree using the complete conditional-compilation context.
+/// Prunes an item tree for `context`.
 ///
 /// Unchanged items retain their shared immutable payloads. Only items that
 /// contain conditional statements are cloned for recursive body pruning.
-pub fn prune_item_tree_for_target_with_profile_mode_and_symbols(
+pub fn prune_item_tree(
     item_tree: &ModuleItemTree,
-    config: &TargetConfig,
-    profile: BuildProfile,
-    mode: CompilationMode,
+    context: &ConditionContext,
     symbols: Option<&dyn SymbolText>,
 ) -> PruneResult {
     let mut pruner = Pruner {
-        config,
-        profile,
-        mode,
+        context,
         symbols,
         diagnostics: Vec::new(),
     };
@@ -149,39 +91,8 @@ pub fn prune_item_tree_for_target_with_profile_mode_and_symbols(
     }
 }
 
-/// Evaluates a target condition and records failures as diagnostics.
-pub fn eval_config_bool(
-    expr: &ConditionExpr,
-    config: &TargetConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<bool> {
-    eval_config_bool_with_symbols(expr, config, diagnostics, None)
-}
-
-/// Evaluates a target condition with an optional symbol provider for diagnostics.
-pub fn eval_config_bool_with_symbols(
-    expr: &ConditionExpr,
-    config: &TargetConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-    symbols: Option<&dyn SymbolText>,
-) -> Option<bool> {
-    match ConditionEvaluator::new(config, symbols).eval_bool(expr) {
-        Ok(value) => Some(value),
-        Err(err) => {
-            diagnostics.push(Diagnostic::user_error_at(
-                codes::TARGET_CONFIG,
-                err.span,
-                err.message,
-            ));
-            None
-        }
-    }
-}
-
 struct Pruner<'a> {
-    config: &'a TargetConfig,
-    profile: BuildProfile,
-    mode: CompilationMode,
+    context: &'a ConditionContext,
     symbols: Option<&'a dyn SymbolText>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -671,7 +582,7 @@ impl Pruner<'_> {
         for attribute in attributes {
             match &attribute.kind {
                 AttributeKind::If(cond) => {
-                    match ConditionEvaluator::new(self.config, self.symbols).eval_bool(cond) {
+                    match ConditionEvaluator::new(self.context, self.symbols).eval_bool(cond) {
                         Ok(true) => {}
                         Ok(false) => return false,
                         Err(err) => {
@@ -686,12 +597,12 @@ impl Pruner<'_> {
                     }
                 }
                 AttributeKind::Profile(profile) => {
-                    if !profile_matches(*profile, self.profile) {
+                    if !profile_matches(*profile, self.context.profile) {
                         return false;
                     }
                 }
                 AttributeKind::Test => {
-                    if self.mode != CompilationMode::Test {
+                    if self.context.mode != CompilationMode::Test {
                         return false;
                     }
                 }
@@ -814,7 +725,7 @@ impl Pruner<'_> {
 
 impl ConditionResolver for Pruner<'_> {
     fn resolve_condition(&mut self, cond: &ConditionExpr) -> Result<bool, ItemTreeError> {
-        ConditionEvaluator::new(self.config, self.symbols)
+        ConditionEvaluator::new(self.context, self.symbols)
             .eval_bool(cond)
             .map_err(|err| ItemTreeError {
                 span: err.span,
@@ -823,11 +734,11 @@ impl ConditionResolver for Pruner<'_> {
     }
 
     fn resolve_profile(&mut self, profile: nia_ast::ProfileKind) -> Result<bool, ItemTreeError> {
-        Ok(profile_matches(profile, self.profile))
+        Ok(profile_matches(profile, self.context.profile))
     }
 
     fn resolve_test(&mut self) -> Result<bool, ItemTreeError> {
-        Ok(self.mode == CompilationMode::Test)
+        Ok(self.context.mode == CompilationMode::Test)
     }
 }
 
@@ -854,11 +765,13 @@ enum ConditionValue {
 
 struct ConditionEvaluator<'a> {
     values: SymbolMap<ConditionValue>,
+    cpu: nia_target::CpuFeatures,
     symbols: Option<&'a dyn SymbolText>,
 }
 
 impl<'a> ConditionEvaluator<'a> {
-    fn new(config: &TargetConfig, symbols: Option<&'a dyn SymbolText>) -> Self {
+    fn new(context: &ConditionContext, symbols: Option<&'a dyn SymbolText>) -> Self {
+        let config = &context.target;
         let mut values = SymbolMap::default();
         values.insert(
             known::ARCH,
@@ -881,7 +794,58 @@ impl<'a> ConditionEvaluator<'a> {
             known::POINTER_WIDTH,
             ConditionValue::Int(u128::from(config.pointer_width())),
         );
-        Self { values, symbols }
+        Self {
+            values,
+            cpu: context.cpu,
+            symbols,
+        }
+    }
+
+    /// Evaluates `hasFeature("name")`: whether the code may rely on the named
+    /// CPU feature. A feature of another architecture is simply absent, so a
+    /// condition can test an AArch64 feature while compiling for x86_64.
+    fn eval_call(
+        &self,
+        span: Span,
+        callee: nia_symbol::SymbolId,
+        args: &[ConditionExpr],
+    ) -> Result<ConditionValue, ConditionError> {
+        if callee != known::HAS_FEATURE {
+            return Err(ConditionError {
+                span,
+                message: format!(
+                    "unknown condition function `{}`; the only one is `hasFeature`",
+                    self.symbol_name(callee)
+                ),
+            });
+        }
+        let [arg] = args else {
+            return Err(ConditionError {
+                span,
+                message: format!(
+                    "`hasFeature` takes one CPU feature name, found {} arguments",
+                    args.len()
+                ),
+            });
+        };
+        let ConditionValue::String(name) = self.eval(arg)? else {
+            return Err(ConditionError {
+                span: arg.span,
+                message: "`hasFeature` takes a CPU feature name as a string".to_string(),
+            });
+        };
+        let Some(feature) = nia_target::CpuFeature::parse(&name) else {
+            let names = nia_target::CPU_FEATURES
+                .iter()
+                .map(|feature| format!("`{feature}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(ConditionError {
+                span: arg.span,
+                message: format!("unknown CPU feature `{name}`; CPU features are {names}"),
+            });
+        };
+        Ok(ConditionValue::Bool(self.cpu.contains(feature)))
     }
 
     fn symbol_name(&self, symbol: nia_symbol::SymbolId) -> String {
@@ -928,6 +892,7 @@ impl<'a> ConditionEvaluator<'a> {
                         message: format!("unknown condition name `{}`", self.symbol_name(*name)),
                     })
             }
+            ConditionExprKind::Call { callee, args } => self.eval_call(expr.span, *callee, args),
             ConditionExprKind::Unary { op, expr: inner } => match op {
                 ConditionUnaryOp::Not => Ok(ConditionValue::Bool(!self.eval_bool(inner)?)),
             },
@@ -960,11 +925,46 @@ impl<'a> ConditionEvaluator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ast::{ItemKind, StmtKind};
+    use nia_ast::{ItemKind, Module, StmtKind};
 
     /// Host-independent target for tests whose conditions do not name one.
     fn test_target() -> TargetConfig {
         TargetConfig::parse("x86_64-unknown-linux").expect("maintained target")
+    }
+
+    fn context(
+        target: &TargetConfig,
+        profile: BuildProfile,
+        mode: CompilationMode,
+    ) -> ConditionContext {
+        ConditionContext {
+            target: *target,
+            cpu: nia_target::CpuFeatures::baseline(*target),
+            profile,
+            mode,
+        }
+    }
+
+    fn prune_module_for_target(module: Module, target: &TargetConfig) -> PruneResult {
+        prune_module_for_target_with_profile_and_mode(
+            module,
+            target,
+            BuildProfile::Debug,
+            CompilationMode::Normal,
+        )
+    }
+
+    fn prune_module_for_target_with_profile_and_mode(
+        module: Module,
+        target: &TargetConfig,
+        profile: BuildProfile,
+        mode: CompilationMode,
+    ) -> PruneResult {
+        prune_item_tree(
+            &ModuleItemTree::from_owned_module(module),
+            &context(target, profile, mode),
+            None,
+        )
     }
 
     #[test]
@@ -995,7 +995,10 @@ mod tests {
         assert_eq!(expected.len(), nia_target::SUPPORTED_TARGETS.len());
         for (name, arch, vendor, os, env, width) in expected {
             let target = TargetConfig::parse(name).expect("maintained target");
-            let evaluator = ConditionEvaluator::new(&target, None);
+            let evaluator = ConditionEvaluator::new(
+                &context(&target, BuildProfile::Debug, CompilationMode::Normal),
+                None,
+            );
             let string = |symbol| match evaluator.values.get(&symbol) {
                 Some(ConditionValue::String(value)) => value.clone(),
                 other => panic!("{name}: {other:?}"),
@@ -1023,11 +1026,9 @@ mod tests {
         let tree = ModuleItemTree::from_owned_module(module);
         let original = tree.items.shared_items().collect::<Vec<_>>();
 
-        let pruned = prune_item_tree_for_target_with_profile_mode_and_symbols(
+        let pruned = prune_item_tree(
             &tree,
-            &test_target(),
-            BuildProfile::Debug,
-            CompilationMode::Normal,
+            &context(&test_target(), BuildProfile::Debug, CompilationMode::Normal),
             None,
         );
         let active = pruned
@@ -1056,11 +1057,9 @@ fun changed() i32 {
         let tree = ModuleItemTree::from_owned_module(module);
         let original = tree.items.shared_items().collect::<Vec<_>>();
 
-        let pruned = prune_item_tree_for_target_with_profile_mode_and_symbols(
+        let pruned = prune_item_tree(
             &tree,
-            &test_target(),
-            BuildProfile::Debug,
-            CompilationMode::Normal,
+            &context(&test_target(), BuildProfile::Debug, CompilationMode::Normal),
             None,
         );
         let active = pruned
@@ -1190,6 +1189,123 @@ fun releaseTestOnly() () {}
                     .collect::<Vec<_>>()
             );
         }
+    }
+
+    /// Names of the functions that survive pruning `source` at `cpu`.
+    fn active_functions_at(source: &str, target: &str, cpu: nia_target::CpuLevel) -> Vec<String> {
+        let (module, errors) = nia_parser::parse_module(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        let target = TargetConfig::parse(target).expect("maintained target");
+        let context = ConditionContext {
+            target,
+            cpu: nia_target::CpuFeatures::for_level(target, cpu).expect("named level"),
+            profile: BuildProfile::Debug,
+            mode: CompilationMode::Normal,
+        };
+        let pruned = prune_item_tree(&ModuleItemTree::from_owned_module(module), &context, None);
+        assert!(pruned.diagnostics.is_empty(), "{:?}", pruned.diagnostics);
+        let names = ["wide", "narrow", "vector", "neon", "scalar", "avx512"];
+        pruned
+            .active_item_tree
+            .to_module()
+            .items
+            .iter()
+            .map(|item| match &item.kind {
+                ItemKind::Function(function) => names
+                    .iter()
+                    .find(|name| {
+                        function.name
+                            == nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash(name))
+                    })
+                    .expect("known function")
+                    .to_string(),
+                _ => panic!("expected function"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn has_feature_tests_the_features_of_the_cpu_level() {
+        let source = r#"
+@[if hasFeature("avx2")]
+fun wide() () {}
+
+@[if hasFeature("ssse3") and not hasFeature("avx2")]
+fun narrow() () {}
+
+@[if arch == "x86_64"]
+@[if hasFeature("sse4_2") or hasFeature("neon")]
+fun vector() () {}
+
+@[if hasFeature("neon")]
+fun neon() () {}
+
+@[if not hasFeature("ssse3")]
+fun scalar() () {}
+
+@[if hasFeature("avx512bw")]
+fun avx512() () {}
+"#;
+        use nia_target::CpuLevel;
+        let at = |target, cpu| active_functions_at(source, target, cpu);
+        assert_eq!(at("x86_64-unknown-linux", CpuLevel::Baseline), ["scalar"]);
+        assert_eq!(
+            at("x86_64-unknown-linux", CpuLevel::X86_64V2),
+            ["narrow", "vector"]
+        );
+        assert_eq!(
+            at("x86_64-unknown-linux", CpuLevel::X86_64V3),
+            ["wide", "vector"]
+        );
+        assert_eq!(
+            at("x86_64-unknown-linux", CpuLevel::X86_64V4),
+            ["wide", "vector", "avx512"]
+        );
+        // The macOS x86_64 baseline already has SSSE3.
+        assert_eq!(at("x86_64-apple-macos", CpuLevel::Baseline), ["narrow"]);
+        // An x86 feature is absent on AArch64 rather than an error, and the
+        // stacked `@[if arch == "x86_64"]` removes `vector` despite NEON.
+        assert_eq!(
+            at("aarch64-unknown-linux", CpuLevel::Baseline),
+            ["neon", "scalar"]
+        );
+    }
+
+    #[test]
+    fn has_feature_rejects_malformed_calls() {
+        let reject = |condition: &str, expected: &str| {
+            let (module, errors) =
+                nia_parser::parse_module(&format!("@[if {condition}]\nfun f() () {{}}\n"));
+            assert!(errors.is_empty(), "{condition}: {errors:?}");
+            let pruned = prune_module_for_target(module, &test_target());
+            assert_eq!(
+                pruned.diagnostics.len(),
+                1,
+                "{condition}: {:?}",
+                pruned.diagnostics
+            );
+            assert!(
+                pruned.diagnostics[0].summary.contains(expected),
+                "{condition}: {}",
+                pruned.diagnostics[0].summary
+            );
+        };
+        reject(
+            r#"hasFeature("sse4.2")"#,
+            "unknown CPU feature `sse4.2`; CPU features are `sse2`, `sse3`",
+        );
+        // Without a symbol table the name prints as an unresolved symbol.
+        reject("hasFeature(avx2)", "unknown condition name `");
+        reject(
+            "hasFeature(1)",
+            "`hasFeature` takes a CPU feature name as a string",
+        );
+        reject(
+            r#"hasFeature("avx", "avx2")"#,
+            "`hasFeature` takes one CPU feature name, found 2 arguments",
+        );
+        reject("hasFeature()", "found 0 arguments");
+        reject(r#"hasCpu("avx2")"#, "; the only one is `hasFeature`");
     }
 
     #[test]

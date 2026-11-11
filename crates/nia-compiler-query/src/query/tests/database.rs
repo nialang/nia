@@ -140,6 +140,7 @@ fn materialize_loader_facts(facts: &dyn crate::LoaderFactProvider) -> LoadedProg
             .revision(),
         symbols: facts.symbols(),
         target: facts.target(),
+        cpu_features: facts.cpu_features(),
         profile: facts.profile(),
         compilation_mode: facts.compilation_mode(),
         runtime: facts.runtime(),

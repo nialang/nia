@@ -285,8 +285,9 @@ impl CompilerContext {
     }
 
     pub(super) fn frontend_cache_namespace(&self) -> crate::FrontendCacheNamespace {
-        crate::FrontendCacheNamespace::for_toolchain_with_profile_and_mode(
+        crate::FrontendCacheNamespace::for_inputs(
             &self.loader_facts.target(),
+            self.loader_facts.cpu_features(),
             self.loader_facts.runtime(),
             self.loader_facts.profile(),
             self.loader_facts.compilation_mode(),

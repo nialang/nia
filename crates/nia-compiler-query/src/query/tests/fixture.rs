@@ -294,6 +294,9 @@ impl LoadedProgramFixture {
             provider_fact_revision: crate::ProviderFactRevision::default(),
             symbols: test_symbols(),
             target: TargetConfig::host().expect("tests run on a maintained host"),
+            cpu_features: nia_target::CpuFeatures::baseline(
+                TargetConfig::host().expect("tests run on a maintained host"),
+            ),
             profile: nia_target_config::BuildProfile::Debug,
             compilation_mode: nia_target_config::CompilationMode::Normal,
             runtime: RuntimeSpec::Bare,
