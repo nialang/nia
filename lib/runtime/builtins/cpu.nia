@@ -19,16 +19,27 @@ extern fun __nia_check_cpu_features(required: u32) () {
         (CpuFeature::Neon, &"neon"),
     ];
     let mut known = 0u32;
-    for &(feature, name) in &features[..] {
-        let mask = 1u32 << (feature as u32);
-        known |= mask;
-        if (required & mask) != 0 and not cpu::supports(feature) {
-            _ = io::debugPrint("required CPU feature {} is unavailable\n", [name]);
-            builtin::trap();
-        }
+    for &(feature, _) in &features[..] {
+        known |= bit(feature);
     }
     if (required & known) != required {
         _ = io::debugPrint("unknown required CPU feature mask\n", []);
         builtin::trap();
     }
+    // Each feature follows the features it implies, so the last missing one
+    // is a feature the function asked for rather than one of its dependencies.
+    let mut missing: ?&[char] = null;
+    for &(feature, name) in &features[..] {
+        if (required & bit(feature)) != 0 and not cpu::supports(feature) {
+            missing = ?name;
+        }
+    }
+    if missing is ?name {
+        _ = io::debugPrint("required CPU feature {} is unavailable\n", [name]);
+        builtin::trap();
+    }
+}
+
+const fun bit(feature: CpuFeature) u32 {
+    1u32 << (feature as u32)
 }

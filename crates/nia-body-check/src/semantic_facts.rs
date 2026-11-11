@@ -126,12 +126,13 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_inline_cpu_features(&mut self, span: Span, call: &ResolvedCall) {
+        // Only a statically known callee has known attributes here. A trait
+        // method's implementation is selected during backend lowering, which
+        // checks the resolved callee with the same rule.
         let def_id = match call {
             ResolvedCall::Function(def_id)
             | ResolvedCall::FunctionInstance { def_id, .. }
             | ResolvedCall::Method { def_id, .. } => *def_id,
-            ResolvedCall::TraitMethod { method_id, .. }
-            | ResolvedCall::TraitAssociatedFunction { method_id, .. } => *method_id,
             _ => return,
         };
         let Some(callee) = self.resolved_function_signature(def_id) else {
@@ -154,18 +155,11 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_default()
             .union(self.cpu_features);
         if !required.is_subset_of(caller) {
-            let missing = required
-                .iter()
-                .filter(|feature| !caller.contains(*feature))
-                .map(|feature| feature.name())
-                .collect::<Vec<_>>()
-                .join(", ");
-            self.diagnostics.push(Diagnostic::user_error(
-                codes::TYPE_CHECK,
-                format!("`@[inlineAlways]` call requires CPU features unavailable in the caller: {missing}"),
-            ).primary(span, "the callee cannot be inlined into this function")
-             .help("enable the required features on the caller, or remove `@[inlineAlways]` from the callee")
-             .finish());
+            self.diagnostics
+                .push(nia_item_signatures::inline_cpu_features_error(
+                    span,
+                    required.difference(caller),
+                ));
         }
     }
 

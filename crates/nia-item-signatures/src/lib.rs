@@ -463,6 +463,32 @@ pub fn function_cpu_features(attributes: &[FunctionAttribute]) -> nia_target::Cp
     )
 }
 
+/// The error for an `@[inlineAlways]` call whose callee needs CPU features
+/// its caller lacks: the call must inline, and inlining would generate the
+/// callee for the caller's features. Body checking reports it for statically
+/// known callees; backend lowering reports it for trait methods once their
+/// implementations are resolved.
+pub fn inline_cpu_features_error(
+    span: nia_span::Span,
+    missing: nia_target::CpuFeatures,
+) -> nia_diagnostic::Diagnostic {
+    let names = missing
+        .outermost()
+        .map(|feature| format!("`{feature}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    nia_diagnostic::Diagnostic::user_error(
+        nia_diagnostic::codes::TYPE_CHECK,
+        format!("`@[inlineAlways]` call requires CPU features the caller lacks: {names}"),
+    )
+    .primary(
+        span,
+        "this call must inline into a function without those features",
+    )
+    .help("enable the features on the caller, or remove `@[inlineAlways]` from the callee")
+    .finish()
+}
+
 pub use nia_ids::{BuiltinFunction, BuiltinTrait};
 
 /// One lowered function parameter.

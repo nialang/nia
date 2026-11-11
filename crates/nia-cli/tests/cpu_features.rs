@@ -45,7 +45,7 @@ fn function_feature_diagnostics_precede_codegen() {
         ),
         (
             "@[inlineAlways] @[cpuFeatures(\"avx2\")] fun fast(x: i32) i32 { x } pub fun f() i32 { fast(7) }",
-            "unavailable in the caller",
+            "requires CPU features the caller lacks: `avx2`",
         ),
     ] {
         let output = check(text, "baseline");
@@ -69,6 +69,35 @@ fn function_feature_diagnostics_precede_codegen() {
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+    // A trait call inlines the implementation it selects, not the trait's
+    // default: overriding a featured default with a plain body is valid.
+    let text = r#"
+trait D { @[inlineAlways] @[cpuFeatures("avx2")] fun dd(self) i32 { _ = self; 3 } }
+struct Other {}
+extend Other : D { fun dd(self) i32 { _ = self; 1 } }
+pub fun viaOverride() i32 { Other {}.dd() }
+fun generic[T](value: T) i32 where T: D { value.dd() }
+pub fun viaGenericOverride() i32 { generic(Other {}) }
+"#;
+    let output = check(text, "baseline");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // The architecture error names the written feature, not its implications.
+    std::fs::write(&source, "@[cpuFeatures(\"avx2\")] pub fun f() () {}").expect("write source");
+    let output = support::nia_command()
+        .args(["--target", "aarch64-unknown-linux", "check"])
+        .arg(&source)
+        .output_timeout_for_compiler("check foreign CPU feature");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success()
+            && stderr.contains("CPU feature `avx2` is not available")
+            && stderr.matches("is not available").count() == 1,
+        "{stderr}"
     );
 }
 
@@ -298,7 +327,8 @@ pub fun f() i32 { generic(Value {}) }
             .output_timeout_for_compiler("check resolved trait CPU features");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            !output.status.success() && stderr.contains("unavailable in the caller"),
+            !output.status.success()
+                && stderr.contains("requires CPU features the caller lacks: `avx2`"),
             "{optimization}: {stderr}"
         );
         assert!(!stderr.contains("internal compiler error"), "{stderr}");

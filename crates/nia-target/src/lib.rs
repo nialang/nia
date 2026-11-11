@@ -561,7 +561,9 @@ pub enum CpuFeature {
     Neon,
 }
 
-/// Every CPU feature, in display order.
+/// Every CPU feature, in display order. A feature appears after every
+/// feature it implies, so a scan from the end meets an implying feature
+/// before the features it implies (the runtime checker relies on this).
 pub const CPU_FEATURES: [CpuFeature; 21] = [
     CpuFeature::Sse2,
     CpuFeature::Sse3,
@@ -619,14 +621,6 @@ impl CpuFeature {
         CPU_FEATURES
             .into_iter()
             .find(|feature| feature.name() == name)
-    }
-
-    /// The architecture whose processors may have this feature.
-    pub const fn arch(self) -> Arch {
-        match self {
-            Self::Neon => Arch::Aarch64,
-            _ => Arch::X86_64,
-        }
     }
 
     /// LLVM's name for the feature in a target feature string.
@@ -705,6 +699,22 @@ impl CpuFeatures {
     /// Whether every feature in this set is available in `other`.
     pub const fn is_subset_of(self, other: Self) -> bool {
         self.0 & !other.0 == 0
+    }
+
+    /// The features of this set that `other` lacks.
+    pub const fn difference(self, other: Self) -> Self {
+        Self(self.0 & !other.0)
+    }
+
+    /// The features of this set that no other member implies, in display
+    /// order: the names a programmer writes. `{sse3, ..., avx, avx2}` gives
+    /// `avx2`.
+    pub fn outermost(self) -> impl Iterator<Item = CpuFeature> {
+        self.iter().filter(move |feature| {
+            !self.iter().any(|other| {
+                other != *feature && Self::default().enabling(other).contains(*feature)
+            })
+        })
     }
 
     /// Enables one feature and the instruction sets it requires. These are
@@ -806,6 +816,39 @@ impl CpuFeatures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn features_follow_the_features_they_imply() {
+        for (index, feature) in CPU_FEATURES.into_iter().enumerate() {
+            for implied in CpuFeatures::default().enabling(feature).iter() {
+                let implied_index = CPU_FEATURES.iter().position(|f| *f == implied);
+                assert!(implied_index <= Some(index), "{feature} implies {implied}");
+            }
+        }
+    }
+
+    #[test]
+    fn outermost_features_name_what_the_programmer_wrote() {
+        use CpuFeature::*;
+        let enable = |features: &[CpuFeature]| {
+            features
+                .iter()
+                .fold(CpuFeatures::default(), |set, feature| {
+                    set.enabling(*feature)
+                })
+        };
+        let outermost = |set: CpuFeatures| set.outermost().collect::<Vec<_>>();
+        assert_eq!(outermost(enable(&[Avx2])), [Avx2]);
+        assert_eq!(outermost(enable(&[Avx2, Bmi2, Fma])), [Avx2, Fma, Bmi2]);
+        assert_eq!(
+            outermost(enable(&[Avx512bw, Avx512vl])),
+            [Avx512bw, Avx512vl]
+        );
+        let missing = enable(&[Avx2]).difference(enable(&[Sse4_2]));
+        assert_eq!(missing.iter().collect::<Vec<_>>(), [Avx, Avx2]);
+        assert_eq!(outermost(missing), [Avx2]);
+        assert_eq!(outermost(CpuFeatures::default()), []);
+    }
 
     #[test]
     fn every_supported_target_round_trips_its_name() {

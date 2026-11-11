@@ -1190,10 +1190,13 @@ A release build calls the specialized function directly. Calling it on an
 unsupported processor can execute an illegal instruction; the caller is
 responsible for dispatching correctly.
 
-Inlining requires the callee's features to be a subset of the caller's. A
-direct call to an `@[inlineAlways]` function with additional requirements is
-an error. A call through a function pointer remains an ordinary call and may
-cross the feature boundary.
+Inlining requires the callee's features to be available in the caller: the
+caller's own features together with the build's. A direct call to an
+`@[inlineAlways]` function with additional requirements is an error. For a
+trait method the requirement is that of the implementation the call selects,
+so the error is reported when that call is generated, not by `nia check`. A
+call through a function pointer remains an ordinary call and may cross the
+feature boundary.
 
 #### Naked Functions
 

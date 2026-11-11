@@ -804,18 +804,17 @@ impl<'a> ModuleLowerer<'a> {
         let Some(function) = self.input.program.functions().get(&def_id) else {
             return;
         };
+        let required = nia_item_signatures::function_cpu_features(&function.signature.attributes);
         if function
             .signature
             .attributes
             .contains(&nia_item_signatures::FunctionAttribute::InlineAlways)
-            && !nia_item_signatures::function_cpu_features(&function.signature.attributes)
-                .is_subset_of(caller_features)
+            && !required.is_subset_of(caller_features)
         {
             self.diagnostics
-                .push(nia_diagnostic::Diagnostic::user_error_at(
-                    nia_diagnostic::codes::TYPE_CHECK,
+                .push(nia_item_signatures::inline_cpu_features_error(
                     span,
-                    "`@[inlineAlways]` call requires CPU features unavailable in the caller",
+                    required.difference(caller_features),
                 ));
         }
     }
