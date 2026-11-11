@@ -1163,11 +1163,11 @@ fn executable_check_in_session(
             final_executable_checked_modules(
                 db,
                 &parse_ok_modules,
+                entry_module,
                 &reachability,
                 &reachability_by_module,
                 &mut fact_by_id,
                 &caches,
-                non_function_signatures.as_ref(),
             )
         },
     ) {
@@ -1909,18 +1909,29 @@ fn named_top_level_function(
 fn final_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
     parse_ok: &[ModuleId],
+    entry_module: ModuleId,
     reachability: &nia_executable_reachability::ExecutableReachability,
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
     fact_by_id: &mut HashMap<ModuleId, ExecutableFactModuleState>,
     caches: &ExecutableCheckCaches,
-    _program_signatures: Option<&ProgramExecutableNonFunctionSignatures>,
 ) -> QueryResult<HashMap<ModuleId, CheckedModule>> {
     let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module)?;
+    let empty_module_items = nia_executable_reachability::ExecutableModuleReachability::default();
     let modules_with_executable_items = parse_ok
         .iter()
         .copied()
         .filter(|module_id| reachability.modules().contains(module_id))
         .filter_map(|module_id| {
+            // The entry module is checked even when nothing in it is
+            // executable: its consts and types are still the program.
+            if module_id == entry_module {
+                return Some((
+                    module_id,
+                    reachability_by_module
+                        .get(module_id)
+                        .unwrap_or(&empty_module_items),
+                ));
+            }
             let module_items = reachability_by_module.get(module_id)?;
             (!module_items.functions.is_empty() || !module_items.globals.is_empty())
                 .then_some((module_id, module_items))

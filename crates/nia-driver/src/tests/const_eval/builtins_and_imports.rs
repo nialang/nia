@@ -487,3 +487,24 @@ fun main() i32 { A as i32 }
         .collect::<Vec<_>>();
     assert_eq!(errors, ["taken branch"]);
 }
+
+#[test]
+fn entry_module_without_runtime_items_is_still_checked() {
+    let root = temp_dir("entry_module_without_runtime_items_is_still_checked");
+    let path = root.join("main.nia");
+    write(
+        &path,
+        "const N: usize = std::builtin::error(\"const only\");\nstruct S { field: Missing }\n",
+    );
+    let program = check_entry_program(path.to_string_lossy().into_owned());
+    let summaries = program
+        .diagnostics
+        .iter()
+        .map(|d| d.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(summaries.contains(&"const only"), "{summaries:?}");
+    assert!(
+        summaries.contains(&"unknown type `Missing`"),
+        "{summaries:?}"
+    );
+}
