@@ -880,6 +880,12 @@ impl<'a> BodyChecker<'a> {
         if !self.is_enum_def(enum_id) {
             return None;
         }
+        if self
+            .constructed_nominal_ty(lhs.span, enum_id, &args, &const_args)
+            .is_none()
+        {
+            return Some(self.error());
+        }
         let Some(variants) = self.enum_variant_scope(enum_id) else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
@@ -1036,10 +1042,20 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
     ) -> Option<InternedTyId> {
         let (enum_id, variant_def) = self.enum_variant_info(callee)?;
-        let (_, enum_args, enum_const_args) = self.type_prefix_instance(match &callee.kind {
+        let prefix = match &callee.kind {
             nia_ast::ExprKind::Qualified { lhs, .. } => lhs,
             _ => return None,
-        })?;
+        };
+        let (_, enum_args, enum_const_args) = self.type_prefix_instance(prefix)?;
+        if self
+            .constructed_nominal_ty(prefix.span, enum_id, &enum_args, &enum_const_args)
+            .is_none()
+        {
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
         let variant_id = GlobalDefId {
             module_id: enum_id.module_id,
             def_id: variant_def,
@@ -1163,11 +1179,13 @@ impl<'a> BodyChecker<'a> {
         if !resolved.signature.is_tuple {
             return None;
         }
-        let ty = self.interner.intern(TyKind::Nominal {
-            def_id,
-            args: type_args.clone(),
-            const_args: const_args.clone(),
-        });
+        let Some(ty) = self.constructed_nominal_ty(callee.span, def_id, &type_args, &const_args)
+        else {
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        };
         let fields = resolved.signature.fields;
         if fields.len() != args.len() {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -1293,11 +1311,11 @@ impl<'a> BodyChecker<'a> {
             return self.enum_ty(enum_id, &enum_args, &enum_const_args);
         }
         if let Some((def_id, args, const_args)) = self.type_prefix_instance(target) {
-            let ty = self.interner.intern(TyKind::Nominal {
-                def_id,
-                args,
-                const_args,
-            });
+            let Some(ty) = self.constructed_nominal_ty(target.span, def_id, &args, &const_args)
+            else {
+                self.check_recovery_fields(fields);
+                return self.error();
+            };
             return self.check_struct_literal(expr.span, ty, fields);
         }
         for field in fields {
@@ -1373,6 +1391,28 @@ impl<'a> BodyChecker<'a> {
                 ),
             ));
         }
+    }
+
+    /// The nominal type a constructor builds. The constructor names its
+    /// type, so every generic argument must be written, as in `Pair[i32] {
+    /// .. }` or `Option[i32]::Some(1)`; constructors do not infer them. A
+    /// wrong count is reported once and gives no type, so no instance whose
+    /// arguments do not match its parameters reaches later phases.
+    pub(crate) fn constructed_nominal_ty(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[nia_ty::ConstGenericArg],
+    ) -> Option<InternedTyId> {
+        self.check_type_prefix_arg_count(span, def_id, args.len() + const_args.len())
+            .then(|| {
+                self.interner.intern(TyKind::Nominal {
+                    def_id,
+                    args: args.to_vec(),
+                    const_args: const_args.to_vec(),
+                })
+            })
     }
 
     pub(crate) fn enum_ty(

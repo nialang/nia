@@ -1913,8 +1913,12 @@ types and expressions; array lengths use `usize` const parameters. Generic
 parameters exist only at compile time.
 
 Generic types are instantiated with brackets directly after the name:
-`Pair[i32, bool]`, `Buffer[64]`. Calls may infer every argument or list all of
-them; a partial list is an error, and `_` asks for inference in one position:
+`Pair[i32, bool]`, `Buffer[64]`. A generic type always takes all of its
+arguments, in type positions and in constructors: `Pair[i32, bool] { .. }`,
+`Wrapper[i32](1)`, `Choice[i32]::Some(1)`. Constructors do not infer them; where
+the type is expected, `.{ .. }` and `.Some(1)` take the arguments from the
+expected type. Calls may infer every argument or list all of them; a partial
+list is an error, and `_` asks for inference in one position:
 
 ```nia continued
 fun choose[T, U](value: T, other: U) T {

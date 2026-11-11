@@ -716,7 +716,7 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or(false)
     }
 
-    pub(in crate::calls) fn check_type_prefix_arg_count(
+    pub(crate) fn check_type_prefix_arg_count(
         &mut self,
         span: Span,
         def_id: GlobalDefId,

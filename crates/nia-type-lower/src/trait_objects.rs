@@ -52,11 +52,13 @@ impl<'a> TypeLowerer<'a, '_> {
             return None;
         }
         let object_args = self.lower_trait_object_args(span, segment, TraitId::Source(def_id))?;
-        self.check_type_arg_count(
+        if !self.check_type_arg_count(
             span,
             def_id,
             object_args.trait_args.len() + object_args.trait_const_args.len(),
-        );
+        ) {
+            return Some(self.intern(TyKind::Error));
+        }
         Some(self.intern(TyKind::TraitObject {
             is_readonly,
             trait_id: TraitId::Source(def_id),
@@ -536,12 +538,21 @@ impl<'a> TypeLowerer<'a, '_> {
         }
     }
 
-    pub(crate) fn check_type_arg_count(&mut self, span: Span, def_id: GlobalDefId, actual: usize) {
+    /// Reports a generic argument count that differs from the declaration's
+    /// and returns whether the count is valid. A type with the wrong number
+    /// of arguments has no meaning, so callers lower it to the error type
+    /// rather than an instance whose arguments do not match its parameters.
+    pub(crate) fn check_type_arg_count(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        actual: usize,
+    ) -> bool {
         let Some(defs) = self.defs_for_module(def_id.module_id) else {
-            return;
+            return true;
         };
         let Some(def) = defs.defs.get(def_id.def_id) else {
-            return;
+            return true;
         };
         let expected = def.generics.len();
         let name = def.name;
@@ -554,7 +565,9 @@ impl<'a> TypeLowerer<'a, '_> {
                     "generic argument count mismatch for `{name}`: expected {expected}, got {actual}"
                 ),
             ));
+            return false;
         }
+        true
     }
 
     pub(crate) fn generic_params_for_def(

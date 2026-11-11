@@ -492,7 +492,9 @@ impl TypeLowerer<'_, '_> {
                 }
             }
         }
-        self.check_type_arg_count(span, def_id, positional_index);
+        if !self.check_type_arg_count(span, def_id, positional_index) {
+            return self.intern(TyKind::Error);
+        }
         if context == TypeContext::ExtendTarget && self.is_trait_def(def_id) {
             let object_args = self
                 .lower_trait_object_args(span, segment, TraitId::Source(def_id))

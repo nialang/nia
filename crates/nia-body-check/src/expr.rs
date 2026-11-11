@@ -240,6 +240,9 @@ impl<'a> BodyChecker<'a> {
                         ),
                     ));
                     self.error()
+                } else if expected.is_some_and(|expected| self.is_error_recovery_ty(expected)) {
+                    // The expected type already failed and was reported.
+                    self.error()
                 } else {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,

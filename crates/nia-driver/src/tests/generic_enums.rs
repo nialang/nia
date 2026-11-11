@@ -313,3 +313,72 @@ pub fun main(init: process::Init) process::ExitCode!() {
         .expect("run generic enum error constructor executable");
     assert_eq!(status.code(), Some(0));
 }
+
+/// A generic type used without its arguments is reported once, in every
+/// position, and produces no instance whose arguments do not match its
+/// parameters. Each of these once stopped with an internal error from
+/// layout-root collection.
+#[test]
+fn generic_types_without_arguments_are_reported_not_instantiated() {
+    let root = temp_dir("generic_types_without_arguments_are_reported_not_instantiated");
+    for (name, source) in [
+        (
+            "struct literal",
+            "struct W[T] { x: T }\nfun main() i32 { let v = W { x: 1i32 }; v.x }\n",
+        ),
+        (
+            "tuple struct",
+            "struct T2[T](T)\nfun main() i32 { let v = T2(1i32); v.0 }\n",
+        ),
+        (
+            "enum variant",
+            "enum M[T] { Some(T), No }\nfun main() i32 { match M::Some(1i32) { .Some(x) => x, .No => 0 } }\n",
+        ),
+        (
+            "annotation",
+            "struct W[T] { x: T }\nfun main() i32 { let v: W = W[i32] { x: 1 }; _ = v; 0 }\n",
+        ),
+        (
+            "parameter",
+            "struct W[T] { x: T }\nfun f(w: W) i32 { _ = w; 0 }\nfun main() i32 { 0 }\n",
+        ),
+    ] {
+        let path = root.join(format!("{}.nia", name.replace(' ', "_")));
+        write(&path, source);
+        let program = check_program(path.to_string_lossy().into_owned());
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+            .map(|d| d.diagnostic.summary.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            errors.len() == 1 && errors[0].starts_with("generic argument count mismatch for `"),
+            "{name}: {errors:?}"
+        );
+    }
+    // Written arguments and an expected type both determine the instance.
+    let path = root.join("valid.nia");
+    write(
+        &path,
+        r#"
+struct W[T] { x: T }
+struct T2[T](T)
+enum M[T] { Some(T), No }
+extend[T] W[T] { fun new(x: T) W[T] { W[T] { x } } }
+fun fromExpected() M[i32] { .Some(4) }
+fun main() i32 {
+    let a = W[i32] { x: 1 };
+    let b: W[i32] = .{ x: 2 };
+    let c: W[i32] = W::new(3);
+    let d = T2[i32](5);
+    let e = M[i32]::Some(6);
+    _ = e;
+    _ = fromExpected();
+    a.x + b.x + c.x + d.0
+}
+"#,
+    );
+    let program = check_program(path.to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
