@@ -227,6 +227,8 @@ pub struct BodyCheckInput<'a> {
     pub seed: Option<BodyCheckSeed<'a>>,
     /// Target layout and primitive configuration.
     pub target: &'a TargetConfig,
+    /// Instruction sets guaranteed for every function in this build.
+    pub cpu_features: nia_target::CpuFeatures,
     /// Cached const evaluation products.
     pub const_eval: BodyConst<'a>,
     /// Resolved const module for local initializers.
@@ -340,6 +342,8 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub normalization: &'a TypeNormalization,
     /// Target configuration.
     pub target: &'a TargetConfig,
+    /// Instruction sets guaranteed for every function in this build.
+    pub cpu_features: nia_target::CpuFeatures,
     /// Cached const products.
     pub const_eval: BodyConst<'a>,
     /// Resolved const module.

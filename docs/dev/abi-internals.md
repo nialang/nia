@@ -200,6 +200,12 @@ resource under the internal runtime package identity, not public std API.
   reachability follows calls.
 - Native helpers referenced implicitly by codegen, such as Windows `__chkstk`,
   are rooted by runtime source module and definition.
+- CPU-feature check support is a conditional native requirement. Executable
+  loading keeps its module shallow until demand selects its body. Executable
+  reachability adds its runtime root only after a reachable signature requires
+  features beyond the build's guarantee in a debug profile. Its ordinary Nia
+  body uses the public std CPU query; codegen knows only the
+  [native support ABI](../reference/abi.md#cpu-feature-check-support).
 - On Darwin the source entry is `main`, spelled `_main` for Mach-O; `dyld`
   enters through `LC_MAIN` and it forwards to `niaDarwinStart`.
 - Linux executables are static-pie by default. `_start` passes `__ehdr_start`

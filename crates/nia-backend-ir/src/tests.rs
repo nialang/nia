@@ -220,6 +220,7 @@ fn partitioning_defers_dangling_closure_instance_owners_to_validation() {
     let mut module = module_with_global(module_id, ty, "main", false);
     module.closure_entries = (0..SOURCE_CODEGEN_SPLIT_THRESHOLD - 1)
         .map(|ordinal| BackendClosureEntry {
+            attributes: Vec::new(),
             key: BackendClosureEntryKey {
                 closure_id: ClosureId {
                     owner,

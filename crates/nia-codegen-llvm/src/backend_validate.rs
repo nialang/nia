@@ -391,6 +391,48 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
                 .entry(entry.symbol.clone())
                 .or_insert("closure entry");
         }
+        // Checked bodies are externally linked hidden definitions, so they
+        // occupy the same namespace as instances and explicit export names.
+        for function in &module.functions {
+            if !function.generics.is_empty() {
+                continue;
+            }
+            let symbol = match function.linkage.external_symbol() {
+                Some(symbol) => Ok(symbol.to_string()),
+                None => mangle_definition_symbol_canonical(
+                    &module.symbol_package_identity,
+                    function.def_id,
+                    module_mangle,
+                    mangle_symbol_id(function.name),
+                    MangleSymbolKind::Function,
+                ),
+            };
+            record_cpu_implementation_symbol(
+                &mut values,
+                diagnostics,
+                symbol,
+                &function.attributes,
+                function.span,
+            );
+        }
+        for function in &module.function_instances {
+            record_cpu_implementation_symbol(
+                &mut values,
+                diagnostics,
+                Ok(function.symbol.clone()),
+                &function.attributes,
+                function.span,
+            );
+        }
+        for entry in &module.closure_entries {
+            record_cpu_implementation_symbol(
+                &mut values,
+                diagnostics,
+                Ok(entry.symbol.clone()),
+                &entry.attributes,
+                entry.span,
+            );
+        }
         let mut types = HashMap::<String, &'static str>::new();
         for item in &module.structs {
             if item.generics.is_empty() {
@@ -447,6 +489,29 @@ fn validate_generated_symbols(index: &ProgramIndex, diagnostics: &mut Vec<Diagno
     }
     record_vtable_symbols(index, &mut values, diagnostics);
     validate_external_symbol_collisions(index, &values, diagnostics);
+}
+
+fn record_cpu_implementation_symbol(
+    symbols: &mut HashMap<String, &'static str>,
+    diagnostics: &mut Vec<Diagnostic>,
+    entry: nia_ice::IceResult<String>,
+    attributes: &[nia_backend_ir::BackendFunctionAttribute],
+    span: nia_span::Span,
+) {
+    if attributes.iter().any(|attribute| {
+        matches!(
+            attribute,
+            nia_backend_ir::BackendFunctionAttribute::CpuFeatures { checked: true, .. }
+        )
+    }) {
+        record_mangled_symbol(
+            symbols,
+            diagnostics,
+            entry.and_then(crate::module_codegen::cpu_implementation_symbol),
+            "CPU feature implementation",
+            span,
+        );
+    }
 }
 
 fn validate_external_symbol_collisions(
@@ -1278,8 +1343,11 @@ impl BackendValidator<'_> {
                 "closure entry owner does not match its source closure identity",
             ));
         }
-        let owner_exists = match &entry.key.owner {
-            BackendClosureEntryOwner::Source(owner) => self.index.function(*owner).is_some(),
+        let owner_attributes = match &entry.key.owner {
+            BackendClosureEntryOwner::Source(owner) => self
+                .index
+                .function(*owner)
+                .map(|function| function.attributes.as_slice()),
             BackendClosureEntryOwner::FunctionInstance(owner) => self
                 .index
                 .function_instance(
@@ -1289,9 +1357,23 @@ impl BackendValidator<'_> {
                     &owner.args,
                     &owner.const_args,
                 )
-                .is_some(),
+                .map(|function| function.attributes.as_slice()),
         };
-        if !owner_exists {
+        if let Some(attributes) = owner_attributes {
+            let inherited = attributes.iter().filter(|attribute| {
+                matches!(
+                    attribute,
+                    nia_backend_ir::BackendFunctionAttribute::CpuFeatures { .. }
+                )
+            });
+            if !entry.attributes.iter().eq(inherited) {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    nia_diagnostic::codes::INVALID_BACKEND_IR,
+                    entry.span,
+                    "closure entry must inherit exactly its owner's CPU features",
+                ));
+            }
+        } else {
             self.diagnostics.push(Diagnostic::internal_error_at(
                 nia_diagnostic::codes::INVALID_BACKEND_IR,
                 entry.span,

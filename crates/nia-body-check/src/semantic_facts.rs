@@ -119,7 +119,54 @@ impl<'a> BodyChecker<'a> {
                 .push(Diagnostic::user_error_at(codes::CONST, span, summary));
         }
         self.enqueue_same_module_resolved_call(&call);
+        if !self.node_resolved_calls.contains_key(key) {
+            self.check_inline_cpu_features(span, &call);
+        }
         self.node_resolved_calls.insert(key.clone(), call);
+    }
+
+    fn check_inline_cpu_features(&mut self, span: Span, call: &ResolvedCall) {
+        let def_id = match call {
+            ResolvedCall::Function(def_id)
+            | ResolvedCall::FunctionInstance { def_id, .. }
+            | ResolvedCall::Method { def_id, .. } => *def_id,
+            ResolvedCall::TraitMethod { method_id, .. }
+            | ResolvedCall::TraitAssociatedFunction { method_id, .. } => *method_id,
+            _ => return,
+        };
+        let Some(callee) = self.resolved_function_signature(def_id) else {
+            return;
+        };
+        if !callee
+            .signature
+            .attributes
+            .contains(&nia_item_signatures::FunctionAttribute::InlineAlways)
+        {
+            return;
+        }
+        let required = nia_item_signatures::function_cpu_features(&callee.signature.attributes);
+        let caller = self
+            .current_def_id
+            .and_then(|owner| self.resolved_function_signature(owner))
+            .map(|resolved| {
+                nia_item_signatures::function_cpu_features(&resolved.signature.attributes)
+            })
+            .unwrap_or_default()
+            .union(self.cpu_features);
+        if !required.is_subset_of(caller) {
+            let missing = required
+                .iter()
+                .filter(|feature| !caller.contains(*feature))
+                .map(|feature| feature.name())
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.diagnostics.push(Diagnostic::user_error(
+                codes::TYPE_CHECK,
+                format!("`@[inlineAlways]` call requires CPU features unavailable in the caller: {missing}"),
+            ).primary(span, "the callee cannot be inlined into this function")
+             .help("enable the required features on the caller, or remove `@[inlineAlways]` from the callee")
+             .finish());
+        }
     }
 
     fn resolved_call_is_const_capable(&mut self, call: &ResolvedCall) -> bool {

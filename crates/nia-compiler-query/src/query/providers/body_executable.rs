@@ -1601,6 +1601,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         .flatten()
     };
     let target = db.get(CompilerTargetQuery)?;
+    let cpu_features = *db.get(CompilerCpuFeaturesQuery)?;
     let run_body_check =
         |inputs: &BodyCheckResolutionInputs,
          body_const: nia_body_check::BodyConst<'_>,
@@ -1629,6 +1630,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     normalization: &normalization.semantic,
                     seed,
                     target: target.as_ref(),
+                    cpu_features,
                     const_eval: body_const,
                     const_module,
                     layouts: &layouts,

@@ -446,6 +446,7 @@ fn validates_closure_abi_param_local_mapping_before_llvm() {
         elem: i32_ty,
     });
     let entry = nia_backend_ir::BackendClosureEntry {
+        attributes: Vec::new(),
         key: nia_backend_ir::BackendClosureEntryKey {
             closure_id,
             owner: nia_backend_ir::BackendClosureEntryOwner::FunctionInstance(
@@ -859,6 +860,7 @@ fn validates_closure_entry_call_and_view_contracts_before_llvm() {
         span,
     };
     let entry = nia_backend_ir::BackendClosureEntry {
+        attributes: Vec::new(),
         key: nia_backend_ir::BackendClosureEntryKey {
             closure_id,
             owner: nia_backend_ir::BackendClosureEntryOwner::Source(main_id),

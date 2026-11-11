@@ -630,7 +630,7 @@ impl CpuFeature {
     }
 
     /// LLVM's name for the feature in a target feature string.
-    const fn llvm_name(self) -> &'static str {
+    pub const fn llvm_name(self) -> &'static str {
         match self {
             Self::Sse4_1 => "sse4.1",
             Self::Sse4_2 => "sse4.2",
@@ -669,6 +669,12 @@ impl CpuFeature {
     const fn bit(self) -> u32 {
         1 << (self as u32)
     }
+
+    /// Whether this instruction-set feature belongs to `arch`.
+    pub const fn supports_arch(self, arch: Arch) -> bool {
+        matches!((self, arch), (Self::Neon, Arch::Aarch64))
+            || (!matches!(self, Self::Neon) && matches!(arch, Arch::X86 | Arch::X86_64))
+    }
 }
 
 impl fmt::Display for CpuFeature {
@@ -682,6 +688,43 @@ impl fmt::Display for CpuFeature {
 pub struct CpuFeatures(u32);
 
 impl CpuFeatures {
+    /// Reads a stable set, rejecting bits outside the feature registry.
+    pub const fn from_bits(bits: u32) -> Option<Self> {
+        if bits & !((1 << CPU_FEATURES.len()) - 1) == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
+
+    /// Union of two feature sets.
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Whether every feature in this set is available in `other`.
+    pub const fn is_subset_of(self, other: Self) -> bool {
+        self.0 & !other.0 == 0
+    }
+
+    /// Enables one feature and the instruction sets it requires. These are
+    /// the same implications used by LLVM's target-feature model.
+    pub fn enabling(self, feature: CpuFeature) -> Self {
+        use CpuFeature::*;
+        let features = self.with(feature);
+        match feature {
+            Sse3 => features.enabling(Sse2),
+            Ssse3 => features.enabling(Sse3),
+            Sse4_1 => features.enabling(Ssse3),
+            Sse4_2 => features.enabling(Sse4_1),
+            Avx => features.enabling(Sse4_2),
+            Avx2 | Fma | F16c => features.enabling(Avx),
+            Avx512f => features.enabling(Avx2).enabling(Fma).enabling(F16c),
+            Avx512bw | Avx512cd | Avx512dq | Avx512vl => features.enabling(Avx512f),
+            _ => features,
+        }
+    }
+
     /// Whether code may rely on `feature`.
     pub const fn contains(self, feature: CpuFeature) -> bool {
         self.0 & feature.bit() != 0
@@ -751,7 +794,7 @@ impl CpuFeatures {
             };
             if let Some(feature) = CPU_FEATURES
                 .into_iter()
-                .find(|feature| feature.arch() == target.arch() && feature.llvm_name() == name)
+                .find(|feature| feature.supports_arch(target.arch()) && feature.llvm_name() == name)
             {
                 features = features.with(feature);
             }
@@ -914,6 +957,25 @@ mod tests {
         // LLVM spellings are not feature names.
         assert_eq!(CpuFeature::parse("sse4.2"), None);
         assert_eq!(CpuFeature::parse("bmi"), None);
+    }
+
+    #[test]
+    fn function_features_include_dependencies_and_validate_stable_sets() {
+        let avx = CpuFeatures::default().enabling(CpuFeature::Avx);
+        let avx2 = CpuFeatures::default().enabling(CpuFeature::Avx2);
+        assert!(avx.is_subset_of(avx2));
+        assert!(!avx2.is_subset_of(avx));
+        assert!(avx2.contains(CpuFeature::Sse2) && avx2.contains(CpuFeature::Sse4_2));
+        assert!(!avx2.contains(CpuFeature::Fma) && !avx2.contains(CpuFeature::Popcnt));
+        let zmm = CpuFeatures::default().enabling(CpuFeature::Avx512bw);
+        assert!(avx2.is_subset_of(zmm) && zmm.contains(CpuFeature::Avx512f));
+        assert!(zmm.contains(CpuFeature::Fma) && zmm.contains(CpuFeature::F16c));
+        assert_eq!(CpuFeatures::from_bits(zmm.bits()), Some(zmm));
+        assert_eq!(CpuFeatures::from_bits(1 << CPU_FEATURES.len()), None);
+        let i686 = TargetConfig::parse("x86-unknown-linux").unwrap();
+        assert!(CpuFeatures::from_llvm_features(i686, "+sse2,+avx2").contains(CpuFeature::Avx2));
+        assert!(CpuFeature::Avx2.supports_arch(Arch::X86));
+        assert!(!CpuFeature::Avx2.supports_arch(Arch::Aarch64));
     }
 
     #[test]

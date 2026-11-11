@@ -523,6 +523,7 @@ impl<'a> Encoder<'a> {
     }
 
     fn closure_entry(&mut self, item: &BackendClosureEntry) {
+        self.function_attributes(&item.attributes);
         self.global_def(item.key.closure_id.owner);
         self.u32(item.key.closure_id.ordinal);
         match &item.key.owner {
@@ -661,7 +662,12 @@ impl<'a> Encoder<'a> {
                 BackendFunctionAttribute::TrackCaller => 1,
                 BackendFunctionAttribute::InlineNever => 2,
                 BackendFunctionAttribute::InlineAlways => 3,
+                BackendFunctionAttribute::CpuFeatures { .. } => 4,
             });
+            if let BackendFunctionAttribute::CpuFeatures { features, checked } = attribute {
+                self.u32(features.bits());
+                self.bool(*checked);
+            }
         }
     }
 
@@ -2906,6 +2912,7 @@ mod tests {
                 span,
             });
             module.closure_entries.push(BackendClosureEntry {
+                attributes: Vec::new(),
                 key: BackendClosureEntryKey {
                     closure_id,
                     owner: BackendClosureEntryOwner::Source(closure_id.owner),

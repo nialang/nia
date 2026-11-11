@@ -54,6 +54,28 @@ fn is_c_function_pointer(codegen: &FunctionCodegen<'_, '_, '_>, callee: &Functio
 }
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
+    pub(super) fn build_cpu_aware_call(
+        &self,
+        function: nia_llvm::values::FunctionValue<'ctx>,
+        args: &[nia_llvm::values::BasicValueEnum<'ctx>],
+        name: &str,
+    ) -> nia_llvm::LlvmResult<nia_llvm::values::CallSiteValue<'ctx>> {
+        let (target, always_inline) = self
+            .module
+            .direct_call_entry(function, &self.function.closure_owner);
+        let call = self.builder.build_call(target, args, name)?;
+        if always_inline {
+            call.add_attribute(
+                nia_llvm::AttributeLoc::Function,
+                self.module.context.create_enum_attribute(
+                    nia_llvm::Attribute::get_named_enum_kind_id("alwaysinline"),
+                    0,
+                )?,
+            );
+        }
+        Ok(call)
+    }
+
     pub(super) fn emit_function_pointer(
         &mut self,
         span: Span,
@@ -599,8 +621,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if let Some(caller_location) = caller_location {
                     llvm_args.push(caller_location.into());
                 }
-                self.builder
-                    .build_call(function, &llvm_args, "calltmp")
+                self.build_cpu_aware_call(function, &llvm_args, "calltmp")
                     .map_err(|_| self.error(expr.span, "failed to build call"))
             }
             FunctionCallee::FunctionInstance {
@@ -628,23 +649,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if let Some(caller_location) = caller_location {
                     llvm_args.push(caller_location.into());
                 }
-                self.builder
-                    .build_call(
-                        self.module
-                            .function_instance_value(
-                                instance.def_id,
-                                instance.arg_module_id,
-                                instance.self_arg,
-                                &instance.args,
-                                &instance.const_args,
-                            )
-                            .ok_or_else(|| {
-                                self.error(expr.span, "missing callee function instance")
-                            })?,
-                        &llvm_args,
-                        "calltmp",
-                    )
-                    .map_err(|_| self.error(expr.span, "failed to build call"))
+                self.build_cpu_aware_call(
+                    self.module
+                        .function_instance_value(
+                            instance.def_id,
+                            instance.arg_module_id,
+                            instance.self_arg,
+                            &instance.args,
+                            &instance.const_args,
+                        )
+                        .ok_or_else(|| self.error(expr.span, "missing callee function instance"))?,
+                    &llvm_args,
+                    "calltmp",
+                )
+                .map_err(|_| self.error(expr.span, "failed to build call"))
             }
             FunctionCallee::Method {
                 def_id,
@@ -758,8 +776,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if let Some(caller_location) = caller_location {
                     llvm_args.push(caller_location.into());
                 }
-                self.builder
-                    .build_call(function, &llvm_args, "calltmp")
+                self.build_cpu_aware_call(function, &llvm_args, "calltmp")
                     .map_err(|_| self.error(expr.span, "failed to build method call"))
             }
             FunctionCallee::TraitMethod { .. } => Err(self.error(

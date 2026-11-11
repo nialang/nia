@@ -1765,7 +1765,8 @@ impl<'a> BodyChecker<'a> {
                 FunctionAttribute::Naked
                 | FunctionAttribute::TrackCaller
                 | FunctionAttribute::InlineNever
-                | FunctionAttribute::InlineAlways => None,
+                | FunctionAttribute::InlineAlways
+                | FunctionAttribute::CpuFeatures(_) => None,
             })
     }
 

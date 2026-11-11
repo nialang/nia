@@ -672,6 +672,7 @@ dependencies = [
  "nia-span",
  "nia-static-ir",
  "nia-symbol",
+ "nia-target",
  "nia-ty",
  "parking_lot",
 ]
@@ -1295,6 +1296,7 @@ dependencies = [
  "nia-parser",
  "nia-span",
  "nia-symbol",
+ "nia-target",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",

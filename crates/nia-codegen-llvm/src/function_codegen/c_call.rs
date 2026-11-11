@@ -364,7 +364,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
         let call = match target {
             CCallTarget::Direct(function) => {
-                self.builder.build_call(function, &llvm_args, "c.call")
+                self.build_cpu_aware_call(function, &llvm_args, "c.call")
             }
             CCallTarget::Indirect {
                 function_type,

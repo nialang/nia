@@ -558,7 +558,7 @@ fn executable_check_in_session(
             let (entry_module, runtime_root_modules) =
                 db.get(ExecutableRootModulesQuery)?.as_ref().clone();
             let (root_functions, root_globals) =
-                executable_root_defs(db, entry_module, &runtime_root_modules, &parse_ok)?;
+                executable_root_defs(db, entry_module, &runtime_root_modules, &parse_ok, false)?;
             Ok((
                 provider_fact_worklist,
                 body_activation_worklist,
@@ -578,7 +578,7 @@ fn executable_check_in_session(
         parse_ok,
         module_versions,
         entry_module,
-        root_functions,
+        mut root_functions,
         root_globals,
     ) = match initial_inputs {
         Ok(inputs) => inputs,
@@ -780,7 +780,16 @@ fn executable_check_in_session(
             )
         };
     }
+    let build_cpu_features = match db.get(CompilerCpuFeaturesQuery) {
+        Ok(features) => *features,
+        Err(error) => return_session_error!(error),
+    };
+    let profile = match db.get(CompilerBuildProfileQuery) {
+        Ok(profile) => *profile,
+        Err(error) => return_session_error!(error),
+    };
     let extension_lookup = QueryExecutableExtensionLookup::new(db);
+    let mut cpu_helpers_rooted = false;
     loop {
         emit_executable_check_counter(db, product, "iterations", 1);
         let reachable_inputs = time_provider(
@@ -822,6 +831,34 @@ fn executable_check_in_session(
         }
         if let Some(error) = query_failure.borrow_mut().take() {
             return_session_error!(error);
+        }
+        if !cpu_helpers_rooted
+            && profile == nia_target_config::BuildProfile::Debug
+            && reachability_state
+                .reachability()
+                .functions()
+                .iter()
+                .any(|def_id| {
+                    function_signature(*def_id).is_some_and(|function| {
+                        !nia_item_signatures::function_cpu_features(&function.signature.attributes)
+                            .is_subset_of(build_cpu_features)
+                    })
+                })
+        {
+            let roots = (|| {
+                let (_, runtime_modules) = db.get(ExecutableRootModulesQuery)?.as_ref().clone();
+                executable_root_defs(db, entry_module, &runtime_modules, &parse_ok, true)
+            })();
+            match roots {
+                Ok((functions, _)) => {
+                    root_functions.extend(functions);
+                    root_functions.sort();
+                    root_functions.dedup();
+                }
+                Err(error) => return_session_error!(error),
+            }
+            cpu_helpers_rooted = true;
+            continue;
         }
         let (value_edges_changed, value_ref_stats) = match time_provider(
             db.context().timings(),
@@ -1637,6 +1674,7 @@ fn executable_root_defs(
     entry: ModuleId,
     runtime_root_modules: &[ModuleId],
     parse_ok: &[ModuleId],
+    include_cpu_feature_checks: bool,
 ) -> QueryResult<(Vec<GlobalDefId>, Vec<GlobalDefId>)> {
     if *db.get(CompilerCodegenScopeQuery)? == crate::CodegenScope::Package {
         return package_root_defs(db, entry, parse_ok);
@@ -1712,6 +1750,11 @@ fn executable_root_defs(
             })?;
             let mut functions = vec![start];
             for export in runtime.required_exports() {
+                if export.requirement() == nia_toolchain::RuntimeExportRequirement::CpuFeatureChecks
+                    && !include_cpu_feature_checks
+                {
+                    continue;
+                }
                 let identity = nia_source::SourceIdentity::new(export.module_identity());
                 let key = nia_imports::StableModuleKey::from_source_identity(identity);
                 let export_module = graph.module_id_for_stable_key(&key).ok_or_else(|| {

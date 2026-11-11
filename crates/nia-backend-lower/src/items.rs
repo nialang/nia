@@ -30,6 +30,13 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionAttribute::TrackCaller => Some(BackendFunctionAttribute::TrackCaller),
                 FunctionAttribute::InlineNever => Some(BackendFunctionAttribute::InlineNever),
                 FunctionAttribute::InlineAlways => Some(BackendFunctionAttribute::InlineAlways),
+                FunctionAttribute::CpuFeatures(features) => {
+                    Some(BackendFunctionAttribute::CpuFeatures {
+                        features: *features,
+                        checked: self.input.check_cpu_features
+                            && !features.is_subset_of(self.input.cpu_features),
+                    })
+                }
                 FunctionAttribute::Builtin(_) => None,
             })
             .collect::<Vec<_>>();

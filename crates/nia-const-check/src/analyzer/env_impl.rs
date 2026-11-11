@@ -2637,7 +2637,8 @@ pub(super) fn builtin_function(signature: &FunctionSignature) -> Option<BuiltinF
             FunctionAttribute::Naked
             | FunctionAttribute::TrackCaller
             | FunctionAttribute::InlineNever
-            | FunctionAttribute::InlineAlways => None,
+            | FunctionAttribute::InlineAlways
+            | FunctionAttribute::CpuFeatures(_) => None,
         })
 }
 

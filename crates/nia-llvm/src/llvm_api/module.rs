@@ -351,19 +351,22 @@ impl<'ctx> FunctionValue<'ctx> {
 impl Module<'_> {
     /// Direct calls that remain to functions carrying the function attribute
     /// `attribute`, as `(caller, callee)` symbol names. Calls through a
-    /// pointer have no statically known callee and are not listed.
+    /// pointer have no statically known callee and are not listed. Explicit
+    /// `noinline` call sites are excluded: they can represent compiler-created
+    /// ABI boundaries rather than source-level inline requests.
     pub fn direct_calls_to_functions_with_attribute(
         &self,
         attribute: &str,
     ) -> Vec<(String, String)> {
         use llvm_sys::LLVMAttributeFunctionIndex;
         use llvm_sys::core::{
-            LLVMGetCalledValue, LLVMGetEnumAttributeAtIndex, LLVMGetFirstBasicBlock,
-            LLVMGetFirstInstruction, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
-            LLVMGetValueName2, LLVMIsACallInst, LLVMIsAFunction,
+            LLVMGetCallSiteEnumAttribute, LLVMGetCalledValue, LLVMGetEnumAttributeAtIndex,
+            LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetNextBasicBlock,
+            LLVMGetNextInstruction, LLVMGetValueName2, LLVMIsACallInst, LLVMIsAFunction,
         };
 
         let kind = super::Attribute::get_named_enum_kind_id(attribute);
+        let noinline = super::Attribute::get_named_enum_kind_id("noinline");
         let name = |value: llvm_sys::prelude::LLVMValueRef| {
             let mut len = 0;
             let raw = unsafe { LLVMGetValueName2(value, &mut len) };
@@ -386,16 +389,32 @@ impl Module<'_> {
                 while !instruction.is_null() {
                     if !unsafe { LLVMIsACallInst(instruction) }.is_null() {
                         let callee = unsafe { LLVMGetCalledValue(instruction) };
-                        if !callee.is_null()
+                        if unsafe {
+                            LLVMGetCallSiteEnumAttribute(
+                                instruction,
+                                LLVMAttributeFunctionIndex,
+                                noinline,
+                            )
+                        }
+                        .is_null()
+                            && !callee.is_null()
                             && !unsafe { LLVMIsAFunction(callee) }.is_null()
-                            && !unsafe {
-                                LLVMGetEnumAttributeAtIndex(
-                                    callee,
+                            && (!unsafe {
+                                LLVMGetCallSiteEnumAttribute(
+                                    instruction,
                                     LLVMAttributeFunctionIndex,
                                     kind,
                                 )
                             }
                             .is_null()
+                                || !unsafe {
+                                    LLVMGetEnumAttributeAtIndex(
+                                        callee,
+                                        LLVMAttributeFunctionIndex,
+                                        kind,
+                                    )
+                                }
+                                .is_null())
                         {
                             found.push((name(function), name(callee)));
                         }

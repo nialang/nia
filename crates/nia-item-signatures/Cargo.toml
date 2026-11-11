@@ -17,6 +17,7 @@ nia-literals.workspace = true
 nia-node-id.workspace = true
 nia-span.workspace = true
 nia-symbol.workspace = true
+nia-target.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true
 

@@ -1,2 +1,3 @@
 @[if os == "windows"]
 pub(root) module windows;
+pub(root) module cpu;

@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod c_abi;
+mod cpu_features;
 mod declarations;
 mod static_init;
 mod trait_objects;
 mod types;
+
+pub(crate) use cpu_features::implementation_symbol as cpu_implementation_symbol;
 
 pub(crate) use trait_objects::{
     checked_vtable_array_len, checked_vtable_index, checked_vtable_slot_array_len,
@@ -144,6 +147,11 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     struct_instance_type_lookups: InstanceTypeLookup<'ctx>,
     union_instance_type_lookups: InstanceTypeLookup<'ctx>,
     pub(super) functions: HashMap<GlobalDefId, FunctionValue<'ctx>>,
+    cpu_implementations: HashMap<FunctionValue<'ctx>, FunctionValue<'ctx>>,
+    cpu_inline_implementations:
+        HashMap<FunctionValue<'ctx>, (FunctionValue<'ctx>, nia_target::CpuFeatures)>,
+    cpu_identity: nia_llvm::target::TargetMachineIdentity,
+    build_cpu_features: nia_target::CpuFeatures,
     pub(super) function_instances: FunctionInstanceMap<'ctx>,
     pub(super) function_instances_by_def: FunctionInstancesByDef<'ctx>,
     function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
@@ -181,6 +189,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         options: crate::output::LlvmCodegenOptions,
     ) -> Result<Self, Diagnostic> {
         declarations.validate_dependencies(partition, program)?;
+        let cpu_identity = options
+            .target_machine_identity()
+            .map_err(Self::diagnostic_from_llvm_error)?;
+        let build_cpu_features = nia_target::CpuFeatures::for_level(options.target, options.cpu)
+            .unwrap_or_else(|| {
+                nia_target::CpuFeatures::from_llvm_features(options.target, &cpu_identity.features)
+            });
         Ok(Self {
             context,
             source,
@@ -199,6 +214,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             struct_instance_type_lookups: RefCell::new(HashMap::new()),
             union_instance_type_lookups: RefCell::new(HashMap::new()),
             functions: HashMap::new(),
+            cpu_implementations: HashMap::new(),
+            cpu_inline_implementations: HashMap::new(),
+            cpu_identity,
+            build_cpu_features,
             function_instances: HashMap::new(),
             function_instances_by_def: HashMap::new(),
             function_instance_value_lookups: RefCell::new(HashMap::new()),
@@ -856,6 +875,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         ) else {
             return Err(self.error(instance.span, "missing function instance"));
         };
+        self.emit_cpu_wrapper(
+            llvm_function,
+            &instance.attributes,
+            instance.return_type,
+            instance
+                .linkage
+                .is_extern()
+                .then_some(instance.params.as_slice()),
+        )?;
+        let llvm_function = self.implementation_entry(llvm_function);
         let mut codegen = FunctionCodegen::new(
             self,
             FunctionCodegenInput {
@@ -908,6 +937,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     ),
                 ));
             };
+            self.emit_cpu_wrapper(
+                llvm_function,
+                &function.attributes,
+                function.return_type,
+                function
+                    .linkage
+                    .is_extern()
+                    .then_some(function.params.as_slice()),
+            )?;
+            let llvm_function = self.implementation_entry(llvm_function);
             let mut codegen = FunctionCodegen::new(self, function, llvm_function)?;
             codegen.emit_function_body(function_body)?;
         }
@@ -931,6 +970,19 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             llvm_function
                 .as_global_value()
                 .set_linkage(Linkage::AvailableExternally);
+            self.implementation_entry(llvm_function)
+                .as_global_value()
+                .set_linkage(Linkage::AvailableExternally);
+            self.emit_cpu_wrapper(
+                llvm_function,
+                &function.attributes,
+                function.return_type,
+                function
+                    .linkage
+                    .is_extern()
+                    .then_some(function.params.as_slice()),
+            )?;
+            let llvm_function = self.implementation_entry(llvm_function);
             let mut codegen = FunctionCodegen::new(self, function, llvm_function)?;
             codegen.emit_function_body(function_body)?;
         }
@@ -953,6 +1005,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 &instance.const_args,
             ) {
                 llvm_function
+                    .as_global_value()
+                    .set_linkage(Linkage::AvailableExternally);
+                self.implementation_entry(llvm_function)
                     .as_global_value()
                     .set_linkage(Linkage::AvailableExternally);
             }
@@ -981,6 +1036,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     span: entry.span,
                 },
             ));
+            self.emit_cpu_wrapper(
+                llvm_function,
+                &entry.attributes,
+                entry.abi.return_type,
+                None,
+            )?;
+            let llvm_function = self.implementation_entry(llvm_function);
             let mut codegen = FunctionCodegen::new(
                 self,
                 FunctionCodegenInput {

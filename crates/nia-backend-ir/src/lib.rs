@@ -1269,6 +1269,8 @@ pub struct BackendClosureEntry {
     /// The symbol is deterministically derived from the concrete owner symbol
     /// and closure ordinal; LLVM validation checks that relation.
     pub symbol: String,
+    /// Function code-generation requirements inherited from the owner.
+    pub attributes: Vec<BackendFunctionAttribute>,
     /// ABI including the hidden state pointer.
     pub abi: BackendClosureEntryAbi,
     /// Local id bound to the hidden state pointer.
@@ -1689,6 +1691,27 @@ pub enum BackendFunctionAttribute {
     InlineNever,
     /// Inline every direct call to this function, at every level.
     InlineAlways,
+    /// Enabled instruction sets and whether entry needs a baseline guard.
+    CpuFeatures {
+        /// Additional features, including their dependencies.
+        features: nia_target::CpuFeatures,
+        /// Debug entry checks before executing feature-specific code.
+        checked: bool,
+    },
+}
+
+/// Features required by a backend function, in addition to the build's set.
+pub fn function_cpu_features(attributes: &[BackendFunctionAttribute]) -> nia_target::CpuFeatures {
+    attributes.iter().fold(
+        nia_target::CpuFeatures::default(),
+        |features, attribute| match attribute {
+            BackendFunctionAttribute::CpuFeatures {
+                features: additional,
+                ..
+            } => features.union(*additional),
+            _ => features,
+        },
+    )
 }
 
 /// Concrete generic function definition.

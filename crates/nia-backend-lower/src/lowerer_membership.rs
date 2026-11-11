@@ -10,7 +10,11 @@ impl<'a> ModuleLowerer<'a> {
             &mut module.functions,
             &mut module.function_instances,
         );
-        self.inline_leaf_functions(&mut module.functions, &mut module.function_instances);
+        self.inline_leaf_functions(
+            &mut module.functions,
+            &mut module.function_instances,
+            &mut module.closure_entries,
+        );
         self.remove_unused_private_functions(
             &mut module.functions,
             &mut module.function_instances,

@@ -492,6 +492,7 @@ fn pipeline_with_options_and_trait_impls(
         normalization: &normalization,
         seed: None,
         target: &target,
+        cpu_features: nia_target::CpuFeatures::baseline(target),
         const_eval,
         const_module: &const_module.module,
         layouts: &layouts,

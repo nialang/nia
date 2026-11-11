@@ -1152,6 +1152,17 @@ impl<'a> SignatureCollector<'a> {
                     };
                     self.inline_attribute(&mut out, attribute, meta, function, spelling, kind);
                 }
+                [name] if *name == known::CPU_FEATURES => {
+                    let features = self.cpu_features_attribute(attribute, meta, function);
+                    if let Some(FunctionAttribute::CpuFeatures(previous)) = out
+                        .iter_mut()
+                        .find(|attribute| matches!(attribute, FunctionAttribute::CpuFeatures(_)))
+                    {
+                        *previous = previous.union(features);
+                    } else {
+                        out.push(FunctionAttribute::CpuFeatures(features));
+                    }
+                }
                 [name] if *name == known::LINK_NAME || *name == known::EXPORT_NAME => {}
                 [name] if *name == known::NO_MANGLE => {
                     self.diagnostics.push(
@@ -1177,6 +1188,17 @@ impl<'a> SignatureCollector<'a> {
             }
         }
         self.report_inline_attribute_conflicts(attributes, &out);
+        if out.contains(&FunctionAttribute::Naked)
+            && out
+                .iter()
+                .any(|attribute| matches!(attribute, FunctionAttribute::CpuFeatures(_)))
+        {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::ITEM_SIGNATURE,
+                function.span,
+                "`@[cpuFeatures]` cannot be combined with `@[naked]`: naked functions have no checked entry wrapper",
+            ));
+        }
         if context == FunctionAttributeContext::TopLevel
             && !function.is_extern
             && function.body.is_none()
@@ -1452,6 +1474,58 @@ impl<'a> SignatureCollector<'a> {
             }
         }
         out
+    }
+
+    fn cpu_features_attribute(
+        &mut self,
+        attribute: &Attribute,
+        meta: &nia_ast::AttributeMeta,
+        function: &FunctionItem,
+    ) -> nia_target::CpuFeatures {
+        let mut features = nia_target::CpuFeatures::default();
+        if function.body.is_none() {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::ITEM_SIGNATURE,
+                attribute.span,
+                "`@[cpuFeatures]` requires a function body",
+            ));
+        }
+        if meta.args.is_empty() {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::ITEM_SIGNATURE,
+                attribute.span,
+                "`@[cpuFeatures]` expects at least one string literal feature name",
+            ));
+        }
+        for arg in &meta.args {
+            let name = match &arg.kind {
+                nia_ast::ExprKind::String(text) => {
+                    nia_literals::eval_string_literal_parts(text.parts.iter().map(String::as_str))
+                }
+                _ => None,
+            };
+            let Some(name) = name else {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::ITEM_SIGNATURE,
+                    arg.span,
+                    "`@[cpuFeatures]` expects string literal feature names",
+                ));
+                continue;
+            };
+            if let Some(feature) = nia_target::CpuFeature::parse(&name) {
+                features = features.enabling(feature);
+            } else {
+                let names = nia_target::CPU_FEATURES
+                    .map(|feature| feature.name())
+                    .join(", ");
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::ITEM_SIGNATURE,
+                    arg.span,
+                    format!("unknown CPU feature `{name}`; CPU features are {names}"),
+                ));
+            }
+        }
+        features
     }
 
     fn parse_builtin_attribute_name(

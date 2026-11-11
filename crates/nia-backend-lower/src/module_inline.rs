@@ -25,6 +25,7 @@ enum InlineCandidate {
     Function {
         function: GlobalDefId,
         body: LeafInlineBody,
+        cpu_features: nia_target::CpuFeatures,
         threshold: InlineThreshold,
         allow_forwarding_wrapper: bool,
     },
@@ -32,12 +33,21 @@ enum InlineCandidate {
         function: GlobalDefId,
         type_arg_count: usize,
         body: LeafInlineBody,
+        cpu_features: nia_target::CpuFeatures,
         threshold: InlineThreshold,
         allow_forwarding_wrapper: bool,
     },
 }
 
 impl InlineCandidate {
+    fn cpu_features(&self) -> nia_target::CpuFeatures {
+        match self {
+            Self::Function { cpu_features, .. } | Self::Instance { cpu_features, .. } => {
+                *cpu_features
+            }
+        }
+    }
+
     fn body(&self) -> &LeafInlineBody {
         match self {
             Self::Function { body, .. } | Self::Instance { body, .. } => body,
@@ -92,6 +102,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         functions: &mut [BackendFunction],
         function_instances: &mut [BackendFunctionInstance],
+        closure_entries: &mut [nia_backend_ir::BackendClosureEntry],
     ) {
         let allow_inline = !matches!(self.optimization.inline_threshold, InlineThreshold::Never);
 
@@ -118,6 +129,9 @@ impl<'a> ModuleLowerer<'a> {
                             InlineCandidate::Function {
                                 function: function.def_id,
                                 body,
+                                cpu_features: nia_backend_ir::function_cpu_features(
+                                    &function.attributes,
+                                ),
                                 threshold: inline_threshold,
                                 allow_forwarding_wrapper,
                             },
@@ -152,6 +166,9 @@ impl<'a> ModuleLowerer<'a> {
                                 function: instance.def_id,
                                 type_arg_count: instance.args.len(),
                                 body,
+                                cpu_features: nia_backend_ir::function_cpu_features(
+                                    &instance.attributes,
+                                ),
                                 threshold: instance_inline_threshold,
                                 allow_forwarding_wrapper,
                             },
@@ -164,13 +181,34 @@ impl<'a> ModuleLowerer<'a> {
         };
         for function in functions {
             if let Some(body) = &mut function.function_body {
-                self.inline_leaf_calls_in_body(body, &function_candidates, &instance_candidates);
+                self.inline_leaf_calls_in_body(
+                    body,
+                    &function_candidates,
+                    &instance_candidates,
+                    nia_backend_ir::function_cpu_features(&function.attributes)
+                        .union(self.input.cpu_features),
+                );
             }
         }
         for instance in function_instances {
             if let Some(body) = &mut instance.function_body {
-                self.inline_leaf_calls_in_body(body, &function_candidates, &instance_candidates);
+                self.inline_leaf_calls_in_body(
+                    body,
+                    &function_candidates,
+                    &instance_candidates,
+                    nia_backend_ir::function_cpu_features(&instance.attributes)
+                        .union(self.input.cpu_features),
+                );
             }
+        }
+        for entry in closure_entries {
+            self.inline_leaf_calls_in_body(
+                &mut entry.function_body,
+                &function_candidates,
+                &instance_candidates,
+                nia_backend_ir::function_cpu_features(&entry.attributes)
+                    .union(self.input.cpu_features),
+            );
         }
     }
 
@@ -179,9 +217,15 @@ impl<'a> ModuleLowerer<'a> {
         body: &mut FunctionBody,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+        caller_features: nia_target::CpuFeatures,
     ) {
         for block in &mut body.blocks {
-            self.inline_leaf_calls_in_block(block, function_candidates, instance_candidates);
+            self.inline_leaf_calls_in_block(
+                block,
+                function_candidates,
+                instance_candidates,
+                caller_features,
+            );
         }
     }
 
@@ -190,9 +234,15 @@ impl<'a> ModuleLowerer<'a> {
         body: &mut FunctionDeferBody,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+        caller_features: nia_target::CpuFeatures,
     ) {
         for block in &mut body.blocks {
-            self.inline_leaf_calls_in_block(block, function_candidates, instance_candidates);
+            self.inline_leaf_calls_in_block(
+                block,
+                function_candidates,
+                instance_candidates,
+                caller_features,
+            );
         }
     }
 
@@ -201,14 +251,21 @@ impl<'a> ModuleLowerer<'a> {
         block: &mut FunctionBlock,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+        caller_features: nia_target::CpuFeatures,
     ) {
         for op in &mut block.ops {
-            self.inline_leaf_calls_in_op(op, function_candidates, instance_candidates);
+            self.inline_leaf_calls_in_op(
+                op,
+                function_candidates,
+                instance_candidates,
+                caller_features,
+            );
         }
         self.inline_leaf_calls_in_terminator(
             &mut block.terminator,
             function_candidates,
             instance_candidates,
+            caller_features,
         );
     }
 
@@ -217,21 +274,33 @@ impl<'a> ModuleLowerer<'a> {
         op: &mut FunctionOp,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+        caller_features: nia_target::CpuFeatures,
     ) {
         match op {
             FunctionOp::Binding(binding) => {
                 if let Some(value) = &mut binding.value {
-                    self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        value,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
             }
             FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
-                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    value,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionOp::MemoryIntrinsic(memory) => {
                 self.inline_leaf_calls_in_expr(
                     &mut memory.dest,
                     function_candidates,
                     instance_candidates,
+                    caller_features,
                 );
                 match &mut memory.source {
                     nia_function_ir::FunctionMemoryIntrinsicSource::Slice(source)
@@ -240,12 +309,16 @@ impl<'a> ModuleLowerer<'a> {
                             source,
                             function_candidates,
                             instance_candidates,
+                            caller_features,
                         ),
                 }
             }
-            FunctionOp::Defer(body) => {
-                self.inline_leaf_calls_in_defer_body(body, function_candidates, instance_candidates)
-            }
+            FunctionOp::Defer(body) => self.inline_leaf_calls_in_defer_body(
+                body,
+                function_candidates,
+                instance_candidates,
+                caller_features,
+            ),
         }
     }
 
@@ -254,18 +327,30 @@ impl<'a> ModuleLowerer<'a> {
         terminator: &mut FunctionTerminator,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+        caller_features: nia_target::CpuFeatures,
     ) {
         match terminator {
             FunctionTerminator::If { cond, .. } => {
-                self.inline_leaf_calls_in_expr(cond, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    cond,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionTerminator::Switch { target, arms, .. } => {
-                self.inline_leaf_calls_in_expr(target, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    target,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
                 for arm in arms {
                     self.inline_leaf_calls_in_expr(
                         &mut arm.pattern,
                         function_candidates,
                         instance_candidates,
+                        caller_features,
                     );
                 }
             }
@@ -274,24 +359,40 @@ impl<'a> ModuleLowerer<'a> {
                 error_conversion,
                 ..
             } => {
-                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    value,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
                 if let Some(conversion) = error_conversion {
                     self.inline_leaf_calls_in_expr(
                         conversion,
                         function_candidates,
                         instance_candidates,
+                        caller_features,
                     );
                 }
             }
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Condition(expr) => {
-                    self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        expr,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
                 FunctionForHeader::Infinite => {}
             },
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
                 if let Some(value) = value {
-                    self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        value,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
             }
             FunctionTerminator::Error { .. }
@@ -305,17 +406,32 @@ impl<'a> ModuleLowerer<'a> {
         expr: &mut FunctionExpr,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+        caller_features: nia_target::CpuFeatures,
     ) {
         match &mut expr.kind {
             FunctionExprKind::Call { callee, args } => {
-                self.inline_leaf_calls_in_callee(callee, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_callee(
+                    callee,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
                 for arg in args.iter_mut() {
-                    self.inline_leaf_calls_in_expr(arg, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        arg,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
-                self.devirtualize_known_function_pointer(callee);
-                if let Some(candidate) =
-                    inline_candidate_for_callee(callee, function_candidates, instance_candidates)
-                    && let Some(value) = inline_candidate_value(candidate, args)
+                self.check_inline_cpu_call(callee, caller_features, expr.span);
+                self.devirtualize_known_function_pointer(callee, caller_features);
+                if let Some(candidate) = inline_candidate_for_callee(
+                    callee,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                ) && let Some(value) = inline_candidate_value(candidate, args)
                 {
                     self.record_inline(candidate);
                     *expr = value;
@@ -323,17 +439,37 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionExprKind::Range(range) => {
                 if let Some(start) = &mut range.start {
-                    self.inline_leaf_calls_in_expr(start, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        start,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
                 if let Some(end) = &mut range.end {
-                    self.inline_leaf_calls_in_expr(end, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        end,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
             }
             FunctionExprKind::InlineAsm(asm) => {
-                self.inline_leaf_calls_in_inline_asm(asm, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_inline_asm(
+                    asm,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::Atomic(atomic) => {
-                self.inline_leaf_calls_in_atomic(atomic, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_atomic(
+                    atomic,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::StaticArrayPointer { array, .. }
             | FunctionExprKind::RangeBound { range: array, .. }
@@ -349,13 +485,28 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Cast { expr: array, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
             | FunctionExprKind::TraitObjectCoercion { expr: array, .. } => {
-                self.inline_leaf_calls_in_expr(array, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    array,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::CallableCoercion { state, .. } => {
-                self.inline_leaf_calls_in_expr(state, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    state,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::FunctionCallable { function } => {
-                self.inline_leaf_calls_in_expr(function, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    function,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::ClosureFunctionPointer { .. }
             | FunctionExprKind::EnumConstructor(_) => {}
@@ -366,20 +517,36 @@ impl<'a> ModuleLowerer<'a> {
                             elem,
                             function_candidates,
                             instance_candidates,
+                            caller_features,
                         );
                     }
                 }
                 FunctionArrayElements::Repeat { value, .. } => {
-                    self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        value,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
             },
             FunctionExprKind::Tuple(elems) => {
                 for elem in elems {
-                    self.inline_leaf_calls_in_expr(elem, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        elem,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
             }
             FunctionExprKind::TupleField { value, .. } => {
-                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    value,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
@@ -387,6 +554,7 @@ impl<'a> ModuleLowerer<'a> {
                         &mut field.value,
                         function_candidates,
                         instance_candidates,
+                        caller_features,
                     );
                 }
             }
@@ -395,50 +563,119 @@ impl<'a> ModuleLowerer<'a> {
                     &mut field.value,
                     function_candidates,
                     instance_candidates,
+                    caller_features,
                 );
             }
             FunctionExprKind::AddrOf(place) => {
-                self.inline_leaf_calls_in_place(place, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_place(
+                    place,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::Binary { lhs, rhs, .. } => {
-                self.inline_leaf_calls_in_expr(lhs, function_candidates, instance_candidates);
-                self.inline_leaf_calls_in_expr(rhs, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    lhs,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
+                self.inline_leaf_calls_in_expr(
+                    rhs,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::Intrinsic { args, .. } => {
                 for arg in args {
-                    self.inline_leaf_calls_in_expr(arg, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        arg,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
             }
             FunctionExprKind::Assign { place, rhs, .. } => {
-                self.inline_leaf_calls_in_place(place, function_candidates, instance_candidates);
-                self.inline_leaf_calls_in_expr(rhs, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_place(
+                    place,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
+                self.inline_leaf_calls_in_expr(
+                    rhs,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::Field { lhs, .. } => {
-                self.inline_leaf_calls_in_expr(lhs, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    lhs,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::Index { lhs, index } => {
-                self.inline_leaf_calls_in_expr(lhs, function_candidates, instance_candidates);
-                self.inline_leaf_calls_in_expr(index, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    lhs,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
+                self.inline_leaf_calls_in_expr(
+                    index,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionExprKind::Slice { lhs, range, .. } => {
-                self.inline_leaf_calls_in_expr(lhs, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    lhs,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
                 if let Some(start) = &mut range.start {
-                    self.inline_leaf_calls_in_expr(start, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        start,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
                 if let Some(end) = &mut range.end {
-                    self.inline_leaf_calls_in_expr(end, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        end,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
             }
             FunctionExprKind::Error => {}
             FunctionExprKind::EnumVariant { fields, .. } => {
                 for field in fields {
-                    self.inline_leaf_calls_in_expr(field, function_candidates, instance_candidates);
+                    self.inline_leaf_calls_in_expr(
+                        field,
+                        function_candidates,
+                        instance_candidates,
+                        caller_features,
+                    );
                 }
             }
             FunctionExprKind::EnumTag { value }
-            | FunctionExprKind::EnumPayloadField { value, .. } => {
-                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates)
-            }
+            | FunctionExprKind::EnumPayloadField { value, .. } => self.inline_leaf_calls_in_expr(
+                value,
+                function_candidates,
+                instance_candidates,
+                caller_features,
+            ),
             FunctionExprKind::Trap
             | FunctionExprKind::Integer(_)
             | FunctionExprKind::Float(_)
@@ -464,6 +701,7 @@ impl<'a> ModuleLowerer<'a> {
                         &mut relocation.pointee,
                         function_candidates,
                         instance_candidates,
+                        caller_features,
                     );
                 }
             }
@@ -474,7 +712,11 @@ impl<'a> ModuleLowerer<'a> {
     /// target in the IR. Recover that target before the leaf-inline pass so a
     /// call such as `let f = &add; f(x)` can use the same direct-call and
     /// inlining path as `add(x)`. C pointers deliberately remain indirect.
-    fn devirtualize_known_function_pointer(&self, callee: &mut FunctionCallee) {
+    fn devirtualize_known_function_pointer(
+        &self,
+        callee: &mut FunctionCallee,
+        caller_features: nia_target::CpuFeatures,
+    ) {
         let FunctionCallee::FunctionPointer(pointer) = callee else {
             return;
         };
@@ -502,7 +744,13 @@ impl<'a> ModuleLowerer<'a> {
                     .program
                     .functions()
                     .get(def_id)
-                    .is_some_and(|signature| !signature.signature.is_extern) =>
+                    .is_some_and(|signature| {
+                        !signature.signature.is_extern
+                            && nia_item_signatures::function_cpu_features(
+                                &signature.signature.attributes,
+                            )
+                            .is_subset_of(caller_features)
+                    }) =>
             {
                 *callee = FunctionCallee::Function(*def_id);
             }
@@ -517,7 +765,13 @@ impl<'a> ModuleLowerer<'a> {
                 .program
                 .functions()
                 .get(def_id)
-                .is_some_and(|signature| !signature.signature.is_extern) =>
+                .is_some_and(|signature| {
+                    !signature.signature.is_extern
+                        && nia_item_signatures::function_cpu_features(
+                            &signature.signature.attributes,
+                        )
+                        .is_subset_of(caller_features)
+                }) =>
             {
                 *callee = FunctionCallee::FunctionInstance {
                     def_id: *def_id,
@@ -531,20 +785,71 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    fn check_inline_cpu_call(
+        &mut self,
+        callee: &FunctionCallee,
+        caller_features: nia_target::CpuFeatures,
+        span: nia_span::Span,
+    ) {
+        let def_id = match callee {
+            FunctionCallee::Function(def_id)
+            | FunctionCallee::FunctionInstance { def_id, .. }
+            | FunctionCallee::Method { def_id, .. } => *def_id,
+            FunctionCallee::Tracked { callee, .. } => {
+                self.check_inline_cpu_call(callee, caller_features, span);
+                return;
+            }
+            _ => return,
+        };
+        let Some(function) = self.input.program.functions().get(&def_id) else {
+            return;
+        };
+        if function
+            .signature
+            .attributes
+            .contains(&nia_item_signatures::FunctionAttribute::InlineAlways)
+            && !nia_item_signatures::function_cpu_features(&function.signature.attributes)
+                .is_subset_of(caller_features)
+        {
+            self.diagnostics
+                .push(nia_diagnostic::Diagnostic::user_error_at(
+                    nia_diagnostic::codes::TYPE_CHECK,
+                    span,
+                    "`@[inlineAlways]` call requires CPU features unavailable in the caller",
+                ));
+        }
+    }
+
     fn inline_leaf_calls_in_atomic(
         &mut self,
         atomic: &mut nia_function_ir::FunctionAtomic,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+        caller_features: nia_target::CpuFeatures,
     ) {
         match atomic {
             nia_function_ir::FunctionAtomic::Load { ptr, .. } => {
-                self.inline_leaf_calls_in_expr(ptr, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    ptr,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             nia_function_ir::FunctionAtomic::Store { ptr, value, .. }
             | nia_function_ir::FunctionAtomic::Rmw { ptr, value, .. } => {
-                self.inline_leaf_calls_in_expr(ptr, function_candidates, instance_candidates);
-                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    ptr,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
+                self.inline_leaf_calls_in_expr(
+                    value,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             nia_function_ir::FunctionAtomic::Cmpxchg {
                 ptr,
@@ -552,9 +857,24 @@ impl<'a> ModuleLowerer<'a> {
                 desired,
                 ..
             } => {
-                self.inline_leaf_calls_in_expr(ptr, function_candidates, instance_candidates);
-                self.inline_leaf_calls_in_expr(expected, function_candidates, instance_candidates);
-                self.inline_leaf_calls_in_expr(desired, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    ptr,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
+                self.inline_leaf_calls_in_expr(
+                    expected,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
+                self.inline_leaf_calls_in_expr(
+                    desired,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             nia_function_ir::FunctionAtomic::Fence { .. } => {}
         }
@@ -565,10 +885,16 @@ impl<'a> ModuleLowerer<'a> {
         callee: &mut FunctionCallee,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+        caller_features: nia_target::CpuFeatures,
     ) {
         match callee {
             FunctionCallee::Tracked { callee, .. } => {
-                self.inline_leaf_calls_in_callee(callee, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_callee(
+                    callee,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionCallee::ClosureEntry {
                 state: receiver, ..
@@ -580,7 +906,12 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::Callable(receiver)
             | FunctionCallee::FunctionPointer(receiver) => {
-                self.inline_leaf_calls_in_expr(receiver, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    receiver,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionCallee::Function(_)
             | FunctionCallee::FunctionInstance { .. }
@@ -594,10 +925,16 @@ impl<'a> ModuleLowerer<'a> {
         place: &mut FunctionPlace,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+        caller_features: nia_target::CpuFeatures,
     ) {
         match &mut place.base {
             FunctionPlaceBase::Deref(expr) => {
-                self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    expr,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
             FunctionPlaceBase::Local(_)
             | FunctionPlaceBase::Global(_)
@@ -606,7 +943,12 @@ impl<'a> ModuleLowerer<'a> {
         }
         for elem in &mut place.elems {
             if let FunctionPlaceElem::Index(expr) = elem {
-                self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(
+                    expr,
+                    function_candidates,
+                    instance_candidates,
+                    caller_features,
+                );
             }
         }
     }
@@ -616,12 +958,14 @@ impl<'a> ModuleLowerer<'a> {
         asm: &mut FunctionInlineAsm,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
+        caller_features: nia_target::CpuFeatures,
     ) {
         for input in &mut asm.inputs {
             self.inline_leaf_calls_in_expr(
                 &mut input.value,
                 function_candidates,
                 instance_candidates,
+                caller_features,
             );
         }
         for output in &mut asm.outputs {
@@ -629,6 +973,7 @@ impl<'a> ModuleLowerer<'a> {
                 &mut output.place,
                 function_candidates,
                 instance_candidates,
+                caller_features,
             );
         }
     }
@@ -650,8 +995,9 @@ fn inline_candidate_for_callee<'a>(
     callee: &FunctionCallee,
     function_candidates: &'a HashMap<GlobalDefId, InlineCandidate>,
     instance_candidates: &'a HashMap<FunctionInstanceKey, InlineCandidate>,
+    caller_features: nia_target::CpuFeatures,
 ) -> Option<&'a InlineCandidate> {
-    match callee {
+    let candidate = match callee {
         FunctionCallee::Function(def_id) => function_candidates.get(def_id),
         FunctionCallee::FunctionInstance {
             def_id,
@@ -677,7 +1023,8 @@ fn inline_candidate_for_callee<'a>(
         | FunctionCallee::BuiltinOperator(_)
         | FunctionCallee::Callable(_)
         | FunctionCallee::FunctionPointer(_) => None,
-    }
+    };
+    candidate.filter(|candidate| candidate.cpu_features().is_subset_of(caller_features))
 }
 
 fn inline_candidate_value(

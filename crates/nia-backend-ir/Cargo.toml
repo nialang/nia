@@ -17,6 +17,7 @@ nia-source.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
 nia-symbol.workspace = true
+nia-target.workspace = true
 nia-ty.workspace = true
 parking_lot.workspace = true
 

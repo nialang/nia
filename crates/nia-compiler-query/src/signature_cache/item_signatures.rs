@@ -213,6 +213,10 @@ pub(crate) fn write_function_signature(
             item_signatures::FunctionAttribute::TrackCaller => encoded.push(2),
             item_signatures::FunctionAttribute::InlineNever => encoded.push(3),
             item_signatures::FunctionAttribute::InlineAlways => encoded.push(4),
+            item_signatures::FunctionAttribute::CpuFeatures(features) => {
+                encoded.push(5);
+                write_u64(encoded, u64::from(features.bits()));
+            }
         }
     }
     write_bool(encoded, signature.has_body);
@@ -257,6 +261,9 @@ pub(crate) fn read_function_signature(
             2 => item_signatures::FunctionAttribute::TrackCaller,
             3 => item_signatures::FunctionAttribute::InlineNever,
             4 => item_signatures::FunctionAttribute::InlineAlways,
+            5 => item_signatures::FunctionAttribute::CpuFeatures(
+                nia_target::CpuFeatures::from_bits(u32::try_from(read_u64(cursor)?).ok()?)?,
+            ),
             _ => return None,
         });
     }

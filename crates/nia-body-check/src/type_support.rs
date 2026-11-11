@@ -2486,6 +2486,7 @@ impl<'a> BodyChecker<'a> {
             const_signatures: self.const_signatures,
             normalization: self.normalization,
             target: self.target,
+            cpu_features: self.cpu_features,
             const_eval: self.const_eval,
             const_module: self.const_module,
             layouts: self.layouts,

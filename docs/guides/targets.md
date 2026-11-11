@@ -160,6 +160,36 @@ A positive runtime query does not change how the surrounding function is
 compiled. Use `target::hasFeature` for choices fixed by the build and
 `cpu::supports` when the decision depends on the machine running the program.
 
+### Function CPU Features
+
+Use a separate function when a runtime decision should select code generated
+for a different instruction set:
+
+```nia
+using std::builtin;
+
+@[if arch == "x86" or arch == "x86_64"]
+@[cpuFeatures("avx2")]
+fun doubleAvx2(value: u8x32) u8x32 {
+    builtin::saturatingAdd(value, value)
+}
+
+pub fun doubled(value: u8x32) u8x32 {
+    @[if arch == "x86" or arch == "x86_64"]
+    if std::cpu::supports(.Avx2) {
+        return doubleAvx2(value);
+    }
+    builtin::saturatingAdd(value, value)
+}
+```
+
+`cpu::supports` also checks the operating system's vector-state support. The
+attribute changes code generation for `doubleAvx2`; it does not change
+`@[if hasFeature(...)]` inside that function. The
+[language reference](../reference/language.md#function-cpu-features) defines
+closure inheritance, inlining, and debug entry checks. A release build relies
+on the explicit branch to avoid calling an unsupported function.
+
 ## Build Profiles
 
 A build is either a `debug` build, the default, or a `release` build, selected

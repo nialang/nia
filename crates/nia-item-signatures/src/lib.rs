@@ -448,6 +448,19 @@ pub enum FunctionAttribute {
     InlineNever,
     /// Inline every direct call to this function, at every optimization level.
     InlineAlways,
+    /// Additional instruction sets enabled for this function's code.
+    CpuFeatures(nia_target::CpuFeatures),
+}
+
+/// The declared instruction-set requirements, including their dependencies.
+pub fn function_cpu_features(attributes: &[FunctionAttribute]) -> nia_target::CpuFeatures {
+    attributes.iter().fold(
+        nia_target::CpuFeatures::default(),
+        |features, attribute| match attribute {
+            FunctionAttribute::CpuFeatures(additional) => features.union(*additional),
+            _ => features,
+        },
+    )
 }
 
 pub use nia_ids::{BuiltinFunction, BuiltinTrait};

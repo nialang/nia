@@ -29,6 +29,7 @@ nia-source.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
 nia-symbol.workspace = true
+nia-target.workspace = true
 nia-timing.workspace = true
 nia-trait-solve.workspace = true
 nia-ty.workspace = true
@@ -38,7 +39,6 @@ nia-value-resolve.workspace = true
 parking_lot.workspace = true
 
 [dev-dependencies]
-nia-target.workspace = true
 nia-abi-check.workspace = true
 nia-body-check.workspace = true
 nia-flow-check.workspace = true

@@ -498,6 +498,16 @@ impl AbiChecker<'_> {
 
     fn check(&mut self) {
         for (def_id, signature) in self.signatures.functions {
+            for feature in nia_item_signatures::function_cpu_features(&signature.attributes).iter()
+            {
+                if !feature.supports_arch(self.target.arch()) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::STATIC_CHECK,
+                        signature.span,
+                        format!("CPU feature `{feature}` is not available on `{}`; restrict this function with `@[if arch]`", self.target),
+                    ));
+                }
+            }
             if signature.is_variadic && !signature.is_extern {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::STATIC_CHECK,

@@ -819,7 +819,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             value
                 .as_global_value()
                 .set_visibility(symbol_visibility(&function.linkage));
-            self.apply_function_attributes(value, &function.attributes)?;
+            self.declare_cpu_implementation(value, &function.attributes)?;
             if function.linkage.is_extern() {
                 self.apply_c_declaration_attributes(
                     value,
@@ -830,6 +830,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     function.return_type,
                     function.span,
                 )?;
+                if self.implementation_entry(value) != value {
+                    self.apply_c_declaration_attributes(
+                        self.implementation_entry(value),
+                        function
+                            .params
+                            .iter()
+                            .map(|param| (param.passing_ty, param.span)),
+                        function.return_type,
+                        function.span,
+                    )?;
+                }
             }
             self.functions.insert(function.def_id, value);
         }
@@ -864,7 +875,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             value
                 .as_global_value()
                 .set_visibility(symbol_visibility(&instance.linkage));
-            self.apply_function_attributes(value, &instance.attributes)?;
+            self.declare_cpu_implementation(value, &instance.attributes)?;
             if instance.linkage.is_extern() {
                 self.apply_c_declaration_attributes(
                     value,
@@ -921,6 +932,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .add_function(&entry.symbol, ty, Some(Linkage::External))
                 .map_err(Self::diagnostic_from_llvm_error)?;
             hide_compiler_symbol(value.as_global_value());
+            self.declare_cpu_implementation(value, &entry.attributes)?;
             self.closure_entries
                 .borrow_mut()
                 .insert(entry.key.clone(), value);
@@ -928,13 +940,37 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Ok(())
     }
 
-    fn apply_function_attributes(
+    pub(super) fn apply_function_attributes(
         &self,
         value: nia_llvm::values::FunctionValue<'_>,
         attributes: &[nia_backend_ir::BackendFunctionAttribute],
     ) -> Result<(), Diagnostic> {
         for attribute in attributes {
             match attribute {
+                nia_backend_ir::BackendFunctionAttribute::CpuFeatures { features, .. } => {
+                    let additions = features
+                        .iter()
+                        .map(|feature| format!("+{}", feature.llvm_name()))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let features = if self.cpu_identity.features.is_empty() {
+                        additions
+                    } else {
+                        format!("{},{additions}", self.cpu_identity.features)
+                    };
+                    value.add_attribute(
+                        AttributeLoc::Function,
+                        self.context
+                            .create_string_attribute("target-cpu", &self.cpu_identity.cpu)
+                            .map_err(Self::diagnostic_from_llvm_error)?,
+                    );
+                    value.add_attribute(
+                        AttributeLoc::Function,
+                        self.context
+                            .create_string_attribute("target-features", &features)
+                            .map_err(Self::diagnostic_from_llvm_error)?,
+                    );
+                }
                 nia_backend_ir::BackendFunctionAttribute::Naked => {
                     let kind = Attribute::get_named_enum_kind_id("naked");
                     if kind != 0 {
@@ -949,6 +985,20 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 nia_backend_ir::BackendFunctionAttribute::TrackCaller => {}
                 nia_backend_ir::BackendFunctionAttribute::InlineNever
                 | nia_backend_ir::BackendFunctionAttribute::InlineAlways => {
+                    // Feature-specific always-inline is a direct-call promise.
+                    // Keeping it on the function would also force calls through
+                    // pointers, whose callers need not have these features.
+                    if matches!(
+                        attribute,
+                        nia_backend_ir::BackendFunctionAttribute::InlineAlways
+                    ) && attributes.iter().any(|attribute| {
+                        matches!(
+                            attribute,
+                            nia_backend_ir::BackendFunctionAttribute::CpuFeatures { .. }
+                        )
+                    }) {
+                        continue;
+                    }
                     let name = if matches!(
                         attribute,
                         nia_backend_ir::BackendFunctionAttribute::InlineNever

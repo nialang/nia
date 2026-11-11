@@ -60,6 +60,23 @@ impl ModuleLowerer<'_> {
             }
         };
         Some(BackendClosureEntry {
+            attributes: self
+                .input
+                .signatures
+                .functions
+                .get(&entry.closure_id.owner.def_id)
+                .map(|signature| {
+                    self.backend_function_attributes(entry.closure_id.owner, &signature.attributes)
+                        .into_iter()
+                        .filter(|attribute| {
+                            matches!(
+                                attribute,
+                                nia_backend_ir::BackendFunctionAttribute::CpuFeatures { .. }
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             key: BackendClosureEntryKey {
                 closure_id: entry.closure_id,
                 owner,

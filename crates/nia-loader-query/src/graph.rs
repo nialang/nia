@@ -1238,13 +1238,26 @@ fn add_declared_module_child(
     declaration: ResolvedModuleDeclaration,
     fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<nia_imports::ModuleId> {
+    // Runtime declarations are normally eager, but conditional native
+    // support must not activate its imports until executable demand selects
+    // it. Keep its signature module visible for exact export lookup.
+    let conditional_support = graph.get(module_id).is_some_and(|node| {
+        let child =
+            graph.declared_child_source_path_for(&node.path, &node.module_path, declaration.name);
+        db.context().runtime.source().is_some_and(|runtime| {
+            runtime.required_exports().iter().any(|export| {
+                export.requirement() != nia_toolchain::RuntimeExportRequirement::Always
+                    && export.module_identity() == child.identity().normalized_path()
+            })
+        })
+    });
     add_declared_module_child_with_processing(
         db,
         graph,
         module_id,
         declaration,
-        true,
-        true,
+        !conditional_support,
+        !conditional_support,
         fact_memo,
     )
 }

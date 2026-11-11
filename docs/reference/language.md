@@ -1002,6 +1002,7 @@ attributes select only whole items and statements.
 | `@[trackCaller]` | non-`extern` functions and trait methods | caller location tracking |
 | `@[inlineNever]` | functions and methods with a body | never inlined into callers |
 | `@[inlineAlways]` | functions and methods with a body | inlined into every direct caller, at every level |
+| `@[cpuFeatures("avx2", "bmi2")]` | functions and methods with a body | enables additional instruction sets for that function |
 | `@[naked]` | `extern fun` definitions | no compiler-generated prologue or epilogue |
 
 An unrecognized attribute on a function, static, constant, trait, or type alias
@@ -1157,6 +1158,42 @@ still present after optimization, the build fails with an internal error
 rather than produce code that breaks it. Inlining makes code larger, so the
 attribute is for functions that are small at each call site; the
 optimization levels, and `-Os` and `-Oz` for size, govern every other call.
+
+#### Function CPU Features
+
+`@[cpuFeatures("avx2", "bmi2")]` enables the named instruction sets, and their
+dependencies, for one function and its generic instances. The build's features
+remain enabled. A closure inherits the features of the function that contains
+it, including when the closure escapes that function.
+
+Names are the same as those accepted by
+[`hasFeature`](#conditional-compilation). The attribute requires a body and
+features belonging to the artifact's architecture. Multiple occurrences add
+their features together. It cannot be combined with `@[naked]`.
+
+Conditional compilation and `std::builtin::target::hasFeature` continue to
+describe the whole build; a function attribute does not change them. A runtime
+query such as `std::cpu::supports(.Avx2)` tests whether the running process can
+use that feature. Nia does not generate alternative implementations or choose
+one automatically; [explicit dispatch](../guides/targets.md#function-cpu-features)
+selects the function to call.
+
+In a debug build, a function requiring features beyond the build's guarantee
+has a checked entry compiled with only the build's features. It checks support
+before calling the specialized body. Function pointers and closure entries
+also use that checked boundary. Unsupported features produce a diagnostic on
+standard error and trap. The check is controlled by the profile, independently
+of the optimization level. The [runtime ABI](abi.md#cpu-feature-check-support)
+defines the support required when linking debug objects without Nia's runtime.
+
+A release build calls the specialized function directly. Calling it on an
+unsupported processor can execute an illegal instruction; the caller is
+responsible for dispatching correctly.
+
+Inlining requires the callee's features to be a subset of the caller's. A
+direct call to an `@[inlineAlways]` function with additional requirements is
+an error. A call through a function pointer remains an ordinary call and may
+cross the feature boundary.
 
 #### Naked Functions
 

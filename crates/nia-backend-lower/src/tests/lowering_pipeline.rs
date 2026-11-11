@@ -174,6 +174,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         normalization: &normalization,
         seed: None,
         target: &target,
+        cpu_features: nia_target::CpuFeatures::baseline(target),
         const_eval: body_const,
         const_module: &const_module.module,
         layouts: &layouts,
@@ -280,6 +281,8 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     );
 
     let input = BackendLowerModuleInput {
+        cpu_features: nia_target::CpuFeatures::baseline(target),
+        check_cpu_features: true,
         module_id,
         source_identity: nia_source::SourceIdentity::new("main"),
         symbol_package_identity: "test/package@0".into(),

@@ -218,6 +218,7 @@ struct BodyChecker<'a> {
     normalization: &'a TypeNormalization,
     dynamic_normalized_types: FastHashMap<InternedTyId, InternedTyId>,
     target: &'a TargetConfig,
+    cpu_features: nia_target::CpuFeatures,
     const_eval: BodyConst<'a>,
     const_module: &'a ResolvedConstModule,
     layouts: &'a Layouts,
