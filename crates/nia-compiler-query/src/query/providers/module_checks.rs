@@ -6,120 +6,139 @@ pub(super) fn provide_layouts(
     module_id: ModuleId,
 ) -> QueryResult<ModuleLayouts> {
     time_module_provider(db, "layouts", module_id, || {
-        let defs = full_module_defs_semantic(db, module_id)?;
         let type_lowering = type_lowering_semantic(db, module_id)?;
-        let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id))?;
         let item_signatures = item_signatures_semantic(db, module_id)?;
-        let array_lengths = db.get(ConstArrayLengthsQuery(module_id))?;
-        let target = compiler_target_data_layout(db)?;
-        let symbols = db.context().symbols();
-        let query_failure = RefCell::new(None);
         let mut root_types = item_signatures.type_roots();
         root_types.extend(type_lowering.explicit_type_roots());
         root_types.sort_unstable();
         root_types.dedup();
-        let layout_query = |module_id| {
-            capture_query_failure(&query_failure, db.get(SignatureLayoutsQuery(module_id)))
-                .map(|layouts| Arc::clone(&layouts.semantic))
-        };
-        let local_array_lengths = |id| array_lengths.values.get(&id).copied();
-        let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
-            capture_query_failure(&query_failure, db.get(ConstArrayLengthsQuery(id.module_id)))
-                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
-        };
-        let program_struct = |def_id: GlobalDefId| {
-            capture_query_failure(
-                &query_failure,
-                db.get(SignatureItemSignaturesQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                )),
-            )
-            .and_then(|signatures| {
-                signatures
-                    .semantic
-                    .structs
-                    .get(&def_id.def_id)
-                    .cloned()
-                    .map(|signature| ProgramStructSignature { signature })
-            })
-        };
-        let program_union = |def_id: GlobalDefId| {
-            capture_query_failure(
-                &query_failure,
-                db.get(SignatureItemSignaturesQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                )),
-            )
-            .and_then(|signatures| {
-                signatures
-                    .semantic
-                    .unions
-                    .get(&def_id.def_id)
-                    .cloned()
-                    .map(|signature| ProgramUnionSignature { signature })
-            })
-        };
-        let program_enum = |def_id: GlobalDefId| {
-            capture_query_failure(
-                &query_failure,
-                db.get(SignatureItemSignaturesQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                )),
-            )
-            .and_then(|signatures| {
-                signatures
-                    .semantic
-                    .enums
-                    .get(&def_id.def_id)
-                    .cloned()
-                    .map(|signature| ProgramEnumSignature { signature })
-            })
-        };
-        let program_type_alias = |def_id: GlobalDefId| {
-            capture_query_failure(
-                &query_failure,
-                db.get(SignatureItemSignaturesQuery(
-                    def_id.module_id,
-                    nia_item_tree::SignatureItemSet::Types,
-                )),
-            )
-            .and_then(|signatures| {
-                signatures
-                    .semantic
-                    .type_aliases
-                    .get(&def_id.def_id)
-                    .cloned()
-                    .map(|signature| ProgramTypeAliasSignature { signature })
-            })
-        };
-        let layouts =
-            nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
-                type_store: &db.context().type_store,
-                defs: &defs,
-                signatures: &item_signatures,
-                root_types: &root_types,
-                normalized: &type_normalization.normalized,
-                array_lengths: &local_array_lengths,
-                target,
-                program: nia_layout::ProgramLayoutContext {
-                    symbols: Some(&symbols),
-                    layouts: Some(&layout_query),
-                    array_lengths: Some(&program_array_lengths),
-                    struct_: Some(&program_struct),
-                    union: Some(&program_union),
-                    enum_: Some(&program_enum),
-                    type_alias: Some(&program_type_alias),
-                    ..Default::default()
-                },
-            })?;
-        match query_failure.into_inner() {
-            Some(error) => Err(error),
-            None => Ok(store_module_layouts(db.context(), layouts)?),
-        }
+        let layouts = with_module_layout_input(db, module_id, &root_types, |input| {
+            nia_layout::compute_layouts_with_program_context(input)
+        })?;
+        Ok(store_module_layouts(db.context(), layouts)?)
     })
+}
+
+/// Lays out one concrete type in `module_id`'s context, for a type that no
+/// layout product roots: one created while checking, such as `W[u8]` from
+/// `where W[T]: Sized` at a call with `T = u8`.
+pub(super) fn provide_concrete_type_layout(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    ty: InternedTyId,
+) -> QueryResult<bool> {
+    with_module_layout_input(db, module_id, &[], |input| {
+        let normalized = input.normalized.get(&ty).copied().unwrap_or(ty);
+        let layouts = nia_layout::compute_layouts_for_roots_with_program_context(
+            input,
+            nia_layout::LayoutRoots {
+                types: &[ty],
+                structs: &[],
+                unions: &[],
+            },
+        )?;
+        Ok(layouts.types.contains_key(&normalized))
+    })
+}
+
+/// Runs `compute` on the layout input of `module_id`: its definitions,
+/// signatures, normalized types and array lengths, with every other module's
+/// layout facts reachable through the program context. Every module layout
+/// computation shares this one wiring.
+fn with_module_layout_input<T>(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    root_types: &[InternedTyId],
+    compute: impl FnOnce(nia_layout::LayoutComputationInput<'_>) -> nia_ice::IceResult<T>,
+) -> QueryResult<T> {
+    let defs = full_module_defs_semantic(db, module_id)?;
+    let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id))?;
+    let item_signatures = item_signatures_semantic(db, module_id)?;
+    let array_lengths = db.get(ConstArrayLengthsQuery(module_id))?;
+    let target = compiler_target_data_layout(db)?;
+    let symbols = db.context().symbols();
+    let query_failure = RefCell::new(None);
+    let layout_query = |module_id| {
+        capture_query_failure(&query_failure, db.get(SignatureLayoutsQuery(module_id)))
+            .map(|layouts| Arc::clone(&layouts.semantic))
+    };
+    let local_array_lengths = |id| array_lengths.values.get(&id).copied();
+    let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
+        capture_query_failure(&query_failure, db.get(ConstArrayLengthsQuery(id.module_id)))
+            .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+    };
+    let type_signatures = |def_id: GlobalDefId| {
+        capture_query_failure(
+            &query_failure,
+            db.get(SignatureItemSignaturesQuery(
+                def_id.module_id,
+                nia_item_tree::SignatureItemSet::Types,
+            )),
+        )
+    };
+    let program_struct = |def_id: GlobalDefId| {
+        type_signatures(def_id).and_then(|signatures| {
+            signatures
+                .semantic
+                .structs
+                .get(&def_id.def_id)
+                .cloned()
+                .map(|signature| ProgramStructSignature { signature })
+        })
+    };
+    let program_union = |def_id: GlobalDefId| {
+        type_signatures(def_id).and_then(|signatures| {
+            signatures
+                .semantic
+                .unions
+                .get(&def_id.def_id)
+                .cloned()
+                .map(|signature| ProgramUnionSignature { signature })
+        })
+    };
+    let program_enum = |def_id: GlobalDefId| {
+        type_signatures(def_id).and_then(|signatures| {
+            signatures
+                .semantic
+                .enums
+                .get(&def_id.def_id)
+                .cloned()
+                .map(|signature| ProgramEnumSignature { signature })
+        })
+    };
+    let program_type_alias = |def_id: GlobalDefId| {
+        type_signatures(def_id).and_then(|signatures| {
+            signatures
+                .semantic
+                .type_aliases
+                .get(&def_id.def_id)
+                .cloned()
+                .map(|signature| ProgramTypeAliasSignature { signature })
+        })
+    };
+    let result = compute(nia_layout::LayoutComputationInput {
+        type_store: &db.context().type_store,
+        defs: &defs,
+        signatures: &item_signatures,
+        root_types,
+        normalized: &type_normalization.normalized,
+        array_lengths: &local_array_lengths,
+        target,
+        program: nia_layout::ProgramLayoutContext {
+            symbols: Some(&symbols),
+            layouts: Some(&layout_query),
+            array_lengths: Some(&program_array_lengths),
+            struct_: Some(&program_struct),
+            union: Some(&program_union),
+            enum_: Some(&program_enum),
+            type_alias: Some(&program_type_alias),
+            ..Default::default()
+        },
+    })?;
+    match query_failure.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(result),
+    }
 }
 
 pub(super) fn provide_signature_layouts(

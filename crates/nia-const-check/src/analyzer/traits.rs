@@ -261,6 +261,7 @@ impl Analyzer<'_> {
             .then(|| self.compute_program_layout(layout_module_id, &array_lengths))
             .flatten();
         let program_layouts = |module_id| self.compute_program_layout(module_id, &array_lengths);
+        let type_layout = |ty| self.concrete_type_has_layout(module_id, ty, &array_lengths);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
             normalization: normalization.as_ref(),
@@ -268,6 +269,7 @@ impl Analyzer<'_> {
             trait_impl_index: Some(&trait_impl_index),
             layouts: layouts.as_deref(),
             program_layouts: Some(&program_layouts),
+            type_layout: Some(&type_layout),
             local_module_id: module_id,
             local_enums: &local_enums,
             program_fieldless_enum: Some(&program_fieldless_enum),
@@ -289,26 +291,7 @@ impl Analyzer<'_> {
         else {
             return nia_trait_solve::TraitObligationResolution::Unavailable;
         };
-        if matches!(
-            resolution,
-            nia_trait_solve::TraitObligationResolution::Failed(
-                nia_trait_solve::TraitObligationFailure::NoImplementation
-            )
-        ) && goal.trait_id == TraitId::Builtin(nia_ty::BuiltinTrait::Sized)
-            && self
-                .resolve_layout_builtin_for_ty(
-                    Span::default(),
-                    nia_ids::LayoutBuiltin::Size,
-                    goal.self_ty,
-                )
-                .is_ok()
-        {
-            nia_trait_solve::TraitObligationResolution::Satisfied(TraitResolution::Intrinsic(
-                nia_trait_solve::IntrinsicImpl { goal },
-            ))
-        } else {
-            resolution
-        }
+        resolution
     }
 
     pub(super) fn validate_const_call_where_predicates(
@@ -482,6 +465,7 @@ impl Analyzer<'_> {
         let normalization = self.type_normalization_for_module(module_id)?;
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let program_layouts = |module_id| self.compute_program_layout(module_id, &array_lengths);
+        let type_layout = |ty| self.concrete_type_has_layout(module_id, ty, &array_lengths);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
             normalization: normalization.as_ref(),
@@ -489,6 +473,7 @@ impl Analyzer<'_> {
             trait_impl_index: Some(&trait_impl_index),
             layouts: None,
             program_layouts: Some(&program_layouts),
+            type_layout: Some(&type_layout),
             local_module_id: module_id,
             local_enums: &local_enums,
             program_fieldless_enum: Some(&program_fieldless_enum),
@@ -570,6 +555,7 @@ impl Analyzer<'_> {
         let normalization = self.type_normalization_for_module(module_id)?;
         let trait_impl_index = nia_item_signatures::ProgramTraitImplIndex::new(&trait_impls);
         let program_layouts = |module_id| self.compute_program_layout(module_id, &array_lengths);
+        let type_layout = |ty| self.concrete_type_has_layout(module_id, ty, &array_lengths);
         let context = TraitSolverContext {
             type_store: self.input.type_store,
             normalization: normalization.as_ref(),
@@ -577,6 +563,7 @@ impl Analyzer<'_> {
             trait_impl_index: Some(&trait_impl_index),
             layouts: None,
             program_layouts: Some(&program_layouts),
+            type_layout: Some(&type_layout),
             local_module_id: module_id,
             local_enums: &local_enums,
             program_fieldless_enum: Some(&program_fieldless_enum),

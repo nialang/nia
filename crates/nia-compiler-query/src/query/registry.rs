@@ -125,6 +125,7 @@ pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry>
         SemanticModuleIdsQuery,
         SemanticUseTableQuery,
         ConstructorCheckQuery,
+        ConcreteTypeLayoutQuery,
         SignatureConstItemSignaturesQuery,
         SignatureConstItemTreeQuery,
         SignatureConstModuleQuery,

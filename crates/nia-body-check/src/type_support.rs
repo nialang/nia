@@ -1149,6 +1149,7 @@ impl<'a> BodyChecker<'a> {
             trait_impl_index: self.program_trait_impl_index,
             layouts: Some(self.layouts),
             program_layouts: self.program.layouts,
+            type_layout: self.program.type_layout,
             local_module_id: self.defs.module_id,
             local_enums: self.signatures.enums,
             program_fieldless_enum: Some(&program_fieldless_enum),

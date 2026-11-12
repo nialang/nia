@@ -1138,6 +1138,13 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         capture_query_failure(&query_failure, db.get(SignatureLayoutsQuery(module_id)))
             .map(|layouts| Arc::clone(&layouts.semantic))
     };
+    let type_layout = |ty| {
+        capture_query_failure(
+            &query_failure,
+            db.get(ConcreteTypeLayoutQuery(module_id, ty)),
+        )
+        .is_some_and(|has_layout| *has_layout)
+    };
     let empty_extensions = nia_defs::VisibleExtensionMethods::default();
     let lazy_extensions = || {
         capture_query_failure(&query_failure, db.get(VisibleExtensionsQuery(module_id)))
@@ -1648,6 +1655,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         extension_type_normalizations: Some(&extension_method_normalization),
                         signatures: Some(&item_signatures_for_module),
                         layouts: Some(&program_layouts),
+                        type_layout: Some(&type_layout),
                         visible_extensions: Some(&program_visible_extensions),
                         extension_method_by_id: Some(&program_extension_method_by_id),
                         extension_methods_named: Some(&program_extension_methods_named),

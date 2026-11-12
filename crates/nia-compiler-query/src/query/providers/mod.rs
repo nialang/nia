@@ -594,6 +594,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_sema_ir::SemanticUseTable>,
     pub(super) constructor_check:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_diagnostic::DiagnosticBundle>,
+    pub(super) concrete_type_layout:
+        fn(&QueryDb<CompilerContext>, ModuleId, InternedTyId) -> QueryResult<bool>,
     pub(super) const_module:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ConstModuleLowering>,
     pub(super) const_eval: fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleConstCheck>,
@@ -682,6 +684,7 @@ impl Default for CompilerQueryProviders {
             local_resolution: provide_local_resolution,
             semantic_use_table: provide_semantic_use_table,
             constructor_check: provide_constructor_check,
+            concrete_type_layout: provide_concrete_type_layout,
             const_module: provide_const_module,
             const_eval: provide_const,
             const_array_lengths: provide_const_array_lengths,

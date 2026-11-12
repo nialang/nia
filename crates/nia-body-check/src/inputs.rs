@@ -122,6 +122,13 @@ pub struct BodyProgramContext<'a> {
     pub signatures: Option<&'a dyn Fn(ModuleId) -> Option<Arc<ItemSignatures>>>,
     /// Loads layouts for another module.
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Arc<Layouts>>>,
+    /// Lays out a concrete type that no layout product holds. Products root
+    /// the types their module names; checking creates more, such as `W[u8]`
+    /// from `where W[T]: Sized` at a call with `T = u8`, or an array whose
+    /// length is still a const expression. Layout is the one definition of
+    /// `Sized` for these: the products above cache it for their roots, and
+    /// this computes it for the rest.
+    pub type_layout: Option<&'a dyn Fn(InternedTyId) -> bool>,
     /// Loads visible extension methods.
     pub visible_extensions: Option<&'a dyn Fn(ModuleId) -> Option<Arc<VisibleExtensionMethods>>>,
     /// Resolves one extension method by stable identity.
@@ -144,6 +151,7 @@ impl BodyProgramContext<'_> {
             extension_type_normalizations: None,
             signatures: None,
             layouts: None,
+            type_layout: None,
             visible_extensions: None,
             extension_method_by_id: None,
             extension_methods_named: None,
@@ -166,6 +174,7 @@ impl fmt::Debug for BodyProgramContext<'_> {
             )
             .field("signatures", &self.signatures.is_some())
             .field("layouts", &self.layouts.is_some())
+            .field("type_layout", &self.type_layout.is_some())
             .field(
                 "extension_method_by_id",
                 &self.extension_method_by_id.is_some(),

@@ -259,6 +259,7 @@ pub struct TraitSolver<'a> {
     associated_type_assumptions: &'a [AssociatedTypeProjectionEq],
     layouts: Option<&'a Layouts>,
     program_layouts: Option<&'a dyn Fn(ModuleId) -> Option<std::sync::Arc<Layouts>>>,
+    type_layout: Option<&'a dyn Fn(InternedTyId) -> bool>,
     const_expr_value:
         Option<&'a dyn Fn(GlobalConstExprId, InternedTyId) -> Option<ConstGenericValue>>,
     local_module_id: ModuleId,
@@ -295,6 +296,13 @@ pub struct TraitSolverContext<'a> {
     /// Loads layout facts from a nominal type's defining module on demand.
     /// A missing local root is not evidence that a foreign type is unsized.
     pub program_layouts: Option<&'a dyn Fn(ModuleId) -> Option<std::sync::Arc<Layouts>>>,
+    /// Lays out a concrete type that no layout product holds. Products root
+    /// the types their module names; checking creates more, such as `W[u8]`
+    /// from `where W[T]: Sized` at a call with `T = u8`, or an array whose
+    /// length is still a const expression. Layout is the one definition of
+    /// `Sized` for these: the products above cache it for their roots, and
+    /// this computes it for the rest.
+    pub type_layout: Option<&'a dyn Fn(InternedTyId) -> bool>,
     /// Module that owns synthesized type identities for this session.
     pub local_module_id: ModuleId,
     /// Enum signatures owned by `local_module_id`.
@@ -374,6 +382,7 @@ impl<'a> TraitSolverContext<'a> {
             associated_type_assumptions: &[],
             layouts: self.layouts,
             program_layouts: self.program_layouts,
+            type_layout: self.type_layout,
             const_expr_value: self.const_expr_value,
             local_module_id: self.local_module_id,
             local_enums: self.local_enums,
@@ -406,6 +415,7 @@ impl<'a> TraitSolverContext<'a> {
             associated_type_assumptions,
             layouts: self.layouts,
             program_layouts: self.program_layouts,
+            type_layout: self.type_layout,
             const_expr_value: self.const_expr_value,
             local_module_id: self.local_module_id,
             local_enums: self.local_enums,
@@ -442,6 +452,7 @@ pub fn trait_impl_headers_are_equivalent(
         trait_impl_index: None,
         layouts: None,
         program_layouts: None,
+        type_layout: None,
         local_module_id,
         local_enums,
         program_fieldless_enum: None,

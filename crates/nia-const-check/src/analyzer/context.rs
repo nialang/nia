@@ -1768,6 +1768,63 @@ impl Analyzer<'_> {
         )
     }
 
+    /// Whether a concrete type that no layout product holds can be laid out,
+    /// in the context of `module_id`. The trait solver asks this to decide
+    /// `Sized` for a type created while checking. Like
+    /// [`Self::compute_program_layout`], it lays foreign types out from their
+    /// program signatures and takes no other module's product.
+    pub(super) fn concrete_type_has_layout(
+        &self,
+        module_id: ModuleId,
+        ty: InternedTyId,
+        array_lengths: &HashMap<GlobalConstExprId, u64>,
+    ) -> bool {
+        let target = nia_layout::TargetDataLayout::for_target(*self.input.target);
+        let (Some(defs), Some(signatures), Some(normalization)) = (
+            self.global_defs(module_id),
+            self.signatures_for_module(module_id),
+            self.type_normalization_for_module(module_id),
+        ) else {
+            return false;
+        };
+        let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
+        let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
+        let program_union = |def_id| self.program_union_signature_for_layout(def_id);
+        let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
+        let program_type_alias = |def_id| self.program_type_alias_signature(def_id);
+        let normalized = &normalization.as_ref().normalized;
+        self.recover_internal(nia_layout::compute_layouts_for_roots_with_program_context(
+            nia_layout::LayoutComputationInput {
+                type_store: self.input.type_store,
+                defs: defs.as_ref(),
+                signatures: signatures.as_ref(),
+                root_types: &[],
+                normalized,
+                array_lengths: &array_lengths_for_layout,
+                target,
+                program: nia_layout::ProgramLayoutContext {
+                    symbols: Some(self.input.symbols),
+                    array_lengths: Some(&array_lengths_for_layout),
+                    struct_: Some(&program_struct),
+                    union: Some(&program_union),
+                    enum_: Some(&program_enum),
+                    type_alias: Some(&program_type_alias),
+                    ..Default::default()
+                },
+            },
+            nia_layout::LayoutRoots {
+                types: &[ty],
+                structs: &[],
+                unions: &[],
+            },
+        ))
+        .is_some_and(|layouts| {
+            layouts
+                .types
+                .contains_key(normalized.get(&ty).unwrap_or(&ty))
+        })
+    }
+
     /// Lays out the signature roots of `module_id`.
     ///
     /// A type of another module is laid out from its program signature, as

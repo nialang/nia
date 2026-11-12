@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 143);
+    assert_eq!(descriptors.len(), 144);
     assert!(
         !descriptors
             .iter()
@@ -17,6 +17,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
     for name in [
         "body_activation_worklist",
         "compiler_cpu_features",
+        "concrete_type_layout",
         "constructor_check",
         "compiler_build_profile",
         "current_module_id",

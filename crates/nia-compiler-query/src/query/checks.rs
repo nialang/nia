@@ -106,6 +106,23 @@ impl QueryKey<CompilerContext> for LayoutsQuery {
     }
 }
 
+/// Whether a concrete type that no layout product holds can be laid out in
+/// the context of a module, which decides `Sized` for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ConcreteTypeLayoutQuery(pub(super) ModuleId, pub(super) InternedTyId);
+
+impl QueryKey<CompilerContext> for ConcreteTypeLayoutQuery {
+    type Value = bool;
+
+    fn name() -> &'static str {
+        "concrete_type_layout"
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        (db.context().providers.concrete_type_layout)(db, self.0, self.1)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct SignatureLayoutsQuery(pub(super) ModuleId);
 

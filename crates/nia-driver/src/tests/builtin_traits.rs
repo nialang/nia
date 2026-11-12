@@ -445,6 +445,58 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+/// `Sized` for a type that substitution creates while checking a call: the
+/// instance `W[u8]` of a bound `W[T]: Sized`, an imported const-generic
+/// instance, or an array whose length is still a const expression. No layout
+/// product rooted these, and checking rejected them as unsized; they are
+/// laid out on demand. The program builds and runs.
+#[test]
+fn sized_bounds_hold_for_instances_created_by_substitution() {
+    let root = temp_dir("sized_bounds_hold_for_instances_created_by_substitution");
+    write(
+        &root.join("types.nia"),
+        "pub struct Packet[N: usize] { marker: u8, values: [u32; N] }\n",
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::process;
+module types;
+using root::types;
+struct W[T] { x: T }
+const fun wrapped[T]() usize where W[T]: Sized { std::builtin::size[W[T]]() }
+const fun paired[T]() usize where [T; 2]: Sized { std::builtin::size[[T; 2]]() }
+const fun packet[N: usize]() usize where types::Packet[N]: Sized {
+    std::builtin::size[types::Packet[N]]()
+}
+const PACKET: usize = packet[3]();
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    const LOCAL: usize = wrapped[u32]();
+    if wrapped[u8]() != 1 or paired[u16]() != 4 or packet[2]() != 12 or PACKET != 16
+        or LOCAL != 4
+    {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    let source = root.join("main.nia");
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("Sized instances created by substitution build");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run Sized instance executable");
+    assert_eq!(status.code(), Some(0));
+}
+
 #[test]
 fn memory_intrinsics_accept_sized_generic_elements() {
     let root = temp_dir("memory_intrinsics_accept_sized_generic_elements");

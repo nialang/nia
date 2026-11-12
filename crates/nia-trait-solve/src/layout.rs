@@ -29,26 +29,42 @@ impl TraitSolver<'_> {
         // Local layout roots need not include types reached only through a
         // foreign slice or pointer. Ask the owning layout product; do not
         // infer nominal sizedness from the declaration's syntax.
-        let Some(TyKind::Nominal {
+        if let Some(TyKind::Nominal {
             def_id,
             args,
             const_args,
         }) = self.kind(ty)
-        else {
-            return false;
-        };
-        if self
-            .layouts
-            .is_some_and(|layouts| layouts.module_id == def_id.module_id)
+            && self
+                .layouts
+                .is_none_or(|layouts| layouts.module_id != def_id.module_id)
+            && self
+                .program_layouts
+                .and_then(|query| query(def_id.module_id))
+                .and_then(|layouts| {
+                    layouts.nominal_type_layout_with_const_args(*def_id, args, const_args)
+                })
+                .is_some()
         {
-            return false;
+            return true;
         }
-        self.program_layouts
-            .and_then(|query| query(def_id.module_id))
-            .and_then(|layouts| {
-                layouts.nominal_type_layout_with_const_args(*def_id, args, const_args)
-            })
-            .is_some()
+        // No product roots a type created while checking. Lay it out.
+        self.has_computed_layout(ty) && self.type_layout.is_some_and(|layout| layout(ty))
+    }
+
+    /// Whether `ty`'s sizedness is decided by computing its layout: a nominal
+    /// instance, or an array whose length is not yet a value. Every other
+    /// shape is decided by [`Self::intrinsic_sized_shape`] from its parts.
+    fn has_computed_layout(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.kind(ty),
+            Some(
+                TyKind::Nominal { .. }
+                    | TyKind::Array {
+                        len: ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. },
+                        ..
+                    }
+            )
+        )
     }
 
     pub(crate) fn intrinsic_sized_shape(&self, ty: InternedTyId) -> bool {
