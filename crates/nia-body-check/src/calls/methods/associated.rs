@@ -563,15 +563,12 @@ impl<'a> BodyChecker<'a> {
             type_args = inferred_type_args;
             const_args = inferred_const_args;
         }
+        // Written arguments were counted by the constructor check; inferred
+        // ones are complete.
         if !type_args.is_empty()
             || !const_args.is_empty()
             || self.nominal_type_prefix_has_no_generics(nominal_def_id)
         {
-            self.check_type_prefix_arg_count(
-                ty_expr.span,
-                nominal_def_id,
-                type_args.len() + const_args.len(),
-            );
             return self.associated_nominal_target_ty(nominal_def_id, type_args, const_args);
         }
         self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, 0);
@@ -748,6 +745,24 @@ impl<'a> BodyChecker<'a> {
         false
     }
 
+    /// Whether `expr`, a type prefix or a variant path through one, writes a
+    /// number of generic arguments its type does not declare. The
+    /// constructor check reported it; callers recover without a diagnostic.
+    pub(crate) fn names_miscounted_type_prefix(&mut self, expr: &Expr) -> bool {
+        let prefix = match &expr.kind {
+            ExprKind::Qualified { lhs, .. } => lhs.as_ref(),
+            _ => expr,
+        };
+        let ExprKind::BracketSuffix { callee, args } = &prefix.kind else {
+            return false;
+        };
+        let Some(def_id) = self.type_prefix_def_id(callee) else {
+            return false;
+        };
+        self.generic_params_for_nominal_def(def_id)
+            .is_some_and(|params| params.len() != args.len())
+    }
+
     pub(crate) fn type_prefix_def_id(&mut self, expr: &Expr) -> Option<GlobalDefId> {
         self.type_prefix_instance(expr).map(|(def_id, _, _)| def_id)
     }
@@ -766,6 +781,12 @@ impl<'a> BodyChecker<'a> {
                 let args = self.lower_bracket_type_args(args);
                 return Some((def_id, args, Vec::new()));
             };
+            // A prefix that writes arguments writes all of them. The
+            // constructor check reported a wrong count, so it names no
+            // instance here.
+            if args.len() != params.len() {
+                return None;
+            }
             let lowered = self.lower_bracket_args_for_generic_params(expr.span, &params, args)?;
             return Some((def_id, lowered.type_args, lowered.const_args));
         }

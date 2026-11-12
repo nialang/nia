@@ -233,6 +233,62 @@ pub(super) fn provide_semantic_use_table(
     )
 }
 
+/// Checks every constructor of a whole module.
+pub(super) fn provide_constructor_check(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+) -> QueryResult<nia_diagnostic::DiagnosticBundle> {
+    let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
+    let semantic_uses = db.get(SemanticUseTableQuery(module_id))?;
+    let type_lowering = type_lowering_semantic(db, module_id)?;
+    let defs = full_module_defs_semantic(db, module_id)?;
+    constructor_check_bundle(db, &active_item_tree, &semantic_uses, &defs, &type_lowering)
+}
+
+/// Checks the constructors of `active_item_tree`, and of the constant
+/// expressions its types contain, against resolved prefix identities. The
+/// reachability-filtered body check runs this over its filtered items, so the
+/// rule reports in the same scope as name resolution.
+pub(super) fn constructor_check_bundle(
+    db: &QueryDb<CompilerContext>,
+    active_item_tree: &ActiveModuleItemTree,
+    semantic_uses: &nia_sema_ir::SemanticUseTable,
+    defs: &DefCollection,
+    type_lowering: &TypeLowering,
+) -> QueryResult<nia_diagnostic::DiagnosticBundle> {
+    let needed_const_exprs = needed_const_exprs_for_active_item_tree(
+        &db.context().type_store,
+        active_item_tree,
+        type_lowering,
+    );
+    let mut type_const_exprs = type_lowering
+        .const_exprs
+        .iter()
+        .filter(|(id, _)| needed_const_exprs.contains(*id))
+        .map(|(_, expr)| expr)
+        .collect::<Vec<_>>();
+    // The table is unordered; report in source order.
+    type_const_exprs.sort_by_key(|expr| (expr.span.start, expr.span.end));
+    let query_failure = RefCell::new(None);
+    let defs_for_module =
+        |module_id| capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id));
+    let symbols = db.context().symbols();
+    let diagnostics = nia_constructor_check::check_module_constructors(
+        nia_constructor_check::ConstructorCheckInput {
+            active_item_tree,
+            type_const_exprs: &type_const_exprs,
+            semantic_uses,
+            defs,
+            defs_for_module: &defs_for_module,
+            symbols: Some(&symbols),
+        },
+    );
+    if let Some(error) = query_failure.into_inner() {
+        return Err(error);
+    }
+    Ok(db.context().diagnostic_store.bundle(diagnostics)?)
+}
+
 pub(super) struct SemanticUseInputs<'a> {
     pub module_id: ModuleId,
     pub node_store: &'a nia_node_id::NodeStore,

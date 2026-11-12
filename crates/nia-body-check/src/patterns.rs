@@ -512,11 +512,13 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         let Some((constructor_def, _, _)) = self.type_prefix_instance(constructor) else {
-            self.diagnostics.push(Diagnostic::user_error_at(
-                codes::TYPE_CHECK,
-                constructor.span,
-                format!("{context} constructor is not a struct or enum variant"),
-            ));
+            if !self.names_miscounted_type_prefix(constructor) {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    constructor.span,
+                    format!("{context} constructor is not a struct or enum variant"),
+                ));
+            }
             self.check_invalid_enum_pattern_fields(fields, context);
             return;
         };

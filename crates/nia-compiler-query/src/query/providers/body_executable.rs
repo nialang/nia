@@ -2181,6 +2181,7 @@ fn checked_module_with_body_and_flow_check(
         resolution_diagnostics: vec![
             value_resolution.diagnostics.clone(),
             local_resolution.diagnostics.clone(),
+            (*db.get(ConstructorCheckQuery(module_id))?).clone(),
         ],
         item_diagnostics: item_signatures.diagnostics.clone(),
         const_diagnostics: const_eval.diagnostics.clone(),

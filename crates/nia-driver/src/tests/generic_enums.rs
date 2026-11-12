@@ -379,6 +379,113 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+/// The constructor generic-argument rule has one owner. Each spelling
+/// reports the same single diagnostic whether it is runtime code, a constant
+/// of either kind, or a constant expression the body checker never sees. A
+/// typed constant once accepted `E::B` as if it were `.B`, a tuple struct in
+/// a constant reported twice in two wordings, and an enum discriminant was
+/// not checked at all.
+#[test]
+fn constructor_generic_arguments_report_once_in_every_position() {
+    let root = temp_dir("constructor_generic_arguments_report_once");
+    let decls = "enum E[T] { A(T), B }\nstruct T2[T](T)\nstruct W[T] { x: T }\n\
+                 extend[T] W[T] { fun new(x: T) W[T] { W[T] { x } } }\n";
+    let missing_e = "generic argument count mismatch for `E`: expected 1, got 0";
+    let missing_t2 = "generic argument count mismatch for `T2`: expected 1, got 0";
+    let extra_e = "generic argument count mismatch for `E`: expected 1, got 2";
+    let extra_w = "generic argument count mismatch for `W`: expected 1, got 2";
+    for (name, body, expected) in [
+        (
+            "runtime value",
+            "fun main() i32 { let k = E::B; _ = k; 0 }",
+            missing_e,
+        ),
+        (
+            "runtime typed value",
+            "fun main() i32 { let k: E[i32] = E::B; _ = k; 0 }",
+            missing_e,
+        ),
+        (
+            "typed constant",
+            "const K: E[i32] = E::B;\nfun main() i32 { 0 }",
+            missing_e,
+        ),
+        (
+            "untyped constant",
+            "const K = E::B;\nfun main() i32 { 0 }",
+            missing_e,
+        ),
+        (
+            "local constant",
+            "fun main() i32 { const K: E[i32] = E::B; 0 }",
+            missing_e,
+        ),
+        (
+            "static",
+            "static S: E[i32] = E::B;\nfun main() i32 { 0 }",
+            missing_e,
+        ),
+        (
+            "constant variant call",
+            "const K: E[i32] = E::A(1);\nfun main() i32 { 0 }",
+            missing_e,
+        ),
+        (
+            "constant tuple struct",
+            "const K: T2[i32] = T2(5);\nfun main() i32 { K.0 }",
+            missing_t2,
+        ),
+        (
+            "enum discriminant",
+            "enum D: i32 { A = T2(5i32).0, B }\nfun main() i32 { 0 }",
+            missing_t2,
+        ),
+        (
+            "array length",
+            "fun main() i32 { let a: [u8; T2(2usize).0] = [1, 2]; a[0] as i32 }",
+            missing_t2,
+        ),
+        (
+            "too many arguments",
+            "fun main() i32 { let k = E[i32, i32]::B; _ = k; 0 }",
+            extra_e,
+        ),
+        (
+            "too many arguments in a pattern",
+            "fun f(k: E[i32]) i32 { match k { E[i32, i32]::A(v) => v, _ => 0 } }\n\
+             fun main() i32 { f(.B) }",
+            extra_e,
+        ),
+        (
+            "too many arguments on an associated call",
+            "fun main() i32 { let w = W[i32, i32]::new(1); w.x }",
+            extra_w,
+        ),
+    ] {
+        let path = root.join("main.nia");
+        write(&path, &format!("{decls}{body}\n"));
+        let program = check_program(path.to_string_lossy().into_owned());
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+            .map(|d| (d.diagnostic.code.as_str(), d.diagnostic.summary.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(errors, [("E0202", expected)], "{name}");
+    }
+    // Patterns are not constructors: they match the scrutinee's instance.
+    let path = root.join("patterns.nia");
+    write(
+        &path,
+        &format!(
+            "{decls}fun f(k: E[i32]) i32 {{ match k {{ E::A(v) => v, E::B => 0 }} }}\n\
+             fun main() i32 {{ f(.B) }}\n"
+        ),
+    );
+    let program = check_program(path.to_string_lossy().into_owned());
+    assert_no_error_diagnostics(&program.diagnostics);
+}
+
 /// A generic type used without its arguments is reported once, in every
 /// position, and produces no instance whose arguments do not match its
 /// parameters. Each of these once stopped with an internal error from

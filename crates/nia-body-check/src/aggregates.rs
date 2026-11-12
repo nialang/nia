@@ -879,7 +879,7 @@ impl<'a> BodyChecker<'a> {
         let (enum_id, args, const_args) = self.enum_prefix_instance(lhs)?;
         let (prefix_id, prefix_args, prefix_consts) = self.type_prefix_instance(lhs)?;
         if self
-            .constructed_nominal_ty(lhs.span, prefix_id, &prefix_args, &prefix_consts)
+            .constructed_nominal_ty(prefix_id, &prefix_args, &prefix_consts)
             .is_none()
         {
             return Some(self.error());
@@ -1046,7 +1046,7 @@ impl<'a> BodyChecker<'a> {
         };
         let (prefix_id, prefix_args, prefix_consts) = self.type_prefix_instance(prefix)?;
         if self
-            .constructed_nominal_ty(prefix.span, prefix_id, &prefix_args, &prefix_consts)
+            .constructed_nominal_ty(prefix_id, &prefix_args, &prefix_consts)
             .is_none()
         {
             for arg in args {
@@ -1191,8 +1191,7 @@ impl<'a> BodyChecker<'a> {
         if !resolved.signature.is_tuple {
             return None;
         }
-        let Some(ty) = self.constructed_nominal_ty(callee.span, def_id, &type_args, &const_args)
-        else {
+        let Some(ty) = self.constructed_nominal_ty(def_id, &type_args, &const_args) else {
             for arg in args {
                 self.check_expr(arg);
             }
@@ -1276,7 +1275,7 @@ impl<'a> BodyChecker<'a> {
             if let ExprKind::Qualified { lhs, .. } = &target.kind
                 && let Some((prefix_id, args, const_args)) = self.type_prefix_instance(lhs)
                 && self
-                    .constructed_nominal_ty(lhs.span, prefix_id, &args, &const_args)
+                    .constructed_nominal_ty(prefix_id, &args, &const_args)
                     .is_none()
             {
                 self.check_recovery_fields(fields);
@@ -1327,8 +1326,7 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         }
         if let Some((def_id, args, const_args)) = self.type_prefix_instance(target) {
-            let Some(ty) = self.constructed_nominal_ty(target.span, def_id, &args, &const_args)
-            else {
+            let Some(ty) = self.constructed_nominal_ty(def_id, &args, &const_args) else {
                 self.check_recovery_fields(fields);
                 return self.error();
             };
@@ -1411,24 +1409,35 @@ impl<'a> BodyChecker<'a> {
 
     /// The nominal type a constructor builds. The constructor names its
     /// type, so every generic argument must be written, as in `Pair[i32] {
-    /// .. }` or `Option[i32]::Some(1)`; constructors do not infer them. A
-    /// wrong count is reported once and gives no type, so no instance whose
-    /// arguments do not match its parameters reaches later phases.
+    /// .. }` or `Option[i32]::Some(1)`; constructors do not infer them
+    /// ([`nia_sema::constructor_generic_args`]). The constructor check
+    /// reported a wrong count before body checking, so it gives no type here
+    /// and no instance whose arguments do not match its parameters reaches
+    /// later phases.
     pub(crate) fn constructed_nominal_ty(
         &mut self,
-        span: Span,
         def_id: GlobalDefId,
         args: &[InternedTyId],
         const_args: &[nia_ty::ConstGenericArg],
     ) -> Option<InternedTyId> {
-        self.check_type_prefix_arg_count(span, def_id, args.len() + const_args.len())
-            .then(|| {
-                self.interner.intern(TyKind::Nominal {
-                    def_id,
-                    args: args.to_vec(),
-                    const_args: const_args.to_vec(),
-                })
+        let declared = self
+            .nominal_type_generics(def_id)
+            .map_or(0, |generics| generics.len());
+        let written = args.len() + const_args.len();
+        matches!(
+            nia_sema::constructor_generic_args(
+                nia_sema::ConstructorSpelling::Prefix { written },
+                declared,
+            ),
+            nia_sema::ConstructorGenericArgs::Written
+        )
+        .then(|| {
+            self.interner.intern(TyKind::Nominal {
+                def_id,
+                args: args.to_vec(),
+                const_args: const_args.to_vec(),
             })
+        })
     }
 
     pub(crate) fn enum_ty(

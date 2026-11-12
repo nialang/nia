@@ -17,6 +17,7 @@ nia-body-check.workspace = true
 nia-body-ir.workspace = true
 nia-compat.workspace = true
 nia-const-check.workspace = true
+nia-constructor-check.workspace = true
 nia-const-ir.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true

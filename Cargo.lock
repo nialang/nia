@@ -913,6 +913,7 @@ dependencies = [
  "nia-compat",
  "nia-const-check",
  "nia-const-ir",
+ "nia-constructor-check",
  "nia-defs",
  "nia-diagnostic",
  "nia-escape-check",
@@ -1031,6 +1032,21 @@ dependencies = [
  "nia-span",
  "nia-symbol",
  "nia-symbol-table",
+]
+
+[[package]]
+name = "nia-constructor-check"
+version = "0.3.0-dev"
+dependencies = [
+ "nia-ast",
+ "nia-ast-walk",
+ "nia-defs",
+ "nia-diagnostic",
+ "nia-ids",
+ "nia-item-tree",
+ "nia-sema",
+ "nia-sema-ir",
+ "nia-symbol",
 ]
 
 [[package]]

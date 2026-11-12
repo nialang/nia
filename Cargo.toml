@@ -52,6 +52,7 @@ members = [
     "crates/nia-const-ir",
     "crates/nia-const-eval",
     "crates/nia-const-check",
+    "crates/nia-constructor-check",
     "crates/nia-static-check",
     "crates/nia-static-ir",
     "crates/nia-ir-names",
@@ -160,6 +161,7 @@ nia-sema-ir = { path = "crates/nia-sema-ir" }
 nia-const-ir = { path = "crates/nia-const-ir" }
 nia-const-eval = { path = "crates/nia-const-eval" }
 nia-const-check = { path = "crates/nia-const-check" }
+nia-constructor-check = { path = "crates/nia-constructor-check" }
 nia-static-check = { path = "crates/nia-static-check" }
 nia-static-ir = { path = "crates/nia-static-ir" }
 nia-ir-names = { path = "crates/nia-ir-names" }

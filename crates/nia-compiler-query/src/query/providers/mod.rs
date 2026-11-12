@@ -592,6 +592,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleLocalResolution>,
     pub(super) semantic_use_table:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_sema_ir::SemanticUseTable>,
+    pub(super) constructor_check:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_diagnostic::DiagnosticBundle>,
     pub(super) const_module:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ConstModuleLowering>,
     pub(super) const_eval: fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleConstCheck>,
@@ -679,6 +681,7 @@ impl Default for CompilerQueryProviders {
             value_resolution: provide_value_resolution,
             local_resolution: provide_local_resolution,
             semantic_use_table: provide_semantic_use_table,
+            constructor_check: provide_constructor_check,
             const_module: provide_const_module,
             const_eval: provide_const,
             const_array_lengths: provide_const_array_lengths,

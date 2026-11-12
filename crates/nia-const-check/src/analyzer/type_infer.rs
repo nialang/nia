@@ -1563,17 +1563,9 @@ impl Analyzer<'_> {
         // const arguments in the defining module's type context. This keeps
         // tuple-struct construction aligned with named aggregate literals and
         // prevents a generic field from being checked against its raw symbol.
-        if let ArityCheck::Mismatch { actual, .. } =
-            check_exact_arity(generic_params.len(), generic_args.len())
-        {
-            self.push_const_type_error(
-                span,
-                &format!(
-                    "generic argument count mismatch: expected {}, got {}",
-                    generic_params.len(),
-                    actual
-                ),
-            );
+        // The constructor check reported a prefix that does not write every
+        // argument; it names no instance here.
+        if !check_exact_arity(generic_params.len(), generic_args.len()).is_accepted() {
             return None;
         }
         let mut args = Vec::new();

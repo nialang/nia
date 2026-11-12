@@ -64,6 +64,7 @@ source files
   -> trait solving
   -> value path resolution
   -> local name resolution
+  -> constructor generic-argument check
   -> const value checking
   -> layout computation
   -> static initializer check
@@ -672,7 +673,8 @@ crate-level rustdoc is the detailed reference.
 | `nia-body-check` | Typed body checking producing semantic facts and `BodyIr`. |
 | `nia-escape-check` | Escape analysis: closures and callable views across calls, and addresses of a function's own storage that outlive its call. |
 | `nia-pattern-analysis` | Pure usefulness and exhaustiveness analysis over pattern matrices. |
-| `nia-sema` | Shared validation helpers for array lengths, arity, and fields. |
+| `nia-constructor-check` | The single report of the constructor generic-argument rule, in every expression and pattern position. |
+| `nia-sema` | Shared validation contracts for array lengths, arity, fields, and constructor generic arguments. |
 | **Declaration and resolution** | |
 | `nia-target-config` | Evaluation of target, profile, and test conditions; pruning to the active item tree. |
 | `nia-provider-summary` | Conservative extension-provider summaries and cross-module provider demands. |

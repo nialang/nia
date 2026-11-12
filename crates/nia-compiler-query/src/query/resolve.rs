@@ -31,6 +31,22 @@ impl QueryKey<CompilerContext> for LocalResolutionQuery {
     }
 }
 
+/// Constructor generic-argument diagnostics for a whole module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ConstructorCheckQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for ConstructorCheckQuery {
+    type Value = nia_diagnostic::DiagnosticBundle;
+
+    fn name() -> &'static str {
+        "constructor_check"
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        (db.context().providers.constructor_check)(db, self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct SemanticUseTableQuery(pub(super) ModuleId);
 

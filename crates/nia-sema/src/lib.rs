@@ -221,6 +221,61 @@ pub fn check_call_arity(
     check_arity(requirement, actual_args)
 }
 
+/// How a constructor spells the type it builds.
+///
+/// Constructors take their type's generic arguments from what they write, not
+/// from inference: `Pair[i32, bool] { .. }`, `Wrapper[i32](1)` and
+/// `Choice[i32]::Some(1)` name their instance, and only the omitted forms
+/// `.{ .. }` and `.Some(1)` take it from the expected type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConstructorSpelling {
+    /// `.Some(1)`, `.None`, `.{ .. }`: the type is the expected one.
+    Omitted,
+    /// `E::B`, `E[i32]::A(1)`, `T2(1)`, `Alias::A`: a prefix names the type,
+    /// with `written` generic arguments after it. An alias prefix counts its
+    /// own parameters, not its target's.
+    Prefix {
+        /// Generic arguments written after the prefix.
+        written: usize,
+    },
+}
+
+/// Where a constructor's generic arguments come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConstructorGenericArgs {
+    /// The prefix names the whole instance: its arguments are written, or
+    /// the type has none.
+    Written,
+    /// The omitted form takes the instance from the expected type.
+    FromExpected,
+    /// The prefix does not write the arguments its type declares.
+    Mismatch {
+        /// Parameters the named type declares.
+        expected: usize,
+        /// Arguments written after the prefix.
+        actual: usize,
+    },
+}
+
+/// Classifies a constructor's generic arguments. This is the one statement
+/// of the rule; every phase that types or reports a constructor asks it, so
+/// const and runtime code cannot disagree on which spellings infer.
+pub fn constructor_generic_args(
+    spelling: ConstructorSpelling,
+    declared: usize,
+) -> ConstructorGenericArgs {
+    match spelling {
+        ConstructorSpelling::Omitted => ConstructorGenericArgs::FromExpected,
+        ConstructorSpelling::Prefix { written } if written == declared => {
+            ConstructorGenericArgs::Written
+        }
+        ConstructorSpelling::Prefix { written } => ConstructorGenericArgs::Mismatch {
+            expected: declared,
+            actual: written,
+        },
+    }
+}
+
 /// Field name paired with the source span used for diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedField<Key> {
@@ -381,6 +436,30 @@ impl<Key> BorrowedNamedField<Key> for &NamedField<Key> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constructors_infer_only_in_omitted_form() {
+        use ConstructorGenericArgs::{FromExpected, Mismatch, Written};
+        use ConstructorSpelling::{Omitted, Prefix};
+        assert_eq!(constructor_generic_args(Omitted, 1), FromExpected);
+        assert_eq!(constructor_generic_args(Omitted, 0), FromExpected);
+        assert_eq!(constructor_generic_args(Prefix { written: 0 }, 0), Written);
+        assert_eq!(constructor_generic_args(Prefix { written: 2 }, 2), Written);
+        assert_eq!(
+            constructor_generic_args(Prefix { written: 0 }, 1),
+            Mismatch {
+                expected: 1,
+                actual: 0
+            }
+        );
+        assert_eq!(
+            constructor_generic_args(Prefix { written: 3 }, 2),
+            Mismatch {
+                expected: 2,
+                actual: 3
+            }
+        );
+    }
 
     #[test]
     fn required_field_set_reports_duplicates_unknown_and_missing() {

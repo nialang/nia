@@ -188,6 +188,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                 resolution_diagnostics: vec![
                     values.diagnostics.clone(),
                     locals.diagnostics.clone(),
+                    (*db.get(ConstructorCheckQuery(module_id))?).clone(),
                 ],
             })
         }
@@ -328,6 +329,13 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                 db.context()
                     .diagnostic_store
                     .bundle(std::mem::take(&mut filtered_locals.diagnostics))?,
+                constructor_check_bundle(
+                    db,
+                    &filtered_active_item_tree,
+                    &filtered_semantic_uses,
+                    context.defs,
+                    context.lowered,
+                )?,
             ];
             let output = BodyCheckResolutionInputs {
                 active_item_tree: filtered_active_item_tree,
