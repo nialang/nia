@@ -406,6 +406,45 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+/// A `T: Sized` obligation met during const evaluation lays out the
+/// signature roots of the modules involved. Each module's roots were laid
+/// out with the others' layouts as a cache, so two modules whose roots name
+/// each other's types, as `std::process` does through `ExitCode!()`,
+/// recomputed each other without end and the compiler overflowed its stack.
+#[test]
+fn const_sized_obligations_terminate_across_mutually_referencing_modules() {
+    let root = temp_dir("const_sized_obligations_terminate");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::process;
+const fun four[T]() usize where T: Sized { 4 }
+const GLOBAL: usize = four[u32]();
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    const LOCAL: usize = four[u8]();
+    if GLOBAL != 4 or LOCAL != 4 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    let source = root.join("main.nia");
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("const Sized obligations build");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run const Sized obligation executable");
+    assert_eq!(status.code(), Some(0));
+}
+
 #[test]
 fn memory_intrinsics_accept_sized_generic_elements() {
     let root = temp_dir("memory_intrinsics_accept_sized_generic_elements");

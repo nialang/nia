@@ -1768,6 +1768,13 @@ impl Analyzer<'_> {
         )
     }
 
+    /// Lays out the signature roots of `module_id`.
+    ///
+    /// A type of another module is laid out from its program signature, as
+    /// signature layouts in the query layer are. This takes no other
+    /// module's product: two modules whose roots name each other's types,
+    /// such as `std::process` and the error-union machinery of `ExitCode!()`,
+    /// would otherwise compute each other's roots without end.
     pub(super) fn compute_program_layout(
         &self,
         module_id: ModuleId,
@@ -1779,7 +1786,6 @@ impl Analyzer<'_> {
         let root_types = signatures.as_ref().type_roots();
         let normalization = self.type_normalization_for_module(module_id)?;
         let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
-        let layout_query = |module_id| self.compute_program_layout(module_id, array_lengths);
         let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
         let program_union = |def_id| self.program_union_signature_for_layout(def_id);
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
@@ -1795,7 +1801,6 @@ impl Analyzer<'_> {
                 target,
                 program: nia_layout::ProgramLayoutContext {
                     symbols: Some(self.input.symbols),
-                    layouts: Some(&layout_query),
                     array_lengths: Some(&array_lengths_for_layout),
                     struct_: Some(&program_struct),
                     union: Some(&program_union),
