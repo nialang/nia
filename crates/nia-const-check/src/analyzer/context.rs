@@ -175,10 +175,14 @@ impl Analyzer<'_> {
             let body = self.const_function_body(function_id)?.body().clone();
             return self.find_local_binding_type_in_resolved_block(&body, local_id);
         }
-        if let Some(initializer) = self.input.module.local_initializers().get(&local_id)
-            && initializer.explicit_type().is_some()
-        {
+        // A const binding's only explicit type is its declared one. Searching
+        // initializers would type an untyped binding from its own uses, such
+        // as the scrutinee of a `match` that binds pattern locals.
+        if let Some(initializer) = self.input.module.local_initializers().get(&local_id) {
             return initializer.explicit_type();
+        }
+        if self.input.module.failed_locals().contains(&local_id) {
+            return None;
         }
         let global_initializers = self
             .input

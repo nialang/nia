@@ -17,6 +17,7 @@
 //! backend planning. Execution is delegated to `nia-const-eval` only after
 //! semantic validation.
 mod analyzer;
+mod declarations;
 mod module_lowering;
 mod support;
 mod types;

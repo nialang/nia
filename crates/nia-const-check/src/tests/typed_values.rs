@@ -2,6 +2,74 @@ use super::*;
 use nia_const_eval::ConstValue;
 use nia_ty::IntConst;
 
+/// Const lowering runs before body checking, so an omitted member gets its
+/// enum from the type of what it is compared with or matched against. That
+/// type is known for an untyped const, through its initializer, as well as
+/// for a typed one. A local const is lowered wherever a block declares it:
+/// in an `if` or `match` arm, a trait default method, or a closure.
+#[test]
+fn undeclared_and_nested_const_types_give_enum_context() {
+    let fixture = check_source(
+        r#"
+enum Color { Red, Green }
+enum Maybe[T] { Some(T), None }
+const RED = Color::Red;
+const ALSO = SAME;
+const SAME = Color::Green;
+const SOME = Maybe[i32]::Some(40);
+const NONE = Maybe[i32]::None;
+const FIRST: i32 = match SOME { .Some(value) => value, .None => 0 };
+const SECOND: i32 = match NONE { .Some(value) => value, .None => 2 };
+const VALUE: i32 = if RED == .Red and ALSO == .Green { FIRST + SECOND } else { 0 };
+fun nested(flag: bool) i32 {
+    if flag {
+        const L = Color::Green;
+        const N: i32 = match L { .Red => 0, .Green => 7 };
+        N
+    } else {
+        match flag {
+            _ => {
+                const T: Maybe[i32] = .Some(5);
+                const U: i32 = match T { .Some(value) => value, .None => 0 };
+                U
+            }
+        }
+    }
+}
+trait Pick { fun pick(self) i32 { const K: i32 = 1; K } }
+fun closure() i32 {
+    let f = \x: i32 -> { const C: i32 = 9; C + x };
+    f(0)
+}
+"#,
+    );
+    assert!(
+        fixture.const_module.diagnostics.is_empty(),
+        "{:?}",
+        fixture.const_module.diagnostics,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics,
+    );
+    assert_eq!(
+        const_value(&fixture, "VALUE"),
+        ConstValue::Int(IntConst::signed(42))
+    );
+    let mut locals = fixture
+        .checked
+        .values
+        .iter()
+        .filter_map(|(key, value)| match (key, value) {
+            (ConstKey::Local(_), ConstValue::Int(value)) => value.as_i128(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    locals.sort_unstable();
+    assert_eq!(locals, [1, 5, 7, 9]);
+}
+
 #[test]
 fn contextual_enum_aliases_lower_without_body_check() {
     let fixture = check_source(

@@ -2411,3 +2411,40 @@ fn failed_constants_report_only_their_root() {
         assert_eq!(errors, [expected], "{name}");
     }
 }
+
+/// A constant whose declared type, or whose enum constructor, is already
+/// reported as wrong is not lowered against it. Its initializer and its uses
+/// added "unsupported const expression" and "const value is not available
+/// during body check" to the root error.
+#[test]
+fn constants_of_erroneous_types_report_only_their_root() {
+    let root = temp_dir("constants_of_erroneous_types_report_only_their_root");
+    for (name, source, expected) in [
+        (
+            "generic alias without arguments",
+            "enum E[T] { A(T), B }\ntype P[T] = E[T];\nconst X: P = .B;\nfun main() i32 { match X { .A(_) => 1, .B => 0 } }\n",
+            "generic argument count mismatch for `P`: expected 1, got 0",
+        ),
+        (
+            "generic constructor without arguments",
+            "enum E[T] { A(T), B }\nconst M: i32 = match E::A(5i32) { .A(v) => v, .B => 0 };\nfun main() i32 { M }\n",
+            "generic argument count mismatch for `E`: expected 1, got 0",
+        ),
+        (
+            "untyped constant of such a constructor",
+            "enum E[T] { A(T), B }\nconst K = E::A(5i32);\nconst M: i32 = match K { .A(v) => v, .B => 0 };\nfun main() i32 { M }\n",
+            "generic argument count mismatch for `E`: expected 1, got 0",
+        ),
+    ] {
+        let path = root.join("main.nia");
+        write(&path, source);
+        let program = check_program(path.to_string_lossy().into_owned());
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+            .map(|d| d.diagnostic.summary.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(errors, [expected], "{name}");
+    }
+}

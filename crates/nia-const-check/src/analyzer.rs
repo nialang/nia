@@ -542,6 +542,22 @@ impl From<TypedConstFrame> for ConstCallFrame {
     }
 }
 
+/// Keys whose initializer failed to lower. Their root error is already
+/// reported, so evaluation treats them as failed from the start.
+fn failed_lowering_keys(module: &ResolvedConstModule) -> HashSet<ConstKey> {
+    module
+        .failed_globals()
+        .iter()
+        .map(|global| ConstKey::Global(*global))
+        .chain(
+            module
+                .failed_locals()
+                .iter()
+                .map(|local| ConstKey::Local(*local)),
+        )
+        .collect()
+}
+
 impl Analyzer<'_> {
     pub(crate) fn symbol_name(&self, symbol: SymbolId) -> String {
         symbol_text_or_unresolved(self.input.symbols, symbol)
@@ -562,7 +578,7 @@ impl Analyzer<'_> {
             diagnostics: Vec::new(),
             provider_demands: HashSet::new(),
             active: HashSet::new(),
-            failed: HashSet::new(),
+            failed: failed_lowering_keys(input.module),
             read_failed_const: false,
             program_type_normalizations: RefCell::new(HashMap::new()),
             instantiated_type_normalizations: RefCell::new(HashMap::new()),
@@ -611,7 +627,7 @@ impl Analyzer<'_> {
             diagnostics: Vec::new(),
             provider_demands: HashSet::new(),
             active: HashSet::new(),
-            failed: HashSet::new(),
+            failed: failed_lowering_keys(input.module),
             read_failed_const: false,
             program_type_normalizations: RefCell::new(HashMap::new()),
             instantiated_type_normalizations: RefCell::new(HashMap::new()),

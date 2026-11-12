@@ -14,7 +14,7 @@ use nia_ids::{
 use nia_sema_ir::{AssociatedConstProjection, BuiltinAssociatedValue, SemanticValueUse};
 use nia_span::Span;
 use nia_symbol::SymbolId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 /// Per-module resolved const products indexed by their semantic owners.
@@ -28,6 +28,12 @@ pub struct ResolvedConstModule {
     local_initializers: HashMap<LocalId, ResolvedConstLocalInitializer>,
     functions: HashMap<GlobalDefId, ResolvedConstFunction>,
     const_exprs: HashMap<GlobalConstExprId, ResolvedConstExpr>,
+    /// Const globals whose initializer could not be lowered. Lowering, or the
+    /// declared type it needed, already reported why; evaluation treats them
+    /// as failed so their uses report nothing further.
+    failed_globals: HashSet<GlobalDefId>,
+    /// Local const bindings whose initializer could not be lowered.
+    failed_locals: HashSet<LocalId>,
 }
 
 impl ResolvedConstModule {
@@ -54,6 +60,26 @@ impl ResolvedConstModule {
     /// Returns function-local const initializers by local identity.
     pub fn local_initializers(&self) -> &HashMap<LocalId, ResolvedConstLocalInitializer> {
         &self.local_initializers
+    }
+
+    /// Returns const globals whose initializer failed to lower.
+    pub fn failed_globals(&self) -> &HashSet<GlobalDefId> {
+        &self.failed_globals
+    }
+
+    /// Returns local const bindings whose initializer failed to lower.
+    pub fn failed_locals(&self) -> &HashSet<LocalId> {
+        &self.failed_locals
+    }
+
+    /// Records that a const global's initializer failed to lower.
+    pub fn insert_failed_global(&mut self, id: GlobalDefId) {
+        self.failed_globals.insert(id);
+    }
+
+    /// Records that a local const binding's initializer failed to lower.
+    pub fn insert_failed_local(&mut self, id: LocalId) {
+        self.failed_locals.insert(id);
     }
 
     /// Returns const function bodies by global definition identity.
