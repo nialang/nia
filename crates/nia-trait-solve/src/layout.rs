@@ -4,7 +4,7 @@
 use super::*;
 
 impl TraitSolver<'_> {
-    pub(crate) fn layout_of(&self, ty: InternedTyId) -> bool {
+    pub(crate) fn layout_of(&mut self, ty: InternedTyId) -> bool {
         let ty = self.normalize(ty);
         if self.intrinsic_sized_shape(ty) {
             return true;
@@ -52,41 +52,27 @@ impl TraitSolver<'_> {
     }
 
     /// Whether `ty`'s sizedness is decided by computing its layout: a nominal
-    /// instance, or an array whose length is not yet a value. Every other
-    /// shape is decided by [`Self::intrinsic_sized_shape`] from its parts.
+    /// instance, whose sizedness follows its declaration's fields. Every
+    /// other shape is decided by [`Self::intrinsic_sized_shape`] from its
+    /// components.
     fn has_computed_layout(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.kind(ty),
-            Some(
-                TyKind::Nominal { .. }
-                    | TyKind::Array {
-                        len: ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. },
-                        ..
-                    }
-            )
-        )
+        matches!(self.kind(ty), Some(TyKind::Nominal { .. }))
     }
 
-    pub(crate) fn intrinsic_sized_shape(&self, ty: InternedTyId) -> bool {
-        match self.kind(ty) {
+    /// Whether a type whose shape the compiler knows is sized: scalars,
+    /// pointers and views always are, and a composite is when each of its
+    /// components is. A component is sized when `Component: Sized` holds,
+    /// so a generic parameter assumed sized by the enclosing bounds sizes
+    /// `(T, T)`, `?T`, `[T; 2]` and `E!T` like a concrete component would.
+    pub(crate) fn intrinsic_sized_shape(&mut self, ty: InternedTyId) -> bool {
+        match self.kind(ty).cloned() {
             Some(TyKind::Primitive(PrimitiveTy::Never)) => false,
             Some(
                 TyKind::Primitive(_)
                 | TyKind::Vector { .. }
                 | TyKind::FunctionPointer { .. }
-                | TyKind::Callable { .. },
-            ) => true,
-            Some(TyKind::ClosureState { captures, .. }) => captures
-                .iter()
-                .all(|capture| self.intrinsic_sized_shape(*capture) || self.layout_of(*capture)),
-            // Tuples synthesized while checking a body are not necessarily
-            // roots of the earlier layout product. Like arrays and closure
-            // states, their sizedness follows their component types.
-            Some(TyKind::Tuple(elements)) => {
-                elements.iter().all(|element| self.layout_of(*element))
-            }
-            Some(
-                TyKind::Pointer { .. }
+                | TyKind::Callable { .. }
+                | TyKind::Pointer { .. }
                 | TyKind::VolatilePointer { .. }
                 | TyKind::Slice { .. }
                 | TyKind::Range { bound: None, .. },
@@ -97,23 +83,65 @@ impl TraitSolver<'_> {
                 | TyKind::CallablePointee { .. }
                 | TyKind::GenericParam(_),
             ) => false,
-            Some(TyKind::Array {
-                len: ArrayLenTy::ConstValue(_),
-                elem,
-            }) => self.intrinsic_sized_shape(*elem) || self.layout_of(*elem),
-            Some(TyKind::Array { .. }) => false,
+            // Closure states and tuples synthesized while checking a body
+            // are not necessarily roots of the earlier layout product. Like
+            // arrays, their sizedness follows their component types.
+            Some(TyKind::ClosureState { captures, .. }) => captures
+                .iter()
+                .all(|capture| self.component_is_sized(*capture)),
+            Some(TyKind::Tuple(elements)) => elements
+                .iter()
+                .all(|element| self.component_is_sized(*element)),
+            // An array is sized when its element is and its length is a
+            // known `usize`: a value, a const parameter, or a const
+            // expression or layout query the solver can evaluate. A length
+            // still awaiting inference, or one evaluation cannot resolve,
+            // gives no size.
+            Some(TyKind::Array { len, elem }) => {
+                self.array_len_is_known(&len) && self.component_is_sized(elem)
+            }
             Some(TyKind::Range {
                 bound: Some(bound), ..
             })
-            | Some(TyKind::Optional { elem: bound }) => {
-                self.intrinsic_sized_shape(*bound) || self.layout_of(*bound)
-            }
+            | Some(TyKind::Optional { elem: bound }) => self.component_is_sized(bound),
             Some(TyKind::ErrorUnion { error, value }) => {
-                (self.intrinsic_sized_shape(*error) || self.layout_of(*error))
-                    && (self.intrinsic_sized_shape(*value) || self.layout_of(*value))
+                self.component_is_sized(error) && self.component_is_sized(value)
             }
             _ => false,
         }
+    }
+
+    /// Whether an array length denotes a `usize` the solver knows. A const
+    /// parameter is a `usize` in every instance of its scope, and a layout
+    /// query is one when its operand is sized.
+    fn array_len_is_known(&mut self, len: &ArrayLenTy) -> bool {
+        match len {
+            ArrayLenTy::ConstValue(_) | ArrayLenTy::GenericParam(_) => true,
+            ArrayLenTy::Infer => false,
+            ArrayLenTy::ConstExpr(id) => self.const_expr_value.is_some_and(|value| {
+                matches!(
+                    value(id.clone(), self.usize()),
+                    Some(ConstGenericValue::Int(_))
+                )
+            }),
+            ArrayLenTy::Builtin { ty, .. } => self.component_is_sized(*ty),
+        }
+    }
+
+    /// Whether `Component: Sized` holds, by the solver's own rules: an
+    /// assumption of the generic scope, then layout.
+    fn component_is_sized(&mut self, ty: InternedTyId) -> bool {
+        let goal = self.normalize_goal(TraitGoal {
+            self_ty: ty,
+            trait_id: TraitId::Builtin(BuiltinTrait::Sized),
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+        });
+        let assumed = (0..self.assumptions.len()).any(|index| {
+            let assumption = self.assumptions[index].clone();
+            self.goals_equivalent(&assumption, &goal)
+        });
+        assumed || self.layout_of(ty)
     }
 
     pub(crate) fn layout_types_contain_equivalent(

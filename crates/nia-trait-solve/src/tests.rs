@@ -826,7 +826,7 @@ fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
         const_expr_value: None,
         impl_is_visible: None,
     };
-    let solver = context.solver(&[]);
+    let mut solver = context.solver(&[]);
 
     assert!(solver.layout_of(actual));
 }
@@ -888,7 +888,7 @@ fn sized_lookup_matches_layout_tuple_elements_structurally() {
         const_expr_value: None,
         impl_is_visible: None,
     };
-    let solver = context.solver(&[]);
+    let mut solver = context.solver(&[]);
 
     assert_ne!(actual, layout_key);
     assert!(solver.layout_of(actual));

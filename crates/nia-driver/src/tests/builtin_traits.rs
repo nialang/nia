@@ -497,6 +497,70 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+/// A composite is sized when each component is, and a generic component is
+/// sized when the scope assumes `T: Sized`. The solver asked only whether a
+/// component had a layout, which a generic parameter never has, so
+/// `(T, T)`, `?T`, `E!T` and `[T; 2]` were unsized under `T: Sized`. An
+/// array whose length is a const call was unsized too.
+#[test]
+fn sized_composites_follow_assumed_sized_components() {
+    let root = temp_dir("sized_composites_follow_assumed_sized_components");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::process;
+enum Failure { Oops }
+fun pair[T]() usize where T: Sized { std::builtin::size[(T, T)]() }
+fun optional[T]() usize where T: Sized { std::builtin::size[?T]() }
+fun result[T]() usize where T: Sized { std::builtin::size[Failure!T]() }
+fun array[T]() usize where T: Sized { std::builtin::size[[T; 2]]() }
+fun sized_array[T, N: usize]() usize where T: Sized { std::builtin::size[[T; N]]() }
+const fun three() usize { 3 }
+fun called[T]() usize where [T; three()]: Sized { std::builtin::size[[T; three()]]() }
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if pair[u16]() != std::builtin::size[(u16, u16)]()
+        or optional[u32]() != std::builtin::size[?u32]()
+        or result[u8]() != std::builtin::size[Failure!u8]()
+        or array[u16]() != 4
+        or sized_array[u8, 3]() != 3
+        or called[u16]() != 6
+    {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    let source = root.join("main.nia");
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("sized composites of assumed-sized components build");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run sized composite executable");
+    assert_eq!(status.code(), Some(0));
+    // Without the assumption a generic component is not sized.
+    let path = root.join("unbounded.nia");
+    write(
+        &path,
+        "fun pair[T]() usize { std::builtin::size[(T, T)]() }\nfun main() usize { pair[u8]() }\n",
+    );
+    let program = check_program(path.to_string_lossy().into_owned());
+    let errors = program
+        .diagnostics
+        .iter()
+        .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+        .map(|d| d.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(errors, ["builtin `size` requires (T, T): Sized"]);
+}
+
 #[test]
 fn memory_intrinsics_accept_sized_generic_elements() {
     let root = temp_dir("memory_intrinsics_accept_sized_generic_elements");
