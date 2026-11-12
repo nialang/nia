@@ -1355,21 +1355,19 @@ impl Analyzer<'_> {
         expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
         let (enum_id, variant) = self.resolved_const_enum_variant(variant_expr)?;
-        matches!(
+        if !matches!(
             variant.payload,
             nia_item_signatures::EnumVariantPayloadSignature::Unit
-        )
-        .then(|| {
-            ConstValueType::Runtime(
-                expected
-                    .filter(|expected| {
-                        self.expected_nominal_parts(*expected)
-                            .is_some_and(|(id, _, _)| id == enum_id)
-                    })
-                    .or_else(|| self.resolved_const_enum_target_type(variant_expr))
-                    .unwrap_or_else(|| self.enum_ty_in_current_module(enum_id)),
-            )
-        })
+        ) {
+            return None;
+        }
+        expected
+            .filter(|expected| {
+                self.expected_nominal_parts(*expected)
+                    .is_some_and(|(id, _, _)| id == enum_id)
+            })
+            .or_else(|| self.resolved_const_enum_target_type(variant_expr))
+            .map(ConstValueType::Runtime)
     }
 
     fn resolved_const_tuple_enum_literal_type(

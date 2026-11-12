@@ -74,8 +74,7 @@ impl Analyzer<'_> {
                 self.resolved_const_expr_type(expr, target_ty.runtime())
                     .or_else(|| self.resolved_const_expr_type(expr, None))
                     .is_some_and(|pattern_ty| {
-                        pattern_ty != target_ty
-                            && !self.const_equality_types_are_compatible(&target_ty, &pattern_ty)
+                        !self.const_equality_types_are_compatible(&target_ty, &pattern_ty)
                     })
             }
             ResolvedConstPatternKind::Range { start, end, .. } => {
@@ -171,9 +170,7 @@ impl Analyzer<'_> {
                     let pattern_ty = self
                         .resolved_const_expr_type(expr, Some(target_ty.runtime()?))
                         .or_else(|| self.resolved_const_expr_type(expr, None))?;
-                    if pattern_ty != target_ty
-                        && !self.const_equality_types_are_compatible(&target_ty, &pattern_ty)
-                    {
+                    if !self.const_equality_types_are_compatible(&target_ty, &pattern_ty) {
                         return None;
                     }
                 }

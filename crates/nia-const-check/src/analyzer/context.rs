@@ -974,15 +974,21 @@ impl Analyzer<'_> {
         self.const_enum_variant_signature(variant_id)
     }
 
+    /// The enum instance a variant path builds. An alias prefix names that
+    /// instance transparently, as `Q::A` for `type Q = E[i32]` builds an
+    /// `E[i32]`, so the result is normalized like body checking's
+    /// `enum_prefix_instance`. Later phases see the instance, never an alias
+    /// type that only the module's declared types would have normalized.
     pub(super) fn resolved_const_enum_target_type(
         &mut self,
         expr: &ResolvedConstExpr,
     ) -> Option<InternedTyId> {
         if let ResolvedConstExprKind::AssociatedFunction { target, .. } = expr.kind() {
-            return self.resolved_const_associated_target_type(target, expr.span());
+            let ty = self.resolved_const_associated_target_type(target, expr.span())?;
+            return Some(self.normalized_ty(ty));
         }
-        self.resolved_const_enum_variant(expr)
-            .map(|(enum_id, _)| self.enum_ty_in_current_module(enum_id))
+        let (enum_id, _) = self.resolved_const_enum_variant(expr)?;
+        self.enum_ty_in_current_module(enum_id)
     }
 
     pub(super) fn const_enum_variant_signature(
@@ -1014,15 +1020,26 @@ impl Analyzer<'_> {
         Some((enum_id, variant))
     }
 
-    pub(super) fn enum_ty_in_current_module(&self, enum_id: GlobalDefId) -> InternedTyId {
-        self.intern_type_for_module(
-            self.current_execution_module_id(),
-            TyKind::Nominal {
-                def_id: enum_id,
-                args: Vec::new(),
-                const_args: Vec::new(),
-            },
-        )
+    /// The type of a variant named without an instance: its enum's, when
+    /// the enum is not generic. A generic enum's constructor must write its
+    /// arguments, and body checking reports a missing one, so it has none.
+    pub(super) fn enum_ty_in_current_module(&self, enum_id: GlobalDefId) -> Option<InternedTyId> {
+        self.signatures_for_module(enum_id.module_id)?
+            .as_ref()
+            .enums
+            .get(&enum_id.def_id)?
+            .generic_params
+            .is_empty()
+            .then(|| {
+                self.intern_type_for_module(
+                    self.current_execution_module_id(),
+                    TyKind::Nominal {
+                        def_id: enum_id,
+                        args: Vec::new(),
+                        const_args: Vec::new(),
+                    },
+                )
+            })
     }
 
     pub(super) fn const_function_body(

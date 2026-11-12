@@ -523,7 +523,7 @@ impl Analyzer<'_> {
                 .or_else(|| self.resolved_const_expr_type(rhs, None))?;
             (lhs_ty, rhs_ty)
         };
-        if lhs_ty != rhs_ty && !self.const_equality_types_are_compatible(&lhs_ty, &rhs_ty) {
+        if !self.const_equality_types_are_compatible(&lhs_ty, &rhs_ty) {
             if let (Some(lhs_ty), Some(rhs_ty)) = (lhs_ty.runtime(), rhs_ty.runtime()) {
                 self.push_known_const_binary_type_error(lhs_ty, rhs, rhs_ty);
             }
@@ -569,11 +569,22 @@ impl Analyzer<'_> {
         );
     }
 
+    /// Whether values of the two types can be compared or matched. Runtime
+    /// types compare by normalized identity: an alias is its target, so a
+    /// value built as `Alias::A` and one declared `: Alias` have one type.
     pub(super) fn const_equality_types_are_compatible(
         &mut self,
         lhs: &ConstValueType,
         rhs: &ConstValueType,
     ) -> bool {
+        if lhs == rhs {
+            return true;
+        }
+        if let (ConstValueType::Runtime(lhs), ConstValueType::Runtime(rhs)) = (lhs, rhs)
+            && self.normalized_ty(*lhs) == self.normalized_ty(*rhs)
+        {
+            return true;
+        }
         (matches!(lhs, ConstValueType::String) && self.is_runtime_char_array_type(rhs))
             || (matches!(rhs, ConstValueType::String) && self.is_runtime_char_array_type(lhs))
     }

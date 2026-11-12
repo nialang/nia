@@ -330,6 +330,55 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(status.code(), Some(0));
 }
 
+/// A variant named through an alias builds the instance the alias names. An
+/// untyped constant took the alias type itself, which only the module's
+/// declared types normalize, so matching on it reported that `.A` was not a
+/// struct or enum variant while the same value bound by `let` matched.
+#[test]
+fn untyped_constants_built_through_aliases_match_their_instance() {
+    let root = temp_dir("untyped_constants_built_through_aliases");
+    let source = root.join("main.nia");
+    write(
+        &source,
+        r#"
+using std::process;
+enum F[T] { A(T), B, C { x: T } }
+type Q = F[i32];
+type P[T] = F[T];
+const TUPLE = Q::A(7);
+const UNIT = Q::B;
+const NAMED = Q::C { x: 9 };
+const GENERIC = P[i32]::A(11);
+fun code(value: F[i32]) i32 {
+    match value { .A(v) => v, .B => 100, .C { x } => x + 1000 }
+}
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    const LOCAL = Q::A(13);
+    let direct = match TUPLE { .A(v) => v, .B => 0, .C { x } => x };
+    if direct != 7 or code(UNIT) != 100 or code(NAMED) != 1009
+        or code(GENERIC) != 11 or code(LOCAL) != 13
+    {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("constants built through aliases must keep their enum instance");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run alias-built constant executable");
+    assert_eq!(status.code(), Some(0));
+}
+
 /// A generic type used without its arguments is reported once, in every
 /// position, and produces no instance whose arguments do not match its
 /// parameters. Each of these once stopped with an internal error from

@@ -2431,6 +2431,15 @@ fn constants_of_erroneous_types_report_only_their_root() {
             "generic argument count mismatch for `E`: expected 1, got 0",
         ),
         (
+            "untyped unit constant of such a constructor",
+            "enum E[T] { A(T), B }
+const K = E::B;
+const M: i32 = match K { .A(_) => 1, .B => 0 };
+fun main() i32 { M }
+",
+            "generic argument count mismatch for `E`: expected 1, got 0",
+        ),
+        (
             "untyped constant of such a constructor",
             "enum E[T] { A(T), B }\nconst K = E::A(5i32);\nconst M: i32 = match K { .A(v) => v, .B => 0 };\nfun main() i32 { M }\n",
             "generic argument count mismatch for `E`: expected 1, got 0",
