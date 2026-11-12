@@ -361,6 +361,51 @@ fun main(ptr: &u8, dest: &mut [u8], source: &[u8]) u32 {
     );
 }
 
+/// A layout query in a generic function measures an instance of its
+/// operand, as `W[u8]` for `offset[W[T]]("y")` with `T = u8`. The backend
+/// collected each body's types in three separate walks that all skipped
+/// layout queries, so no layout or declaration was made for `W[u8]` and
+/// codegen stopped with an internal error. The program builds and runs.
+#[test]
+fn layout_queries_lay_out_their_operand_in_generic_instances() {
+    let root = temp_dir("layout_queries_lay_out_their_operand_in_generic_instances");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::process;
+struct W[T] { x: T, y: T }
+struct Outer[T] { tag: u8, inner: W[T] }
+fun offset[T]() usize where T: Sized { std::builtin::offset[W[T]]("y") }
+fun nested[T]() usize where T: Sized { std::builtin::offset[Outer[T]]("inner") }
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    // Ordinary layout is Nia's to choose; a generic instance measures the
+    // same layout as a constant and a direct query of that type.
+    const Y: usize = std::builtin::offset[W[u32]]("y");
+    const INNER: usize = std::builtin::offset[Outer[u16]]("inner");
+    let direct = std::builtin::offset[Outer[u16]]("inner");
+    if offset[u32]() != Y or nested[u16]() != INNER or nested[u16]() != direct {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    let source = root.join("main.nia");
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("layout queries over generic instances build");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run layout query executable");
+    assert_eq!(status.code(), Some(0));
+}
+
 #[test]
 fn memory_intrinsics_accept_sized_generic_elements() {
     let root = temp_dir("memory_intrinsics_accept_sized_generic_elements");

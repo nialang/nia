@@ -2,10 +2,10 @@
 use std::collections::{BTreeSet, HashSet};
 
 use crate::{
-    FunctionArrayElements, FunctionAtomic, FunctionBlock, FunctionBody, FunctionCallee,
-    FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm,
-    FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
-    FunctionTerminator,
+    FunctionArrayElements, FunctionAtomic, FunctionBlock, FunctionBody, FunctionBuiltinValue,
+    FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionForHeader,
+    FunctionInlineAsm, FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace, FunctionPlaceBase,
+    FunctionPlaceElem, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
@@ -482,9 +482,19 @@ fn collect_function_refs_from_expr(
         | FunctionExprKind::AssociatedConstProjection(_)
         | FunctionExprKind::Local(_)
         | FunctionExprKind::EnumVariantTag(_)
-        | FunctionExprKind::BuiltinValue(_)
+        | FunctionExprKind::BuiltinValue(
+            FunctionBuiltinValue::Usize(_) | FunctionBuiltinValue::Int(_),
+        )
         | FunctionExprKind::CallerLocation(_)
         | FunctionExprKind::Trap => {}
+        // The value of a layout query is the layout of its operand, which
+        // must therefore be laid out, as `W[u8]` for `size[W[T]]()` in an
+        // instance with `T = u8`.
+        FunctionExprKind::BuiltinValue(
+            FunctionBuiltinValue::Layout { ty, .. } | FunctionBuiltinValue::FieldOffset { ty, .. },
+        ) => {
+            refs.types.insert(*ty);
+        }
         FunctionExprKind::ClosureFunctionPointer { closure_id, .. } => {
             refs.closure_ids.insert(*closure_id);
         }

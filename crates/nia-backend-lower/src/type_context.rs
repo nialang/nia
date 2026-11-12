@@ -46,6 +46,10 @@ impl<'input> BackendTypeContext<'input> {
         self.type_store.get(ty)
     }
 
+    pub(crate) fn type_store(&self) -> &'input nia_ty::TypeStore {
+        self.type_store
+    }
+
     pub(crate) fn intern(&self, kind: TyKind) -> InternedTyId {
         match self.append.intern(kind) {
             Ok(ty) => ty,
