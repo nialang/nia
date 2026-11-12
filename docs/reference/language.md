@@ -461,6 +461,26 @@ error (`[1u8, 2u64]` does not widen). An empty literal needs an expected type.
 The repeat count must be a compile-time `usize`. `[T; _]` is valid only where
 an array or string literal supplies the length.
 
+In a generic body, a length or repeat count may also be a const parameter, or
+`std::builtin::size` or `align` of a generic type. Its value comes from each
+instance, and the body is checked once for all of them, so such lengths
+compare as written: `N` matches `N`, and a layout query matches the same
+query of the same type. A number never matches one of them, even where some
+instance would make the two equal. A length computed from a generic
+parameter, such as `N + 1`, is not accepted.
+
+```nia
+fun filled[N: usize](value: u8) [u8; N] {
+    [value; N]                  // `[value; 4]` is an error, even for `filled[4]`
+}
+
+fun scratch_len[T]() usize
+where T: Sized {
+    let bytes = [0u8; std::builtin::size[T]()];
+    bytes.len()
+}
+```
+
 An array value is not a slice or a pointer. Where a pointer or slice is
 expected, its address is taken implicitly as described under
 [Pointers](#pointers). `arr[i]` indexes an array; it is a place when `arr` is

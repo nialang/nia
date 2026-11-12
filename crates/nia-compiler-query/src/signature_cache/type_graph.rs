@@ -683,6 +683,11 @@ pub(crate) fn write_const_args(
                 encoded.push(3);
                 write_u32(encoded, value as u32);
             }
+            ConstGenericValue::Layout { builtin, ty } => {
+                encoded.push(4);
+                encoded.push(layout_builtin_tag(builtin));
+                write_type_index(encoded, graph.intern(ty)?);
+            }
         }
     }
     Ok(())
@@ -709,6 +714,10 @@ pub(crate) fn read_const_args(
             }
             2 => ConstGenericValue::Bool(read_bool(cursor)?),
             3 => ConstGenericValue::Char(char::from_u32(read_u32(cursor)?)?),
+            4 => ConstGenericValue::Layout {
+                builtin: read_layout_builtin(cursor)?,
+                ty: read_type_index(cursor, types)?,
+            },
             _ => return None,
         };
         args.push(ConstGenericArg { ty, value });

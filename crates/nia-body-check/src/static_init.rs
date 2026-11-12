@@ -10,7 +10,7 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_local_resolve::LocalUse;
 use nia_sema_ir::BuiltinValue;
 use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
-use nia_ty::{IntConst, TyKind};
+use nia_ty::{ArrayLenTy, IntConst, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
@@ -188,7 +188,11 @@ impl<'a> BodyChecker<'a> {
                             .map(|ty| self.lower_static_init_with_target(value, ty))
                             .unwrap_or_else(|| self.lower_static_init(value)),
                     ),
-                    count: self.lower_array_repeat_count(count),
+                    // A static is not generic, so its repeat count is a value.
+                    count: match self.lower_array_repeat_count(count) {
+                        ArrayLenTy::ConstValue(count) => count,
+                        len => self.array_len_value(&len).unwrap_or(0),
+                    },
                 },
             },
             ExprKind::Tuple(elems) => {

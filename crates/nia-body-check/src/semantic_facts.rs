@@ -420,9 +420,11 @@ impl<'a> BodyChecker<'a> {
         self.node_function_references.insert(key.clone(), reference);
     }
 
-    pub(super) fn record_array_repeat_count(&mut self, expr: &Expr, value: u64) {
+    /// Records the checked length of a repeat count: a value, or a length
+    /// that depends on a generic parameter and is folded per instance.
+    pub(super) fn record_array_repeat_count(&mut self, expr: &Expr, len: ArrayLenTy) {
         self.node_array_repeat_counts
-            .insert(expr.node_key.clone(), value);
+            .insert(expr.node_key.clone(), len);
     }
 
     pub(super) fn record_pattern_value(&mut self, expr: &Expr, value: i128) {

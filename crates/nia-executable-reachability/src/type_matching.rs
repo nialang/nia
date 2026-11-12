@@ -1771,20 +1771,22 @@ pub(super) fn substitute_const_arg(
     arg: &nia_ty::ConstGenericArg,
     substitutions: &TypeSubstitutions<'_>,
 ) -> nia_ice::IceResult<Option<nia_ty::ConstGenericArg>> {
-    let mut substituted = match &arg.value {
-        nia_ty::ConstGenericValue::GenericParam(name) => {
-            substitutions.const_arg(name).unwrap_or_else(|| arg.clone())
-        }
-        nia_ty::ConstGenericValue::ConstExpr(_)
-        | nia_ty::ConstGenericValue::Int(_)
-        | nia_ty::ConstGenericValue::Bool(_)
-        | nia_ty::ConstGenericValue::Char(_) => arg.clone(),
+    // A type the reachability store does not hold makes the argument unknown.
+    let missing = std::cell::Cell::new(false);
+    let substitute = |ty| {
+        substitute_ty(types, ty, substitutions).map(|substituted| {
+            substituted.unwrap_or_else(|| {
+                missing.set(true);
+                ty
+            })
+        })
     };
-    let Some(ty) = substitute_ty(types, substituted.ty, substitutions)? else {
-        return Ok(None);
-    };
-    substituted.ty = ty;
-    Ok(Some(substituted))
+    let substituted = nia_ty::substitute_const_generic_arg(
+        arg,
+        &|name| substitutions.const_arg(name),
+        &substitute,
+    )?;
+    Ok((!missing.get()).then_some(substituted))
 }
 
 #[cfg(test)]

@@ -482,6 +482,15 @@ impl TraitSolver<'_> {
                 .const_expr_value
                 .and_then(|value| value(id.clone(), ty))
                 .unwrap_or_else(|| value.clone()),
+            // A layout query's value is its operand's layout, once that is
+            // known.
+            ConstGenericValue::Layout {
+                builtin,
+                ty: operand,
+            } => self
+                .layout_query_value(*builtin, *operand)
+                .map(|value| ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into())))
+                .unwrap_or_else(|| value.clone()),
             ConstGenericValue::GenericParam(_)
             | ConstGenericValue::Int(_)
             | ConstGenericValue::Bool(_)

@@ -25,14 +25,43 @@ impl<'a> BodyChecker<'a> {
             && let Some(resolved) = const_substitutions.get(&name)
         {
             arg = resolved.clone();
+            return self.substitute_const_generic_arg_types_with_self(
+                arg,
+                substitutions,
+                const_substitutions,
+                self_ty,
+            );
         }
-        arg.ty = self.substitute_generics_and_consts_with_self(
-            arg.ty,
+        self.substitute_const_generic_arg_types_with_self(
+            arg,
             substitutions,
             const_substitutions,
             self_ty,
-        );
-        arg
+        )
+    }
+
+    /// Substitutes the types inside a const argument, its own type and a
+    /// layout query's operand, through [`nia_ty::substitute_const_generic_arg`].
+    fn substitute_const_generic_arg_types_with_self(
+        &mut self,
+        arg: ConstGenericArg,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+        self_ty: InternedTyId,
+    ) -> ConstGenericArg {
+        let this = std::cell::RefCell::new(self);
+        let substituted: Result<ConstGenericArg, std::convert::Infallible> =
+            nia_ty::substitute_const_generic_arg(&arg, &|_| None, &|ty| {
+                Ok(this.borrow_mut().substitute_generics_and_consts_with_self(
+                    ty,
+                    substitutions,
+                    const_substitutions,
+                    self_ty,
+                ))
+            });
+        match substituted {
+            Ok(arg) => arg,
+        }
     }
 
     pub(crate) fn method_self_type(
@@ -225,11 +254,49 @@ impl<'a> BodyChecker<'a> {
         let current_def_id = self.current_def_id?;
         let ty = self
             .current_const_generic_type(current_def_id, name)
+            .or_else(|| self.current_extend_const_generic_type(current_def_id, name))
             .or_else(|| self.current_method_owner_const_generic_type(current_def_id, name))?;
         Some(ConstGenericArg {
             ty,
             value: ConstGenericValue::GenericParam(*name),
         })
+    }
+
+    /// The type of a const parameter of the `extend` block that declares the
+    /// current method, as `N` in `extend[N: usize] Box : Make[N]`. The block
+    /// is not the method's definition parent, and `N` need not appear in
+    /// the extended type, so neither of the other lookups finds it.
+    fn current_extend_const_generic_type(
+        &mut self,
+        current_def_id: GlobalDefId,
+        name: &SymbolId,
+    ) -> Option<InternedTyId> {
+        if current_def_id.module_id != self.defs.module_id {
+            return None;
+        }
+        self.signatures
+            .trait_impls
+            .iter()
+            .find_map(|impl_signature| {
+                impl_signature
+                    .methods
+                    .iter()
+                    .any(|method| method.def_id == current_def_id.def_id)
+                    .then(|| {
+                        impl_signature
+                            .generic_params
+                            .iter()
+                            .find_map(|param| match &param.kind {
+                                nia_item_signatures::GenericParamSignatureKind::Const { ty }
+                                    if &param.name == name =>
+                                {
+                                    Some(*ty)
+                                }
+                                _ => None,
+                            })
+                    })
+                    .flatten()
+            })
     }
 
     fn current_const_generic_type(

@@ -514,9 +514,15 @@ impl<'a> ModuleLowerer<'a> {
                 active_projections,
             );
         }
-        nia_ty::ConstGenericArg {
-            ty: self.instantiate_ty_with_id_inner(arg.ty, substitutions, active_projections),
-            value: arg.value.clone(),
+        let this = std::cell::RefCell::new((self, active_projections));
+        let substituted: Result<nia_ty::ConstGenericArg, std::convert::Infallible> =
+            nia_ty::substitute_const_generic_arg(arg, &|_| None, &|ty| {
+                let mut this = this.borrow_mut();
+                let (lowerer, active_projections) = &mut *this;
+                Ok(lowerer.instantiate_ty_with_id_inner(ty, substitutions, active_projections))
+            });
+        match substituted {
+            Ok(arg) => arg,
         }
     }
 
@@ -554,6 +560,14 @@ impl<'a> ModuleLowerer<'a> {
             }
             nia_ty::ConstGenericValue::Bool(value) => FunctionExprKind::Bool(value),
             nia_ty::ConstGenericValue::Char(value) => FunctionExprKind::Char(value as u32),
+            nia_ty::ConstGenericValue::Layout { builtin, ty } => {
+                FunctionExprKind::BuiltinValue(match self.layout_of(ty) {
+                    Some(layout) => {
+                        nia_function_ir::FunctionBuiltinValue::Usize(layout.builtin_value(builtin))
+                    }
+                    None => nia_function_ir::FunctionBuiltinValue::Layout { builtin, ty },
+                })
+            }
             nia_ty::ConstGenericValue::GenericParam(_)
             | nia_ty::ConstGenericValue::ConstExpr(_) => FunctionExprKind::ConstGeneric(arg),
         }

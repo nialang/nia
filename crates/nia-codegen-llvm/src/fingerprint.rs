@@ -1850,6 +1850,11 @@ impl<'a> Encoder<'a> {
                 self.tag(4);
                 self.u32(u32::from(*value));
             }
+            ConstGenericValue::Layout { builtin, ty } => {
+                self.tag(5);
+                self.tag(*builtin as u8);
+                self.ty(*ty);
+            }
         }
     }
 

@@ -1069,30 +1069,44 @@ impl TraitSolver<'_> {
             }
             ArrayLenTy::GenericParam(name) => ConstGenericValue::GenericParam(*name),
             ArrayLenTy::ConstExpr(id) => ConstGenericValue::ConstExpr(id.clone()),
+            // A layout query is its value once the operand's layout is
+            // known, and otherwise stays the symbolic query, which binds a
+            // const parameter like any other length.
             ArrayLenTy::Builtin {
                 builtin,
                 ty: layout_ty,
-            } => {
-                let layout_ty = self.normalize(*layout_ty);
-                let layouts = self.layouts?;
-                let layout = layouts.types.get(&layout_ty).cloned().or_else(|| {
-                    layouts.types.iter().find_map(|(candidate, layout)| {
-                        self.types_equivalent_in_layout_interner(
-                            layout_ty,
-                            *candidate,
-                            layouts,
-                            &mut HashSet::new(),
-                        )
-                        .then(|| layout.clone())
-                    })
-                })?;
-                ConstGenericValue::Int(nia_ty::IntConst::unsigned(
-                    layout.builtin_value(*builtin).into(),
-                ))
-            }
+            } => match self.layout_query_value(*builtin, *layout_ty) {
+                Some(value) => ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into())),
+                None => ConstGenericValue::Layout {
+                    builtin: *builtin,
+                    ty: *layout_ty,
+                },
+            },
             ArrayLenTy::Infer => return None,
         };
         Some(ConstGenericArg { ty, value })
+    }
+
+    /// The value of a layout query whose operand a layout product holds.
+    pub(crate) fn layout_query_value(
+        &self,
+        builtin: nia_ids::LayoutBuiltin,
+        ty: nia_ids::InternedTyId,
+    ) -> Option<u64> {
+        let ty = self.normalize(ty);
+        let layouts = self.layouts?;
+        let layout = layouts.types.get(&ty).cloned().or_else(|| {
+            layouts.types.iter().find_map(|(candidate, layout)| {
+                self.types_equivalent_in_layout_interner(
+                    ty,
+                    *candidate,
+                    layouts,
+                    &mut HashSet::new(),
+                )
+                .then(|| layout.clone())
+            })
+        })?;
+        Some(layout.builtin_value(builtin))
     }
 
     fn try_match_associated_type_binding(

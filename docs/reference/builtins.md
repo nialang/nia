@@ -23,8 +23,10 @@ A function marked `const fun` below can also run during
 `where` clause. The `offset` argument is a string literal naming the field;
 every union field has offset 0. With a concrete type argument these calls are
 compile-time constants, usable in array lengths and `const` initializers; a
-`static` initializer uses them through a named `const`, as below. The values
-come from the [ABI](abi.md).
+`static` initializer uses them through a named `const`, as below. With a
+generic type argument, `size` and `align` still give an array length or
+repeat count, which each instance fixes; see
+[Arrays](language.md#arrays). The values come from the [ABI](abi.md).
 
 ```nia
 using std::builtin;

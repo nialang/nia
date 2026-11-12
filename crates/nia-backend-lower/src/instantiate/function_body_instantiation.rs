@@ -762,6 +762,13 @@ impl<'a> ModuleLowerer<'a> {
             }
             nia_ty::ConstGenericValue::Bool(value) => FunctionExprKind::Bool(value),
             nia_ty::ConstGenericValue::Char(value) => FunctionExprKind::Char(value as u32),
+            nia_ty::ConstGenericValue::Layout { builtin, ty } => {
+                let substitutions = self.empty_type_substitution_id();
+                FunctionExprKind::BuiltinValue(self.instantiate_builtin_value(
+                    nia_function_ir::FunctionBuiltinValue::Layout { builtin, ty },
+                    substitutions,
+                ))
+            }
             nia_ty::ConstGenericValue::GenericParam(_)
             | nia_ty::ConstGenericValue::ConstExpr(_) => FunctionExprKind::Error,
         }

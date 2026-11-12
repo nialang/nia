@@ -15,9 +15,7 @@ use nia_item_signatures::{
 };
 use nia_local_resolve::LocalKind;
 use nia_node_id::NodeMap;
-use nia_sema::{
-    ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
-};
+use nia_sema::{NamedField, check_required_field_set};
 
 struct EnumInstance<'a> {
     id: GlobalDefId,
@@ -155,86 +153,37 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    /// Checks an array literal's length against the length its type
+    /// expects and gives the literal's array type. The literal's own length
+    /// is its element count, or its repeat count resolved symbolically
+    /// ([`Self::array_repeat_count_len`]). Lengths compare by
+    /// [`Self::array_lengths_equivalent`], so in a generic body `[0; N]`
+    /// matches `[u8; N]` and `[7; 16]` does not, whatever `N` becomes.
     fn check_array_literal_len(
         &mut self,
         span: Span,
-        len: ArrayLenTy,
+        expected: ArrayLenTy,
         elem_ty: InternedTyId,
         elems: &nia_ast::ArrayElements,
     ) -> InternedTyId {
-        match len {
-            ArrayLenTy::Infer => {
-                let inferred = match explicit_array_literal_len(self, span, elems) {
-                    Ok(Some(value)) => {
-                        if let nia_ast::ArrayElements::Repeat { count, .. } = elems {
-                            self.record_array_repeat_count(count, value);
-                        }
-                        value
-                    }
-                    Ok(None) => 0,
-                    Err(err) => {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::TYPE_CHECK,
-                            err.span,
-                            format!(
-                                "array literal length is not a valid constant: {}",
-                                err.message
-                            ),
-                        ));
-                        0
-                    }
-                };
-                self.interner.intern(TyKind::Array {
-                    len: ArrayLenTy::ConstValue(inferred),
-                    elem: elem_ty,
-                })
-            }
-            expected @ ArrayLenTy::GenericParam(_) => {
-                if matches!(elems, nia_ast::ArrayElements::List(_)) {
+        let actual = match elems {
+            nia_ast::ArrayElements::List(values) => match u64::try_from(values.len()) {
+                Ok(len) => Some(ArrayLenTy::ConstValue(len)),
+                Err(_) => {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         span,
-                        "array list length cannot be checked against an unresolved const generic",
+                        "array literal length exceeds the semantic limit",
                     ));
+                    None
                 }
-                self.interner.intern(TyKind::Array {
-                    len: expected,
-                    elem: elem_ty,
-                })
-            }
-            expected @ (ArrayLenTy::ConstValue(_)
-            | ArrayLenTy::ConstExpr(_)
-            | ArrayLenTy::Builtin { .. }) => {
-                match explicit_array_literal_len(self, span, elems) {
-                    Ok(Some(actual)) => {
-                        if let nia_ast::ArrayElements::Repeat { count, .. } = elems {
-                            self.record_array_repeat_count(count, actual);
-                        }
-                        match self.array_len_value(&expected) {
-                            Ok(expected_value) => match check_array_literal_len(
-                                Some(expected.clone()),
-                                Some(expected_value),
-                                Some(actual),
-                            ) {
-                                ArrayLiteralLenCheck::Mismatch { expected, actual } => {
-                                    self.diagnostics.push(Diagnostic::user_error_at(codes::TYPE_CHECK,
-                                        span,
-                                        format!(
-                                            "array literal length mismatch: expected {expected}, got {actual}"
-                                        ),
-                                    ));
-                                }
-                                ArrayLiteralLenCheck::Accepted(_)
-                                | ArrayLiteralLenCheck::Unknown => {}
-                            },
-                            Err(err) => self.diagnostics.push(Diagnostic::user_error_at(
-                                codes::TYPE_CHECK,
-                                span,
-                                format!("array length is not a valid constant: {err}"),
-                            )),
-                        }
+            },
+            nia_ast::ArrayElements::Repeat { count, .. } => {
+                match self.array_repeat_count_len(count) {
+                    Ok(len) => {
+                        self.record_array_repeat_count(count, len.clone());
+                        Some(len)
                     }
-                    Ok(None) => {}
                     Err(err) => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
@@ -244,14 +193,31 @@ impl<'a> BodyChecker<'a> {
                                 err.message
                             ),
                         ));
+                        None
                     }
                 }
-                self.interner.intern(TyKind::Array {
-                    len: expected,
-                    elem: elem_ty,
-                })
             }
-        }
+        };
+        let len = match (expected, actual) {
+            (ArrayLenTy::Infer, Some(actual)) => actual,
+            (ArrayLenTy::Infer, None) => ArrayLenTy::ConstValue(0),
+            (expected, None) => expected,
+            (expected, Some(actual)) => {
+                if !self.array_lengths_equivalent(&expected, &actual) {
+                    let expected_name = self.array_len_name(&expected);
+                    let actual_name = self.array_len_name(&actual);
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        span,
+                        format!(
+                            "array literal length mismatch: expected {expected_name}, got {actual_name}"
+                        ),
+                    ));
+                }
+                expected
+            }
+        };
+        self.interner.intern(TyKind::Array { len, elem: elem_ty })
     }
 
     pub(crate) fn check_struct_literal(
@@ -1671,6 +1637,36 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    /// The length a repeat count denotes, by the classification type
+    /// lowering gives an array type's length ([`nia_type_lower::classify_array_len_expr`]):
+    /// a const parameter in scope, a layout query of a type, or a value that
+    /// constant evaluation computes. A count that depends on a generic
+    /// parameter stays symbolic; each instance folds it to a value.
+    pub(crate) fn array_repeat_count_len(
+        &mut self,
+        count: &Expr,
+    ) -> Result<ArrayLenTy, ConstError> {
+        match nia_type_lower::classify_array_len_expr(count) {
+            nia_type_lower::ArrayLenExpr::Name(name)
+                if self.current_const_generic_arg(&name).is_some() =>
+            {
+                self.with_const_context(|this| this.check_expr(count));
+                Ok(ArrayLenTy::GenericParam(name))
+            }
+            nia_type_lower::ArrayLenExpr::Layout { builtin, ty } => {
+                self.with_const_context(|this| this.check_expr(count));
+                let ty = self.ty_for_type(ty);
+                Ok(match self.layout_of(ty) {
+                    Some(layout) => ArrayLenTy::ConstValue(layout.builtin_value(builtin)),
+                    None => ArrayLenTy::Builtin { builtin, ty },
+                })
+            }
+            nia_type_lower::ArrayLenExpr::Name(_) | nia_type_lower::ArrayLenExpr::Value => self
+                .eval_array_repeat_count(count)
+                .map(ArrayLenTy::ConstValue),
+        }
+    }
+
     pub(crate) fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ConstError> {
         self.with_const_context(|this| {
             this.check_expr(count);
@@ -1889,20 +1885,20 @@ fn array_literal_elem_requires_expected(elem: &Expr) -> bool {
     }
 }
 
+/// The length an array literal writes: its element count, or its repeat
+/// count resolved symbolically.
 pub(crate) fn explicit_array_literal_len(
     checker: &mut BodyChecker<'_>,
     span: Span,
     elems: &nia_ast::ArrayElements,
-) -> Result<Option<u64>, ConstError> {
-    Ok(match elems {
-        nia_ast::ArrayElements::List(elems) => {
-            Some(u64::try_from(elems.len()).map_err(|_| ConstError {
+) -> Result<ArrayLenTy, ConstError> {
+    match elems {
+        nia_ast::ArrayElements::List(elems) => u64::try_from(elems.len())
+            .map(ArrayLenTy::ConstValue)
+            .map_err(|_| ConstError {
                 span,
                 message: "array literal length exceeds the semantic limit".to_string(),
-            })?)
-        }
-        nia_ast::ArrayElements::Repeat { count, .. } => {
-            Some(checker.eval_array_repeat_count(count)?)
-        }
-    })
+            }),
+        nia_ast::ArrayElements::Repeat { count, .. } => checker.array_repeat_count_len(count),
+    }
 }

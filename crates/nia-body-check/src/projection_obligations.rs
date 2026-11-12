@@ -103,36 +103,6 @@ impl From<TraitObligation> for TraitGoal {
 }
 
 impl<'a> BodyChecker<'a> {
-    fn array_lengths_equivalent(&mut self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
-        if left == right {
-            return true;
-        }
-        match (left, right) {
-            (
-                ArrayLenTy::Builtin {
-                    builtin: left_builtin,
-                    ty: left_ty,
-                },
-                ArrayLenTy::Builtin {
-                    builtin: right_builtin,
-                    ty: right_ty,
-                },
-            ) => {
-                left_builtin == right_builtin
-                    && self.types_equivalent_without_projection_resolution(*left_ty, *right_ty)
-            }
-            (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
-            | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
-                .array_len_const_expr_value(right.clone())
-                .is_some_and(|right| *left == right),
-            (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => self
-                .array_len_const_expr_value(left.clone())
-                .zip(self.array_len_const_expr_value(right.clone()))
-                .is_some_and(|(left, right)| left == right),
-            _ => false,
-        }
-    }
-
     pub(crate) fn current_context_proves_trait_obligation(
         &mut self,
         self_ty: InternedTyId,

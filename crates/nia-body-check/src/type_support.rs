@@ -2074,13 +2074,7 @@ impl<'a> BodyChecker<'a> {
                 // length conversion failures should make the predicate false;
                 // the context that produced the malformed length owns the
                 // user-facing diagnostic.
-                let Some(expected_len) = self.array_len_value_for_match(&expected_len) else {
-                    return false;
-                };
-                let Some(actual_len) = self.array_len_value_for_match(&actual_len) else {
-                    return false;
-                };
-                expected_len == actual_len
+                self.array_lengths_equivalent(&expected_len, &actual_len)
             }
             (
                 Some(TyKind::Nominal {
@@ -2463,6 +2457,11 @@ impl<'a> BodyChecker<'a> {
                 self.const_expr_value_for_trait_solver(id.clone(), ty)
             }
             ConstGenericValue::GenericParam(_) => None,
+            ConstGenericValue::Layout { builtin, ty } => self.layout_of(*ty).map(|layout| {
+                ConstGenericValue::Int(nia_ty::IntConst::unsigned(
+                    layout.builtin_value(*builtin).into(),
+                ))
+            }),
             ConstGenericValue::Int(_) | ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => {
                 Some(value.clone())
             }
@@ -2714,6 +2713,44 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    /// Whether two array lengths denote the same `usize`. Lengths compare
+    /// symbolically in a generic body: a const parameter equals itself and a
+    /// layout query equals the same query of an equivalent type, while a
+    /// value and a symbol are different lengths even if some instance makes
+    /// them equal. Values, including evaluated const expressions, compare by
+    /// value.
+    pub(crate) fn array_lengths_equivalent(
+        &mut self,
+        left: &ArrayLenTy,
+        right: &ArrayLenTy,
+    ) -> bool {
+        if left == right {
+            return true;
+        }
+        match (left, right) {
+            (
+                ArrayLenTy::Builtin {
+                    builtin: left_builtin,
+                    ty: left_ty,
+                },
+                ArrayLenTy::Builtin {
+                    builtin: right_builtin,
+                    ty: right_ty,
+                },
+            ) if left_builtin == right_builtin
+                && self.types_equivalent_without_projection_resolution(*left_ty, *right_ty) =>
+            {
+                true
+            }
+            (ArrayLenTy::Infer, _) | (_, ArrayLenTy::Infer) => false,
+            (ArrayLenTy::GenericParam(_), _) | (_, ArrayLenTy::GenericParam(_)) => false,
+            _ => self
+                .array_len_value_for_match(left)
+                .zip(self.array_len_value_for_match(right))
+                .is_some_and(|(left, right)| left == right),
+        }
+    }
+
     fn array_len_value_for_match(&mut self, len: &ArrayLenTy) -> Option<u64> {
         match len {
             ArrayLenTy::ConstValue(value) => Some(*value),
@@ -2727,7 +2764,8 @@ impl<'a> BodyChecker<'a> {
                     ConstGenericValue::Bool(_)
                     | ConstGenericValue::Char(_)
                     | ConstGenericValue::GenericParam(_)
-                    | ConstGenericValue::ConstExpr(_) => None,
+                    | ConstGenericValue::ConstExpr(_)
+                    | ConstGenericValue::Layout { .. } => None,
                 }
             }
             ArrayLenTy::Builtin { .. } => self.array_len_value(len).ok(),
@@ -2896,7 +2934,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn array_len_name(&self, len: &ArrayLenTy) -> String {
+    pub(crate) fn array_len_name(&self, len: &ArrayLenTy) -> String {
         match len {
             ArrayLenTy::Infer => "_".to_string(),
             ArrayLenTy::GenericParam(name) => self.symbol_name(*name),

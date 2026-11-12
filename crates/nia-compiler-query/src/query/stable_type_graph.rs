@@ -719,6 +719,11 @@ impl StableTypeGraphEncoder<'_> {
                     "const expression argument has no stable package representation",
                 ));
             }
+            nia_ty::ConstGenericValue::Layout { .. } => {
+                return Err(self.unsupported(
+                    "layout argument depends on contextual or target-dependent inference",
+                ));
+            }
         }
         Ok(())
     }
@@ -836,6 +841,11 @@ impl StableTypeGraphEncoder<'_> {
             nia_ty::ConstGenericValue::ConstExpr(_) => {
                 return Err(self.unsupported(
                     "const expression argument has no stable package representation",
+                ));
+            }
+            nia_ty::ConstGenericValue::Layout { .. } => {
+                return Err(self.unsupported(
+                    "layout argument depends on contextual or target-dependent inference",
                 ));
             }
         };

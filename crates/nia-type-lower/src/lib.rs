@@ -516,6 +516,36 @@ impl TypeLowerer<'_, '_> {
     }
 }
 
+/// What an array-length or repeat-count expression denotes, before the
+/// expression is resolved in a context. Every place that turns such an
+/// expression into an [`ArrayLenTy`] classifies it here, so a type `[u8; N]`
+/// and a repeat count `[0u8; N]` read the same length.
+pub enum ArrayLenExpr<'a> {
+    /// A bare name, which is a const generic parameter where one is in
+    /// scope: `N` in `[u8; N]`.
+    Name(SymbolId),
+    /// A layout query of a type: `std::builtin::size[T]()`.
+    Layout {
+        /// The layout query.
+        builtin: LayoutBuiltin,
+        /// The queried type.
+        ty: &'a TypeRef,
+    },
+    /// Any other expression, which constant evaluation computes.
+    Value,
+}
+
+/// Classifies an array-length or repeat-count expression.
+pub fn classify_array_len_expr(expr: &Expr) -> ArrayLenExpr<'_> {
+    if let ExprKind::Ident(name) = &expr.kind {
+        return ArrayLenExpr::Name(*name);
+    }
+    match layout_builtin_array_len(expr) {
+        Some((builtin, ty)) => ArrayLenExpr::Layout { builtin, ty },
+        None => ArrayLenExpr::Value,
+    }
+}
+
 fn layout_builtin_array_len(expr: &Expr) -> Option<(LayoutBuiltin, &TypeRef)> {
     let ExprKind::Call { callee, args } = &expr.kind else {
         return layout_builtin_type_arg(expr);

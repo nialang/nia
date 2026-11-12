@@ -16,7 +16,7 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, ConstGenericArg, ConstGenericValue, FunctionPointerAbi,
-    IntConst, PrimitiveTy, TyKind,
+    PrimitiveTy, TyKind,
 };
 use nia_value_resolve::ValueNameResolution;
 
@@ -2164,9 +2164,7 @@ impl<'a> BodyChecker<'a> {
         actual: &ArrayLenTy,
     ) -> bool {
         if matches!(pattern, ArrayLenTy::GenericParam(_)) {
-            return self
-                .const_generic_value_from_array_len(actual.clone())
-                .is_some();
+            return self.const_generic_value_from_array_len(actual).is_some();
         }
         if pattern == actual {
             return true;
@@ -2831,11 +2829,8 @@ impl<'a> BodyChecker<'a> {
             substitutions,
             const_substitutions,
         )?;
-        let len = crate::aggregates::explicit_array_literal_len(self, span, elems).ok()??;
-        Some(self.interner.intern(TyKind::Array {
-            len: ArrayLenTy::ConstValue(len),
-            elem,
-        }))
+        let len = crate::aggregates::explicit_array_literal_len(self, span, elems).ok()?;
+        Some(self.interner.intern(TyKind::Array { len, elem }))
     }
 
     /// Returns whether a canonical type still contains a const parameter that
@@ -4059,7 +4054,7 @@ impl<'a> BodyChecker<'a> {
         let ArrayLenTy::GenericParam(name) = pattern else {
             return;
         };
-        let Some(value) = self.const_generic_value_from_array_len(actual) else {
+        let Some(value) = self.const_generic_value_from_array_len(&actual) else {
             return;
         };
         let ty = self.primitive(PrimitiveTy::Usize);
@@ -4084,23 +4079,6 @@ impl<'a> BodyChecker<'a> {
             }
         } else {
             substitutions.insert(*name, arg);
-        }
-    }
-
-    fn const_generic_value_from_array_len(&self, len: ArrayLenTy) -> Option<ConstGenericValue> {
-        match len {
-            ArrayLenTy::ConstValue(value) => {
-                Some(ConstGenericValue::Int(IntConst::unsigned(value.into())))
-            }
-            ArrayLenTy::ConstExpr(id) => self
-                .array_len_const_expr_value(id)
-                .map(|value| ConstGenericValue::Int(IntConst::unsigned(value.into()))),
-            ArrayLenTy::Builtin { builtin, ty } => self
-                .array_len_value(&ArrayLenTy::Builtin { builtin, ty })
-                .ok()
-                .map(|value| ConstGenericValue::Int(IntConst::unsigned(value.into()))),
-            ArrayLenTy::GenericParam(name) => Some(ConstGenericValue::GenericParam(name)),
-            ArrayLenTy::Infer => None,
         }
     }
 }

@@ -2362,7 +2362,7 @@ impl<'a> BodyChecker<'a> {
             }
             _ => {}
         }
-        ArrayLenTy::ConstValue(self.lower_array_repeat_count(count))
+        self.lower_array_repeat_count(count)
     }
 
     fn array_elem_ty(&self, array_ty: nia_ids::InternedTyId) -> Option<nia_ids::InternedTyId> {
@@ -2372,13 +2372,13 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn lower_array_repeat_count(&mut self, count: &Expr) -> u64 {
-        if let Some(value) = self.node_array_repeat_counts.get(&count.node_key).copied() {
-            return value;
+    pub(crate) fn lower_array_repeat_count(&mut self, count: &Expr) -> ArrayLenTy {
+        if let Some(len) = self.node_array_repeat_counts.get(&count.node_key).cloned() {
+            return len;
         }
-        if let Ok(value) = self.eval_array_repeat_count(count) {
-            self.record_array_repeat_count(count, value);
-            return value;
+        if let Ok(len) = self.array_repeat_count_len(count) {
+            self.record_array_repeat_count(count, len.clone());
+            return len;
         }
         self.diagnostics
             .push(nia_diagnostic::Diagnostic::user_error_at(
@@ -2386,6 +2386,6 @@ impl<'a> BodyChecker<'a> {
                 count.span,
                 "missing checked array repeat count during body IR lowering",
             ));
-        0
+        ArrayLenTy::ConstValue(0)
     }
 }

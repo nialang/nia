@@ -2,8 +2,8 @@ use nia_ids::InternedTyId;
 use nia_symbol::SymbolId;
 
 use crate::{
-    ArrayLenTy, AssociatedTypeBindingTy, ConstGenericArg, ConstGenericValue, TyKind, TypeStore,
-    TypeStoreAppend,
+    ArrayLenTy, AssociatedTypeBindingTy, ConstGenericArg, ConstGenericValue, IntConst, TyKind,
+    TypeStore, TypeStoreAppend,
 };
 
 /// Recursively substitutes generic, `Self`, and const-generic arguments in a type.
@@ -22,17 +22,8 @@ pub fn substitute_ty(
     self_ty: Option<InternedTyId>,
 ) -> nia_ice::IceResult<InternedTyId> {
     let substitute = |ty| substitute_ty(store, append, ty, type_arg, const_arg, self_ty);
-    let substitute_const_arg = |arg: &ConstGenericArg| {
-        let mut substituted = match &arg.value {
-            ConstGenericValue::GenericParam(name) => const_arg(name).unwrap_or_else(|| arg.clone()),
-            ConstGenericValue::ConstExpr(_)
-            | ConstGenericValue::Int(_)
-            | ConstGenericValue::Bool(_)
-            | ConstGenericValue::Char(_) => arg.clone(),
-        };
-        substituted.ty = substitute(substituted.ty)?;
-        Ok(substituted)
-    };
+    let substitute_const_arg =
+        |arg: &ConstGenericArg| substitute_const_generic_arg(arg, const_arg, &substitute);
     let substitute_binding = |binding: &AssociatedTypeBindingTy| -> nia_ice::IceResult<_> {
         Ok(AssociatedTypeBindingTy {
             trait_id: binding.trait_id,
@@ -336,6 +327,55 @@ pub fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
         }
         ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(*name)),
         ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(id.clone())),
+        ConstGenericValue::Layout { builtin, ty } => Some(ArrayLenTy::Builtin {
+            builtin: *builtin,
+            ty: *ty,
+        }),
         ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,
+    }
+}
+
+/// Substitutes a const-generic argument: a const parameter takes its
+/// argument, and the types inside the argument, its own type and a layout
+/// query's operand, are substituted by `substitute`. Every phase that
+/// substitutes const arguments calls this, so a value form cannot be missed
+/// in one of them.
+pub fn substitute_const_generic_arg<E>(
+    arg: &ConstGenericArg,
+    const_arg: &impl Fn(&SymbolId) -> Option<ConstGenericArg>,
+    substitute: &impl Fn(InternedTyId) -> Result<InternedTyId, E>,
+) -> Result<ConstGenericArg, E> {
+    let mut substituted = match &arg.value {
+        ConstGenericValue::GenericParam(name) => const_arg(name).unwrap_or_else(|| arg.clone()),
+        ConstGenericValue::Layout { builtin, ty } => ConstGenericArg {
+            ty: arg.ty,
+            value: ConstGenericValue::Layout {
+                builtin: *builtin,
+                ty: substitute(*ty)?,
+            },
+        },
+        ConstGenericValue::ConstExpr(_)
+        | ConstGenericValue::Int(_)
+        | ConstGenericValue::Bool(_)
+        | ConstGenericValue::Char(_) => arg.clone(),
+    };
+    substituted.ty = substitute(substituted.ty)?;
+    Ok(substituted)
+}
+
+/// The const-argument form of an array length, the inverse of
+/// [`array_len_from_const_arg`]. A length still awaiting inference has none.
+pub fn const_generic_value_from_array_len(len: &ArrayLenTy) -> Option<ConstGenericValue> {
+    match len {
+        ArrayLenTy::ConstValue(value) => {
+            Some(ConstGenericValue::Int(IntConst::unsigned((*value).into())))
+        }
+        ArrayLenTy::GenericParam(name) => Some(ConstGenericValue::GenericParam(*name)),
+        ArrayLenTy::ConstExpr(id) => Some(ConstGenericValue::ConstExpr(id.clone())),
+        ArrayLenTy::Builtin { builtin, ty } => Some(ConstGenericValue::Layout {
+            builtin: *builtin,
+            ty: *ty,
+        }),
+        ArrayLenTy::Infer => None,
     }
 }

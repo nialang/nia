@@ -1801,9 +1801,10 @@ fn const_value_from_const_generic_arg(arg: &nia_ty::ConstGenericArg) -> Option<C
         nia_ty::ConstGenericValue::Char(value) => Some(ConstValue::Int(
             nia_ty::IntConst::unsigned(value as u32 as u128),
         )),
-        nia_ty::ConstGenericValue::GenericParam(_) | nia_ty::ConstGenericValue::ConstExpr(_) => {
-            None
-        }
+        // These still depend on a parameter or on evaluation the caller owns.
+        nia_ty::ConstGenericValue::GenericParam(_)
+        | nia_ty::ConstGenericValue::ConstExpr(_)
+        | nia_ty::ConstGenericValue::Layout { .. } => None,
     }
 }
 

@@ -338,6 +338,7 @@ impl BackendValidator<'_> {
             ConstGenericValue::Int(value) => value.bits().to_string(),
             ConstGenericValue::Bool(value) => value.to_string(),
             ConstGenericValue::Char(value) => value.to_string(),
+            ConstGenericValue::Layout { builtin, ty } => format!("@{}[{ty:?}]()", builtin.name()),
         }
     }
 }

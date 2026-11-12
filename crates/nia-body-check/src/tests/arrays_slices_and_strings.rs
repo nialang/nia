@@ -985,7 +985,7 @@ fun main() i32 {
         checked
             .facts
             .iter_node_array_repeat_counts()
-            .any(|(_, count)| *count == 1048576),
+            .any(|(_, count)| *count == nia_ty::ArrayLenTy::ConstValue(1048576)),
         "{:?}",
         checked
             .facts

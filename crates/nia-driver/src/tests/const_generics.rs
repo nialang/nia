@@ -473,18 +473,54 @@ struct Buffer[T, N: usize] {
     values: [T; N],
 }
 
-fun make[T, N: usize](value: T) Buffer[T, N] {
-    Buffer[T, N] { values: [value; width[N]()] }
+fun make[T](value: T) Buffer[T, 4] {
+    Buffer[T, 4] { values: [value; width[4]()] }
 }
 
 fun main() i32 {
-    let buffer = make[i32, 4](3);
+    let buffer = make[i32](3);
     buffer.values[3]
 }
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+/// A const parameter of an `extend` block is in scope in its methods as a
+/// value, though the block is not the method's definition parent and `N`
+/// appears only in the implemented trait.
+#[test]
+fn extend_const_params_are_values_in_their_methods() {
+    let root = temp_dir("extend_const_params_are_values_in_their_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Make[N: usize] {
+    fun make(&self) usize;
+}
+
+struct Box {}
+
+extend[N: usize] Box : Make[N] {
+    fun make(&self) usize {
+        N
+    }
+}
+
+fun build[N: usize](value: &Box) usize
+where Box: Make[N] {
+    value.make()
+}
+
+fun main(value: &Box) usize {
+    build[3](value)
+}
+"#,
+    );
+
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
@@ -1438,4 +1474,74 @@ fun main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+/// Array lengths that depend on generic parameters compare symbolically in a
+/// generic body: `N` equals `N` and `@size[T]()` equals `@size[T]()`, while
+/// a value never equals a symbol, whatever an instance would make them. A
+/// repeat count that is a const parameter or a layout query is such a
+/// length, so `[0u8; N]` has type `[u8; N]`; a mismatched count was ignored,
+/// and these counts failed to evaluate.
+#[test]
+fn generic_array_lengths_compare_symbolically() {
+    let root = temp_dir("generic_array_lengths_compare_symbolically");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::process;
+fun zeros[N: usize]() usize {
+    let inferred = [0u8; N];
+    let annotated: [u8; N] = [0; N];
+    inferred.len() + annotated.len()
+}
+fun measured[T]() usize where T: Sized {
+    let a: [u8; std::builtin::size[T]()] = [0; std::builtin::size[T]()];
+    a.len()
+}
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if zeros[3]() != 6 or measured[u32]() != 4 or measured[u16]() != 2 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    let source = root.join("main.nia");
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("symbolic array lengths build");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run symbolic array length executable");
+    assert_eq!(status.code(), Some(0));
+
+    for (name, body, expected) in [
+        (
+            "count against a const parameter",
+            "fun f[N: usize]() usize { let a: [u8; N] = [7; 16]; a.len() }\nfun main() usize { f[16]() }",
+            "array literal length mismatch: expected N, got 16",
+        ),
+        (
+            "list against a layout query",
+            "fun f[T]() usize where T: Sized { let a: [u8; std::builtin::size[T]()] = [0, 0, 0, 0]; a.len() }\nfun main() usize { f[u32]() }",
+            "array literal length mismatch: expected @size[T](), got 4",
+        ),
+    ] {
+        let path = root.join("mismatch.nia");
+        write(&path, &format!("{body}\n"));
+        let program = check_program(path.to_string_lossy().into_owned());
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+            .map(|d| d.diagnostic.summary.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(errors, [expected], "{name}");
+    }
 }

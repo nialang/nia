@@ -1059,17 +1059,16 @@ fn substitute_const_arg(
     {
         return Ok(substituted.clone());
     }
-    Ok(nia_ty::ConstGenericArg {
-        ty: substitute_type(
+    nia_ty::substitute_const_generic_arg(arg, &|_| None, &|ty| {
+        substitute_type(
             append,
             module,
             type_store,
-            arg.ty,
+            ty,
             substitutions,
             const_substitutions,
             target,
-        )?,
-        value: arg.value.clone(),
+        )
     })
 }
 

@@ -30,7 +30,10 @@ use std::sync::{Arc, OnceLock};
 
 mod substitution;
 
-pub use substitution::{array_len_from_const_arg, substitute_ty};
+pub use substitution::{
+    array_len_from_const_arg, const_generic_value_from_array_len, substitute_const_generic_arg,
+    substitute_ty,
+};
 
 const TYPE_KIND_ARENA_FANOUT: usize = 256;
 
@@ -907,6 +910,16 @@ pub enum ConstGenericValue {
     Bool(bool),
     /// Unicode scalar value.
     Char(char),
+    /// The size or alignment of a type, a `usize` that depends on generic
+    /// parameters in `ty` and is a value in each instance. It is the
+    /// const-argument form of [`ArrayLenTy::Builtin`], so a length such as
+    /// `@size[T]()` binds a const parameter `N` like any other length.
+    Layout {
+        /// The layout query.
+        builtin: LayoutBuiltin,
+        /// The queried type.
+        ty: InternedTyId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -973,20 +973,25 @@ impl MonoCollector<'_> {
         arg: &ConstGenericArg,
         substitutions: TypeSubstitutionId,
     ) -> ConstGenericArg {
-        let mut arg = match &arg.value {
-            ConstGenericValue::GenericParam(name) => self
-                .type_substitutions
-                .get(substitutions.0)
-                .and_then(|substitutions| substitutions.const_substitutions.get(name))
-                .cloned()
-                .unwrap_or_else(|| arg.clone()),
-            ConstGenericValue::ConstExpr(_)
-            | ConstGenericValue::Int(_)
-            | ConstGenericValue::Bool(_)
-            | ConstGenericValue::Char(_) => arg.clone(),
-        };
-        arg.ty = self.instantiate_ty(module_id, arg.ty, substitutions);
-        arg
+        let const_substitutions = self
+            .type_substitutions
+            .get(substitutions.0)
+            .map(|substitutions| substitutions.const_substitutions.clone())
+            .unwrap_or_default();
+        let this = std::cell::RefCell::new(self);
+        let substituted: Result<ConstGenericArg, std::convert::Infallible> =
+            nia_ty::substitute_const_generic_arg(
+                arg,
+                &|name| const_substitutions.get(name).cloned(),
+                &|ty| {
+                    Ok(this
+                        .borrow_mut()
+                        .instantiate_ty(module_id, ty, substitutions))
+                },
+            );
+        match substituted {
+            Ok(arg) => arg,
+        }
     }
 
     fn instantiate_array_len(
@@ -1000,14 +1005,7 @@ impl MonoCollector<'_> {
                 .type_substitutions
                 .get(substitutions.0)
                 .and_then(|substitutions| substitutions.const_substitutions.get(name))
-                .and_then(|arg| match &arg.value {
-                    ConstGenericValue::Int(value) => {
-                        u64::try_from(value.bits()).ok().map(ArrayLenTy::ConstValue)
-                    }
-                    ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(id.clone())),
-                    ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(*name)),
-                    ConstGenericValue::Bool(_) | ConstGenericValue::Char(_) => None,
-                })
+                .and_then(nia_ty::array_len_from_const_arg)
                 .unwrap_or_else(|| len.clone()),
             ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
                 builtin: *builtin,
@@ -1738,6 +1736,13 @@ impl MonoCollector<'_> {
             }
             ConstGenericValue::Bool(value) => format!("b{}", u8::from(*value)),
             ConstGenericValue::Char(value) => format!("c{}", *value as u32),
+            ConstGenericValue::Layout { builtin, ty } => {
+                format!(
+                    "builtin_{}_{}",
+                    builtin.name(),
+                    self.type_symbol(module_id, *ty)
+                )
+            }
         };
         format!("c_{ty}_{value}")
     }

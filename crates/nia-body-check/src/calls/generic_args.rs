@@ -142,6 +142,9 @@ impl<'a> BodyChecker<'a> {
                 .map_or_else(|| value.bits().to_string(), |value| value.to_string()),
             ConstGenericValue::Bool(value) => value.to_string(),
             ConstGenericValue::Char(value) => format!("`{value}`"),
+            ConstGenericValue::Layout { builtin, ty } => {
+                format!("@{}[{}]()", builtin.name(), self.ty_name(*ty))
+            }
         }
     }
 
@@ -517,6 +520,10 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         match value {
             ConstGenericValue::GenericParam(_) | ConstGenericValue::ConstExpr(_) => true,
+            // A size or alignment is a `usize`.
+            ConstGenericValue::Layout { .. } => {
+                self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Usize)
+            }
             ConstGenericValue::Int(value) => {
                 self.const_generic_type_accepts_int(expected_ty, *value)
             }

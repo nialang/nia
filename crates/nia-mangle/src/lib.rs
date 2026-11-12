@@ -1230,6 +1230,12 @@ where
         }
         ConstGenericValue::Bool(value) => format!("b{}", u8::from(*value)),
         ConstGenericValue::Char(value) => format!("c{}", *value as u32),
+        // The same spelling as the array length it stands for.
+        ConstGenericValue::Layout { builtin, ty } => format!(
+            "builtin__{}__{}",
+            sanitize_symbol_part(builtin.name()),
+            mangle_type_inner(type_store, *ty, module_id, nominal_name, array_len)
+        ),
     };
     format!("const__{ty}__{value}")
 }

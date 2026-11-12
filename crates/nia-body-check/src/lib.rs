@@ -112,7 +112,7 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, known};
 use nia_symbol_table::SymbolTable;
 use nia_target::TargetConfig;
-use nia_ty::{ConstGenericArg, PrimitiveTy, TyKind, TypeStoreAppend};
+use nia_ty::{ArrayLenTy, ConstGenericArg, PrimitiveTy, TyKind, TypeStoreAppend};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
@@ -243,7 +243,7 @@ struct BodyChecker<'a> {
     node_expr_adjustments: FastHashMap<VersionedNodeKey, ExprAdjustmentPlan>,
     node_builtin_values: FastHashMap<VersionedNodeKey, BuiltinValue>,
     node_associated_const_projections: FastHashMap<VersionedNodeKey, AssociatedConstProjection>,
-    node_array_repeat_counts: FastHashMap<VersionedNodeKey, u64>,
+    node_array_repeat_counts: FastHashMap<VersionedNodeKey, ArrayLenTy>,
     node_pattern_values: FastHashMap<VersionedNodeKey, i128>,
     node_resolved_calls: FastHashMap<VersionedNodeKey, ResolvedCall>,
     node_function_references: FastHashMap<VersionedNodeKey, FunctionReference>,

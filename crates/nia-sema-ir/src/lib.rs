@@ -21,7 +21,7 @@ use nia_ids::{
 use nia_node_id::{NodeMap, NodeMapBuilder, NodeStore, NodeStoreId, VersionedNodeKey};
 use nia_span::Span;
 use nia_symbol::SymbolId;
-use nia_ty::{BuiltinTrait, ConstGenericArg, IntConst, PrimitiveTy, TraitId};
+use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, IntConst, PrimitiveTy, TraitId};
 
 /// Semantic uses keyed by revision-stable syntax node identities.
 #[derive(Debug, Clone, PartialEq)]
@@ -415,7 +415,7 @@ pub struct SemanticFacts {
     /// Associated-const projections owned by module-level expressions.
     pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
     /// Evaluated array-repeat counts owned by module-level expressions.
-    pub node_array_repeat_counts: NodeMap<u64>,
+    pub node_array_repeat_counts: NodeMap<ArrayLenTy>,
     /// Evaluated pattern constants owned by module-level expressions.
     pub node_pattern_values: NodeMap<i128>,
     /// Call dispatch resolutions owned by module-level expressions.
@@ -448,7 +448,7 @@ pub struct SemanticFactsBuilder {
     /// Module-level associated-const projections.
     pub node_associated_const_projections: FastHashMap<VersionedNodeKey, AssociatedConstProjection>,
     /// Module-level evaluated array-repeat counts.
-    pub node_array_repeat_counts: FastHashMap<VersionedNodeKey, u64>,
+    pub node_array_repeat_counts: FastHashMap<VersionedNodeKey, ArrayLenTy>,
     /// Module-level evaluated pattern constants.
     pub node_pattern_values: FastHashMap<VersionedNodeKey, i128>,
     /// Module-level resolved call dispatches.
@@ -624,7 +624,7 @@ impl SemanticFacts {
     /// Iterates evaluated array-repeat counts across all ownership domains.
     pub fn iter_node_array_repeat_counts(
         &self,
-    ) -> impl Iterator<Item = (VersionedNodeKey, &u64)> + '_ {
+    ) -> impl Iterator<Item = (VersionedNodeKey, &ArrayLenTy)> + '_ {
         self.node_array_repeat_counts.iter().chain(
             self.function_facts
                 .values()
@@ -757,7 +757,7 @@ pub struct FunctionSemanticFacts {
     /// Associated-const projections.
     pub node_associated_const_projections: NodeMap<AssociatedConstProjection>,
     /// Evaluated array-repeat counts.
-    pub node_array_repeat_counts: NodeMap<u64>,
+    pub node_array_repeat_counts: NodeMap<ArrayLenTy>,
     /// Evaluated pattern constants.
     pub node_pattern_values: NodeMap<i128>,
     /// Resolved call dispatches.
@@ -788,7 +788,7 @@ pub struct FunctionSemanticFactsBuilder {
     /// Associated-const projections.
     pub node_associated_const_projections: FastHashMap<VersionedNodeKey, AssociatedConstProjection>,
     /// Evaluated array-repeat counts.
-    pub node_array_repeat_counts: FastHashMap<VersionedNodeKey, u64>,
+    pub node_array_repeat_counts: FastHashMap<VersionedNodeKey, ArrayLenTy>,
     /// Evaluated pattern constants.
     pub node_pattern_values: FastHashMap<VersionedNodeKey, i128>,
     /// Resolved call dispatches.

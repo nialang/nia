@@ -130,18 +130,17 @@ impl TypeLowerer<'_, '_> {
     }
 
     pub(crate) fn lower_array_len_expr(&mut self, expr: &Expr) -> ArrayLenTy {
-        if let ExprKind::Ident(name) = &expr.kind
-            && self.is_const_generic_param(name)
-        {
-            return ArrayLenTy::GenericParam(*name);
-        }
-        if let Some((builtin, type_arg)) = layout_builtin_array_len(expr) {
-            ArrayLenTy::Builtin {
-                builtin,
-                ty: self.lower_type_in_context(type_arg, TypeContext::SizeQuery),
+        match crate::classify_array_len_expr(expr) {
+            crate::ArrayLenExpr::Name(name) if self.is_const_generic_param(&name) => {
+                ArrayLenTy::GenericParam(name)
             }
-        } else {
-            self.register_const_array_len(expr)
+            crate::ArrayLenExpr::Layout { builtin, ty } => ArrayLenTy::Builtin {
+                builtin,
+                ty: self.lower_type_in_context(ty, TypeContext::SizeQuery),
+            },
+            crate::ArrayLenExpr::Name(_) | crate::ArrayLenExpr::Value => {
+                self.register_const_array_len(expr)
+            }
         }
     }
 

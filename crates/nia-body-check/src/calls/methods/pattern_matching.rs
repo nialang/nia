@@ -543,7 +543,7 @@ impl<'a> BodyChecker<'a> {
         let ArrayLenTy::GenericParam(name) = pattern else {
             return false;
         };
-        let Some(value) = self.method_const_generic_value_from_array_len(actual) else {
+        let Some(value) = self.const_generic_value_from_array_len(actual) else {
             return false;
         };
         let arg = nia_ty::ConstGenericArg {
@@ -639,22 +639,26 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(super) fn method_const_generic_value_from_array_len(
+    /// The const-argument value of an array length, which binds a const
+    /// parameter `N` in a pattern such as `[T; N]`. A length with a value
+    /// gives it; one that depends on a generic parameter, `N` itself or a
+    /// layout query such as `@size[T]()`, stays symbolic
+    /// ([`nia_ty::const_generic_value_from_array_len`]), so the binding holds
+    /// in every instance. A const expression must evaluate.
+    pub(crate) fn const_generic_value_from_array_len(
         &self,
         len: &ArrayLenTy,
     ) -> Option<nia_ty::ConstGenericValue> {
+        if let ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. } = len
+            && let Ok(value) = self.array_len_value(len)
+        {
+            return Some(nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(
+                value.into(),
+            )));
+        }
         match len {
-            ArrayLenTy::ConstValue(value) => Some(nia_ty::ConstGenericValue::Int(
-                nia_ty::IntConst::unsigned((*value).into()),
-            )),
-            ArrayLenTy::ConstExpr(id) => self.array_len_const_expr_value(id.clone()).map(|value| {
-                nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
-            }),
-            ArrayLenTy::Builtin { .. } => self.array_len_value(len).ok().map(|value| {
-                nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
-            }),
-            ArrayLenTy::GenericParam(name) => Some(nia_ty::ConstGenericValue::GenericParam(*name)),
-            ArrayLenTy::Infer => None,
+            ArrayLenTy::ConstExpr(_) => None,
+            _ => nia_ty::const_generic_value_from_array_len(len),
         }
     }
 

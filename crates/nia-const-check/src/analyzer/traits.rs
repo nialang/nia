@@ -816,18 +816,26 @@ impl Analyzer<'_> {
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> ConstGenericArg {
-        let mut arg = match &arg.value {
+        let arg = match &arg.value {
             nia_ty::ConstGenericValue::GenericParam(name) => {
                 const_substitutions.get(name).cloned().unwrap_or(arg)
             }
             _ => arg,
         };
-        arg.ty = self.substitute_ty_generics_and_consts_from_maps(
-            arg.ty,
-            substitutions,
-            const_substitutions,
-        );
-        arg
+        let this = std::cell::RefCell::new(self);
+        let substituted: Result<ConstGenericArg, std::convert::Infallible> =
+            nia_ty::substitute_const_generic_arg(&arg, &|_| None, &|ty| {
+                Ok(this
+                    .borrow_mut()
+                    .substitute_ty_generics_and_consts_from_maps(
+                        ty,
+                        substitutions,
+                        const_substitutions,
+                    ))
+            });
+        match substituted {
+            Ok(arg) => arg,
+        }
     }
 
     fn const_trait_name(&mut self, trait_id: TraitId, args: &[InternedTyId]) -> String {

@@ -459,7 +459,7 @@ impl<'a> BodyChecker<'a> {
         let ArrayLenTy::GenericParam(name) = general else {
             return false;
         };
-        let Some(value) = self.method_const_generic_value_from_array_len(specific) else {
+        let Some(value) = self.const_generic_value_from_array_len(specific) else {
             return false;
         };
         let specific = nia_ty::ConstGenericArg {
