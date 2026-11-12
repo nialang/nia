@@ -561,6 +561,44 @@ pub fun main(init: process::Init) process::ExitCode!() {
     assert_eq!(errors, ["builtin `size` requires (T, T): Sized"]);
 }
 
+/// An array whose length is a layout query of a generic parameter, such as
+/// `[u8; @size[T]()]`, is instantiated like every other type: its operand
+/// takes the instance's argument and the length becomes that size. The
+/// backend left the operand generic, and codegen stopped with an internal
+/// error because `T` has no layout.
+#[test]
+fn layout_query_array_lengths_instantiate_their_operand() {
+    let root = temp_dir("layout_query_array_lengths_instantiate_their_operand");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::process;
+fun measured[T]() usize where T: Sized { std::builtin::size[[u8; std::builtin::size[T]()]]() }
+fun aligned[T]() usize where T: Sized { std::builtin::size[[u16; std::builtin::align[T]()]]() }
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if measured[u32]() != 4 or measured[u64]() != 8 or aligned[u16]() != 4 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    let source = root.join("main.nia");
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("layout-query array lengths build");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run layout-query array length executable");
+    assert_eq!(status.code(), Some(0));
+}
+
 #[test]
 fn memory_intrinsics_accept_sized_generic_elements() {
     let root = temp_dir("memory_intrinsics_accept_sized_generic_elements");

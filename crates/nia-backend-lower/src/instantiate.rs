@@ -1700,8 +1700,12 @@ impl<'a> ModuleLowerer<'a> {
     /// expression becomes its value, so an array type has one identity
     /// wherever its length was written: `[u8; 3]` in two modules, or twice in
     /// one, instantiates a generic once.
+    /// Instantiates an array length like every other part of a type: a
+    /// const parameter takes its argument, and a layout query's operand is
+    /// instantiated, so `[u8; @size[T]()]` becomes `[u8; 4]` with `T = u32`.
+    /// A length whose value is then known is that value.
     fn instantiate_array_len(
-        &self,
+        &mut self,
         len: nia_ty::ArrayLenTy,
         substitutions: TypeSubstitutionId,
     ) -> nia_ty::ArrayLenTy {
@@ -1714,7 +1718,17 @@ impl<'a> ModuleLowerer<'a> {
                 Some(value) => nia_ty::ArrayLenTy::ConstValue(value),
                 None => nia_ty::ArrayLenTy::ConstExpr(id),
             },
-            len => len,
+            nia_ty::ArrayLenTy::Builtin { builtin, ty } => {
+                let ty = self.instantiate_ty_with_id(ty, substitutions);
+                match self.layout_of(ty) {
+                    Some(layout) => nia_ty::ArrayLenTy::ConstValue(match builtin {
+                        nia_ids::LayoutBuiltin::Size => layout.size,
+                        nia_ids::LayoutBuiltin::Align => layout.align,
+                    }),
+                    None => nia_ty::ArrayLenTy::Builtin { builtin, ty },
+                }
+            }
+            len @ (nia_ty::ArrayLenTy::ConstValue(_) | nia_ty::ArrayLenTy::Infer) => len,
         }
     }
 
