@@ -117,12 +117,23 @@ impl<'a> BodyChecker<'a> {
                 for arg in args {
                     self.check_expr(arg);
                 }
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    call_span,
-                    "builtin `embed` can only be evaluated at const",
-                ));
-                self.error()
+                if !(self.body_filter.checks_const_declarations() || self.in_const_context()) {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        codes::TYPE_CHECK,
+                        call_span,
+                        "builtin `embed` can only be evaluated at const",
+                    ));
+                    return self.error();
+                }
+                // The embedded bytes are a `[u8; N]` whose length is the
+                // file's, which only constant evaluation reads. Its type is
+                // the one constant evaluation gives the value; a file it
+                // cannot read is reported there.
+                self.lower_const_expr(value_node)
+                    .ok()
+                    .and_then(|expr| self.const_expr_type_for_ir_with_expected(&expr, None))
+                    .and_then(|ty| ty.runtime())
+                    .unwrap_or_else(|| self.error())
             }
             BuiltinFunction::SizeOf | BuiltinFunction::AlignOf => {
                 if !args.is_empty() {

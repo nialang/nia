@@ -372,14 +372,55 @@ fun main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let errors = program
+        .diagnostics
+        .iter()
+        .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+        .map(|d| d.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
     assert!(
-        program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("failed to embed")),
-        "{:?}",
-        program.diagnostics
+        errors.len() == 1 && errors[0].starts_with("failed to embed"),
+        "{errors:?}"
     );
+}
+
+/// `embed` in a local constant has the type its bytes give it, as in a
+/// global one. Body checking rejected every `embed` as runtime code, so a
+/// local constant reported "can only be evaluated at const" although it is
+/// a constant.
+#[test]
+fn embed_in_local_constants_has_its_file_type() {
+    let root = temp_dir("embed_in_local_constants_has_its_file_type");
+    std::fs::write(root.join("data.bin"), b"abc").expect("write payload");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::process;
+const GLOBAL = std::builtin::embed("data.bin");
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    const LOCAL = std::builtin::embed("data.bin");
+    const TYPED: [u8; 3] = std::builtin::embed("data.bin");
+    if GLOBAL.len() != 3 or LOCAL.len() != 3 or TYPED[0] != 97 or TYPED[2] != 99 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    let source = root.join("main.nia");
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("local constants embed their file");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run embed executable");
+    assert_eq!(status.code(), Some(0));
 }
 
 #[test]
