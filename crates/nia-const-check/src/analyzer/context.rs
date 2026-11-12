@@ -974,21 +974,73 @@ impl Analyzer<'_> {
         self.const_enum_variant_signature(variant_id)
     }
 
-    /// The enum instance a variant path builds. An alias prefix names that
-    /// instance transparently, as `Q::A` for `type Q = E[i32]` builds an
-    /// `E[i32]`, so the result is normalized like body checking's
-    /// `enum_prefix_instance`. Later phases see the instance, never an alias
-    /// type that only the module's declared types would have normalized.
-    pub(super) fn resolved_const_enum_target_type(
+    /// The enum instance a variant constructor builds, by the shared rule
+    /// ([`nia_sema::constructor_generic_args`]):
+    ///
+    /// - `.B` takes the expected instance of its enum.
+    /// - `E[i32]::B`, and `Q::B` for `type Q = E[i32]`, take the instance
+    ///   their prefix writes. An alias names that instance transparently, so
+    ///   the result is normalized like body checking's `enum_prefix_instance`.
+    /// - `E::B` names its enum, which has an instance only when not generic.
+    ///
+    /// A spelling the constructor check rejected gives no type.
+    pub(super) fn resolved_const_constructor_type(
         &mut self,
         expr: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        if let ResolvedConstExprKind::AssociatedFunction { target, .. } = expr.kind() {
-            let ty = self.resolved_const_associated_target_type(target, expr.span())?;
-            return Some(self.normalized_ty(ty));
-        }
         let (enum_id, _) = self.resolved_const_enum_variant(expr)?;
-        self.enum_ty_in_current_module(enum_id)
+        let (spelling, declared) = match expr.kind() {
+            ResolvedConstExprKind::OmittedVariant(_) => (
+                nia_sema::ConstructorSpelling::Omitted,
+                self.def_generic_count(enum_id)?,
+            ),
+            ResolvedConstExprKind::AssociatedFunction {
+                target: ResolvedConstAssociatedTarget::Nominal { def_id, args },
+                ..
+            } => (
+                nia_sema::ConstructorSpelling::Prefix {
+                    written: args.len(),
+                },
+                self.def_generic_count(*def_id)?,
+            ),
+            // A type spelled in a type position is counted by type lowering.
+            ResolvedConstExprKind::AssociatedFunction { .. } => {
+                (nia_sema::ConstructorSpelling::Prefix { written: 0 }, 0)
+            }
+            _ => (
+                nia_sema::ConstructorSpelling::Prefix { written: 0 },
+                self.def_generic_count(enum_id)?,
+            ),
+        };
+        match nia_sema::constructor_generic_args(spelling, declared) {
+            nia_sema::ConstructorGenericArgs::FromExpected => {
+                let expected = self.normalized_ty(expected?);
+                let (expected_enum, _, _) = self.expected_nominal_parts(expected)?;
+                (expected_enum == enum_id).then_some(expected)
+            }
+            nia_sema::ConstructorGenericArgs::Written => match expr.kind() {
+                ResolvedConstExprKind::AssociatedFunction { target, .. } => {
+                    let ty = self.resolved_const_associated_target_type(target, expr.span())?;
+                    Some(self.normalized_ty(ty))
+                }
+                _ => self.enum_ty_in_current_module(enum_id),
+            },
+            nia_sema::ConstructorGenericArgs::Mismatch { .. } => None,
+        }
+    }
+
+    /// Generic parameters a type definition declares; an alias counts its
+    /// own, not its target's.
+    fn def_generic_count(&self, def_id: GlobalDefId) -> Option<usize> {
+        Some(
+            self.global_defs(def_id.module_id)?
+                .as_ref()
+                .defs
+                .get(def_id.def_id)?
+                .generics
+                .len(),
+        )
     }
 
     pub(super) fn const_enum_variant_signature(
@@ -1022,7 +1074,8 @@ impl Analyzer<'_> {
 
     /// The type of a variant named without an instance: its enum's, when
     /// the enum is not generic. A generic enum's constructor must write its
-    /// arguments, and body checking reports a missing one, so it has none.
+    /// arguments, and the constructor check reports a missing one, so it has
+    /// none.
     pub(super) fn enum_ty_in_current_module(&self, enum_id: GlobalDefId) -> Option<InternedTyId> {
         self.signatures_for_module(enum_id.module_id)?
             .as_ref()

@@ -144,6 +144,9 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
         EarlyConstExprKind::Ident(name) | EarlyConstExprKind::Qualified(name) => {
             ResolvedConstExprKind::Name(name.into_resolution(span)?)
         }
+        EarlyConstExprKind::OmittedVariant(variant) => {
+            ResolvedConstExprKind::OmittedVariant(variant)
+        }
         EarlyConstExprKind::Field { lhs, name } => ResolvedConstExprKind::Field {
             lhs: Box::new(resolve_expr(*lhs)?),
             name,

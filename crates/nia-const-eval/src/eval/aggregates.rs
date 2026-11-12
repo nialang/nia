@@ -163,6 +163,9 @@ pub(super) fn early_enum_expr_variant_id(
         EarlyConstExprKind::Ident(name) | EarlyConstExprKind::Qualified(name) => {
             early_enum_variant_id(name, env)
         }
+        EarlyConstExprKind::OmittedVariant(variant) => {
+            env.is_enum_variant(*variant).then_some(*variant)
+        }
         _ => None,
     }
 }

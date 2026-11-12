@@ -208,6 +208,25 @@ pub use calls::{
     ResolvedConstCallInput, eval_early_const_function_call, eval_resolved_const_function_call,
 };
 
+/// The value of an omitted enum member `.B`: its unit variant. The variant
+/// is resolved, so only its capability as a const value is checked.
+fn omitted_variant_value(
+    span: Span,
+    variant: GlobalDefId,
+    env: &impl ConstCommonEnv,
+) -> Result<ConstValue, ConstError> {
+    if let Some(restriction) = env.global_value_restriction(variant) {
+        return Err(ConstError {
+            span,
+            message: restriction.message().to_string(),
+        });
+    }
+    Ok(ConstValue::Enum {
+        variant,
+        payload: ConstEnumPayload::Unit,
+    })
+}
+
 fn eval_resolved_const_expr_flow(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
@@ -278,6 +297,9 @@ fn eval_resolved_const_expr_flow(
                 }
                 _ => env.resolve_resolved_name(span, resolution.clone())?,
             }
+        }
+        ResolvedConstExprKind::OmittedVariant(variant) => {
+            omitted_variant_value(span, *variant, env)?
         }
         ResolvedConstExprKind::Field { .. }
         | ResolvedConstExprKind::Index { .. }
@@ -635,6 +657,9 @@ fn eval_const_expr_flow(
             } else {
                 env.resolve_name(expr.span, name)?
             }
+        }
+        EarlyConstExprKind::OmittedVariant(variant) => {
+            omitted_variant_value(expr.span, *variant, env)?
         }
         EarlyConstExprKind::Field { lhs, name } => match eval_value_or_return_flow!(lhs, env) {
             ConstValue::Struct(fields) => fields.get(name).cloned().ok_or_else(|| ConstError {

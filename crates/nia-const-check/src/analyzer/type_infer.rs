@@ -812,6 +812,9 @@ impl Analyzer<'_> {
             ResolvedConstExprKind::Name(resolution) => self
                 .resolved_const_enum_variant_value_type(expr, expected)
                 .or_else(|| self.const_name_resolution_type(resolution.clone())),
+            ResolvedConstExprKind::OmittedVariant(_) => {
+                self.resolved_const_enum_variant_value_type(expr, expected)
+            }
             ResolvedConstExprKind::Integer(text) => {
                 self.resolved_const_integer_literal_type(expr, text, expected, false)
             }
@@ -896,7 +899,7 @@ impl Analyzer<'_> {
                 self.resolved_const_array_literal_type(expr.span(), elems, expected)
             }
             ResolvedConstExprKind::EnumStructLiteral { variant, fields } => self
-                .resolved_const_named_enum_literal_type(expr.span(), variant, fields)
+                .resolved_const_named_enum_literal_type(expr.span(), variant, fields, expected)
                 .map(ConstValueType::Runtime),
             ResolvedConstExprKind::OptionalSome { expr: inner } => {
                 let expected_elem = expected.and_then(|expected| match self.ty_kind(expected) {
@@ -999,7 +1002,7 @@ impl Analyzer<'_> {
                 args,
             } => {
                 if self.resolved_const_enum_variant(callee).is_some() {
-                    self.resolved_const_tuple_enum_literal_type(expr.span(), callee, args)
+                    self.resolved_const_tuple_enum_literal_type(expr.span(), callee, args, expected)
                         .map(ConstValueType::Runtime)
                 } else {
                     self.resolved_const_call_return_type(
@@ -1354,19 +1357,14 @@ impl Analyzer<'_> {
         variant_expr: &ResolvedConstExpr,
         expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
-        let (enum_id, variant) = self.resolved_const_enum_variant(variant_expr)?;
+        let (_, variant) = self.resolved_const_enum_variant(variant_expr)?;
         if !matches!(
             variant.payload,
             nia_item_signatures::EnumVariantPayloadSignature::Unit
         ) {
             return None;
         }
-        expected
-            .filter(|expected| {
-                self.expected_nominal_parts(*expected)
-                    .is_some_and(|(id, _, _)| id == enum_id)
-            })
-            .or_else(|| self.resolved_const_enum_target_type(variant_expr))
+        self.resolved_const_constructor_type(variant_expr, expected)
             .map(ConstValueType::Runtime)
     }
 
@@ -1375,9 +1373,10 @@ impl Analyzer<'_> {
         span: Span,
         callee: &ResolvedConstExpr,
         args: &[ResolvedConstExpr],
+        expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let (enum_id, variant) = self.resolved_const_enum_variant(callee)?;
-        let enum_ty = self.resolved_const_enum_target_type(callee)?;
+        let enum_ty = self.resolved_const_constructor_type(callee, expected)?;
         let payload = self.const_enum_variant_payload_types(enum_id, &variant.payload, enum_ty)?;
         let nia_item_signatures::EnumVariantPayloadSignature::Tuple(field_tys) = payload else {
             for arg in args {
@@ -1432,9 +1431,10 @@ impl Analyzer<'_> {
         span: Span,
         target: &ResolvedConstExpr,
         fields: &[ResolvedConstFieldInit],
+        expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let (enum_id, variant) = self.resolved_const_enum_variant(target)?;
-        let enum_ty = self.resolved_const_enum_target_type(target)?;
+        let enum_ty = self.resolved_const_constructor_type(target, expected)?;
         let payload = self.const_enum_variant_payload_types(enum_id, &variant.payload, enum_ty)?;
         let nia_item_signatures::EnumVariantPayloadSignature::Named(expected) = payload else {
             for field in fields {

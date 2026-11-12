@@ -2,6 +2,54 @@ use super::*;
 use nia_const_eval::ConstValue;
 use nia_ty::IntConst;
 
+/// The analyzer types a variant path by the shared constructor rule: a
+/// prefix gives the instance it writes, an alias's transparently, and a
+/// generic enum's bare path gives none. Const IR keeps `.B` apart from these
+/// paths, so only the omitted form takes an expected instance.
+#[test]
+fn variant_path_types_follow_their_spelling() {
+    let fixture = check_source(
+        r#"
+enum E[T] { A(T), B }
+type Q = E[i32];
+const WRITTEN = E[i32]::B;
+const ALIASED = Q::B;
+const BARE = E::B;
+"#,
+    );
+    let ty_of = |name: &str| {
+        let def_id = fixture
+            .defs
+            .module_scope
+            .values
+            .get(&sym(name))
+            .expect("const def");
+        fixture
+            .checked
+            .typed_values
+            .get(&ConstKey::Global(GlobalDefId {
+                module_id: fixture.module_id,
+                def_id,
+            }))
+            .and_then(|typed| match typed.ty {
+                ConstValueType::Runtime(ty) => fixture.type_store.get(ty).cloned(),
+                _ => None,
+            })
+    };
+    let written = ty_of("WRITTEN").expect("WRITTEN is typed");
+    assert!(
+        matches!(&written, nia_ty::TyKind::Nominal { args, .. } if args.len() == 1),
+        "{written:?}"
+    );
+    assert_eq!(ty_of("ALIASED"), Some(written));
+    assert_eq!(ty_of("BARE"), None);
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+}
+
 /// Const lowering runs before body checking, so an omitted member gets its
 /// enum from the type of what it is compared with or matched against. That
 /// type is known for an untyped const, through its initializer, as well as

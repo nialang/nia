@@ -312,10 +312,14 @@ impl ResolvedConstExpr {
         }
     }
 
-    /// Returns the semantic identity when this is a name expression.
+    /// Returns the semantic identity when this is a name expression. An
+    /// omitted member names its variant too.
     pub fn name_resolution(&self) -> Option<ConstNameResolution> {
         match &self.kind {
             ResolvedConstExprKind::Name(resolution) => Some(resolution.clone()),
+            ResolvedConstExprKind::OmittedVariant(variant) => {
+                Some(ConstNameResolution::Global(*variant))
+            }
             _ => None,
         }
     }
@@ -1293,6 +1297,11 @@ pub enum ResolvedConstExprKind {
     Null,
     /// Name with authoritative semantic resolution.
     Name(ConstNameResolution),
+    /// An omitted enum member, `.B`, whose variant the expected type chose.
+    /// It names the variant like a path, but takes its enum instance from the
+    /// expected type, which a path never does
+    /// ([`nia_sema::constructor_generic_args`]).
+    OmittedVariant(GlobalDefId),
     /// Named field projection.
     Field {
         /// Aggregate expression.
@@ -2131,6 +2140,11 @@ pub enum EarlyConstExprKind {
     Ident(EarlyConstName),
     /// Qualified early name.
     Qualified(EarlyConstName),
+    /// An omitted enum member, `.B`, whose variant the expected type chose.
+    /// It names the variant like a path, but takes its enum instance from the
+    /// expected type, which a path never does
+    /// ([`nia_sema::constructor_generic_args`]).
+    OmittedVariant(GlobalDefId),
     /// Named field projection.
     Field {
         /// Aggregate expression.
