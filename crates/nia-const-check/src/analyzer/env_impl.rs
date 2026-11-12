@@ -64,18 +64,17 @@ impl ConstCommonEnv for Analyzer<'_> {
     }
 
     fn enum_variant_for_associated_target(
-        &self,
+        &mut self,
+        span: Span,
         target: &nia_const_ir::ResolvedConstAssociatedTarget,
         name: SymbolId,
     ) -> Option<GlobalDefId> {
-        let enum_id = match target {
-            nia_const_ir::ResolvedConstAssociatedTarget::Nominal { def_id, .. } => *def_id,
-            nia_const_ir::ResolvedConstAssociatedTarget::Type(target) => {
-                let TyKind::Nominal { def_id, .. } = self.ty_kind(target.ty())? else {
-                    return None;
-                };
-                def_id
-            }
+        let target_ty = self.resolved_const_associated_target_type(target, span)?;
+        let TyKind::Nominal {
+            def_id: enum_id, ..
+        } = self.ty_kind(target_ty)?
+        else {
+            return None;
         };
         let signatures = self.signatures_for_module(enum_id.module_id)?;
         let variant = signatures

@@ -132,7 +132,16 @@ Const IR remains an execution representation: adding a source construct requires
 its execution lowering or an explicit unavailable-capability node. This does
 not introduce an alternative typing rule. Qualified and omitted constructors
 carry resolved aggregate or variant identities, and constructor field context
-comes from declaration signatures rather than source-path spelling.
+comes from declaration signatures rather than source-path spelling. Contextual
+lowering expands aliases with the same recursive normalizer used by typing,
+using raw foreign alias signatures to avoid depending on completed const facts.
+Instantiated enum payload types supply context to nested constructors and
+patterns. Local const annotations, declared global types, and the other operand
+of enum equality also preserve that context. Explicit constructor prefixes
+instantiate their own type and const arguments before payload context is
+propagated. Aliases select the same enum declaration and instance in body
+checking and const execution; qualified unit variants are values rather than
+callable capabilities.
 
 Const calls query function declarations by `GlobalDefId`, including ordinary
 functions, extension methods, and trait methods. Body-local const evaluation

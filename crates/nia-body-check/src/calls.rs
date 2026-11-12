@@ -121,7 +121,7 @@ impl<'a> BodyChecker<'a> {
             && let Some(expected) = expected
         {
             if let Some(return_type) =
-                self.check_omitted_enum_variant_call(expr, name, args, expected)
+                self.check_omitted_enum_variant_call(expr, callee, args, expected)
             {
                 return return_type;
             }

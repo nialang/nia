@@ -810,7 +810,7 @@ impl Analyzer<'_> {
         match expr.kind() {
             ResolvedConstExprKind::UnavailableValue(_) => None,
             ResolvedConstExprKind::Name(resolution) => self
-                .resolved_const_enum_variant_value_type(expr)
+                .resolved_const_enum_variant_value_type(expr, expected)
                 .or_else(|| self.const_name_resolution_type(resolution.clone())),
             ResolvedConstExprKind::Integer(text) => {
                 self.resolved_const_integer_literal_type(expr, text, expected, false)
@@ -1012,10 +1012,12 @@ impl Analyzer<'_> {
                     .map(ConstValueType::Runtime)
                 }
             }
+            ResolvedConstExprKind::AssociatedFunction { .. } => {
+                self.resolved_const_enum_variant_value_type(expr, None)
+            }
             ResolvedConstExprKind::LayoutBuiltin { .. }
             | ResolvedConstExprKind::FieldOffsetBuiltin { .. }
             | ResolvedConstExprKind::Method { .. }
-            | ResolvedConstExprKind::AssociatedFunction { .. }
             | ResolvedConstExprKind::Null => None,
             ResolvedConstExprKind::Discard(value) => {
                 self.resolved_const_expr_type(value, None);
@@ -1350,6 +1352,7 @@ impl Analyzer<'_> {
     fn resolved_const_enum_variant_value_type(
         &mut self,
         variant_expr: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
         let (enum_id, variant) = self.resolved_const_enum_variant(variant_expr)?;
         matches!(
@@ -1358,7 +1361,12 @@ impl Analyzer<'_> {
         )
         .then(|| {
             ConstValueType::Runtime(
-                self.resolved_const_enum_target_type(variant_expr)
+                expected
+                    .filter(|expected| {
+                        self.expected_nominal_parts(*expected)
+                            .is_some_and(|(id, _, _)| id == enum_id)
+                    })
+                    .or_else(|| self.resolved_const_enum_target_type(variant_expr))
                     .unwrap_or_else(|| self.enum_ty_in_current_module(enum_id)),
             )
         })

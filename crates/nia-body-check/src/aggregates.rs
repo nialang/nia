@@ -876,12 +876,10 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         name: &SymbolId,
     ) -> Option<InternedTyId> {
-        let (enum_id, args, const_args) = self.type_prefix_instance(lhs)?;
-        if !self.is_enum_def(enum_id) {
-            return None;
-        }
+        let (enum_id, args, const_args) = self.enum_prefix_instance(lhs)?;
+        let (prefix_id, prefix_args, prefix_consts) = self.type_prefix_instance(lhs)?;
         if self
-            .constructed_nominal_ty(lhs.span, enum_id, &args, &const_args)
+            .constructed_nominal_ty(lhs.span, prefix_id, &prefix_args, &prefix_consts)
             .is_none()
         {
             return Some(self.error());
@@ -1046,9 +1044,9 @@ impl<'a> BodyChecker<'a> {
             nia_ast::ExprKind::Qualified { lhs, .. } => lhs,
             _ => return None,
         };
-        let (_, enum_args, enum_const_args) = self.type_prefix_instance(prefix)?;
+        let (prefix_id, prefix_args, prefix_consts) = self.type_prefix_instance(prefix)?;
         if self
-            .constructed_nominal_ty(prefix.span, enum_id, &enum_args, &enum_const_args)
+            .constructed_nominal_ty(prefix.span, prefix_id, &prefix_args, &prefix_consts)
             .is_none()
         {
             for arg in args {
@@ -1056,6 +1054,7 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         }
+        let (_, enum_args, enum_const_args) = self.enum_prefix_instance(prefix)?;
         let variant_id = GlobalDefId {
             module_id: enum_id.module_id,
             def_id: variant_def,
@@ -1097,10 +1096,13 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_omitted_enum_variant_call(
         &mut self,
         expr: &Expr,
-        name: &SymbolId,
+        callee: &Expr,
         args: &[Expr],
         expected: InternedTyId,
     ) -> Option<InternedTyId> {
+        let ExprKind::OmittedMember { name } = &callee.kind else {
+            return None;
+        };
         let enum_id = self.enum_global_def_id(expected)?;
         let normalized_expected = self.normalize_aliases_in_type(expected);
         let (enum_args, enum_const_args) = match self.interner.get(normalized_expected).cloned() {
@@ -1113,7 +1115,17 @@ impl<'a> BodyChecker<'a> {
             .enum_variant_scope(enum_id)?
             .into_iter()
             .find(|(variant_name, _)| variant_name == name)
-            .map(|(_, def_id)| def_id)?;
+            .map(|(_, def_id)| def_id);
+        let Some(variant_def) = variant_def else {
+            // The enum context still applies when the member is misspelled.
+            // Let member checking own that error, and check arguments for
+            // independent failures without treating the member as a callee.
+            self.check_expr_with_expected(callee, Some(expected));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        };
         let variant_id = GlobalDefId {
             module_id: enum_id.module_id,
             def_id: variant_def,
@@ -1261,6 +1273,15 @@ impl<'a> BodyChecker<'a> {
             .enum_variant_info(target)
             .or_else(|| expected.and_then(|ty| self.omitted_enum_variant_info(target, ty)))
         {
+            if let ExprKind::Qualified { lhs, .. } = &target.kind
+                && let Some((prefix_id, args, const_args)) = self.type_prefix_instance(lhs)
+                && self
+                    .constructed_nominal_ty(lhs.span, prefix_id, &args, &const_args)
+                    .is_none()
+            {
+                self.check_recovery_fields(fields);
+                return self.error();
+            }
             let variant_id = GlobalDefId {
                 module_id: enum_id.module_id,
                 def_id: variant_def,
@@ -1282,21 +1303,8 @@ impl<'a> BodyChecker<'a> {
                 ));
                 return self.enum_ty(enum_id, &[], &[]);
             };
-            let (enum_args, enum_const_args) = self
-                .type_prefix_instance(target)
-                .map(|(_, args, const_args)| (args, const_args))
-                .or_else(|| {
-                    expected.and_then(|ty| {
-                        let normalized = self.normalize_aliases_in_type(ty);
-                        match self.interner.get(normalized).cloned() {
-                            Some(TyKind::Nominal {
-                                args, const_args, ..
-                            }) => Some((args, const_args)),
-                            _ => None,
-                        }
-                    })
-                })
-                .unwrap_or_default();
+            let (enum_args, enum_const_args) =
+                self.enum_constructor_instance(target, enum_id, expected);
             self.check_named_enum_payload(
                 expr.span,
                 &variant,
@@ -1309,6 +1317,14 @@ impl<'a> BodyChecker<'a> {
                 },
             );
             return self.enum_ty(enum_id, &enum_args, &enum_const_args);
+        }
+        if matches!(target.kind, ExprKind::OmittedMember { .. })
+            && let Some(expected) = expected
+            && self.enum_global_def_id(expected).is_some()
+        {
+            self.check_expr_with_expected(target, Some(expected));
+            self.check_recovery_fields(fields);
+            return self.error();
         }
         if let Some((def_id, args, const_args)) = self.type_prefix_instance(target) {
             let Some(ty) = self.constructed_nominal_ty(target.span, def_id, &args, &const_args)
@@ -1435,7 +1451,7 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> (Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>) {
         if let ExprKind::Qualified { lhs, .. } = &expr.kind
-            && let Some((candidate, args, const_args)) = self.type_prefix_instance(lhs)
+            && let Some((candidate, args, const_args)) = self.enum_prefix_instance(lhs)
             && candidate == enum_id
         {
             return (args, const_args);
@@ -1533,16 +1549,39 @@ impl<'a> BodyChecker<'a> {
         let ExprKind::Qualified { lhs, name, .. } = &expr.kind else {
             return None;
         };
-        let enum_id = self.type_prefix_def_id(lhs)?;
-        if !self.is_enum_def(enum_id) {
-            return None;
-        }
+        let (enum_id, _, _) = self.enum_prefix_instance(lhs)?;
         let scope = self.enum_variant_scope(enum_id)?;
         let variant_id = scope
             .iter()
             .find(|(variant_name, _)| variant_name == name)
             .map(|(_, def_id)| *def_id)?;
         Some((enum_id, variant_id))
+    }
+
+    /// Alias prefixes select the same enum declaration and concrete instance
+    /// as their expanded type. Keep this shared by values, constructors, and
+    /// patterns; source-prefix arity is still validated on the original alias.
+    fn enum_prefix_instance(
+        &mut self,
+        expr: &Expr,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
+        let (def_id, args, const_args) = self.type_prefix_instance(expr)?;
+        let ty = self.interner.intern(TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        });
+        let ty = self.normalize_aliases_in_type(ty);
+        let TyKind::Nominal {
+            def_id,
+            args,
+            const_args,
+        } = self.interner.get(ty)?.clone()
+        else {
+            return None;
+        };
+        self.is_enum_def(def_id)
+            .then_some((def_id, args, const_args))
     }
 
     pub(crate) fn omitted_enum_variant_info(

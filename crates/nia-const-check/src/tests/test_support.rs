@@ -97,8 +97,14 @@ fn check_source_for_target_with_input(
     );
     let values = values.extend(const_expr_values);
     let active_item_tree = item_tree.all_items_active();
-    let semantic_uses =
-        semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
+    let semantic_uses = semantic_use_table(
+        module_id,
+        &values,
+        &locals,
+        &type_names,
+        &lowered,
+        &active_item_tree,
+    );
     let source_path = SourcePath::new("/tmp/nia-const-check-test/main.nia");
     let const_module = lower_module_const(ConstModuleInput {
         type_store: &type_store,
@@ -114,7 +120,8 @@ fn check_source_for_target_with_input(
         symbols: &symbols,
         const_exprs: &lowered.const_exprs,
         source_path: &source_path,
-    });
+    })
+    .expect("lower const module");
     let input = ConstInput {
         module: &const_module.module,
         defs: &defs,
@@ -150,15 +157,44 @@ pub(super) fn semantic_use_table(
     module_id: ModuleId,
     values: &nia_value_resolve::ValueResolution,
     locals: &LocalResolution,
+    type_resolution: &nia_type_resolve::TypeResolution,
     lowered: &TypeLowering,
     active_item_tree: &ActiveModuleItemTree,
 ) -> SemanticUseTable {
     let mut builder = SemanticUseTable::builder();
     for (key, local_use) in &locals.node_uses {
-        if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
-            builder.insert_node_local_value_use(key.clone(), *local_id);
+        match local_use {
+            nia_local_resolve::LocalUse::Local(local_id) => {
+                builder.insert_node_local_value_use(key.clone(), *local_id);
+            }
+            nia_local_resolve::LocalUse::TypePrefix => {
+                let def_id = match type_resolution.node_type_names.get(key.site()) {
+                    Some(nia_type_resolve::TypeNameResolution::Def(def_id)) => Some(GlobalDefId {
+                        module_id,
+                        def_id: *def_id,
+                    }),
+                    Some(nia_type_resolve::TypeNameResolution::External(def_id)) => Some(*def_id),
+                    _ => None,
+                };
+                if let Some(def_id) = def_id {
+                    builder.insert_node_type_prefix(key.clone(), def_id);
+                }
+            }
+            _ => {}
         }
     }
+    builder.extend_node_type_prefixes(
+        values
+            .node_qualified_type_prefixes
+            .iter()
+            .map(|(key, id)| (key.clone(), *id)),
+    );
+    builder.extend_node_type_prefixes(
+        locals
+            .node_type_prefixes
+            .iter()
+            .map(|(key, id)| (key.clone(), *id)),
+    );
     builder.extend_node_global_value_uses(
         values
             .node_qualified_values

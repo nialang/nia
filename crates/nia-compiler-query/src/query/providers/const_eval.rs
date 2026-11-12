@@ -37,7 +37,7 @@ pub(super) fn provide_const_module(
             const_exprs: &type_lowering.const_exprs,
             source_path: &source_path,
         },
-    ))
+    )?)
 }
 
 pub(super) fn provide_const(

@@ -450,16 +450,136 @@ fn const_builtins_resolve_through_every_import_spelling() {
     .into_iter()
     .enumerate()
     {
-        let path = root.join(format!("main{index}.nia"));
-        write(&path, &format!("{prefix}\nfun main() i32 {{ 0 }}\n"));
-        let program = check_program(path.to_string_lossy().into_owned());
-        let errors = program
-            .diagnostics
-            .iter()
-            .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
-            .map(|d| d.diagnostic.summary.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(errors, ["stop"], "{prefix}");
+        for suffix in ["", "\nfun main() i32 { 0 }\n"] {
+            let path = root.join(format!("main{index}.nia"));
+            write(&path, &format!("{prefix}{suffix}"));
+            for program in [
+                check_program(path.to_string_lossy().into_owned()),
+                check_entry_program(path.to_string_lossy().into_owned()),
+            ] {
+                let errors = program
+                    .diagnostics
+                    .iter()
+                    .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+                    .map(|d| d.diagnostic.summary.as_str())
+                    .collect::<Vec<_>>();
+                assert_eq!(errors, ["stop"], "{prefix}{suffix}");
+            }
+        }
+    }
+}
+
+#[test]
+fn const_enum_aliases_keep_context_across_modules_and_locals() {
+    let root = temp_dir("const_enum_aliases_keep_context_across_modules_and_locals");
+    write(
+        &root.join("dep.nia"),
+        r#"
+pub enum Color { Red, Green }
+pub type Shade = Color;
+pub type Palette = [Shade; 2];
+pub enum Maybe[T] { None, Some(T), Named { value: T } }
+pub type Optional[T] = Maybe[T];
+pub type Number = Optional[i32];
+pub enum Failure { Oops }
+pub type Outcome = Failure!Shade;
+pub type Choice = ?Shade;
+pub enum Packet[N: usize, T, M: usize] { Values([T; N]), Named { values: [T; M] }, Empty }
+pub type PacketAlias[T] = Packet[1, T, 2];
+pub const fun identity(value: Shade) Shade { value }
+pub const fun red() Shade { .Red }
+"#,
+    );
+    let path = root.join("main.nia");
+    write(
+        &path,
+        r#"
+module dep;
+using std::builtin::error;
+type Shade = dep::Shade;
+const A: Shade = .Red;
+const B: dep::Palette = [.Red, .Green];
+const C: dep::Number = .Some(3);
+const D: dep::Number = .None;
+const E: dep::Shade = dep::identity(.Red);
+const F: dep::Shade = dep::red();
+const fun local() dep::Shade {
+    const L: dep::Shade = .Red;
+    L
+}
+const G: dep::Shade = local();
+const H: dep::Optional[dep::Shade] = .Some(.Red);
+const I: dep::Optional[dep::Shade] = .Named { value: .Green };
+const J: dep::Outcome = .Oops!;
+const K: dep::Outcome = !.Green;
+const L: dep::Choice = ?.Red;
+const CHECK: usize = if A == .Red and B[1] == .Green and E == .Red
+    and F == .Red and .Red == G { 1 } else { error("wrong enum value") };
+const PAYLOAD: i32 = match C { .Some(value) => value, .None => 0, .Named { value } => value };
+const CHECK_PAYLOAD: usize = if PAYLOAD == 3 { 1 } else { error("wrong payload") };
+const INNER: usize = match H { .Some(.Red) => 1, _ => 0 };
+const NAMED: usize = match I { .Named { value: .Green } => 1, _ => 0 };
+const CHECK_INNER: usize = if INNER + NAMED == 2 { 1 } else { error("wrong nested payload") };
+const ERR: usize = match J { .Oops! => 1, !value => 0 };
+const OK: usize = match K { error! => 0, !.Green => 1, _ => 0 };
+const CHOICE: usize = match L { ?.Red => 1, _ => 0 };
+const CHECK_WRAPPERS: usize = if ERR + OK + CHOICE == 3 { 1 } else { error("wrong wrapper payload") };
+type Colors = dep::PacketAlias[dep::Shade];
+const P: Colors = dep::Packet[1, dep::Shade, 2]::Values([.Red]);
+const Q: Colors = dep::PacketAlias[dep::Shade]::Named { values: [.Red, .Green] };
+const R: Colors = Colors::Empty;
+const PCHECK: usize = match P { Colors::Values(values) => if values[0] == .Red { 1 } else { 0 }, _ => 0 };
+const QCHECK: usize = match Q { Colors::Named { values } => if values[1] == .Green { 1 } else { 0 }, _ => 0 };
+const RCHECK: usize = match R { Colors::Empty => 1, _ => 0 };
+const CHECK_EXPLICIT: usize = if PCHECK + QCHECK + RCHECK == 3 { 1 } else { error("wrong explicit instance") };
+"#,
+    );
+    for program in [
+        check_program(path.to_string_lossy().into_owned()),
+        check_entry_program(path.to_string_lossy().into_owned()),
+    ] {
+        assert_no_error_diagnostics(&program.diagnostics);
+    }
+}
+
+#[test]
+fn unknown_omitted_variants_preserve_enum_context_for_every_payload_form() {
+    let root = temp_dir("unknown_omitted_variants_preserve_enum_context");
+    write(
+        &root.join("dep.nia"),
+        "pub enum Maybe[T] { None, Some(T), Named { value: T } }\npub type Alias = Maybe[i32];\n",
+    );
+    for (name, expression) in [
+        ("unit", ".Missing"),
+        ("tuple", ".Missing(3)"),
+        ("named", ".Missing { value: 3 }"),
+    ] {
+        let path = root.join("main.nia");
+        write(
+            &path,
+            &format!(
+                "module dep;\nconst C: dep::Alias = {expression};\nfun main() {{ let c: dep::Alias = {expression}; _ = c; }}\n"
+            ),
+        );
+        for program in [
+            check_program(path.to_string_lossy().into_owned()),
+            check_entry_program(path.to_string_lossy().into_owned()),
+        ] {
+            let errors = program
+                .diagnostics
+                .iter()
+                .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+                .map(|d| d.diagnostic.summary.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                errors,
+                [
+                    "unknown variant `Missing` of enum `Alias`",
+                    "unknown variant `Missing` of enum `Alias`",
+                ],
+                "{name}"
+            );
+        }
     }
 }
 

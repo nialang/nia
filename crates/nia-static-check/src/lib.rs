@@ -710,7 +710,8 @@ impl ConstCommonEnv for StaticConstEnv<'_> {
     }
 
     fn enum_variant_for_associated_target(
-        &self,
+        &mut self,
+        _span: Span,
         target: &nia_const_ir::ResolvedConstAssociatedTarget,
         name: SymbolId,
     ) -> Option<GlobalDefId> {
@@ -921,7 +922,8 @@ mod tests {
             symbols: &symbols,
             const_exprs: &type_lowering.const_exprs,
             source_path: &source_path,
-        });
+        })
+        .expect("lower const module");
         assert!(
             const_module.diagnostics.is_empty(),
             "{:?}",

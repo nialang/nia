@@ -355,7 +355,7 @@ fn filtered_const_global_initializer_for_body_check(
                     source_path: &source_path,
                 })
             },
-        );
+        )?;
         Ok::<_, nia_ice::Ice>(
             lowered
                 .module
@@ -509,12 +509,12 @@ fn const_inputs_for_body_check(
         if let Some(module) = cached {
             module
         } else {
-            let module = lower_module();
+            let module = lower_module()?;
             cache.lock().insert(module_id, module.clone());
             module
         }
     } else {
-        lower_module()
+        lower_module()?
     };
     let query_failure = RefCell::new(None);
     let program_module = |module_id| {

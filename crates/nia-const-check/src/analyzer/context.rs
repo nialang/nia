@@ -108,6 +108,12 @@ impl Analyzer<'_> {
                         .get(&def_id.def_id)?
                         .generic_params
                         .clone(),
+                    DefKind::TypeAlias => signatures
+                        .as_ref()
+                        .type_aliases
+                        .get(&def_id.def_id)?
+                        .generic_params
+                        .clone(),
                     _ => return None,
                 };
                 let (type_args, const_args) = self.resolve_const_aggregate_generic_args(
@@ -946,7 +952,7 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn resolved_const_enum_variant(
-        &self,
+        &mut self,
         expr: &ResolvedConstExpr,
     ) -> Option<(GlobalDefId, nia_item_signatures::EnumVariantSignature)> {
         if let Some(ConstNameResolution::Global(variant_id)) = expr.name_resolution() {
@@ -955,26 +961,13 @@ impl Analyzer<'_> {
         let ResolvedConstExprKind::AssociatedFunction { target, name } = expr.kind() else {
             return None;
         };
-        let enum_id = match target {
-            ResolvedConstAssociatedTarget::Nominal { def_id, .. } => *def_id,
-            ResolvedConstAssociatedTarget::Type(target) => {
-                let TyKind::Nominal { def_id, .. } = self.ty_kind(target.ty())? else {
-                    return None;
-                };
-                def_id
-            }
-        };
-        (self.def_kind_of(enum_id) == Some(DefKind::Enum)).then_some(())?;
-        let variant = self
-            .signatures_for_module(enum_id.module_id)?
-            .as_ref()
-            .enums
-            .get(&enum_id.def_id)?
-            .variants
-            .iter()
-            .find(|variant| variant.name == *name)?
-            .clone();
-        Some((enum_id, variant))
+        let variant_id = nia_const_eval::ConstCommonEnv::enum_variant_for_associated_target(
+            self,
+            expr.span(),
+            target,
+            *name,
+        )?;
+        self.const_enum_variant_signature(variant_id)
     }
 
     pub(super) fn resolved_const_enum_target_type(

@@ -185,16 +185,13 @@ fn feature_assertions(
     expected: nia_target::CpuFeatures,
     flip: Option<nia_target::CpuFeature>,
 ) -> String {
-    // `nia check` evaluates a file's consts only once the file has a function
-    // to check; a const initializer must name `error` by its full path; and
-    // an `if` over a call to another module's const fun is misread as runtime
-    // code, so each answer is named first. All three are older limitations.
-    let mut source = String::from("using std::builtin::target;\n\nfun main() i32 {\n    0\n}\n");
+    // Keep this const-only, use the re-exported builtin, and branch directly
+    // on the cross-module call: each used to need a separate workaround.
+    let mut source = String::from("using std::builtin::{target, error};\n");
     for (index, feature) in nia_target::CPU_FEATURES.into_iter().enumerate() {
         let want = expected.contains(feature) != (flip == Some(feature));
         source.push_str(&format!(
-            "const HAS_{index}: bool = target::hasFeature(.{feature:?});\n\
-             const CHECK_{index}: usize = if HAS_{index} == {want} {{ 1 }} else {{ std::builtin::error(\"{feature} should be {want}\") }};\n"
+            "const CHECK_{index}: usize = if target::hasFeature(.{feature:?}) == {want} {{ 1 }} else {{ error(\"{feature} should be {want}\") }};\n"
         ));
     }
     source
@@ -270,6 +267,29 @@ fn target_feature_query_matches_the_cpu_level_on_every_target() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "a wrong expectation passed");
     assert!(stderr.contains("avx2 should be false"), "{stderr}");
+    assert_eq!(stderr.matches("error[").count(), 1, "{stderr}");
+}
+
+#[test]
+fn unknown_target_feature_variant_names_its_enum_in_a_const_only_file() {
+    let root = temp_dir("unknown_target_feature_variant");
+    let source = root.join("main.nia");
+    std::fs::write(
+        &source,
+        "using std::builtin::target;\nconst Y: bool = target::hasFeature(.Avx3);\n",
+    )
+    .expect("write unknown feature");
+    let output = support::nia_command()
+        .args(["check", "--runtime", "bare"])
+        .arg(&source)
+        .output_timeout_for_compiler("check unknown feature variant");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "an unknown variant passed");
+    assert!(
+        stderr.contains("unknown variant `Avx3` of enum `CpuFeature`"),
+        "{stderr}",
+    );
+    assert_eq!(stderr.matches("error[").count(), 1, "{stderr}");
 }
 
 /// Linking resolves every symbol that generated code calls, so a target that

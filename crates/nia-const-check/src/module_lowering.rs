@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
     sync::Arc,
 };
@@ -12,7 +13,9 @@ use nia_const_ir::{
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
-use nia_item_signatures::{GenericParamSignatureKind, generic_argument_substitutions};
+use nia_item_signatures::{
+    EnumVariantPayloadSignature, GenericParamSignatureKind, generic_argument_substitutions,
+};
 use nia_item_tree::{ItemTreeNode, ItemTreeNodeKind};
 use nia_local_resolve::LocalKind;
 use nia_node_id::VersionedNodeKey;
@@ -35,25 +38,74 @@ struct ConstructorMaps {
 /// The active item tree determines which definitions participate in the
 /// result; unresolved names are retained as diagnostics instead of being
 /// guessed from their source spelling.
-pub fn lower_module_const(input: ConstModuleInput<'_>) -> ConstModuleLowering {
+pub fn lower_module_const(input: ConstModuleInput<'_>) -> nia_ice::IceResult<ConstModuleLowering> {
     let mut lowerer = ConstModuleLowerer {
         input,
         module: ResolvedConstModule::default(),
         diagnostics: Vec::new(),
+        normalization: RefCell::new(crate::TypeNormalization {
+            normalized: HashMap::new(),
+            diagnostics: Vec::new(),
+        }),
+        internal_error: RefCell::new(None),
     };
     lowerer.lower_module();
-    ConstModuleLowering {
+    if let Some(error) = lowerer.internal_error.into_inner() {
+        return Err(error);
+    }
+    lowerer
+        .diagnostics
+        .extend(lowerer.normalization.into_inner().diagnostics);
+    Ok(ConstModuleLowering {
         module: Arc::new(lowerer.module),
         diagnostics: lowerer.diagnostics,
-    }
+    })
 }
 struct ConstModuleLowerer<'a> {
     input: ConstModuleInput<'a>,
     module: ResolvedConstModule,
     diagnostics: Vec<Diagnostic>,
+    normalization: RefCell<crate::TypeNormalization>,
+    internal_error: RefCell<Option<nia_ice::Ice>>,
 }
 
 impl ConstModuleLowerer<'_> {
+    fn type_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
+        if let Some(normalized) = self.normalization.borrow().normalized.get(&ty).copied() {
+            return self.input.type_store.get(normalized);
+        }
+        // Const IR is also lowered while declaration signatures are being
+        // discovered. Normalize from raw alias signatures, never by querying
+        // another module's completed const or normalization products.
+        let external_alias = |id: GlobalDefId| {
+            (self.input.signatures_for_module?)(id.module_id)?
+                .type_aliases
+                .get(&id.def_id)
+                .cloned()
+        };
+        match nia_type_normalize::normalize_module_types(
+            nia_type_normalize::TypeNormalizationInput {
+                module_id: self.input.defs.module_id,
+                type_store: self.input.type_store,
+                input_ids: &[ty],
+                signatures: self.input.signatures,
+                external_alias: Some(&external_alias),
+            },
+        ) {
+            Ok(normalized) => {
+                let ty = normalized.normalize(ty);
+                let mut cache = self.normalization.borrow_mut();
+                cache.normalized.extend(normalized.normalized);
+                cache.diagnostics.extend(normalized.diagnostics);
+                self.input.type_store.get(ty)
+            }
+            Err(error) => {
+                self.internal_error.borrow_mut().get_or_insert(error);
+                None
+            }
+        }
+    }
+
     fn lower_module(&mut self) {
         for item in self.input.active_item_tree.items.iter() {
             match &item.kind {
@@ -105,7 +157,7 @@ impl ConstModuleLowerer<'_> {
         for (local_id, local) in self.input.locals.locals.iter() {
             if local.kind == LocalKind::ConstBinding
                 && let Some((expr, explicit_type)) = self.local_initializer(local_id)
-                && let Some(value) = self.lower_expr(&expr)
+                && let Some(value) = self.lower_expr_with_expected(&expr, explicit_type, None)
             {
                 self.module.insert_local_initializer(
                     local_id,
@@ -344,7 +396,7 @@ impl ConstModuleLowerer<'_> {
         }
         // An omitted constructor used as a callable is selected by its result
         // type, while a constructor call is selected by the expression result.
-        let constructor_result = expected_type.and_then(|ty| match self.input.type_store.get(ty) {
+        let constructor_result = expected_type.and_then(|ty| match self.type_kind(ty) {
             Some(
                 TyKind::FunctionPointer { return_type, .. }
                 | TyKind::Callable { return_type, .. }
@@ -385,33 +437,31 @@ impl ConstModuleLowerer<'_> {
         expected_type: Option<InternedTyId>,
         expected_ref: Option<&nia_ast::TypeRef>,
     ) -> Option<GlobalDefId> {
-        expected_ref
-            .and_then(|ty| {
-                self.input
-                    .semantic_uses
-                    .node_type_prefix(&ty.node_key)
-                    .or_else(|| match &ty.kind {
-                        nia_ast::TypeKind::Path { segments } if segments.len() == 1 => {
-                            let nia_ast::PathSegmentKind::Name(name) = segments[0].kind else {
-                                return None;
-                            };
-                            self.input.defs.module_scope.types.get(&name).map(|def_id| {
-                                GlobalDefId {
-                                    module_id: self.input.defs.module_id,
-                                    def_id,
-                                }
-                            })
-                        }
-                        _ => None,
-                    })
+        expected_type
+            .and_then(|ty| match self.type_kind(ty) {
+                Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
+                _ => None,
             })
             .or_else(|| {
-                let expected_type = expected_type?;
-                let TyKind::Nominal { def_id, .. } = self.input.type_store.get(expected_type)?
-                else {
-                    return None;
-                };
-                Some(*def_id)
+                expected_ref.and_then(|ty| {
+                    self.input
+                        .semantic_uses
+                        .node_type_prefix(&ty.node_key)
+                        .or_else(|| match &ty.kind {
+                            nia_ast::TypeKind::Path { segments } if segments.len() == 1 => {
+                                let nia_ast::PathSegmentKind::Name(name) = segments[0].kind else {
+                                    return None;
+                                };
+                                self.input.defs.module_scope.types.get(&name).map(|def_id| {
+                                    GlobalDefId {
+                                        module_id: self.input.defs.module_id,
+                                        def_id,
+                                    }
+                                })
+                            }
+                            _ => None,
+                        })
+                })
             })
             .filter(|id| {
                 if id.module_id == self.input.defs.module_id {
@@ -597,13 +647,12 @@ impl ConstModuleLowerer<'_> {
                 }
             }
             nia_ast::ExprKind::Tuple(values) => {
-                let expected_elements =
-                    expected_type.and_then(|ty| match self.input.type_store.get(ty) {
-                        Some(TyKind::Tuple(elements)) if elements.len() == values.len() => {
-                            Some(elements.clone())
-                        }
-                        _ => None,
-                    });
+                let expected_elements = expected_type.and_then(|ty| match self.type_kind(ty) {
+                    Some(TyKind::Tuple(elements)) if elements.len() == values.len() => {
+                        Some(elements.clone())
+                    }
+                    _ => None,
+                });
                 for (index, value) in values.iter().enumerate() {
                     self.collect_expr_omitted_maps(
                         value,
@@ -617,7 +666,13 @@ impl ConstModuleLowerer<'_> {
                 }
             }
             nia_ast::ExprKind::Call { callee, args } => {
-                let parameter_types = self.direct_call_parameter_types(callee, local_types);
+                let parameter_types = self
+                    .enum_variant_payload_types(callee, expected_type, expected_ref)
+                    .and_then(|payload| match payload {
+                        EnumVariantPayloadSignature::Tuple(types) => Some(types),
+                        _ => None,
+                    })
+                    .or_else(|| self.direct_call_parameter_types(callee, local_types));
                 let receiver = match &callee.kind {
                     nia_ast::ExprKind::Field { lhs, .. } => Some(lhs.as_ref()),
                     nia_ast::ExprKind::BracketSuffix { callee, .. } => {
@@ -653,16 +708,25 @@ impl ConstModuleLowerer<'_> {
                     }
                 }
             }
-            nia_ast::ExprKind::Binary { lhs, rhs, .. } => {
-                self.collect_expr_omitted_maps(lhs, None, None, maps, local_types);
-                self.collect_expr_omitted_maps(rhs, None, None, maps, local_types);
+            nia_ast::ExprKind::Binary { lhs, op, rhs } => {
+                // Equality supplies enum context symmetrically, as ordinary
+                // body checking does. The boolean result is not that context.
+                let equality = matches!(op, nia_ast::BinaryOp::Eq | nia_ast::BinaryOp::Ne);
+                let lhs_hint = equality
+                    .then(|| self.expr_type_hint(rhs, local_types))
+                    .flatten();
+                let rhs_hint = equality
+                    .then(|| self.expr_type_hint(lhs, local_types))
+                    .flatten();
+                self.collect_expr_omitted_maps(lhs, lhs_hint, None, maps, local_types);
+                self.collect_expr_omitted_maps(rhs, rhs_hint, None, maps, local_types);
             }
             nia_ast::ExprKind::Unary {
                 op: nia_ast::UnaryOp::RefReadOnly,
                 expr: inner,
             } if expected_type.is_some_and(|ty| {
                 matches!(
-                    self.input.type_store.get(ty),
+                    self.type_kind(ty),
                     Some(TyKind::FunctionPointer { .. } | TyKind::Callable { .. })
                 )
             }) =>
@@ -677,11 +741,22 @@ impl ConstModuleLowerer<'_> {
             nia_ast::ExprKind::OptionalSome { expr: inner }
             | nia_ast::ExprKind::ErrorOk { expr: inner }
             | nia_ast::ExprKind::ErrorErr { expr: inner } => {
-                let inner_type = expected_type.and_then(|ty| match self.input.type_store.get(ty) {
-                    Some(TyKind::Optional { elem })
-                    | Some(TyKind::ErrorUnion { value: elem, .. }) => Some(*elem),
-                    _ => None,
-                });
+                let inner_type =
+                    expected_type.and_then(|ty| match (&expr.kind, self.type_kind(ty)) {
+                        (
+                            nia_ast::ExprKind::OptionalSome { .. },
+                            Some(TyKind::Optional { elem }),
+                        ) => Some(*elem),
+                        (
+                            nia_ast::ExprKind::ErrorOk { .. },
+                            Some(TyKind::ErrorUnion { value, .. }),
+                        ) => Some(*value),
+                        (
+                            nia_ast::ExprKind::ErrorErr { .. },
+                            Some(TyKind::ErrorUnion { error, .. }),
+                        ) => Some(*error),
+                        _ => None,
+                    });
                 self.collect_expr_omitted_maps(inner, inner_type, None, maps, local_types);
             }
             nia_ast::ExprKind::Field { lhs, .. } | nia_ast::ExprKind::TupleField { lhs, .. } => {
@@ -914,9 +989,9 @@ impl ConstModuleLowerer<'_> {
     }
 
     fn array_element_type(&self, ty: InternedTyId) -> Option<InternedTyId> {
-        match self.input.type_store.get(ty)? {
+        match self.type_kind(ty)? {
             TyKind::Array { elem, .. } => Some(*elem),
-            TyKind::Pointer { elem, .. } => match self.input.type_store.get(*elem)? {
+            TyKind::Pointer { elem, .. } => match self.type_kind(*elem)? {
                 TyKind::Array { elem, .. } | TyKind::SlicePointee { elem } => Some(*elem),
                 _ => None,
             },
@@ -945,6 +1020,68 @@ impl ConstModuleLowerer<'_> {
         if let Some(ty) = self.input.semantic_uses.node_type_use(&target.node_key) {
             return Some(ty);
         }
+        if let nia_ast::ExprKind::BracketSuffix { callee, args } = &target.kind {
+            let def_id = self
+                .input
+                .semantic_uses
+                .node_type_prefix(&callee.node_key)?;
+            let foreign = (def_id.module_id != self.input.defs.module_id)
+                .then(|| (self.input.signatures_for_module?)(def_id.module_id))
+                .flatten();
+            let signatures = if def_id.module_id == self.input.defs.module_id {
+                self.input.signatures
+            } else {
+                foreign.as_deref()?
+            };
+            let params = signatures
+                .enums
+                .get(&def_id.def_id)
+                .map(|signature| &signature.generic_params)
+                .or_else(|| {
+                    signatures
+                        .type_aliases
+                        .get(&def_id.def_id)
+                        .map(|signature| &signature.generic_params)
+                })
+                .or_else(|| {
+                    signatures
+                        .structs
+                        .get(&def_id.def_id)
+                        .map(|signature| &signature.generic_params)
+                })
+                .or_else(|| {
+                    signatures
+                        .unions
+                        .get(&def_id.def_id)
+                        .map(|signature| &signature.generic_params)
+                })?;
+            let (types, consts) = self.explicit_call_substitutions(params, args);
+            let type_args = params
+                .iter()
+                .filter(|param| matches!(param.kind, GenericParamSignatureKind::Type))
+                .map(|param| types.get(&param.name).copied())
+                .collect::<Option<Vec<_>>>()?;
+            let const_args = params
+                .iter()
+                .filter(|param| matches!(param.kind, GenericParamSignatureKind::Const { .. }))
+                .map(|param| consts.get(&param.name).cloned())
+                .collect::<Option<Vec<_>>>()?;
+            return match self
+                .input
+                .type_store
+                .append_for_module(self.input.defs.module_id)
+                .intern(TyKind::Nominal {
+                    def_id,
+                    args: type_args,
+                    const_args,
+                }) {
+                Ok(ty) => Some(ty),
+                Err(error) => {
+                    self.internal_error.borrow_mut().get_or_insert(error);
+                    None
+                }
+            };
+        }
         let def_id = self
             .input
             .semantic_uses
@@ -969,7 +1106,7 @@ impl ConstModuleLowerer<'_> {
             def_id,
             args,
             const_args,
-        } = self.input.type_store.get(ty)?
+        } = self.type_kind(ty)?
         else {
             return None;
         };
@@ -1355,10 +1492,10 @@ impl ConstModuleLowerer<'_> {
         if pattern == actual {
             return true;
         }
-        let Some(pattern_kind) = self.input.type_store.get(pattern).cloned() else {
+        let Some(pattern_kind) = self.type_kind(pattern).cloned() else {
             return false;
         };
-        let Some(actual_kind) = self.input.type_store.get(actual).cloned() else {
+        let Some(actual_kind) = self.type_kind(actual).cloned() else {
             return false;
         };
         match (pattern_kind, actual_kind) {
@@ -1585,10 +1722,35 @@ impl ConstModuleLowerer<'_> {
         if let Some(ty) = self.input.semantic_uses.node_type_use(&expr.node_key) {
             return Some(ty);
         }
-        if let Some(SemanticValueUse::Local(local_id)) =
-            self.input.semantic_uses.node_value_use(&expr.node_key)
-        {
-            return local_types.get(&local_id).map(|(ty, _)| *ty);
+        match self.input.semantic_uses.node_value_use(&expr.node_key) {
+            Some(SemanticValueUse::Local(local_id)) => {
+                return local_types.get(&local_id).map(|(ty, _)| *ty);
+            }
+            Some(SemanticValueUse::Global(id)) => {
+                let foreign = (id.module_id != self.input.defs.module_id)
+                    .then(|| (self.input.signatures_for_module?)(id.module_id))
+                    .flatten();
+                let signatures = if id.module_id == self.input.defs.module_id {
+                    Some(self.input.signatures)
+                } else {
+                    foreign.as_deref()
+                };
+                if let Some(ty) = signatures.and_then(|signatures| {
+                    signatures
+                        .consts
+                        .get(&id.def_id)
+                        .and_then(|signature| signature.explicit_type)
+                        .or_else(|| {
+                            signatures
+                                .globals
+                                .get(&id.def_id)
+                                .and_then(|signature| signature.explicit_type)
+                        })
+                }) {
+                    return Some(ty);
+                }
+            }
+            None => {}
         }
         match &expr.kind {
             nia_ast::ExprKind::TypedStructLiteral { ty, .. } => {
@@ -1600,31 +1762,27 @@ impl ConstModuleLowerer<'_> {
             nia_ast::ExprKind::Call { callee, .. } => {
                 self.direct_call_return_type(callee, local_types)
             }
+            nia_ast::ExprKind::Index {
+                lhs,
+                index: nia_ast::IndexArg::Expr(_),
+            } => self.array_element_type(self.expr_type_hint(lhs, local_types)?),
+            nia_ast::ExprKind::BracketSuffix { callee, args } if args.len() == 1 => {
+                self.array_element_type(self.expr_type_hint(callee, local_types)?)
+            }
+            nia_ast::ExprKind::Field { lhs, name } => {
+                self.aggregate_field_type(self.expr_type_hint(lhs, local_types)?, *name)
+            }
             _ => None,
         }
     }
 
-    fn enum_variant_field_types(
+    fn enum_variant_payload_types(
         &self,
         target: &Expr,
         expected_type: Option<InternedTyId>,
         expected_ref: Option<&nia_ast::TypeRef>,
-    ) -> Option<HashMap<nia_symbol::SymbolId, InternedTyId>> {
-        let variant_id = self
-            .input
-            .semantic_uses
-            .node_value_use(&target.node_key)
-            .and_then(|use_| match use_ {
-                SemanticValueUse::Global(id) => Some(id),
-                SemanticValueUse::Local(_) => None,
-            })
-            .or_else(|| {
-                let nia_ast::ExprKind::OmittedMember { name } = &target.kind else {
-                    return None;
-                };
-                let enum_id = self.enum_def_for_type(expected_type, expected_ref)?;
-                self.enum_variant_by_name(enum_id, *name)
-            })?;
+    ) -> Option<EnumVariantPayloadSignature> {
+        let variant_id = self.constructor_variant_id(target, expected_type, expected_ref)?;
         let foreign_signatures = (variant_id.module_id != self.input.defs.module_id)
             .then(|| (self.input.signatures_for_module?)(variant_id.module_id))
             .flatten();
@@ -1634,19 +1792,92 @@ impl ConstModuleLowerer<'_> {
         let signatures = foreign_signatures
             .as_deref()
             .unwrap_or(self.input.signatures);
-        signatures.enums.values().find_map(|signature| {
-            signature
-                .variants
-                .iter()
-                .find(|variant| variant.def_id == variant_id.def_id)
-                .and_then(|variant| match &variant.payload {
-                    nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
-                        Some(fields.iter().map(|field| (field.name, field.ty)).collect())
-                    }
-                    nia_item_signatures::EnumVariantPayloadSignature::Unit
-                    | nia_item_signatures::EnumVariantPayloadSignature::Tuple(_) => None,
-                })
-        })
+        let (enum_def, signature, variant) =
+            signatures.enums.iter().find_map(|(id, signature)| {
+                let variant = signature
+                    .variants
+                    .iter()
+                    .find(|v| v.def_id == variant_id.def_id)?;
+                Some((*id, signature, variant))
+            })?;
+        let explicit_target = match &target.kind {
+            nia_ast::ExprKind::Qualified { lhs, .. } => self.qualified_aggregate_type(lhs),
+            _ => None,
+        };
+        let substitutions = explicit_target
+            .into_iter()
+            .chain(expected_type)
+            .find_map(|ty| {
+                let TyKind::Nominal {
+                    def_id,
+                    args,
+                    const_args,
+                } = self.type_kind(ty)?
+                else {
+                    return None;
+                };
+                (def_id.module_id == variant_id.module_id && def_id.def_id == enum_def)
+                    .then(|| {
+                        generic_argument_substitutions(&signature.generic_params, args, const_args)
+                    })
+                    .flatten()
+            });
+        let (type_substitutions, const_substitutions) = substitutions.unwrap_or_default();
+        let substitute = |ty| match nia_ty::substitute_ty(
+            self.input.type_store,
+            &self
+                .input
+                .type_store
+                .append_for_module(self.input.defs.module_id),
+            ty,
+            &|name| type_substitutions.get(name).copied(),
+            &|name| const_substitutions.get(name).cloned(),
+            None,
+        ) {
+            Ok(ty) => Some(ty),
+            Err(error) => {
+                self.internal_error.borrow_mut().get_or_insert(error);
+                None
+            }
+        };
+        match &variant.payload {
+            EnumVariantPayloadSignature::Unit => Some(EnumVariantPayloadSignature::Unit),
+            EnumVariantPayloadSignature::Tuple(types) => Some(EnumVariantPayloadSignature::Tuple(
+                types
+                    .iter()
+                    .map(|ty| substitute(*ty))
+                    .collect::<Option<_>>()?,
+            )),
+            EnumVariantPayloadSignature::Named(fields) => Some(EnumVariantPayloadSignature::Named(
+                fields
+                    .iter()
+                    .map(|field| {
+                        let mut field = field.clone();
+                        field.ty = substitute(field.ty)?;
+                        Some(field)
+                    })
+                    .collect::<Option<_>>()?,
+            )),
+        }
+    }
+
+    fn enum_variant_field_types(
+        &self,
+        target: &Expr,
+        expected_type: Option<InternedTyId>,
+        expected_ref: Option<&nia_ast::TypeRef>,
+    ) -> Option<HashMap<nia_symbol::SymbolId, InternedTyId>> {
+        let EnumVariantPayloadSignature::Named(fields) =
+            self.enum_variant_payload_types(target, expected_type, expected_ref)?
+        else {
+            return None;
+        };
+        Some(
+            fields
+                .into_iter()
+                .map(|field| (field.name, field.ty))
+                .collect(),
+        )
     }
 
     fn array_element_type_hint(
@@ -1689,11 +1920,10 @@ impl ConstModuleLowerer<'_> {
                     self.constructor_maps(constructor, expected_type, expected_ref);
                 maps.aggregate_types.extend(aggregates);
                 maps.omitted_members.extend(members);
-                if let Some(variant_id) =
-                    self.pattern_variant_id(constructor, expected_type, expected_ref)
-                    && let Some(variant) = self.enum_variant_signature(variant_id)
+                if let Some(payload) =
+                    self.enum_variant_payload_types(constructor, expected_type, expected_ref)
                 {
-                    match (&variant.payload, fields) {
+                    match (&payload, fields) {
                         (
                             nia_item_signatures::EnumVariantPayloadSignature::Tuple(types),
                             nia_ast::NominalPatternFields::Tuple(patterns),
@@ -1731,14 +1961,14 @@ impl ConstModuleLowerer<'_> {
                 }
             }
             nia_ast::PatternKind::Pointer(inner) | nia_ast::PatternKind::MutPointer(inner) => {
-                let elem = expected_type.and_then(|ty| match self.input.type_store.get(ty) {
+                let elem = expected_type.and_then(|ty| match self.type_kind(ty) {
                     Some(TyKind::Pointer { elem, .. }) => Some(*elem),
                     _ => None,
                 });
                 self.collect_pattern_omitted_maps(inner, elem, None, maps, local_types);
             }
             nia_ast::PatternKind::OptionalSome(inner) => {
-                let elem = expected_type.and_then(|ty| match self.input.type_store.get(ty) {
+                let elem = expected_type.and_then(|ty| match self.type_kind(ty) {
                     Some(TyKind::Optional { elem }) => Some(*elem),
                     _ => None,
                 });
@@ -1746,7 +1976,7 @@ impl ConstModuleLowerer<'_> {
             }
             nia_ast::PatternKind::ErrorOk(inner) | nia_ast::PatternKind::ErrorErr(inner) => {
                 let error_arm = matches!(pattern.kind, nia_ast::PatternKind::ErrorErr(_));
-                let elem = expected_type.and_then(|ty| match self.input.type_store.get(ty) {
+                let elem = expected_type.and_then(|ty| match self.type_kind(ty) {
                     Some(TyKind::ErrorUnion { error, value }) => {
                         Some(if error_arm { *error } else { *value })
                     }
@@ -1756,7 +1986,7 @@ impl ConstModuleLowerer<'_> {
             }
             nia_ast::PatternKind::Tuple(items) => {
                 let types = expected_type
-                    .and_then(|ty| match self.input.type_store.get(ty) {
+                    .and_then(|ty| match self.type_kind(ty) {
                         Some(TyKind::Tuple(types)) => Some(types.as_slice()),
                         _ => None,
                     })
@@ -1775,7 +2005,7 @@ impl ConstModuleLowerer<'_> {
         }
     }
 
-    fn pattern_variant_id(
+    fn constructor_variant_id(
         &self,
         constructor: &Expr,
         expected_type: Option<InternedTyId>,
@@ -1788,10 +2018,16 @@ impl ConstModuleLowerer<'_> {
         {
             return Some(def_id);
         }
-        let nia_ast::ExprKind::OmittedMember { name } = &constructor.kind else {
-            return None;
+        let (enum_id, name) = match &constructor.kind {
+            nia_ast::ExprKind::OmittedMember { name } => {
+                (self.enum_def_for_type(expected_type, expected_ref)?, name)
+            }
+            nia_ast::ExprKind::Qualified { lhs, name, .. } => {
+                let ty = self.qualified_aggregate_type(lhs)?;
+                (self.enum_def_for_type(Some(ty), None)?, name)
+            }
+            _ => return None,
         };
-        let enum_id = self.enum_def_for_type(expected_type, expected_ref)?;
         self.enum_variant_by_name(enum_id, *name)
     }
 
@@ -1820,26 +2056,6 @@ impl ConstModuleLowerer<'_> {
             module_id: enum_id.module_id,
             def_id,
         })
-    }
-
-    fn enum_variant_signature(
-        &self,
-        variant_id: GlobalDefId,
-    ) -> Option<nia_item_signatures::EnumVariantSignature> {
-        let foreign_signatures = (variant_id.module_id != self.input.defs.module_id)
-            .then(|| (self.input.signatures_for_module?)(variant_id.module_id))
-            .flatten();
-        if variant_id.module_id != self.input.defs.module_id && foreign_signatures.is_none() {
-            return None;
-        }
-        foreign_signatures
-            .as_deref()
-            .unwrap_or(self.input.signatures)
-            .enums
-            .values()
-            .flat_map(|signature| signature.variants.iter())
-            .find(|variant| variant.def_id == variant_id.def_id)
-            .cloned()
     }
 
     fn omitted_associated_maps(

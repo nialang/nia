@@ -3,6 +3,99 @@ use nia_const_eval::ConstValue;
 use nia_ty::IntConst;
 
 #[test]
+fn contextual_enum_aliases_lower_without_body_check() {
+    let fixture = check_source(
+        r#"
+enum Color { Red, Green }
+enum Failure { Oops }
+enum Maybe[T] { None, Some(T), Named { value: T } }
+type Alias = Maybe[Color];
+type Colors = [Color; 2];
+type Outcome = Failure!Color;
+type Choice = ?Color;
+const ERROR: Outcome = .Oops!;
+const GOOD: Outcome = !.Green;
+const OPTIONAL: Choice = ?.Red;
+const DATA: Alias = .Some(.Red);
+const EMPTY: Alias = .None;
+const NAMED: Alias = .Named { value: .Green };
+const COLORS: Colors = [.Red, .Green];
+const fun local() Color { const L: Color = .Green; L }
+const FIRST: i32 = match DATA { .Some(.Red) => 40, _ => 0 };
+const SECOND: i32 = match NAMED { .Named { value: .Green } => 2, _ => 0 };
+const E: i32 = match ERROR { .Oops! => 0, !value => 1 };
+const O: i32 = match GOOD { error! => 1, !.Green => 0, _ => 1 };
+const C: i32 = match OPTIONAL { ?.Red => 0, _ => 1 };
+const VALUE: i32 = if local() == .Green and .Red == COLORS[0] and E + O + C == 0 { FIRST + SECOND } else { 0 };
+"#,
+    );
+    assert!(
+        fixture.const_module.diagnostics.is_empty(),
+        "{:?}",
+        fixture.const_module.diagnostics,
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics,
+    );
+    let key = ConstKey::Global(GlobalDefId {
+        module_id: fixture.module_id,
+        def_id: fixture
+            .defs
+            .module_scope
+            .values
+            .get(&sym("VALUE"))
+            .expect("VALUE"),
+    });
+    assert_eq!(
+        fixture.checked.values.get(&key),
+        Some(&ConstValue::Int(IntConst::signed(42))),
+    );
+}
+
+#[test]
+fn explicit_enum_alias_instances_lower_without_body_check() {
+    let fixture = check_source(
+        r#"
+enum Color { Red, Green }
+enum Packet[N: usize, T, M: usize] { Values([T; N]), Named { values: [T; M] }, Empty }
+type Alias[T] = Packet[1, T, 2];
+type Colors = Alias[Color];
+const A: Colors = Packet[1, Color, 2]::Values([.Red]);
+const B: Colors = Alias[Color]::Named { values: [.Red, .Green] };
+const C: Colors = Colors::Empty;
+const FIRST: i32 = match A { Colors::Values(values) => if values[0] == .Red { 40 } else { 0 }, _ => 0 };
+const SECOND: i32 = match B { Colors::Named { values } => if values[1] == .Green { 2 } else { 0 }, _ => 0 };
+const VALUE: i32 = match C { Colors::Empty => FIRST + SECOND, _ => 0 };
+"#,
+    );
+    assert!(
+        fixture.const_module.diagnostics.is_empty(),
+        "{:?}",
+        fixture.const_module.diagnostics
+    );
+    assert!(
+        fixture.checked.diagnostics.is_empty(),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    let key = ConstKey::Global(GlobalDefId {
+        module_id: fixture.module_id,
+        def_id: fixture
+            .defs
+            .module_scope
+            .values
+            .get(&sym("VALUE"))
+            .expect("VALUE"),
+    });
+    assert_eq!(
+        fixture.checked.values.get(&key),
+        Some(&ConstValue::Int(IntConst::signed(42)))
+    );
+}
+
+#[test]
 fn cyclic_const_dependencies_do_not_poison_independent_values() {
     let fixture = check_source(
         r#"

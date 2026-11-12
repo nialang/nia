@@ -32,7 +32,7 @@ fn compute_test_const(
         symbols,
         const_exprs: &lowered.const_exprs,
         source_path: &source_path,
-    });
+    }).expect("lower const module");
     assert!(
         const_module.diagnostics.is_empty(),
         "{:?}",

@@ -87,7 +87,8 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         symbols: &symbols,
         const_exprs: &type_lowering.const_exprs,
         source_path: &source_path,
-    });
+    })
+    .expect("lower const module");
     assert!(
         const_module.diagnostics.is_empty(),
         "{:?}",

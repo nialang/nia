@@ -26,6 +26,9 @@ enum Packet[T, N: usize] {
     Empty,
 }
 
+type NumberOption = Option[i32];
+type NumberPacket = Packet[i32, 3];
+
 extend[T] Option[T] : Extract[T] {
     fun extract(&self, fallback: T) T {
         match self.* {
@@ -63,6 +66,16 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let make64: &fun(i64) Option[i64] = &Option[i64]::Some;
     let some64 = read[i64](make64(10), 0);
     let none = read[i32](Option[i32]::None, 7);
+    let aliasMake: &fun(i32) NumberOption = &NumberOption::Some;
+    let aliasSome = read[i32](aliasMake(13), 0);
+    let aliasNone = match NumberOption::None {
+        NumberOption::None => 14,
+        NumberOption::Some(value) => value,
+    };
+    let aliasNamed = packet_value(NumberPacket::Nested {
+        option: NumberOption::Some(5),
+        data: [6, 7, 8],
+    });
     let packet_make: &fun(i32) Packet[i32, 3] = &Packet[i32, 3]::Value;
     let packet = packet_value(packet_make(8));
     let bytes_make: &fun([u8; 3]) Packet[i32, 3] = &Packet[i32, 3]::Bytes;
@@ -77,6 +90,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     if some != 9
         or some64 != 10
         or none != 7
+        or aliasSome != 13
+        or aliasNone != 14
+        or aliasNamed != 11
         or packet != 8
         or bytes != 4
         or nested != 11

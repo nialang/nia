@@ -477,6 +477,87 @@ fun wrong_type() i32 {
 }
 
 #[test]
+fn unknown_omitted_payload_variants_keep_argument_errors() {
+    let source = r#"
+enum Event[T] { Data(T), Named { value: T } }
+type Alias = Event[i32];
+fun invalid() {
+    let tuple: Alias = .Missing({ let bad: bool = 1; 3 });
+    let named: Alias = .Missing { value: { let bad: bool = 2; 4 } };
+    _ = tuple;
+    _ = named;
+}
+"#;
+    let checked = pipeline(source);
+    let errors = &checked.diagnostics;
+    let unknown = errors
+        .iter()
+        .filter(|d| d.summary == "unknown variant `Missing` of enum `Alias`")
+        .collect::<Vec<_>>();
+    assert_eq!(unknown.len(), 2, "{errors:?}");
+    for diagnostic in unknown {
+        let span = diagnostic.primary_span().expect("member span");
+        assert_eq!(&source[span.start..span.end], ".Missing");
+    }
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|d| d.summary.contains("expected bool"))
+            .count(),
+        2,
+        "{errors:?}",
+    );
+    assert_eq!(errors.len(), 4, "{errors:?}");
+}
+
+#[test]
+fn enum_alias_prefixes_keep_their_concrete_constructor_instance() {
+    let checked = pipeline(
+        r#"
+enum Color { Red, Green }
+enum Packet[N: usize, T, M: usize] { Values([T; N]), Named { values: [T; M] }, Empty }
+type Alias[T] = Packet[1, T, 2];
+type Colors = Alias[Color];
+fun tuple() Colors { Colors::Values([.Red]) }
+fun named() Colors { Alias[Color]::Named { values: [.Red, .Green] } }
+fun empty() Colors { Colors::Empty }
+fun constructor() Colors {
+    let make: &fun([Color; 1]) Colors = &Colors::Values;
+    make([.Green])
+}
+fun inspect(value: Colors) i32 {
+    match value {
+        Colors::Values(values) => if values[0] == .Red { 40 } else { 0 },
+        Colors::Named { values } => if values[1] == .Green { 2 } else { 0 },
+        Colors::Empty => 0,
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn explicit_named_enum_instances_do_not_take_arguments_from_the_expected_type() {
+    let checked = pipeline(
+        r#"
+enum Color { Red }
+enum Other { Red }
+enum Box[T] { Value { item: T } }
+fun invalid() Box[Color] { Box[Other]::Value { item: .Red } }
+"#,
+    );
+    assert_eq!(checked.diagnostics.len(), 1, "{:?}", checked.diagnostics);
+    assert!(
+        checked.diagnostics[0]
+            .summary
+            .contains("expected Box[Color], got Box[Other]"),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn materializes_const_enum_payloads_at_runtime() {
     let checked = pipeline(
         r#"

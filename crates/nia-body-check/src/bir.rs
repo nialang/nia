@@ -1628,20 +1628,9 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            ExprKind::Qualified { lhs, name, .. } => {
-                if let Some(variant) = self
-                    .qualified_enum_variant(expr)
-                    .or_else(|| self.enum_variant_for_qualified(lhs, name))
-                {
-                    TypedExprKind::EnumVariant {
-                        variant,
-                        fields: Vec::new(),
-                    }
-                } else {
-                    self.lower_field_access_expr(lhs, name)
-                        .unwrap_or(TypedExprKind::Error)
-                }
-            }
+            ExprKind::Qualified { lhs, name, .. } => self
+                .lower_field_access_expr(lhs, name)
+                .unwrap_or(TypedExprKind::Error),
             ExprKind::Index { lhs, index } => match index {
                 IndexArg::Expr(index) => {
                     let lhs_expected = if self.expr_ty(lhs).is_none() {
@@ -2232,29 +2221,16 @@ impl<'a> BodyChecker<'a> {
             })
     }
 
-    fn qualified_enum_variant(&self, expr: &Expr) -> Option<nia_ids::GlobalDefId> {
+    fn qualified_enum_variant(&mut self, expr: &Expr) -> Option<nia_ids::GlobalDefId> {
         self.variant_enum(expr)
             .and_then(|_| self.qualified_value(expr))
-    }
-
-    fn enum_variant_for_qualified(
-        &mut self,
-        lhs: &Expr,
-        name: &SymbolId,
-    ) -> Option<nia_ids::GlobalDefId> {
-        let enum_id = self.type_prefix_def_id(lhs)?;
-        if !self.is_enum_def(enum_id) {
-            return None;
-        }
-        let scope = self.enum_variant_scope(enum_id)?;
-        let variant_id = scope
-            .iter()
-            .find(|(variant_name, _)| variant_name == name)
-            .map(|(_, def_id)| *def_id)?;
-        Some(nia_ids::GlobalDefId {
-            module_id: enum_id.module_id,
-            def_id: variant_id,
-        })
+            .or_else(|| {
+                self.enum_variant_info(expr)
+                    .map(|(enum_id, def_id)| nia_ids::GlobalDefId {
+                        module_id: enum_id.module_id,
+                        def_id,
+                    })
+            })
     }
 
     fn lower_ident_expr(&mut self, expr: &Expr) -> TypedExprKind {

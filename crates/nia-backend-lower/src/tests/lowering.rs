@@ -96,7 +96,8 @@ pub fun main() i32 {
         symbols: &symbols,
         const_exprs: &type_lowering.const_exprs,
         source_path: &source_path,
-    });
+    })
+    .expect("lower const module");
     assert!(
         const_module.diagnostics.is_empty(),
         "{:?}",

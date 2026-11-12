@@ -251,7 +251,7 @@ pub(super) fn provide_signature_const_module(
             const_exprs: &type_lowering.const_exprs,
             source_path: &source_path,
         },
-    ))
+    )?)
 }
 
 pub(super) fn signature_const_module_lowering(

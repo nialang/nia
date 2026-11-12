@@ -106,8 +106,14 @@ y
         .expect("local y pattern span");
     let item_tree = ModuleItemTree::from_module(&module);
     let active_item_tree = item_tree.all_items_active();
-    let semantic_uses =
-        semantic_use_table(module_id, &values, &locals, &lowered, &active_item_tree);
+    let semantic_uses = semantic_use_table(
+        module_id,
+        &values,
+        &locals,
+        &type_names,
+        &lowered,
+        &active_item_tree,
+    );
     let source_path = SourcePath::new("/tmp/nia-const-check-test/lowering.nia");
 
     let const_module = lower_module_const(ConstModuleInput {
@@ -124,7 +130,8 @@ y
         symbols: &symbols,
         const_exprs: &lowered.const_exprs,
         source_path: &source_path,
-    });
+    })
+    .expect("lower const module");
 
     assert!(
         const_module.diagnostics.iter().any(|diagnostic| {

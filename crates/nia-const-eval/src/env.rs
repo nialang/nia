@@ -220,9 +220,10 @@ pub trait ConstCommonEnv {
     /// Resolves an enum variant written through an associated nominal target,
     /// such as `Packet[i32, 3]::Bytes`. The resolved IR keeps the target and
     /// name separate from ordinary global names, so the semantic environment
-    /// owns this final namespace lookup.
+    /// owns instantiation, alias normalization, and this final namespace lookup.
     fn enum_variant_for_associated_target(
-        &self,
+        &mut self,
+        _span: Span,
         _target: &nia_const_ir::ResolvedConstAssociatedTarget,
         _name: SymbolId,
     ) -> Option<GlobalDefId> {

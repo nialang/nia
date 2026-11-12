@@ -535,6 +535,20 @@ fn eval_resolved_const_expr_flow(
         ResolvedConstExprKind::Block(block) => {
             return eval_resolved_function_block(block, env);
         }
+        ResolvedConstExprKind::AssociatedFunction { .. }
+            if let Some(variant) = aggregates::resolved_enum_variant_id(expr, env) =>
+        {
+            if let Some(restriction) = env.global_value_restriction(variant) {
+                return Err(ConstError {
+                    span,
+                    message: restriction.message().to_string(),
+                });
+            }
+            ConstValue::Enum {
+                variant,
+                payload: ConstEnumPayload::Unit,
+            }
+        }
         ResolvedConstExprKind::Method { .. } | ResolvedConstExprKind::AssociatedFunction { .. } => {
             return Err(ConstError {
                 span,
