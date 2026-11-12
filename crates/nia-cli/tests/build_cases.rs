@@ -1559,30 +1559,34 @@ fn assert_module_optimization_inheritance(workspace: &Path) {
     );
 }
 
+/// The path the build runner reports for `path`: its physical identity after
+/// canonicalization. macOS exposes `/private` for temporary directories even
+/// when the test creates them through `/var`. Windows may resolve an 8.3
+/// short path to its long form, and a mixed-separator path, such as cargo's
+/// `CARGO_BIN_EXE_*` under a forward-slash `CARGO_TARGET_DIR`, to its native
+/// spelling.
+fn reported_physical_path(path: &Path) -> Cow<'_, Path> {
+    if !cfg!(any(target_os = "macos", windows)) {
+        return Cow::Borrowed(path);
+    }
+    let canonical = path.canonicalize().expect("canonicalize reported path");
+    #[cfg(windows)]
+    let canonical = canonical
+        .to_string_lossy()
+        .strip_prefix(r"\\?\")
+        .map(Path::new)
+        .unwrap_or(&canonical)
+        .to_path_buf();
+    Cow::Owned(canonical)
+}
+
 fn assert_configured_build_success(
     contracts: &[String],
     workspace: &Path,
     output: &std::process::Output,
 ) {
-    // The build runner reports physical paths after canonicalization. macOS
-    // exposes `/private` for temporary directories even when the test creates
-    // them through `/var`, and Windows may resolve an 8.3 short path to its
-    // long form, so compare against the same canonical identity.
-    let reported_workspace: Cow<'_, Path> = if cfg!(any(target_os = "macos", windows)) {
-        let canonical = workspace
-            .canonicalize()
-            .expect("canonicalize configured build workspace");
-        #[cfg(windows)]
-        let canonical = canonical
-            .to_string_lossy()
-            .strip_prefix(r"\\?\")
-            .map(Path::new)
-            .unwrap_or(&canonical)
-            .to_path_buf();
-        Cow::Owned(canonical)
-    } else {
-        Cow::Borrowed(workspace)
-    };
+    let reported_workspace = reported_physical_path(workspace);
+    let reported_toolchain = reported_physical_path(Path::new(env!("CARGO_BIN_EXE_nia")));
     assert_eq!(
         contracts,
         [
@@ -1608,7 +1612,7 @@ fn assert_configured_build_success(
             "cache={}\n",
             reported_workspace.join("build").join("cache").display()
         ),
-        format!("toolchain={}\n", env!("CARGO_BIN_EXE_nia")),
+        format!("toolchain={}\n", reported_toolchain.display()),
         "run=roadmap\n".to_string(),
         "host=roadmap\n".to_string(),
     ] {
