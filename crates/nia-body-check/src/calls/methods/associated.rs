@@ -76,6 +76,12 @@ impl<'a> BodyChecker<'a> {
         // normalize aliases before looking up extensions so aliases and their
         // underlying nominal targets share the same associated-function path.
         let target_ty = self.normalize_aliases_in_type(target_ty);
+        if self.is_error_recovery_ty(target_ty) {
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
         let span = expr.span;
         let candidates = self.method_candidates_for_target(target_ty, name);
         let inaccessible_candidates = if candidates.is_empty() {
@@ -571,8 +577,12 @@ impl<'a> BodyChecker<'a> {
         {
             return self.associated_nominal_target_ty(nominal_def_id, type_args, const_args);
         }
+        // A generic target named without arguments, with no expected type to
+        // take them from, has no instance. Report that once and name the
+        // error type: the access was found and failed, which consumers must
+        // tell apart from a path that names no associated target at all.
         self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, 0);
-        self.associated_nominal_target_ty(nominal_def_id, Vec::new(), Vec::new())
+        Some(self.error())
     }
 
     fn associated_nominal_target_ty(

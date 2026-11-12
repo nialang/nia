@@ -473,6 +473,40 @@ fn constructor_generic_arguments_report_once_in_every_position() {
             .collect::<Vec<_>>();
         assert_eq!(errors, [("E0202", expected)], "{name}");
     }
+    // A generic target written without arguments, with no expected type to
+    // infer them from, is reported once; its call or constant use adds
+    // "unknown associated function" or "const value is not available"
+    // no more.
+    let missing_w = "generic argument count mismatch for `W`: expected 1, got 0";
+    for (name, body) in [
+        (
+            "associated call",
+            "fun main() i32 { let w = W::new(1); w.x }",
+        ),
+        (
+            "associated function value",
+            "fun main() i32 { let f = W::new; _ = f; 0 }",
+        ),
+        ("associated constant", "fun main() i32 { W::Z }"),
+    ] {
+        let path = root.join("targets.nia");
+        write(
+            &path,
+            &format!(
+                "{decls}extend[T] W[T] {{ const Z: i32 = 0; }}
+{body}
+"
+            ),
+        );
+        let program = check_program(path.to_string_lossy().into_owned());
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+            .map(|d| d.diagnostic.summary.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(errors, [missing_w], "{name}");
+    }
     // Patterns are not constructors: they match the scrutinee's instance.
     let path = root.join("patterns.nia");
     write(

@@ -754,6 +754,10 @@ impl<'a> BodyChecker<'a> {
         name: &SymbolId,
     ) -> Option<InternedTyId> {
         let target_ty = self.associated_target_ty(lhs, None, name)?;
+        // The target failed and was reported.
+        if self.is_error_recovery_ty(target_ty) {
+            return Some(self.error());
+        }
         let value = self.associated_const_value_for_target(target_ty, name)?;
         let def_id = value.def_id;
         self.const_types

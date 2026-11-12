@@ -256,6 +256,10 @@ impl<'a> BodyChecker<'a> {
                 if self.qualified_value(expr).is_none()
                     && let Some(target_ty) = self.associated_target_ty(lhs, expected, name)
                 {
+                    // The target failed and was reported.
+                    if self.is_error_recovery_ty(target_ty) {
+                        return None;
+                    }
                     let candidates = self.method_candidates_for_target(target_ty, name);
                     let inaccessible = if candidates.is_empty() {
                         self.inaccessible_method_candidates_for_target(target_ty, name)
@@ -299,6 +303,10 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> Option<FunctionItemRef> {
         let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
+        // The target failed and was reported.
+        if self.is_error_recovery_ty(target_ty) {
+            return None;
+        }
         let candidates = self.method_candidates_for_target(target_ty, name);
         if candidates.is_empty() {
             let inaccessible = self.inaccessible_method_candidates_for_target(target_ty, name);
