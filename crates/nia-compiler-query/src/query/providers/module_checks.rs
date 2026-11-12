@@ -15,7 +15,7 @@ pub(super) fn provide_layouts(
         let layouts = with_module_layout_input(db, module_id, &root_types, |input| {
             nia_layout::compute_layouts_with_program_context(input)
         })?;
-        Ok(store_module_layouts(db.context(), layouts)?)
+        store_module_layouts(db.context(), layouts)
     })
 }
 
