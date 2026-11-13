@@ -205,8 +205,13 @@ pub fn resolve_expr(expr: EarlyConstExpr) -> Result<ResolvedConstExpr, ConstLowe
         EarlyConstExprKind::ArrayLiteral { elems } => ResolvedConstExprKind::ArrayLiteral {
             elems: resolve_const_array_elements(elems)?,
         },
-        EarlyConstExprKind::StructLiteral { ty, fields } => ResolvedConstExprKind::StructLiteral {
+        EarlyConstExprKind::StructLiteral {
+            ty,
+            contextual,
+            fields,
+        } => ResolvedConstExprKind::StructLiteral {
             ty: resolve_type_arg(ty)?.ty(),
+            contextual,
             fields: fields
                 .into_iter()
                 .map(resolve_const_field_init)

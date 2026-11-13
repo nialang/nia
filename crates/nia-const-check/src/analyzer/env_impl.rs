@@ -827,7 +827,14 @@ impl ResolvedConstEnv for Analyzer<'_> {
     ) -> Result<ConstValue, ConstError> {
         let module_id = self.current_execution_module_id();
         self.type_context(module_id);
-        let ty = self.substitute_ty_generics(ty);
+        // Execute the same instantiated aggregate that preparation checked.
+        // This matters for omitted generic unions, whose field ABI depends
+        // on arguments inferred at the current contextual root.
+        let ty = self
+            .resolved_expr_types
+            .last()
+            .and_then(|types| types.get(&span).copied())
+            .unwrap_or_else(|| self.substitute_ty_generics(ty));
         let Some((def_id, args, const_args)) = self.expected_nominal_parts(ty) else {
             return Ok(ConstValue::Struct(fields));
         };

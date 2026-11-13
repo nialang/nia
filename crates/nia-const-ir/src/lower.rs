@@ -132,6 +132,7 @@ fn lower_expr_internal(
         },
         nia_ast::ExprKind::TypedStructLiteral { ty, fields } => EarlyConstExprKind::StructLiteral {
             ty: lower_type_arg(ty, context)?,
+            contextual: false,
             fields: fields
                 .iter()
                 .map(|field| lower_field_init_with_context(field, context))
@@ -144,6 +145,7 @@ fn lower_expr_internal(
                 .collect::<Result<Vec<_>, _>>()?;
             if let Some(ty) = context.probe_aggregate_type(&expr.node_key) {
                 EarlyConstExprKind::StructLiteral {
+                    contextual: false,
                     ty: EarlyConstTypeArg {
                         span: target.span,
                         ty_span: target.span,
@@ -166,6 +168,7 @@ fn lower_expr_internal(
                 });
             };
             EarlyConstExprKind::StructLiteral {
+                contextual: true,
                 ty: EarlyConstTypeArg {
                     span: expr.span,
                     ty_span: expr.span,

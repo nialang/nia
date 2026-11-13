@@ -888,8 +888,27 @@ impl Analyzer<'_> {
                 };
                 Some(ConstValueType::Runtime(field_ty))
             }
-            ResolvedConstExprKind::StructLiteral { ty, fields } => {
-                self.resolved_const_aggregate_literal_type(expr.span(), fields, *ty)
+            ResolvedConstExprKind::StructLiteral {
+                ty,
+                contextual,
+                fields,
+            } => {
+                let declared = self.substitute_ty_generics(*ty);
+                let literal_ty = if *contextual {
+                    // Body checking selects the nominal identity, but its
+                    // generic arguments may still belong to the callee's
+                    // inference context. Only omitted syntax can acquire the
+                    // current concrete arguments from its contextual root.
+                    expected.filter(|expected| {
+                        matches!(
+                            (self.expected_nominal_parts(declared), self.expected_nominal_parts(*expected)),
+                            (Some((declared_id, ..)), Some((expected_id, ..))) if declared_id == expected_id
+                        )
+                    }).unwrap_or(declared)
+                } else {
+                    declared
+                };
+                self.resolved_const_aggregate_literal_type(expr.span(), fields, literal_ty)
             }
             ResolvedConstExprKind::TupleStructLiteral {
                 def_id,

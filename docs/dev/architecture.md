@@ -144,6 +144,12 @@ propagated. Aliases select the same enum declaration and instance in body
 checking and const execution; qualified unit variants are values rather than
 callable capabilities.
 
+Const IR retains whether a named aggregate constructor omitted its type.
+Body checking fixes that constructor's nominal declaration; an omitted
+constructor takes its instantiated arguments from the current expected type.
+Explicit constructors retain their written arguments. Aggregate execution uses
+the prepared type facts as well, including generic union field ABI selection.
+
 Const calls query function declarations by `GlobalDefId`, including ordinary
 functions, extension methods, and trait methods. Body-local const evaluation
 uses the ordinary program signature scope for this lookup. Module signature

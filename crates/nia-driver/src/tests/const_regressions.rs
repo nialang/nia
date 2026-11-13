@@ -193,3 +193,53 @@ fun main() i32 {
 "#,
     );
 }
+
+#[test]
+fn const_omitted_aggregates_use_instantiated_context() {
+    check_and_emit(
+        "const_omitted_instantiated_context",
+        r#"
+struct Value[T] { value: T }
+union Bits[T] { value: T, bytes: [u8; 1] }
+const fun take[T](x: Value[T]) T { x.value }
+const fun take_bits[T](x: Bits[T]) T { x.value }
+const fun make() u8 { take(.{ value: 255 }) }
+const fun nested() u8 {
+    let x: Value[Value[u8]] = .{ value: .{ value: 255 } };
+    x.value.value
+}
+const fun bits() u8 { take_bits(.{ value: 255 }) }
+const A = make();
+const B = nested();
+const C = bits();
+const OK: bool = A == 255u8 and B == 255u8 and C == 255u8;
+fun main() usize { let x: [u8; if OK { 1 } else { 2 }] = [0u8; 1]; x.len() }
+"#,
+    );
+    let root = temp_dir("const_explicit_aggregate_keeps_its_arguments");
+    let source = root.join("main.nia");
+    write(
+        &source,
+        r#"
+struct Value[T] { value: T }
+const fun take[T](x: Value[T]) T { x.value }
+const fun make() u8 { take(Value[u16] { value: 255 }) }
+const A = make();
+fun main() u8 { A }
+"#,
+    );
+    let program = check_program(source.to_string_lossy().into_owned());
+    assert!(
+        nia_compiler_query::has_error_diagnostics(&program.diagnostics),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .all(|d| d.diagnostic.category() != nia_diagnostic::DiagnosticCategory::Internal),
+        "{:?}",
+        program.diagnostics
+    );
+}

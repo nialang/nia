@@ -1359,11 +1359,12 @@ pub enum ResolvedConstExprKind {
         elems: ResolvedConstArrayElements,
     },
     /// Nominal struct construction.
-    /// Nominal struct construction.
     StructLiteral {
-        /// Nominal construction is encoded in the IR itself: a struct value
-        /// can never rely on an expected type to acquire its identity.
+        /// The nominal identity selected during body checking.
         ty: InternedTyId,
+        /// Omitted `.{ ... }` syntax takes its instantiated arguments from
+        /// the current expected type, while explicit constructors retain theirs.
+        contextual: bool,
         /// Field initializers.
         fields: Vec<ResolvedConstFieldInit>,
     },
@@ -2203,10 +2204,10 @@ pub enum EarlyConstExprKind {
     },
     /// Nominal struct construction.
     StructLiteral {
-        /// Nominal type argument, possibly unresolved.
-        /// The source syntax names every constructed aggregate. Resolution
-        /// may still fail inside this type argument, but it is never absent.
+        /// Explicit or contextually selected nominal type, possibly unresolved.
         ty: EarlyConstTypeArg,
+        /// Whether the source omitted its construction type.
+        contextual: bool,
         /// Field initializers.
         fields: Vec<EarlyConstFieldInit>,
     },

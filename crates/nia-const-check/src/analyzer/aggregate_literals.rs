@@ -9,11 +9,8 @@ impl Analyzer<'_> {
         fields: &[ResolvedConstFieldInit],
         expected: InternedTyId,
     ) -> Option<ConstValueType> {
-        // Literal type arguments are resolved in the generic function's type
-        // context. During const execution, instantiate that nominal type before
-        // deriving field types; otherwise `Union[T] { value }` compares the
-        // concrete argument against the stale generic `T`.
-        let expected = self.substitute_ty_generics(expected);
+        // The caller has already instantiated the construction type in its
+        // own context. Do not substitute caller-owned arguments a second time.
         let Some((def_id, expected_args, expected_const_args)) =
             self.expected_nominal_parts(expected)
         else {

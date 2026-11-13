@@ -332,7 +332,7 @@ fn eval_resolved_const_expr_flow(
         ResolvedConstExprKind::ArrayLiteral { elems, .. } => {
             return arrays::eval_resolved_array_literal_flow(elems, env);
         }
-        ResolvedConstExprKind::StructLiteral { ty, fields } => {
+        ResolvedConstExprKind::StructLiteral { ty, fields, .. } => {
             return aggregates::eval_resolved_struct_literal_flow(span, *ty, fields, env);
         }
         ResolvedConstExprKind::TupleStructLiteral { fields, .. } => {
