@@ -240,85 +240,8 @@ fn build_module_graph(
     }
     let (mut graph, prior_diagnostics, mut index) = match seed {
         Some(value) => {
-            let mut graph = (*value.semantic).clone();
+            let graph = (*value.semantic).clone();
             let existing_modules = graph.modules().count();
-            for demand in new_provider_demands {
-                match &demand.request {
-                    nia_loader_contract::ProviderRequest::ModuleSemantic { module_path } => {
-                        record_traversal_diagnostic(
-                            activate_semantic_provider_module(
-                                db,
-                                &mut graph,
-                                module_path,
-                                &mut fact_memo,
-                            ),
-                            &mut fresh_diagnostics,
-                            module_path,
-                        )?;
-                    }
-                    nia_loader_contract::ProviderRequest::ModuleBody { module_path } => {
-                        if let Some(module_id) =
-                            graph.module_id_for_source_identity(&module_path.identity())
-                        {
-                            record_traversal_diagnostic(
-                                mark_process_used_paths_and_process(
-                                    db,
-                                    &mut graph,
-                                    module_id,
-                                    &mut fact_memo,
-                                ),
-                                &mut fresh_diagnostics,
-                                module_path,
-                            )?;
-                        }
-                    }
-                    nia_loader_contract::ProviderRequest::Method { .. }
-                    | nia_loader_contract::ProviderRequest::TraitImpl { .. } => {}
-                }
-            }
-            let existing_nodes = graph
-                .modules()
-                .take(existing_modules)
-                .cloned()
-                .collect::<Vec<_>>();
-            for node in existing_nodes {
-                let Some(demands) = provider_demands_by_target
-                    .get(&node.path.identity())
-                    .map(Vec::as_slice)
-                else {
-                    continue;
-                };
-                let declarations = demands
-                    .iter()
-                    .any(|demand| {
-                        matches!(
-                            &demand.request,
-                            nia_loader_contract::ProviderRequest::Method { .. }
-                        )
-                    })
-                    .then(|| fact_memo.module_declarations(&node.path))
-                    .transpose()?;
-                let imports = declarations
-                    .as_ref()
-                    .map(|declarations| declarations.semantic.explicit_imports.as_slice())
-                    .unwrap_or_default();
-                apply_provider_demands(
-                    &mut graph,
-                    &node,
-                    imports,
-                    demands,
-                    &mut fresh_diagnostics,
-                    &mut pending_trait_provider_imports,
-                    &mut fact_memo,
-                )?;
-            }
-            process_pending_trait_provider_imports(
-                db,
-                &mut graph,
-                &mut pending_trait_provider_imports,
-                &mut fresh_diagnostics,
-                &mut fact_memo,
-            )?;
             (graph, value.diagnostics.clone(), existing_modules)
         }
         None => {
@@ -339,6 +262,73 @@ fn build_module_graph(
             )
         }
     };
+    // Provider plans may be replayed into a fresh graph. Materialize their
+    // module targets through declared-module edges before the graph traversal
+    // reaches those targets, then apply semantic/body selection in either the
+    // fresh or incremental path.
+    for demand in new_provider_demands {
+        let (module_path, is_body) = match &demand.request {
+            nia_loader_contract::ProviderRequest::ModuleSemantic { module_path } => {
+                (module_path, false)
+            }
+            nia_loader_contract::ProviderRequest::ModuleBody { module_path } => (module_path, true),
+            nia_loader_contract::ProviderRequest::Method { .. }
+            | nia_loader_contract::ProviderRequest::TraitImpl { .. } => continue,
+        };
+        if let Some(module_id) = ensure_provider_target_module(
+            &mut graph,
+            &demand.source_path,
+            module_path,
+            &mut fact_memo,
+            &mut fresh_diagnostics,
+        )? {
+            let activation = if is_body {
+                mark_process_used_paths_and_process(db, &mut graph, module_id, &mut fact_memo)
+            } else {
+                mark_semantic_used_paths_and_process(db, &mut graph, module_id, &mut fact_memo)
+            };
+            record_traversal_diagnostic(activation, &mut fresh_diagnostics, module_path)?;
+        }
+    }
+    let existing_nodes = graph.modules().take(index).cloned().collect::<Vec<_>>();
+    for node in existing_nodes {
+        let Some(demands) = provider_demands_by_target
+            .get(&node.path.identity())
+            .map(Vec::as_slice)
+        else {
+            continue;
+        };
+        let declarations = demands
+            .iter()
+            .any(|demand| {
+                matches!(
+                    &demand.request,
+                    nia_loader_contract::ProviderRequest::Method { .. }
+                )
+            })
+            .then(|| fact_memo.module_declarations(&node.path))
+            .transpose()?;
+        let imports = declarations
+            .as_ref()
+            .map(|declarations| declarations.semantic.explicit_imports.as_slice())
+            .unwrap_or_default();
+        apply_provider_demands(
+            &mut graph,
+            &node,
+            imports,
+            demands,
+            &mut fresh_diagnostics,
+            &mut pending_trait_provider_imports,
+            &mut fact_memo,
+        )?;
+    }
+    process_pending_trait_provider_imports(
+        db,
+        &mut graph,
+        &mut pending_trait_provider_imports,
+        &mut fresh_diagnostics,
+        &mut fact_memo,
+    )?;
     loop {
         let node = graph.modules().nth(index).cloned();
         let Some(node) = node else {
@@ -346,6 +336,12 @@ fn build_module_graph(
         };
         let declarations = fact_memo.module_declarations(&node.path)?;
         mount_module_packages(db, &mut graph, &node, &declarations.semantic.package_roots)?;
+        ensure_missing_provider_targets(
+            &mut graph,
+            new_provider_demands,
+            &mut fact_memo,
+            &mut fresh_diagnostics,
+        )?;
         if should_eager_add_declarations(db.context(), &node) {
             record_traversal_diagnostic(
                 add_declared_module_children(db, &mut graph, node.id, &mut fact_memo),
@@ -387,14 +383,21 @@ fn build_module_graph(
     // missing target is a loader invariant failure, never a satisfied request;
     // persisting the resulting graph would otherwise make the next build
     // permanently incomplete.
-    for demand in new_provider_demands {
-        let target = provider_demand_target_identity(demand);
-        if graph.module_id_for_source_identity(&target).is_none() {
-            return Err(QueryError::internal(format!(
-                "provider demand target module was not loaded: {}",
-                target.normalized_path()
-            )));
-        }
+    let mut missing_targets = new_provider_demands
+        .iter()
+        .filter(|demand| {
+            graph
+                .module_id_for_source_identity(&provider_demand_target_identity(demand))
+                .is_none()
+        })
+        .map(|demand| format!("{demand:?}"))
+        .collect::<Vec<_>>();
+    missing_targets.sort_unstable();
+    if !missing_targets.is_empty() {
+        return Err(QueryError::internal(format!(
+            "provider demands refer to modules absent from the graph: {}",
+            missing_targets.join("; ")
+        )));
     }
     let diagnostics = ProgramDiagnosticBundles::from_diagnostics_in(
         db.context().diagnostic_store.clone(),
@@ -418,6 +421,152 @@ fn provider_demand_target_identity(demand: &nia_loader_contract::ProviderDemand)
         nia_loader_contract::ProviderRequest::Method { .. }
         | nia_loader_contract::ProviderRequest::TraitImpl { .. } => demand.source_path.identity(),
     }
+}
+
+fn ensure_missing_provider_targets(
+    graph: &mut ModuleGraph,
+    demands: &std::collections::HashSet<nia_loader_contract::ProviderDemand>,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
+    diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
+) -> QueryResult<()> {
+    for demand in demands {
+        let module_path = match &demand.request {
+            nia_loader_contract::ProviderRequest::ModuleSemantic { module_path }
+            | nia_loader_contract::ProviderRequest::ModuleBody { module_path } => module_path,
+            nia_loader_contract::ProviderRequest::Method { .. }
+            | nia_loader_contract::ProviderRequest::TraitImpl { .. } => continue,
+        };
+        if graph
+            .module_id_for_source_identity(&module_path.identity())
+            .is_none()
+        {
+            let _ = ensure_provider_target_module(
+                graph,
+                &demand.source_path,
+                module_path,
+                fact_memo,
+                diagnostics,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn ensure_provider_target_module(
+    graph: &mut ModuleGraph,
+    requesting_path: &SourcePath,
+    target_path: &SourcePath,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
+    diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
+) -> QueryResult<Option<nia_imports::ModuleId>> {
+    let target_identity = target_path.identity();
+    if let Some(module_id) = graph.module_id_for_source_identity(&target_identity) {
+        return Ok(Some(module_id));
+    }
+    let Some(requesting_module) = graph.module_id_for_source_identity(&requesting_path.identity())
+    else {
+        return Ok(None);
+    };
+    let roots = graph
+        .modules()
+        .filter(|module| module.module_path.is_package_root())
+        .cloned()
+        .collect::<Vec<_>>();
+    for root in roots {
+        let Some(segments) = find_declared_module_segments(
+            graph,
+            &root.path,
+            &root.module_path,
+            &target_identity,
+            fact_memo,
+        )?
+        else {
+            continue;
+        };
+        let mut target_module = None;
+        record_traversal_diagnostic(
+            add_visible_declared_module_path(
+                graph,
+                requesting_module,
+                root.id,
+                &segments,
+                UsedModulePathProcessing::Never,
+                fact_memo,
+            )
+            .map(|module_id| target_module = module_id),
+            diagnostics,
+            target_path,
+        )?;
+        if let Some(module_id) = target_module
+            && graph
+                .get(module_id)
+                .is_some_and(|module| module.path.identity() == target_identity)
+        {
+            return Ok(Some(module_id));
+        }
+    }
+    Ok(None)
+}
+
+fn find_declared_module_segments(
+    graph: &ModuleGraph,
+    root_path: &SourcePath,
+    root_module_path: &nia_imports::ModulePath,
+    target: &SourceIdentity,
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
+) -> QueryResult<Option<Vec<SymbolId>>> {
+    struct PendingModule {
+        path: SourcePath,
+        module_path: nia_imports::ModulePath,
+        segments: Vec<SymbolId>,
+    }
+
+    let mut pending = vec![PendingModule {
+        path: root_path.clone(),
+        module_path: root_module_path.clone(),
+        segments: Vec::new(),
+    }];
+    let mut visited = HashSet::new();
+    while let Some(parent) = pending.pop() {
+        if !visited.insert(parent.path.identity()) {
+            continue;
+        }
+        let declarations = fact_memo.module_declarations(&parent.path)?;
+        for declaration in declarations.semantic.declarations.iter().rev() {
+            let child_path = graph.declared_child_source_path_for(
+                &parent.path,
+                &parent.module_path,
+                declaration.name,
+            );
+            if !source_module_can_contain_target(&child_path.identity(), target) {
+                continue;
+            }
+            let mut segments = parent.segments.clone();
+            segments.push(declaration.name);
+            if child_path.identity() == *target {
+                return Ok(Some(segments));
+            }
+            pending.push(PendingModule {
+                path: child_path,
+                module_path: parent.module_path.child(declaration.name),
+                segments,
+            });
+        }
+    }
+    Ok(None)
+}
+
+fn source_module_can_contain_target(module: &SourceIdentity, target: &SourceIdentity) -> bool {
+    if module == target {
+        return true;
+    }
+    let Some(module_base) = module.normalized_path().strip_suffix(".nia") else {
+        return false;
+    };
+    target
+        .normalized_path()
+        .strip_prefix(module_base)
+        .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn mount_module_packages(
@@ -637,6 +786,14 @@ fn apply_provider_demands(
         {
             record_traversal_diagnostic(
                 activate_semantic_provider_module(db, graph, module_path, fact_memo),
+                diagnostics,
+                module_path,
+            )?;
+            continue;
+        }
+        if let nia_loader_contract::ProviderRequest::ModuleBody { module_path } = &demand.request {
+            record_traversal_diagnostic(
+                mark_process_used_paths_and_process(db, graph, node.id, fact_memo),
                 diagnostics,
                 module_path,
             )?;

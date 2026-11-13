@@ -300,6 +300,148 @@ fn provider_demand_plans_restore_under_every_loading_input() {
     );
 }
 
+#[test]
+fn replayed_module_semantic_demand_activates_a_lazy_descendant() {
+    let root = temp_dir("provider_plan_module_semantic_activates_lazy_descendant");
+    let cache_root = root.join("cache");
+    let main_path = root.join("main.nia");
+    let package_root = root.join("dep/root.nia");
+    let parent_path = root.join("dep/parent.nia");
+    let target_path = root.join("dep/parent/child.nia");
+    fs::create_dir_all(root.join("dep/parent")).expect("create package modules");
+    write(
+        &main_path,
+        "using dep::parent::Thing; fun main(value: Thing) () { _ = value; }",
+    );
+    write(&package_root, "pub module parent;");
+    write(&parent_path, "pub struct Thing {} pub module child;");
+    write(&target_path, "pub module grandchild;");
+    write(&root.join("dep/parent/child/grandchild.nia"), "");
+    let mut module_map = nia_imports::ModuleMap::new();
+    module_map
+        .insert("dep", SourcePath::new(package_root.to_string_lossy()))
+        .expect("map dependency");
+    let request = || {
+        test_request(main_path.to_string_lossy().into_owned())
+            .with_module_map(module_map.clone())
+            .with_frontend_cache_dir(Some(cache_root.clone()))
+    };
+    let child = SourcePath::new(target_path.to_string_lossy());
+    let demand = ProviderDemand {
+        source_path: SourcePath::new(parent_path.to_string_lossy()),
+        request: nia_compiler_query::ProviderRequest::ModuleSemantic {
+            module_path: child.clone(),
+        },
+    };
+
+    let cold = LoaderDatabase::new_for_test(request());
+    let initial = cold.load_program().expect("cold load");
+    assert!(
+        initial
+            .graph
+            .module_id_for_source_identity(&child.identity())
+            .is_none(),
+        "the descendant should remain lazy before the provider demand"
+    );
+    cold.update_provider_demands([demand.clone()])
+        .expect("activate semantic target");
+    nia_compiler_query::LoaderFactProvider::settle_provider_demands(&cold)
+        .expect("persist semantic target demand");
+    let activated = cold.load_program().expect("load activated graph");
+    let child_id = activated
+        .graph
+        .module_id_for_source_identity(&child.identity())
+        .expect("semantic target is present");
+    let child_node = activated.graph.get(child_id).expect("semantic child node");
+    assert!(child_node.semantic_selected);
+    assert!(!child_node.process_used_paths);
+    assert!(
+        activated.graph.modules().all(|module| {
+            module.path.identity()
+                != SourcePath::new(
+                    root.join("dep/parent/child/grandchild.nia")
+                        .to_string_lossy(),
+                )
+                .identity()
+        }),
+        "semantic selection must not eagerly discover the target's children"
+    );
+
+    let warm = LoaderDatabase::new_for_test(request());
+    let replayed = warm.load_program().expect("replay persisted plan");
+    let replayed_child = replayed
+        .graph
+        .module_id_for_source_identity(&child.identity())
+        .and_then(|id| replayed.graph.get(id))
+        .expect("warm replay must materialize the semantic target");
+    assert!(replayed_child.semantic_selected);
+    assert!(!replayed_child.process_used_paths);
+
+    let body_cache_root = root.join("body-cache");
+    let body_request = || {
+        test_request(main_path.to_string_lossy().into_owned())
+            .with_module_map(module_map.clone())
+            .with_frontend_cache_dir(Some(body_cache_root.clone()))
+    };
+    let body_demand = ProviderDemand {
+        source_path: SourcePath::new(parent_path.to_string_lossy()),
+        request: nia_compiler_query::ProviderRequest::ModuleBody {
+            module_path: child.clone(),
+        },
+    };
+    let body_cold = LoaderDatabase::new_for_test(body_request());
+    let initial = body_cold.load_program().expect("body cold load");
+    assert!(
+        initial
+            .graph
+            .module_id_for_source_identity(&child.identity())
+            .is_none()
+    );
+    body_cold
+        .update_provider_demands([body_demand])
+        .expect("activate body target");
+    nia_compiler_query::LoaderFactProvider::settle_provider_demands(&body_cold)
+        .expect("persist body target demand");
+    let activated = body_cold.load_program().expect("load body graph");
+    let child_id = activated
+        .graph
+        .module_id_for_source_identity(&child.identity())
+        .expect("body target is present");
+    assert!(
+        activated
+            .graph
+            .get(child_id)
+            .expect("body child node")
+            .process_used_paths
+    );
+    let grandchild = SourcePath::new(
+        root.join("dep/parent/child/grandchild.nia")
+            .to_string_lossy(),
+    );
+    assert!(
+        activated
+            .graph
+            .module_id_for_source_identity(&grandchild.identity())
+            .is_none(),
+        "body selection processes imports without eagerly discovering children"
+    );
+
+    let body_warm = LoaderDatabase::new_for_test(body_request());
+    let replayed = body_warm.load_program().expect("replay body plan");
+    let replayed_child = replayed
+        .graph
+        .module_id_for_source_identity(&child.identity())
+        .and_then(|id| replayed.graph.get(id))
+        .expect("warm body replay must materialize the target");
+    assert!(replayed_child.process_used_paths);
+    assert!(
+        replayed
+            .graph
+            .module_id_for_source_identity(&grandchild.identity())
+            .is_none()
+    );
+}
+
 /// Pruning depends on the mode, so a plan from one mode describes another
 /// mode's program wrongly; loads that differ only in mode never share one.
 #[test]
