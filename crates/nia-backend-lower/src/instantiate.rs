@@ -493,13 +493,14 @@ impl<'a> ModuleLowerer<'a> {
                 .const_array_lengths(id.module_id)
                 .and_then(|lengths| lengths.get(id))
         {
-            arg.value = nia_ty::ConstGenericValue::Int(i128::from(*value).into());
+            arg.value = nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned((*value).into()));
         }
         if let nia_ty::ConstGenericValue::Layout { builtin, ty } = arg.value
             && let Some(layout) = self.layout_of(ty)
         {
-            arg.value =
-                nia_ty::ConstGenericValue::Int(i128::from(layout.builtin_value(builtin)).into());
+            arg.value = nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(
+                layout.builtin_value(builtin).into(),
+            ));
         }
         if matches!(arg.value, nia_ty::ConstGenericValue::Computation(_))
             && !arg.contains_generic(|ty| self.ty_contains_generic_param(ty))
@@ -515,6 +516,17 @@ impl<'a> ModuleLowerer<'a> {
                 Ok(Err(diagnostics)) => self.diagnostics.extend(diagnostics),
                 Err(error) => self.type_context.record_internal(error),
             }
+        }
+        // Folded expressions, layout results, and literal arguments use the
+        // declared carrier's signedness at every instance-collection boundary.
+        if let nia_ty::ConstGenericValue::Int(value) = arg.value
+            && let Some(TyKind::Primitive(primitive)) = self.ty_kind(arg.ty)
+            && let Some(value) = value.cast_to_primitive_int(
+                *primitive,
+                self.input.layouts.target.pointer_size as u32 * 8,
+            )
+        {
+            arg.value = nia_ty::ConstGenericValue::Int(value);
         }
         arg
     }
