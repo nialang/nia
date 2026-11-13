@@ -54,6 +54,23 @@ fun main() usize { f[3]() }
 }
 
 #[test]
+fn local_layout_alias_in_type_and_call() {
+    check_and_emit(
+        "local_layout_alias_in_type",
+        r#"
+struct Holder[M: usize] { a: u8 }
+fun mk[M: usize]() Holder[M] { Holder[M] { a: 1 } }
+fun f[T]() u8 where T: Sized {
+    const S = std::builtin::size[T]();
+    let x: Holder[S] = mk[S]();
+    x.a
+}
+fun main() u8 { f[u32]() }
+"#,
+    );
+}
+
+#[test]
 fn computed_fields_preserve_imported_declaration_binders() {
     let root = temp_dir("computed_imported_fields");
     write(
@@ -76,6 +93,22 @@ fun f[N: usize]() usize {
     a.a.len() + b.bytes.len() + match c { .Bytes(x) => x.len(), .Empty => 0 }
 }
 fun main() usize { f[3]() }
+"#,
+    );
+}
+
+#[test]
+fn type_argument_candidate_does_not_capture_runtime_namesake() {
+    check_and_emit(
+        "ambiguous_type_argument_capture",
+        r#"
+struct Box[T] { a: T }
+type X = i32;
+fun main() i32 {
+    let X = 1;
+    let c = \ -> { let b: Box[X] = Box[i32] { a: 1 }; b.a };
+    c()
+}
 "#,
     );
 }

@@ -353,7 +353,10 @@ impl<'a> LocalResolver<'a> {
                                 self.resolve_type(ty);
                             }
                             TypeArg::Const(expr) => self.resolve_expr(expr),
-                            TypeArg::TypeOrConst { ty, .. } => self.resolve_type_candidate(ty),
+                            TypeArg::TypeOrConst { ty, expr } => {
+                                self.resolve_type_candidate(ty);
+                                self.resolve_const_argument_candidate(expr);
+                            }
                         }
                     }
                 }
@@ -420,10 +423,24 @@ impl<'a> LocalResolver<'a> {
                             self.resolve_type(ty);
                         }
                         TypeArg::Const(expr) => self.resolve_expr(expr),
-                        TypeArg::TypeOrConst { ty, .. } => self.resolve_type_candidate(ty),
+                        TypeArg::TypeOrConst { ty, expr } => {
+                            self.resolve_type_candidate(ty);
+                            self.resolve_const_argument_candidate(expr);
+                        }
                     }
                 }
             }
+        }
+    }
+
+    // An ambiguous type path is also parsed as a value expression. Record a
+    // visible lexical value, but do not diagnose captures for an interpretation
+    // that may be discarded when the declaration selects a type parameter.
+    fn resolve_const_argument_candidate(&mut self, expr: &Expr) {
+        if let ExprKind::Ident(name) = &expr.kind
+            && (self.lookup_local(name).is_some() || self.lookup_static(name).is_some())
+        {
+            self.resolve_expr(expr);
         }
     }
 
