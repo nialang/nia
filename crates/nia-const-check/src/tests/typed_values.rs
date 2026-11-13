@@ -38,17 +38,8 @@ fun local() bool { const BAD: bool = 2; BAD }
         const_value(&fixture, "GOOD"),
         ConstValue::Int(IntConst::unsigned(42))
     );
-    let mismatches = fixture
-        .checked
-        .diagnostics
-        .iter()
-        .filter(|d| d.summary == "const value does not match primitive type bool")
-        .collect::<Vec<_>>();
-    assert_eq!(mismatches.len(), 2, "{:?}", fixture.checked.diagnostics);
-    assert!(mismatches.iter().all(|d| {
-        d.cause
-            .as_ref()
-            .is_some_and(|cause| cause.code == "E0301" && Some(cause.span) == d.primary_span())
+    assert!(!fixture.checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic.summary == "const value does not match primitive type bool"
     }));
     assert!(
         fixture
@@ -60,18 +51,16 @@ fun local() bool { const BAD: bool = 2; BAD }
 }
 
 #[test]
-fn tuple_validation_retains_independent_range_failures() {
+fn tuple_validation_avoids_duplicate_type_errors_and_retains_range_failures() {
     let fixture = check_source(
         "const BAD: (bool, u8) = (1i32, 300u16); const GOOD: (bool, u8) = (true, 255u8);",
     );
     assert!(
-        fixture
+        !fixture
             .checked
             .diagnostics
             .iter()
-            .any(|d| d.summary.contains("primitive type bool")),
-        "{:?}",
-        fixture.checked.diagnostics
+            .any(|diagnostic| diagnostic.summary.contains("primitive type bool"))
     );
     assert!(
         fixture

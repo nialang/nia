@@ -46,10 +46,19 @@ fn const_initializer_type_errors_have_one_owner_and_do_not_cascade() {
         let root = temp_dir(name);
         let path = root.join("main.nia");
         write(&path, source);
-        for diagnostics in [
-            check_program(path.to_string_lossy().into_owned()).diagnostics,
-            codegen_program(path.to_string_lossy().into_owned()).diagnostics,
+        for (diagnostics, suppressed_downstream) in [
+            {
+                let checked = check_program(path.to_string_lossy().into_owned());
+                (checked.diagnostics, checked.suppressed_downstream)
+            },
+            {
+                let codegen = codegen_program(path.to_string_lossy().into_owned());
+                (codegen.diagnostics, codegen.suppressed_downstream)
+            },
         ] {
+            if name == "global_bool" || name == "local_bool" {
+                assert_eq!(suppressed_downstream, 0, "{name}");
+            }
             let errors = diagnostics
                 .iter()
                 .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
@@ -61,6 +70,41 @@ fn const_initializer_type_errors_have_one_owner_and_do_not_cascade() {
                 "{name}: {diagnostics:?}"
             );
         }
+    }
+}
+
+#[test]
+fn const_initializer_type_error_keeps_an_independent_evaluation_error() {
+    let root = temp_dir("const_initializer_type_error_keeps_an_independent_evaluation_error");
+    let path = root.join("main.nia");
+    write(
+        &path,
+        "const K: bool = 1usize / 0usize; fun main() bool { K }",
+    );
+
+    for diagnostics in [
+        check_program(path.to_string_lossy().into_owned()).diagnostics,
+        codegen_program(path.to_string_lossy().into_owned()).diagnostics,
+    ] {
+        let errors = diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.diagnostic.severity() == nia_diagnostic::Severity::Error
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 2, "{diagnostics:?}");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.diagnostic.summary.contains("type mismatch")),
+            "{diagnostics:?}"
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.diagnostic.summary.contains("division by zero")),
+            "{diagnostics:?}"
+        );
     }
 }
 

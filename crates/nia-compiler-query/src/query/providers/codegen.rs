@@ -947,10 +947,10 @@ pub(super) fn checked_module_diagnostics(
 /// semantic cause identity, or the two older exact-node call/omitted-member
 /// rules below. Other const errors on that node remain independent.
 fn redundant_const_error(diagnostic: &Diagnostic, body: &[Diagnostic], path: &SourcePath) -> bool {
-    // Value validation retains its standalone diagnostic, but a proven
-    // declaration-type disagreement belongs to the body checker when that
-    // checker actually reported the identified root. Never infer this edge
-    // from wording or merely from overlapping initializer spans.
+    // Const-call return-type failures can be downstream of a type-check root.
+    // Suppress them only when their explicit semantic cause resolves to the
+    // exact reported body diagnostic. Never infer the edge from wording or
+    // merely from overlapping spans.
     if let Some(cause) = diagnostic.cause.as_deref()
         && cause.code == "E0301"
         && body.iter().any(|candidate| {

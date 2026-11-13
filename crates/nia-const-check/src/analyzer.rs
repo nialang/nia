@@ -528,9 +528,11 @@ pub(crate) struct Analyzer<'a> {
     /// Whether the evaluation in progress read a failed constant. Its own
     /// failure is then a consequence of that root, not a new error.
     read_failed_const: bool,
-    /// A declaration type disagreement established before value validation.
-    /// Only structural type failures inherit it; range failures are independent.
-    validation_type_cause: Option<Box<nia_diagnostic::DiagnosticCause>>,
+    /// Tracks type mismatches found while checking a typed constant's value.
+    /// The body checker owns a declaration/initializer type disagreement, so
+    /// value validation records the failed fact without reporting it twice.
+    /// Independent value constraints such as range errors remain reportable.
+    typed_value_validation: Option<TypedValueValidation>,
     program_type_normalizations:
         RefCell<HashMap<ModuleId, Arc<nia_type_normalize::TypeNormalization>>>,
     instantiated_type_normalizations: RefCell<HashMap<InternedTyId, InternedTyId>>,
@@ -546,6 +548,11 @@ pub(crate) struct Analyzer<'a> {
     defer_const_bounds: usize,
     next_const_allocation_serial: u64,
     internal_error: Arc<parking_lot::Mutex<Option<nia_ice::Ice>>>,
+}
+
+struct TypedValueValidation {
+    report_type_mismatches: bool,
+    found_type_mismatch: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -637,7 +644,7 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             failed: failed_lowering_keys(input.module),
             read_failed_const: false,
-            validation_type_cause: None,
+            typed_value_validation: None,
             program_type_normalizations: RefCell::new(HashMap::new()),
             instantiated_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
@@ -693,7 +700,7 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             failed: failed_lowering_keys(input.module),
             read_failed_const: false,
-            validation_type_cause: None,
+            typed_value_validation: None,
             program_type_normalizations: RefCell::new(HashMap::new()),
             instantiated_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
@@ -1008,13 +1015,21 @@ impl Analyzer<'_> {
             let initializer_span = this.initializer_span_for_key(key);
             let value = this.normalize_typed_const_value(value, &ty);
             let diagnostic_start = this.diagnostics.len();
+            let mut has_value_type_mismatch = false;
             if let Some(span) = initializer_span {
-                let cause = type_mismatch.then(|| this.const_initializer_type_cause(span));
-                let previous = std::mem::replace(&mut this.validation_type_cause, cause);
+                let previous = this.typed_value_validation.replace(TypedValueValidation {
+                    report_type_mismatches: !type_mismatch,
+                    found_type_mismatch: false,
+                });
                 this.validate_typed_value(span, &value, &ty);
-                this.validation_type_cause = previous;
+                let validation = this
+                    .typed_value_validation
+                    .take()
+                    .expect("typed value validation context");
+                this.typed_value_validation = previous;
+                has_value_type_mismatch = validation.found_type_mismatch;
             }
-            if this.diagnostics.len() != diagnostic_start {
+            if has_value_type_mismatch || this.diagnostics.len() != diagnostic_start {
                 return None;
             }
             this.typed_values.insert(
@@ -1035,7 +1050,7 @@ impl Analyzer<'_> {
         })
     }
 
-    fn const_initializer_type_cause(&self, span: Span) -> Box<nia_diagnostic::DiagnosticCause> {
+    fn body_type_check_cause(&self, span: Span) -> Box<nia_diagnostic::DiagnosticCause> {
         Box::new(nia_diagnostic::DiagnosticCause {
             source_path: self
                 .current_execution_source_path()
@@ -1582,23 +1597,34 @@ impl Analyzer<'_> {
     }
 
     fn push_const_type_mismatch(&mut self, span: Span, expected: &str) {
+        if self.should_suppress_typed_value_type_mismatch() {
+            return;
+        }
         let summary = format!("const value does not match expected {expected} type");
-        let mut diagnostic = Diagnostic::user_error(codes::CONST, summary.clone())
+        let diagnostic = Diagnostic::user_error(codes::CONST, summary.clone())
             .primary(span, summary)
             .help("change the constant expression to produce the expected value type")
             .finish();
-        diagnostic.cause = self.validation_type_cause.clone();
         self.diagnostics.push(diagnostic);
     }
 
+    fn should_suppress_typed_value_type_mismatch(&mut self) -> bool {
+        let Some(validation) = &mut self.typed_value_validation else {
+            return false;
+        };
+        validation.found_type_mismatch = true;
+        !validation.report_type_mismatches
+    }
+
     fn push_const_array_length_mismatch(&mut self, span: Span, actual: usize, expected: u64) {
-        let mut diagnostic = Diagnostic::user_error_at(
+        if self.should_suppress_typed_value_type_mismatch() {
+            return;
+        }
+        self.diagnostics.push(Diagnostic::user_error_at(
             codes::CONST,
             span,
             format!("const array length {actual} does not match expected length {expected}"),
-        );
-        diagnostic.cause = self.validation_type_cause.clone();
-        self.diagnostics.push(diagnostic);
+        ));
     }
 
     fn push_const_missing_struct_field(&mut self, span: Span, name: &SymbolId) {
@@ -1620,15 +1646,17 @@ impl Analyzer<'_> {
     }
 
     fn push_const_primitive_mismatch(&mut self, span: Span, primitive: PrimitiveTy) {
+        if self.should_suppress_typed_value_type_mismatch() {
+            return;
+        }
         let summary = format!(
             "const value does not match primitive type {}",
             primitive.name()
         );
-        let mut diagnostic = Diagnostic::user_error(codes::CONST, summary.clone())
+        let diagnostic = Diagnostic::user_error(codes::CONST, summary.clone())
             .primary(span, summary)
             .help("change the constant expression to produce the expected primitive type")
             .finish();
-        diagnostic.cause = self.validation_type_cause.clone();
         self.diagnostics.push(diagnostic);
     }
 }

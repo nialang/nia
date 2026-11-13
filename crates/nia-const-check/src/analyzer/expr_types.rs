@@ -752,7 +752,7 @@ impl Analyzer<'_> {
             Ok(instantiation) => instantiation,
             Err(error) => {
                 let cause = matches!(error, ConstInstantiationError::ReturnTypeMismatch(_))
-                    .then(|| self.const_initializer_type_cause(span));
+                    .then(|| self.body_type_check_cause(span));
                 let error: ConstError = error.into();
                 let mut diagnostic =
                     Diagnostic::user_error_at(codes::CONST, error.span, error.message);
