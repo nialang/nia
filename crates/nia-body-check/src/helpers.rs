@@ -549,7 +549,25 @@ impl<'a> BodyChecker<'a> {
                     self.defs.module_id,
                     self.type_store,
                     &[ty],
-                    &|id| self.const_eval.symbolic_array_lengths.get(id).cloned(),
+                    &|id| {
+                        if id.module_id == self.defs.module_id {
+                            self.const_eval
+                                .array_lengths
+                                .get(id)
+                                .copied()
+                                .map(ArrayLenTy::ConstValue)
+                                .or_else(|| self.const_eval.symbolic_array_lengths.get(id).cloned())
+                        } else {
+                            (self.program_const_array_lengths)(id.module_id).and_then(|lengths| {
+                                lengths
+                                    .values
+                                    .get(id)
+                                    .copied()
+                                    .map(ArrayLenTy::ConstValue)
+                                    .or_else(|| lengths.symbolic.get(id).cloned())
+                            })
+                        }
+                    },
                 ) {
                     Ok(normalization) => normalization,
                     Err(error) => {
@@ -602,6 +620,10 @@ impl<'a> BodyChecker<'a> {
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> InternedTyId {
+        // Resolve declaration-owned const expressions before substituting its
+        // parameters. A ConstExpr site has no binder map of its own; carrying
+        // it past this boundary loses N in a field such as [u8; N + 1].
+        let ty = self.normalize_aliases_in_type(ty);
         match nia_ty::substitute_ty(
             self.type_store,
             &self.interner.append,
@@ -625,6 +647,7 @@ impl<'a> BodyChecker<'a> {
         const_substitutions: &SymbolMap<ConstGenericArg>,
         self_ty: InternedTyId,
     ) -> InternedTyId {
+        let ty = self.normalize_aliases_in_type(ty);
         match nia_ty::substitute_ty(
             self.type_store,
             &self.interner.append,

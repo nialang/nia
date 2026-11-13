@@ -751,6 +751,10 @@ impl<'a> LayoutComputer<'a> {
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> InternedTyId {
+        // Declaration normalization must precede substitution for enum payloads
+        // and aliases as well as struct/union fields. Source const sites carry
+        // no generic environment until they become residual computations.
+        let ty = self.normalize_ty(ty);
         match nia_ty::substitute_ty(
             self.type_context.store,
             &self.type_context.append,

@@ -78,6 +78,7 @@ pub(super) struct ProgramIndex {
 #[derive(Clone, Default)]
 struct ProgramIndexTables {
     published_modules: HashSet<ModuleId>,
+    normalized_types: HashMap<InternedTyId, InternedTyId>,
     structs: HashMap<GlobalDefId, ItemPosition>,
     unions: HashMap<GlobalDefId, ItemPosition>,
     struct_instances: AggregateInstanceIndex,
@@ -108,6 +109,12 @@ struct ProgramIndexTables {
     union_instances_by_def: HashMap<GlobalDefId, Vec<ItemPosition>>,
 }
 
+impl ProgramIndexTables {
+    fn canonical_type(&self, ty: InternedTyId) -> InternedTyId {
+        self.normalized_types.get(&ty).copied().unwrap_or(ty)
+    }
+}
+
 pub(super) struct ProgramIndexPublisher {
     index: Arc<ProgramIndex>,
 }
@@ -120,10 +127,12 @@ pub(super) struct BackendLayoutInstance<'a> {
 struct ProgramTypeEquivalence<'a> {
     type_store: &'a TypeStore,
     modules: &'a BackendModuleStore,
+    tables: Arc<ProgramIndexTables>,
 }
 
 impl TypeEquivalence for ProgramTypeEquivalence<'_> {
     fn ty_kind_for_equiv(&self, ty: InternedTyId) -> Option<&TyKind> {
+        let ty = self.tables.canonical_type(ty);
         self.type_store.get(ty)
     }
 
@@ -335,6 +344,15 @@ impl ProgramIndexPublisher {
             return Err(nia_ice::Ice::new(
                 "backend module was published to the program index twice",
             ));
+        }
+        for (source, canonical) in &module.const_eval.normalized_types {
+            if let Some(previous) = index.normalized_types.insert(*source, *canonical)
+                && previous != *canonical
+            {
+                return Err(nia_ice::Ice::new(
+                    "backend modules disagree on canonical type identity",
+                ));
+            }
         }
         for (layout_index, (ty, _)) in module.layouts.types.iter().enumerate() {
             index.type_layouts.insert(
@@ -564,8 +582,12 @@ impl ProgramIndexPublisher {
                 .entry(vtable.key.object_ty)
                 .or_default()
                 .push(position);
-            if let Some(TyKind::TraitObject { trait_id, .. }) =
-                self.index.ty_kind(vtable.key.object_ty)
+            // Publication owns the tables write lock. Resolve through that
+            // snapshot rather than re-entering the index's reader API.
+            if let Some(TyKind::TraitObject { trait_id, .. }) = self
+                .index
+                .type_store
+                .get(index.canonical_type(vtable.key.object_ty))
             {
                 index
                     .trait_object_vtables_by_trait
@@ -754,6 +776,7 @@ impl ProgramIndex {
                         let equivalence = ProgramTypeEquivalence {
                             type_store: &self.type_store,
                             modules: &self.modules,
+                            tables: self.tables(),
                         };
                         (equivalence.same_type_for_equiv(key.self_ty, candidate.self_ty)
                             && equivalence.same_type_for_equiv(key.object_ty, candidate.object_ty))
@@ -778,6 +801,7 @@ impl ProgramIndex {
         let equivalence = ProgramTypeEquivalence {
             type_store: &self.type_store,
             modules: &self.modules,
+            tables: self.tables(),
         };
         equivalence.same_type_args_for_equiv(left_args, right_args)
             && equivalence.same_const_generic_args_for_equiv(left_const_args, right_const_args)
@@ -803,6 +827,7 @@ impl ProgramIndex {
     }
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
+        let ty = self.tables().canonical_type(ty);
         self.type_store.get(ty)
     }
 
@@ -815,6 +840,7 @@ impl ProgramIndex {
                     let equivalence = ProgramTypeEquivalence {
                         type_store: &self.type_store,
                         modules: &self.modules,
+                        tables: self.tables(),
                     };
                     equivalence.same_type_for_equiv(ty, **candidate)
                 })
@@ -1277,6 +1303,7 @@ impl ProgramIndex {
                 let equivalence = ProgramTypeEquivalence {
                     type_store: &self.type_store,
                     modules: &self.modules,
+                    tables: self.tables(),
                 };
                 tables
                     .trait_object_vtables_by_object_ty
@@ -1314,6 +1341,7 @@ impl ProgramIndex {
                         let equivalence = ProgramTypeEquivalence {
                             type_store: &self.type_store,
                             modules: &self.modules,
+                            tables: self.tables(),
                         };
                         (equivalence.same_type_for_equiv(key.self_ty, candidate.self_ty)
                             && equivalence.same_type_for_equiv(key.object_ty, candidate.object_ty))
@@ -1605,6 +1633,62 @@ mod tests {
             index.module_target_layouts().collect::<Vec<_>>(),
             vec![nia_layout::TargetDataLayout::LP64]
         );
+    }
+
+    #[test]
+    fn publishes_vtables_using_the_owned_canonical_type_snapshot() {
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
+        let type_store = TypeStore::new().expect("create type store");
+        let interner = type_store.append_for_module(module_id);
+        let i32_ty = interner.test_primitive(PrimitiveTy::I32);
+        let trait_id = TraitId::Source(global(module_id, 2));
+        let alias_ty = interner.test_intern(TyKind::Nominal {
+            def_id: global(module_id, 3),
+            args: Vec::new(),
+            const_args: Vec::new(),
+        });
+        let object_ty = interner.test_intern(TyKind::TraitObject {
+            is_readonly: true,
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            associated_type_bindings: Vec::new(),
+        });
+        let mut module = enum_module(module_id, i32_ty, global(module_id, 1), "vtables");
+        module
+            .const_eval
+            .normalized_types
+            .insert(alias_ty, object_ty);
+        module.trait_object_vtables.push(BackendTraitObjectVtable {
+            key: BackendTraitObjectVtableKey {
+                self_ty: i32_ty,
+                object_ty: alias_ty,
+            },
+            trait_id,
+            trait_args: Vec::new(),
+            trait_const_args: Vec::new(),
+            entries: Vec::new(),
+            span: Span::default(),
+        });
+        let program = BackendProgram::new(vec![module]).expect("build backend program");
+        let (index, mut publisher) =
+            ProgramIndex::new(program.module_store(), Arc::new(type_store));
+        let (sent, received) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let result = publisher.publish(module_id);
+            sent.send(result).expect("send publication result");
+        });
+        received
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("vtable publication must not re-enter its tables write lock")
+            .expect("publish canonical vtable");
+        worker.join().expect("publication worker");
+        assert!(matches!(
+            index.ty_kind(alias_ty),
+            Some(TyKind::TraitObject { .. })
+        ));
+        assert_eq!(index.trait_object_vtables_for_trait(trait_id).count(), 1);
     }
 
     #[test]
@@ -2146,6 +2230,7 @@ mod tests {
             trap_locations: None,
             const_eval: BackendConstFacts {
                 array_lengths: [(left_expr.clone(), 4)].into_iter().collect(),
+                ..Default::default()
             },
             ..enum_module(
                 left_module,
@@ -2165,6 +2250,7 @@ mod tests {
             trap_locations: None,
             const_eval: BackendConstFacts {
                 array_lengths: [(right_expr.clone(), 4)].into_iter().collect(),
+                ..Default::default()
             },
             ..enum_module(
                 right_module,
@@ -2187,6 +2273,7 @@ mod tests {
         let equivalence = ProgramTypeEquivalence {
             type_store: &type_store,
             modules: &modules,
+            tables: Arc::new(ProgramIndexTables::default()),
         };
 
         assert!(equivalence.same_array_len_for_equiv(

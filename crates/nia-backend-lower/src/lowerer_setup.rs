@@ -247,6 +247,7 @@ impl<'a> ModuleLowerer<'a> {
             trap_locations: self.input.trap_locations.clone(),
             const_eval: nia_backend_ir::BackendConstFacts {
                 array_lengths: self.input.const_array_lengths.clone(),
+                normalized_types: HashMap::new(),
             },
             layouts: BackendLayouts::from_module_layouts(self.input.layouts),
             structs,

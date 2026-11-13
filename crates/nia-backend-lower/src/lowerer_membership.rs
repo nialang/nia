@@ -2,6 +2,7 @@
 //! Final definition membership, static globals, and reachable aggregate closure.
 
 use super::*;
+use nia_symbol::SymbolMap;
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn finish_module(&mut self, module: &mut BackendModule) -> nia_ice::IceResult<()> {
@@ -27,6 +28,24 @@ impl<'a> ModuleLowerer<'a> {
         crate::layout_extender::BackendLayoutExtender::new(self.input, self.type_store)
             .remove_generic_nominal_layouts_for_module(&mut layouts, module);
         self.extend_backend_layouts_for_finalized_module(&mut layouts, module)?;
+        // Layout roots include closed payload types substituted from generic
+        // declarations. Publish their semantic normal forms so later enum
+        // contract checking and constructor adapters do not evaluate terms in
+        // LLVM codegen or compare a residual expression with its integer value.
+        let substitutions = SymbolMap::default();
+        let mut canonical_layouts = Vec::new();
+        for (ty, layout) in &layouts.types {
+            let canonical = self.instantiate_ty(*ty, &substitutions);
+            if canonical != *ty {
+                module.const_eval.normalized_types.insert(*ty, canonical);
+                canonical_layouts.push((canonical, layout.clone()));
+            }
+        }
+        for (ty, layout) in canonical_layouts {
+            if !layouts.types.iter().any(|(existing, _)| *existing == ty) {
+                layouts.types.push((ty, layout));
+            }
+        }
         module.layouts = layouts;
         module
             .closure_entries

@@ -80,6 +80,47 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
     ) -> nia_ice::IceResult<()> {
         let mut normalization_input = self.input.signatures.type_roots();
         normalization_input.extend(finalized_module_type_roots(module, self.type_store));
+        // Layout may follow foreign nominal declarations absent from this
+        // module's explicit type roots. Retain their raw field/payload types
+        // too, so residual lengths are available before nominal substitution.
+        let mut seen = HashSet::new();
+        let mut cursor = 0;
+        while cursor < normalization_input.len() {
+            let ty = normalization_input[cursor];
+            cursor += 1;
+            if !seen.insert(ty) {
+                continue;
+            }
+            let Some(kind) = self.type_store.get(ty) else {
+                continue;
+            };
+            kind.visit_referenced_types(|ty| normalization_input.push(ty));
+            if let nia_ty::TyKind::Nominal { def_id, .. } = kind {
+                if let Some(item) = self.input.program.structs().get(def_id) {
+                    normalization_input.extend(item.signature.fields.iter().map(|f| f.ty));
+                }
+                if let Some(item) = self.input.program.unions().get(def_id) {
+                    normalization_input.extend(item.signature.fields.iter().map(|f| f.ty));
+                }
+                if let Some(item) = self.input.program.enums().get(def_id) {
+                    normalization_input.push(item.signature.backing_type);
+                    for variant in &item.signature.variants {
+                        match &variant.payload {
+                            nia_item_signatures::EnumVariantPayloadSignature::Unit => {}
+                            nia_item_signatures::EnumVariantPayloadSignature::Tuple(fields) => {
+                                normalization_input.extend(fields.iter().copied());
+                            }
+                            nia_item_signatures::EnumVariantPayloadSignature::Named(fields) => {
+                                normalization_input.extend(fields.iter().map(|f| f.ty));
+                            }
+                        }
+                    }
+                }
+                if let Some(item) = self.input.program.type_aliases().get(def_id) {
+                    normalization_input.push(item.signature.target);
+                }
+            }
+        }
         normalization_input.sort_unstable();
         normalization_input.dedup();
         let normalization = nia_type_normalize::normalize_module_types(
@@ -88,7 +129,27 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 type_store: self.type_store,
                 input_ids: &normalization_input,
                 signatures: self.input.signatures,
-                external_alias: None,
+                external_alias: Some(&|def_id| {
+                    self.input
+                        .program
+                        .type_aliases()
+                        .get(&def_id)
+                        .map(|alias| alias.signature.clone())
+                }),
+            },
+        )?;
+        // Resolve declaration-owned lengths before layout substitutes nominal
+        // parameters. A source expression id alone cannot carry those binders
+        // through substitution; its residual computation can.
+        let normalization = normalization.resolve_array_lengths(
+            self.input.module_id,
+            self.type_store,
+            &normalization_input,
+            &|id| {
+                self.input
+                    .array_length(id)
+                    .map(nia_ty::ArrayLenTy::ConstValue)
+                    .or_else(|| self.input.program.symbolic_array_length(id))
             },
         )?;
         let input = self.input;
@@ -120,6 +181,28 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
                 program,
             })?;
         append_missing_type_layouts(&mut layouts.types, computed.types);
+        // Enum payload storage is an instance product, separate from the
+        // nominal type's size. Finalization can discover concrete instances
+        // absent from the earlier layout snapshot, including foreign enums.
+        for (key, layout) in computed.enum_instances {
+            let key = nia_backend_ir::BackendStructInstanceKey {
+                def_id: GlobalDefId {
+                    module_id: self.input.module_id,
+                    def_id: key.def_id,
+                },
+                args: key.args,
+                const_args: key.const_args,
+            };
+            append_enum_instance_layout(&mut layouts.enum_instances, key, layout);
+        }
+        for (key, layout) in computed.external_enum_instances {
+            let key = nia_backend_ir::BackendStructInstanceKey {
+                def_id: key.def_id,
+                args: key.args,
+                const_args: key.const_args,
+            };
+            append_enum_instance_layout(&mut layouts.enum_instances, key, layout);
+        }
         let mut generic_structs = self
             .input
             .signatures
@@ -278,6 +361,18 @@ fn append_missing_type_layouts(
         } else {
             output.push((ty, layout));
         }
+    }
+}
+
+fn append_enum_instance_layout(
+    output: &mut Vec<(BackendStructInstanceKey, nia_layout::EnumLayout)>,
+    key: BackendStructInstanceKey,
+    layout: nia_layout::EnumLayout,
+) {
+    if let Some((_, existing)) = output.iter_mut().find(|(existing, _)| *existing == key) {
+        *existing = layout;
+    } else {
+        output.push((key, layout));
     }
 }
 

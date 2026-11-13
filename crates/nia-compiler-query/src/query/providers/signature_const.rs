@@ -601,13 +601,32 @@ pub(super) fn signature_layouts_for_types(
                 type_uses,
             )
         })?;
+        // Type-only modules need the same post-const refinement as executable
+        // modules. Refine declaration types before layout binds nominal args.
+        let mut normalization_roots = item_signatures.semantic.type_roots();
+        normalization_roots.extend_from_slice(&roots.types);
+        let type_normalization = type_normalization.semantic.resolve_array_lengths(
+            module_id,
+            &db.context().type_store,
+            &normalization_roots,
+            &|id| {
+                array_lengths.as_ref().and_then(|lengths| {
+                    lengths
+                        .values
+                        .get(id)
+                        .copied()
+                        .map(nia_ty::ArrayLenTy::ConstValue)
+                        .or_else(|| lengths.symbolic.get(id).cloned())
+                })
+            },
+        )?;
         let layouts = nia_layout::compute_layouts_for_roots_with_program_context(
             nia_layout::LayoutComputationInput {
                 type_store: &db.context().type_store,
                 defs: &defs,
                 signatures: &item_signatures.semantic,
                 root_types: &[],
-                normalized: &type_normalization.semantic.normalized,
+                normalized: &type_normalization.normalized,
                 array_lengths: &local_array_lengths,
                 target,
                 program: nia_layout::ProgramLayoutContext {

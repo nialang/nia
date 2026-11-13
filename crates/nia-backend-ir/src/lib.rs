@@ -1294,6 +1294,9 @@ pub struct BackendClosureEntry {
 pub struct BackendConstFacts {
     /// Evaluated array lengths keyed by canonical const expression.
     pub array_lengths: HashMap<GlobalConstExprId, u64>,
+    /// Semantic canonical forms for types substituted from generic declarations.
+    /// Codegen consumes these facts; it never executes const computations.
+    pub normalized_types: HashMap<InternedTyId, InternedTyId>,
 }
 
 /// Target-specific layouts required to lower one module.
