@@ -228,5 +228,11 @@ pub(super) fn semantic_use_table(
     );
     builder
         .extend_node_type_uses(lowered.versioned_type_uses_from_active_item_tree(active_item_tree));
+    builder.extend_node_const_generic_uses(
+        type_resolution
+            .node_const_generic_names
+            .iter()
+            .map(|(key, name)| (key.clone(), *name)),
+    );
     builder.finish()
 }

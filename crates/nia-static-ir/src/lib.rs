@@ -198,7 +198,11 @@ impl StaticInitRefSink for FunctionBodyRefSink<'_> {
         const_args: &[nia_ty::ConstGenericArg],
     ) {
         self.refs.types.extend(args.iter().copied());
-        self.refs.types.extend(const_args.iter().map(|arg| arg.ty));
+        for arg in const_args {
+            arg.visit_referenced_types(|ty| {
+                self.refs.types.insert(ty);
+            });
+        }
         if args.is_empty() && const_args.is_empty() {
             self.refs.functions.insert(function);
         } else {

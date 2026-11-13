@@ -80,6 +80,7 @@ fn collect_test_monomorphizations(
             .iter()
             .map(|input| (input.module_id, input.source_identity.clone())),
         type_store,
+        ConstInstantiationContext::default(),
     )
     .expect("collect monomorphizations")
 }

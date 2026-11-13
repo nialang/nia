@@ -476,6 +476,10 @@ pub trait BackendProgramFacts: Sync {
     fn symbol_package_identities(&self) -> &HashMap<ModuleId, String>;
     /// Returns evaluated array lengths owned by `module_id`.
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>>;
+    /// Returns lengths that become concrete only after generic substitution.
+    fn symbolic_array_length(&self, _id: &GlobalConstExprId) -> Option<nia_ty::ArrayLenTy> {
+        None
+    }
     /// Returns an evaluated source const value when its initializer is
     /// available in the checked program snapshot.
     fn const_value(&self, _def_id: GlobalDefId) -> Option<&nia_const_check::ConstValue> {
@@ -594,7 +598,16 @@ pub struct BackendLowerModuleInput<'a> {
     pub function_instance_plan: &'a [BackendFunctionInstancePlan],
     /// Coherent program-wide facts used for cross-module materialization.
     pub program: &'a dyn BackendProgramFacts,
+    /// Semantic interpreter for closed const terms. Kept separate from runtime
+    /// facts: a const-only dependency need not have a runtime body or module.
+    pub const_computation: Option<&'a ConstComputationEvaluator<'a>>,
 }
+
+/// Executes a typed semantic term after substitution, using the same semantic
+/// providers and interpreter as instance validation.
+pub type ConstComputationEvaluator<'a> = dyn Fn(&ConstGenericArg) -> nia_ice::IceResult<Result<ConstGenericArg, Vec<Diagnostic>>>
+    + Sync
+    + 'a;
 
 impl BackendLowerModuleInput<'_> {
     /// The evaluated length of an array type's length expression. A type may
@@ -1811,7 +1824,7 @@ impl ReachableAggregateRoots {
                     self.add_ty(lowerer, *arg);
                 }
                 for arg in const_args {
-                    self.add_ty(lowerer, arg.ty);
+                    self.add_const_arg(lowerer, arg);
                 }
             }
             nia_static_ir::StaticInit::Zero
@@ -1824,6 +1837,14 @@ impl ReachableAggregateRoots {
             | nia_static_ir::StaticInit::Bytes(_)
             | nia_static_ir::StaticInit::NullPtr
             | nia_static_ir::StaticInit::AddrOfGlobal { .. } => {}
+        }
+    }
+
+    fn add_const_arg(&mut self, lowerer: &mut ModuleLowerer<'_>, arg: &nia_ty::ConstGenericArg) {
+        let mut referenced_types = Vec::new();
+        arg.visit_referenced_types(|ty| referenced_types.push(ty));
+        for ty in referenced_types {
+            self.add_ty(lowerer, ty);
         }
     }
 
@@ -1887,7 +1908,7 @@ impl ReachableAggregateRoots {
                     self.add_ty(lowerer, arg);
                 }
                 for arg in const_args {
-                    self.add_ty(lowerer, arg.ty);
+                    self.add_const_arg(lowerer, &arg);
                 }
                 for param in params {
                     self.add_ty(lowerer, param);
@@ -1909,7 +1930,7 @@ impl ReachableAggregateRoots {
                     self.add_ty(lowerer, arg);
                 }
                 for arg in const_args {
-                    self.add_ty(lowerer, arg.ty);
+                    self.add_const_arg(lowerer, &arg);
                 }
                 for field_ty in lowerer.struct_field_tys(def_id) {
                     self.add_ty(lowerer, field_ty);
@@ -1939,14 +1960,14 @@ impl ReachableAggregateRoots {
                     self.add_ty(lowerer, arg);
                 }
                 for arg in trait_const_args {
-                    self.add_ty(lowerer, arg.ty);
+                    self.add_const_arg(lowerer, &arg);
                 }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
                         self.add_ty(lowerer, arg);
                     }
                     for arg in binding.trait_const_args {
-                        self.add_ty(lowerer, arg.ty);
+                        self.add_const_arg(lowerer, &arg);
                     }
                     self.add_ty(lowerer, binding.ty);
                 }
@@ -1962,7 +1983,7 @@ impl ReachableAggregateRoots {
                     self.add_ty(lowerer, arg);
                 }
                 for arg in trait_const_args {
-                    self.add_ty(lowerer, arg.ty);
+                    self.add_const_arg(lowerer, &arg);
                 }
             }
             Some(TyKind::ClosureState {
@@ -1980,7 +2001,7 @@ impl ReachableAggregateRoots {
                         self.add_ty(lowerer, arg);
                     }
                     for arg in owner.const_args {
-                        self.add_ty(lowerer, arg.ty);
+                        self.add_const_arg(lowerer, &arg);
                     }
                 }
                 for capture in captures {

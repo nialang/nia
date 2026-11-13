@@ -2,6 +2,96 @@
 use super::*;
 
 #[test]
+fn const_initializer_type_errors_have_one_owner_and_do_not_cascade() {
+    for (name, source) in [
+        ("global_bool", "const K: bool = 1; fun main() bool { K }"),
+        ("local_bool", "fun main() bool { const K: bool = 1; K }"),
+        ("global_float", "const K: i32 = 1.5; fun main() i32 { K }"),
+        ("local_float", "fun main() i32 { const K: i32 = 1.5; K }"),
+        (
+            "global_enum",
+            "enum E { A } enum F { A } const K: E = F::A; fun main() E { K }",
+        ),
+        (
+            "local_enum",
+            "enum E { A } enum F { A } fun main() E { const K: E = F::A; K }",
+        ),
+        ("local_range", "fun main() u32 { const K: u32 = -1; K }"),
+        ("global_range", "const K: u32 = -1; fun main() u32 { K }"),
+        (
+            "local_signed_range",
+            "fun main() i8 { const K: i8 = -129; K }",
+        ),
+        (
+            "global_signed_range",
+            "const K: i8 = -129; fun main() i8 { K }",
+        ),
+        (
+            "global_string_length",
+            "const K: [char; 3] = \"ab\"; fun main() usize { K.len() }",
+        ),
+        (
+            "local_string_length",
+            "fun main() usize { const K: [char; 3] = \"ab\"; K.len() }",
+        ),
+        (
+            "global_call_return",
+            "const fun f() bool { true } const K: u8 = f(); fun main() u8 { K }",
+        ),
+        (
+            "local_call_return",
+            "const fun f() bool { true } fun main() u8 { const K: u8 = f(); K }",
+        ),
+    ] {
+        let root = temp_dir(name);
+        let path = root.join("main.nia");
+        write(&path, source);
+        for diagnostics in [
+            check_program(path.to_string_lossy().into_owned()).diagnostics,
+            codegen_program(path.to_string_lossy().into_owned()).diagnostics,
+        ] {
+            let errors = diagnostics
+                .iter()
+                .filter(|d| d.diagnostic.severity() == nia_diagnostic::Severity::Error)
+                .collect::<Vec<_>>();
+            assert_eq!(errors.len(), 1, "{name}: {diagnostics:?}");
+            assert_eq!(
+                errors[0].diagnostic.code.as_str(),
+                "E0301",
+                "{name}: {diagnostics:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn const_type_failure_keeps_independent_evaluation_errors() {
+    let root = temp_dir("const_type_failure_keeps_independent_evaluation_errors");
+    let path = root.join("main.nia");
+    write(
+        &path,
+        "const K: bool = 1; const BAD: usize = 1usize / 0usize; fun main() bool { K }",
+    );
+    let program = check_program(path.to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|d| d.diagnostic.summary.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|d| d.diagnostic.summary.contains("division by zero")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn unused_const_function_rejects_wrong_return_type() {
     let root = temp_dir("unused_const_function_rejects_wrong_return_type");
     write(

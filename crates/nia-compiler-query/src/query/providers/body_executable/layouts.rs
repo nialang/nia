@@ -44,6 +44,12 @@ pub(super) fn rooted_layouts_for_checked_module(
     let item_signatures = item_signatures_semantic(db, module.id)?;
     let target = compiler_target_data_layout(db)?;
     let roots = checked_module_layout_roots(&db.context().type_store, module)?;
+    let normalization = module.type_normalization.resolve_array_lengths(
+        module.id,
+        &db.context().type_store,
+        &roots.types,
+        &|id| module.const_eval.symbolic_array_lengths.get(id).cloned(),
+    )?;
     let array_lengths = &module.const_eval.array_lengths;
     let symbols = db.context().symbols();
     let query_failure = RefCell::new(None);
@@ -84,10 +90,17 @@ pub(super) fn rooted_layouts_for_checked_module(
             defs: &module.defs,
             signatures: &item_signatures,
             root_types: &[],
-            normalized: &module.type_normalization.normalized,
+            normalized: &normalization.normalized,
             array_lengths: &local_array_lengths,
             target,
             program: nia_layout::ProgramLayoutContext {
+                const_argument: Some(&|arg| {
+                    super::const_eval::evaluate_const_argument_capturing_failure(
+                        db,
+                        &query_failure,
+                        arg,
+                    )
+                }),
                 symbols: Some(&symbols),
                 layouts: Some(&layout_query),
                 array_lengths: Some(&program_array_lengths),

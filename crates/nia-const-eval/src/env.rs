@@ -69,6 +69,10 @@ pub struct ConstEvalBudget {
 }
 
 impl ConstEvalBudget {
+    /// Whether a logical execution is already active, including nested queries.
+    pub fn is_active(&self) -> bool {
+        self.session_depth != 0
+    }
     /// Creates a budget with explicit total-step and nested-call limits.
     pub fn new(step_limit: usize, call_depth_limit: usize) -> Self {
         Self {
@@ -191,6 +195,9 @@ impl Default for ConstEvalBudget {
 /// implementation must therefore make a successful push fully usable; a
 /// failing push must leave its state unchanged.
 pub trait ConstCommonEnv {
+    /// Retains diagnostic provenance before the interpreter unwinds a frame.
+    /// Environments should keep the first (innermost) observation of a failure.
+    fn observe_const_error(&mut self, _error: &ConstError) {}
     /// Begins a public evaluation session.
     fn begin_const_eval(&mut self) {}
 
@@ -659,6 +666,25 @@ pub trait ResolvedConstEnv: ConstCommonEnv {
             span,
             message: "unsupported field offset builtin in resolved const expression".to_string(),
         })
+    }
+
+    /// Dispatches a resolved const-function call after argument evaluation.
+    fn resolve_const_argument(
+        &mut self,
+        span: Span,
+        arg: &ConstGenericArg,
+    ) -> Result<ConstValue, ConstError> {
+        match &arg.value {
+            nia_ty::ConstGenericValue::Int(value) => Ok(ConstValue::Int(*value)),
+            nia_ty::ConstGenericValue::Bool(value) => Ok(ConstValue::Bool(*value)),
+            nia_ty::ConstGenericValue::Char(value) => {
+                Ok(ConstValue::Int(nia_ty::IntConst::unsigned(*value as u128)))
+            }
+            _ => Err(ConstError {
+                span,
+                message: "const operand requires a concrete substitution".into(),
+            }),
+        }
     }
 
     /// Dispatches a resolved const-function call after argument evaluation.

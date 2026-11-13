@@ -95,6 +95,9 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
         self.remove_generic_nominal_layouts(layouts);
         let array_lengths = |id: GlobalConstExprId| input.array_length(&id);
         let program = ProgramLayoutContext {
+            const_argument: input
+                .const_computation
+                .map(|evaluate| evaluate as &nia_layout::ConstArgumentEvaluator<'_>),
             symbols: Some(self.input.symbols),
             layouts: None,
             array_lengths: Some(&array_lengths),
@@ -435,5 +438,7 @@ fn extend_instance_types(
     const_args: &[nia_ty::ConstGenericArg],
 ) {
     roots.extend(args.iter().copied());
-    roots.extend(const_args.iter().map(|arg| arg.ty));
+    for arg in const_args {
+        arg.visit_referenced_types(|ty| roots.push(ty));
+    }
 }

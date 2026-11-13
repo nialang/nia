@@ -43,6 +43,9 @@ fn eval_const_function_call(
         env.validate_const_function_result(span, &value)?;
         Ok(value)
     })();
+    if let Err(error) = &result {
+        env.observe_const_error(error);
+    }
     env.pop_function_frame();
     result
 }
@@ -187,6 +190,9 @@ fn eval_resolved_const_function_call_inner(
             mutable_receiver,
         })
     })();
+    if let Err(error) = &result {
+        env.observe_const_error(error);
+    }
     env.pop_function_frame();
     result
 }

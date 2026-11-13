@@ -623,9 +623,11 @@ mod tests {
         }
         if self_arg.is_some_and(|ty| type_store.get(ty).is_none())
             || args.iter().any(|ty| type_store.get(*ty).is_none())
-            || const_args
-                .iter()
-                .any(|arg| type_store.get(arg.ty).is_none())
+            || const_args.iter().any(|arg| {
+                let mut missing = false;
+                arg.visit_referenced_types(|ty| missing |= type_store.get(ty).is_none());
+                missing
+            })
         {
             return false;
         }

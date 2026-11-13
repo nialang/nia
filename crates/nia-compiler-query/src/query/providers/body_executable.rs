@@ -154,11 +154,13 @@ impl BodyCheckConstInputs {
     fn into_check(self) -> ConstCheck {
         ConstCheck {
             values: self.values.values,
+            symbolic_locals: self.values.symbolic_locals,
             failed: self.values.failed,
             typed_values: self.typed_facts.typed_values,
             enum_values: self.enum_values.values,
             typed_enum_values: self.enum_values.typed_values,
             array_lengths: self.array_lengths.values,
+            symbolic_array_lengths: self.array_lengths.symbolic,
             provider_demands: self.typed_facts.provider_demands,
             diagnostics: self.typed_facts.diagnostics,
         }
@@ -1065,9 +1067,11 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
         (
             nia_body_check::BodyConst {
                 values: &const_eval.values,
+                symbolic_locals: &const_eval.symbolic_locals,
                 failed: &const_eval.failed,
                 typed_values: &const_eval.typed_values,
                 array_lengths: &const_eval.array_lengths,
+                symbolic_array_lengths: &const_eval.symbolic_array_lengths,
             },
             const_module,
         )
@@ -1966,6 +1970,12 @@ pub(super) fn executable_layouts_for_reachable_items(
             }
         }
         let signature_array_lengths = RefCell::new(HashMap::new());
+        let type_normalization = type_normalization.resolve_array_lengths(
+            module_id,
+            &db.context().type_store,
+            &roots.types,
+            &|id| local_array_lengths.symbolic.get(id).cloned(),
+        )?;
         let target = time_provider(db.context().timings(), "executable_layouts.target", || {
             compiler_target_data_layout(db)
         })?;
@@ -2016,6 +2026,13 @@ pub(super) fn executable_layouts_for_reachable_items(
                     array_lengths: &executable_array_lengths,
                     target,
                     program: nia_layout::ProgramLayoutContext {
+                        const_argument: Some(&|arg| {
+                            const_eval::evaluate_const_argument_capturing_failure(
+                                db,
+                                &query_failure,
+                                arg,
+                            )
+                        }),
                         symbols: Some(&symbols),
                         array_lengths: Some(&executable_array_lengths),
                         struct_: Some(&program_struct),
@@ -2348,11 +2365,13 @@ pub(super) fn executable_signature_checked_module(
     const_diagnostics.extend(enum_values.diagnostics.clone());
     let mut const_eval = ConstCheck {
         values: Arc::new(HashMap::new()),
+        symbolic_locals: Arc::new(HashMap::new()),
         failed: Arc::new(HashSet::new()),
         typed_values: Arc::new(HashMap::new()),
         enum_values: enum_values.values,
         typed_enum_values: enum_values.typed_values,
         array_lengths: array_lengths.values,
+        symbolic_array_lengths: array_lengths.symbolic,
         provider_demands: enum_values.provider_demands,
         diagnostics: const_diagnostics,
     };

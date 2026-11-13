@@ -42,8 +42,7 @@ use nia_item_signatures::{
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, SymbolText, symbol_text_from_optional_resolver};
 use nia_ty::{
-    ArrayLenTy, BuiltinTrait, ConstGenericArg, ConstGenericValue, LayoutBuiltin, PrimitiveTy,
-    RangeTyKind, TyKind,
+    ArrayLenTy, BuiltinTrait, ConstGenericArg, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind,
 };
 
 mod abi;
@@ -412,6 +411,8 @@ pub fn compute_layouts(
 /// batch clients can provide maps.
 #[derive(Clone, Copy, Default)]
 pub struct ProgramLayoutContext<'a> {
+    /// Evaluates closed typed terms using the caller's semantic const engine.
+    pub const_argument: Option<&'a ConstArgumentEvaluator<'a>>,
     /// Optional symbol text provider for diagnostics.
     pub symbols: Option<&'a dyn SymbolText>,
     /// Lazy lookup of layouts owned by another module.
@@ -435,6 +436,11 @@ pub struct ProgramLayoutContext<'a> {
     /// Lazy imported type-alias lookup.
     pub type_alias: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramTypeAliasSignature>>,
 }
+
+/// Semantic evaluation service. User failures retain all originating diagnostics;
+/// absence of executable semantic metadata is an internal error, not a value.
+pub type ConstArgumentEvaluator<'a> =
+    dyn Fn(&ConstGenericArg) -> nia_ice::IceResult<Result<ConstGenericArg, Vec<Diagnostic>>> + 'a;
 
 /// Request for the detailed layout of one struct or union instantiation.
 #[derive(Clone, Copy)]
@@ -859,6 +865,7 @@ impl<'a> LayoutComputer<'a> {
         ty_id: InternedTyId,
         seen: &mut HashSet<InternedTyId>,
     ) -> bool {
+        let ty_id = self.normalize_ty(ty_id);
         if !seen.insert(ty_id) {
             return false;
         }
@@ -1029,6 +1036,9 @@ impl<'a> LayoutComputer<'a> {
     ) -> bool {
         match len {
             ArrayLenTy::GenericParam(_) => true,
+            ArrayLenTy::Computation(expr) => {
+                expr.contains_generic(&mut |ty| self.is_open_generic_type_inner(ty, seen))
+            }
             ArrayLenTy::Builtin { ty, .. } => self.is_open_generic_type_inner(*ty, seen),
             ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => false,
         }
@@ -1039,8 +1049,7 @@ impl<'a> LayoutComputer<'a> {
         arg: &ConstGenericArg,
         seen: &mut HashSet<InternedTyId>,
     ) -> bool {
-        matches!(arg.value, ConstGenericValue::GenericParam(_))
-            || self.is_open_generic_type_inner(arg.ty, seen)
+        arg.contains_generic(|ty| self.is_open_generic_type_inner(ty, seen))
     }
 
     fn primitive_layout(&self, primitive: PrimitiveTy) -> Option<TypeLayout> {
@@ -1095,6 +1104,48 @@ impl<'a> LayoutComputer<'a> {
                 return None;
             }
             ArrayLenTy::ConstValue(value) => value,
+            ArrayLenTy::Computation(expr) => {
+                let ty = match self
+                    .type_context
+                    .append
+                    .primitive(nia_ty::PrimitiveTy::Usize)
+                {
+                    Ok(ty) => ty,
+                    Err(error) => {
+                        self.internal_error = Some(error);
+                        return None;
+                    }
+                };
+                let arg = ConstGenericArg {
+                    ty,
+                    value: nia_ty::ConstGenericValue::Computation(expr),
+                };
+                let Some(evaluate) = self.program.const_argument else {
+                    self.internal_error = Some(nia_ice::Ice::new(
+                        "closed array computation has no semantic evaluator",
+                    ));
+                    return None;
+                };
+                match evaluate(&arg) {
+                    Ok(Ok(value)) => match nia_ty::array_len_from_const_arg(&value) {
+                        Some(ArrayLenTy::ConstValue(value)) => value,
+                        _ => {
+                            self.internal_error = Some(nia_ice::Ice::new(
+                                "array computation evaluator returned a non-length value",
+                            ));
+                            return None;
+                        }
+                    },
+                    Ok(Err(diagnostics)) => {
+                        self.diagnostics.extend(diagnostics);
+                        return None;
+                    }
+                    Err(error) => {
+                        self.internal_error = Some(error);
+                        return None;
+                    }
+                }
+            }
             ArrayLenTy::ConstExpr(id) => {
                 let value = if id.module_id == self.module_id {
                     self.array_lengths.array_len(id)
@@ -1898,6 +1949,7 @@ mod tests {
     use nia_source::SourcePath;
     use nia_symbol::stable_hash;
     use nia_symbol_table::SymbolTable;
+    use nia_ty::ConstGenericValue;
     use nia_ty::{PrimitiveTy, TyKind, TypeStore};
     use nia_type_lower::{TypeLoweringContext, lower_module_types_with_context};
     use nia_type_resolve::resolve_module_types_with_symbols;

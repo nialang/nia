@@ -277,7 +277,7 @@ impl<'a> MembershipBuilder<'a> {
             );
             self.add_type(item.ty);
             self.add_types(item.args.iter().copied());
-            self.add_types(item.const_args.iter().map(|arg| arg.ty));
+            self.add_const_arg_types(&item.const_args);
             self.add_const_arg_dependencies(&item.const_args);
         }
     }
@@ -324,7 +324,7 @@ impl<'a> MembershipBuilder<'a> {
             self.add_function_signature(&item.params, item.return_type);
             self.add_types(item.self_arg);
             self.add_types(item.args.iter().copied());
-            self.add_types(item.const_args.iter().map(|arg| arg.ty));
+            self.add_const_arg_types(&item.const_args);
             self.add_const_arg_dependencies(&item.const_args);
         }
     }
@@ -455,7 +455,7 @@ impl<'a> MembershipBuilder<'a> {
             );
             self.add_types([item.key.self_ty, item.key.object_ty]);
             self.add_types(item.trait_args.iter().copied());
-            self.add_types(item.trait_const_args.iter().map(|arg| arg.ty));
+            self.add_const_arg_types(&item.trait_const_args);
             self.add_const_arg_dependencies(&item.trait_const_args);
         }
         if !self.expanded_vtables.insert(item.key.clone()) {
@@ -467,7 +467,7 @@ impl<'a> MembershipBuilder<'a> {
         // for referenced tables as well as locally defined tables.
         for entry in &item.entries {
             self.add_types(entry.trait_args.iter().copied());
-            self.add_types(entry.trait_const_args.iter().map(|arg| arg.ty));
+            self.add_const_arg_types(&entry.trait_const_args);
             self.add_const_arg_dependencies(&entry.trait_const_args);
             match &entry.function {
                 BackendTraitObjectVtableFunction::Function(def_id) => {
@@ -647,6 +647,14 @@ impl<'a> MembershipBuilder<'a> {
         for ty in types {
             self.add_type(ty);
         }
+    }
+
+    fn add_const_arg_types(&mut self, args: &[ConstGenericArg]) {
+        let mut types = Vec::new();
+        for arg in args {
+            arg.visit_referenced_types(|ty| types.push(ty));
+        }
+        self.add_types(types);
     }
 
     fn close_types(&mut self) {

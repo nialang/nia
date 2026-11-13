@@ -802,6 +802,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn array_len_in(&self, len: &ArrayLenTy, span: Span) -> Result<u64, Diagnostic> {
         match len {
+            ArrayLenTy::Computation(_) => {
+                Err(self.error(span, "unevaluated const computation reached LLVM lowering"))
+            }
             ArrayLenTy::ConstValue(value) => Ok(*value),
             ArrayLenTy::ConstExpr(id) => self
                 .program

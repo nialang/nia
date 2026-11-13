@@ -1,0 +1,72 @@
+{
+  "compiler_cases": [
+    "global_const_argument",
+    "local_const_argument",
+    "parameter_alias_chain",
+    "layout_alias_chain",
+    "layout_argument",
+    "const_function_instances",
+    "shadowed_parameter",
+    "wrong_parameter_type",
+    "runtime_argument",
+    "symbol_literal_mismatch",
+    "generic_arithmetic"
+  ],
+  "computation_cases": [
+    "local", "repeat", "annotation", "argument", "abstraction", "generic_call",
+    "signature", "nominal", "nested_call", "lazy_or", "lazy_and", "lazy_if",
+    "loop_abstraction", "layout_operand", "alias", "cast", "shift", "negative",
+    "unused_generic"
+  ],
+  "computation_laws": [
+    "substitution_preserves_execution", "substitution_preserves_failure",
+    "unselected_branch_is_not_executed", "published_value_fits",
+    "substitution_preserves_publication"
+  ],
+  "semantic_laws": [
+    "symbolic_equality_is_sound",
+    "literal_ne_parameter",
+    "substitution_preserves_meaning",
+    "equality_survives_instantiation",
+    "length_argument_roundtrip",
+    "argument_length_roundtrip",
+    "classification_preserves_meaning",
+    "runtime_binding_is_rejected",
+    "Scalar.validation_is_exact",
+    "Scalar.usize_uses_artifact_width",
+    "Scalar.isize_uses_artifact_width",
+    "Scalar.integer_cannot_be_bool",
+    "Scalar.evaluation_preserves_type_and_range",
+    "Scalar.substitution_preserves_type",
+    "Scalar.substitution_preserves_type_and_range"
+  ],
+  "typed_compiler_cases": [
+    "bool_value",
+    "integer_is_not_bool",
+    "unsigned_negative",
+    "u8_max",
+    "u8_overflow",
+    "i8_min",
+    "i8_underflow",
+    "i8_overflow",
+    "u128_max",
+    "u128_overflow",
+    "i128_min",
+    "i128_underflow",
+    "i128_overflow",
+    "usize32_max",
+    "usize32_overflow",
+    "usize64_wider",
+    "usize64_max",
+    "usize64_overflow",
+    "isize32_min",
+    "isize32_max",
+    "isize32_underflow",
+    "isize32_overflow",
+    "isize64_wider",
+    "isize64_min",
+    "isize64_max",
+    "isize64_underflow",
+    "isize64_overflow"
+  ]
+}

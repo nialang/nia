@@ -992,14 +992,13 @@ impl<'a> BodyChecker<'a> {
         // Explicit call arguments are authoritative. Substitute them into the
         // inference patterns so only `_` parameters are inferred from values.
         let fixed = lowered_args.substitutions;
-        let fixed_is_concrete = fixed
-            .types
-            .values()
-            .all(|ty| !self.type_contains_generic_param(*ty))
-            && fixed
-                .consts
-                .values()
-                .all(|arg| !matches!(arg.value, ConstGenericValue::GenericParam(_)));
+        let fixed_is_concrete = fixed.types.values().all(|ty| {
+            !self.type_contains_generic_param(*ty) && !self.type_contains_const_generic_param(*ty)
+        }) && fixed.consts.values().all(|arg| {
+            !arg.contains_generic(|ty| {
+                self.type_contains_generic_param(ty) || self.type_contains_const_generic_param(ty)
+            })
+        });
         let mut substitutions = fixed.clone();
         self.infer_generic_function_call_substitutions(
             span,
@@ -2586,7 +2585,9 @@ impl<'a> BodyChecker<'a> {
                 continue;
             };
             let expected = self.substitute_generics(param, candidate);
-            if self.type_contains_generic_param(expected) {
+            if self.type_contains_generic_param(expected)
+                || self.type_contains_const_generic_param(expected)
+            {
                 continue;
             }
             if !self.expr_can_match_expected(arg, expected) {
@@ -2842,8 +2843,7 @@ impl<'a> BodyChecker<'a> {
     /// instantiated argument type is valid.
     pub(crate) fn type_contains_const_generic_param(&self, ty: InternedTyId) -> bool {
         let const_arg_contains_param = |arg: &ConstGenericArg| {
-            matches!(arg.value, ConstGenericValue::GenericParam(_))
-                || self.type_contains_const_generic_param(arg.ty)
+            arg.contains_generic(|ty| self.type_contains_const_generic_param(ty))
         };
         match self.interner.get(self.normalization.normalize(ty)) {
             Some(TyKind::Pointer { elem, .. })
@@ -3004,7 +3004,7 @@ impl<'a> BodyChecker<'a> {
                     || args.iter().any(|ty| self.type_contains_generic_param(*ty))
                     || const_args
                         .iter()
-                        .any(|arg| self.type_contains_generic_param(arg.ty))
+                        .any(|arg| arg.any_type(|ty| self.type_contains_generic_param(ty)))
                     || params
                         .iter()
                         .any(|ty| self.type_contains_generic_param(*ty))
@@ -3066,7 +3066,7 @@ impl<'a> BodyChecker<'a> {
                         || owner
                             .const_args
                             .iter()
-                            .any(|arg| self.type_contains_generic_param(arg.ty))
+                            .any(|arg| arg.any_type(|ty| self.type_contains_generic_param(ty)))
                 }) || captures
                     .iter()
                     .chain(params)
@@ -3080,7 +3080,7 @@ impl<'a> BodyChecker<'a> {
                     .any(|arg| self.type_contains_generic_param(*arg))
                     || const_args
                         .iter()
-                        .any(|arg| self.type_contains_generic_param(arg.ty))
+                        .any(|arg| arg.any_type(|ty| self.type_contains_generic_param(ty)))
             }
             Some(TyKind::BuiltinTrait { args, .. }) => args
                 .iter()
@@ -3102,7 +3102,7 @@ impl<'a> BodyChecker<'a> {
                     .any(|arg| self.type_contains_generic_param(*arg))
                     || trait_const_args
                         .iter()
-                        .any(|arg| self.type_contains_generic_param(arg.ty))
+                        .any(|arg| arg.any_type(|ty| self.type_contains_generic_param(ty)))
                     || associated_type_bindings.iter().any(|binding| {
                         binding
                             .trait_args
@@ -3111,7 +3111,7 @@ impl<'a> BodyChecker<'a> {
                             || binding
                                 .trait_const_args
                                 .iter()
-                                .any(|arg| self.type_contains_generic_param(arg.ty))
+                                .any(|arg| arg.any_type(|ty| self.type_contains_generic_param(ty)))
                             || self.type_contains_generic_param(binding.ty)
                     })
             }
@@ -3127,7 +3127,7 @@ impl<'a> BodyChecker<'a> {
                         .any(|arg| self.type_contains_generic_param(*arg))
                     || trait_const_args
                         .iter()
-                        .any(|arg| self.type_contains_generic_param(arg.ty))
+                        .any(|arg| arg.any_type(|ty| self.type_contains_generic_param(ty)))
             }
             Some(
                 TyKind::Error

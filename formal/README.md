@@ -18,6 +18,7 @@ toolchain is pinned in [`lean-toolchain`](lean-toolchain).
 | [`NiaFormal/ModuleValueTypes.lean`](NiaFormal/ModuleValueTypes.lean) | Bounded growth of inferred global and const type facts | [`semantic_diagnostics.rs`](../crates/nia-compiler-query/src/query/tests/semantic_diagnostics.rs) |
 | [`NiaFormal/ModuleVisibility.lean`](NiaFormal/ModuleVisibility.lean) | Explicit extension visibility and separate trait-witness closure | [`imports.rs`](../crates/nia-driver/src/tests/imports.rs) |
 | [`NiaFormal/ScopedExports.lean`](NiaFormal/ScopedExports.lean) | Restricted name exports and authorized provider publication | [`using.rs`](../crates/nia-driver/src/tests/using.rs) |
+| [`NiaFormal/SymbolicConst.lean`](NiaFormal/SymbolicConst.lean) | Symbolic const identity, substitution, and value preservation | [`const_generics.rs`](../crates/nia-driver/src/tests/const_generics.rs) |
 | [`NiaFormal/ReachabilityRetraction.lean`](NiaFormal/ReachabilityRetraction.lean) | Exactness of over-delete/rederive after dependency-edge changes | Pending reachability integration tests |
 
 ### Value construction inference
@@ -126,6 +127,61 @@ The rule inventory is also exported by `nia-defs::ExportScope` and compared with
 the same JSON in the driver test. Adding a scoped-export rule therefore requires
 updating the implementation inventory, the Rust manifest assertion, and the Lean
 inventory check together.
+
+### Symbolic const values
+
+`SymbolicConst.lean` covers the scalar identities retained while checking a
+generic body: a literal length, a resolved const parameter, or a size/alignment
+query on a canonical type. Local aliases retain those identities; ordinary
+constants keep their evaluated values, and runtime bindings cannot become
+symbolic parameters. The model proves that accepted symbolic equality remains
+equal after substitution and evaluation, and that converting between array
+lengths and const arguments preserves meaning.
+
+The shared [symbolic_const_matrix.json](NiaFormal/symbolic_const_matrix.json)
+connects this inventory to compiler checks and LLVM lowering. A separate driver
+test links and runs multiple instances, including imported aliases, to check
+that an instance cannot reuse another instance's local constant value.
+
+The `Scalar` fragment additionally models booleans and mathematical integer
+values with exact carrier types. Validation distinguishes booleans from integers,
+checks signed and unsigned ranges through 128 bits, and derives `usize`/`isize`
+bounds from an explicit artifact target with a positive pointer width at most
+128. Its theorems establish exact validation, type and range preservation under
+evaluation in a well-typed environment, and preservation under a substitution
+that respects each parameter's declared type. Layout results must fit that
+target's `usize`; this is an explicit environment assumption, not a theorem
+about the layout engine. Both environments and substitutions are checked for
+the same target: validity at 64 bits does not imply validity at 32 bits.
+
+The manifest's `typed_compiler_cases` is checked by the driver's
+`typed_symbolic_const_formal_matrix`, including 32/64-bit target boundaries,
+negative unsigned values, boolean/integer separation, and `i128`/`u128` limits.
+These tests connect the contract to actual compiler behavior; shared inventory
+names alone do not establish implementation equivalence.
+
+This deliberately does not model the whole const interpreter. The original
+length fragment uses natural numbers; operand type keys in both fragments are
+opaque canonical identities. The scalar fragment excludes floating point,
+Unicode `char`, arithmetic operations, and raw-bit integer representation.
+Neither fragment proves Rust implementation correctness, target layout,
+recursive operand-type traversal, interpreter memory and pointer lifetimes,
+or cache invalidation.
+
+`ConstComputation.lean` adds a residual-expression model with ordered unary and
+binary operations, conditional execution and opaque function calls. Substitution
+preserves the complete partial execution result, including failures. Unselected
+branches are never executed; boolean short circuiting is expressed as conditional
+execution. Successful scalar publication implies the result fits its declared
+type at the artifact target. A checked-i8 counterexample demonstrates why
+reassociation is not a valid equality rule.
+
+The operation/call kernel is an explicit parameter, and replacement evaluation
+must agree with the source environment. This proves a semantic interface
+contract, not arithmetic opcode correctness, const function bodies, interpreter
+budgets, or the compiler's symbolic-term construction and cache keys. Compiler
+tests exercise generic arithmetic, cross-module const functions with loops,
+multiple concrete instances, lazy branches and failing instance obligations.
 
 ### Incremental reachability retraction
 

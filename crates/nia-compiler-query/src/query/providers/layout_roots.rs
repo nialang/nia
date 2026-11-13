@@ -21,7 +21,7 @@ pub(super) fn collect_semantic_layout_roots(
             roots.add(*ty);
         }
         for arg in &instantiation.const_args {
-            roots.add(arg.ty);
+            arg.visit_referenced_types(|ty| roots.add(ty));
         }
     }
     for (_, plan) in semantic_facts.iter_node_expr_adjustments() {
@@ -206,7 +206,7 @@ impl<'a> LayoutRootCollector<'a> {
                     self.add(arg);
                 }
                 for arg in const_args {
-                    self.add(arg.ty);
+                    arg.visit_referenced_types(|ty| self.add(ty));
                 }
                 for param in params {
                     self.add(param);
@@ -237,7 +237,7 @@ impl<'a> LayoutRootCollector<'a> {
                         self.add(arg);
                     }
                     for arg in owner.const_args {
-                        self.add(arg.ty);
+                        arg.visit_referenced_types(|ty| self.add(ty));
                     }
                 }
                 for ty in captures.into_iter().chain(params).chain([return_type]) {
@@ -255,7 +255,7 @@ impl<'a> LayoutRootCollector<'a> {
                     self.add(*arg);
                 }
                 for arg in &const_args {
-                    self.add(arg.ty);
+                    arg.visit_referenced_types(|ty| self.add(ty));
                 }
                 self.add_nominal_fields(def_id, &args, &const_args);
             }
@@ -280,14 +280,14 @@ impl<'a> LayoutRootCollector<'a> {
                     self.add(arg);
                 }
                 for arg in trait_const_args {
-                    self.add(arg.ty);
+                    arg.visit_referenced_types(|ty| self.add(ty));
                 }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
                         self.add(arg);
                     }
                     for arg in binding.trait_const_args {
-                        self.add(arg.ty);
+                        arg.visit_referenced_types(|ty| self.add(ty));
                     }
                     self.add(binding.ty);
                 }
@@ -303,7 +303,7 @@ impl<'a> LayoutRootCollector<'a> {
                     self.add(arg);
                 }
                 for arg in trait_const_args {
-                    self.add(arg.ty);
+                    arg.visit_referenced_types(|ty| self.add(ty));
                 }
             }
             Some(TyKind::Primitive(_))

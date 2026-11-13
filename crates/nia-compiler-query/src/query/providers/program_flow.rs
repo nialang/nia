@@ -13,6 +13,11 @@ pub(super) fn provide_checked_program(
         let (module_diagnostics, suppressed_downstream) =
             checked_module_diagnostics(db, &diagnostic_modules)?;
         diagnostics.extend(module_diagnostics);
+        diagnostics.extend(deferred_const_instance_diagnostics(
+            db,
+            &diagnostic_modules,
+            &diagnostics,
+        )?);
         diagnostics.extend(time_provider(
             db.context().timings(),
             "checked_program.closure_safety",
@@ -40,6 +45,11 @@ pub(super) fn provide_entry_checked_program(
         let (module_diagnostics, suppressed_downstream) =
             checked_module_diagnostics(db, &diagnostic_modules)?;
         diagnostics.extend(module_diagnostics);
+        diagnostics.extend(deferred_const_instance_diagnostics(
+            db,
+            &diagnostic_modules,
+            &diagnostics,
+        )?);
         diagnostics.extend(time_provider(
             db.context().timings(),
             "entry_checked_program.closure_safety",
@@ -54,6 +64,91 @@ pub(super) fn provide_entry_checked_program(
             suppressed_downstream,
         })
     })
+}
+
+fn deferred_const_instance_diagnostics(
+    db: &QueryDb<CompilerContext>,
+    modules: &[Arc<CheckedModule>],
+    diagnostics: &[ProgramDiagnostic],
+) -> QueryResult<Vec<ProgramDiagnostic>> {
+    // A layout consumer can observe a failed closed computation before instance
+    // validation. Its canonical type cache cannot own all source obligations:
+    // equal types can arise from independent declarations. Continue validating
+    // instances when these are the only failures, while all earlier semantic
+    // failures still block instantiation. Use the owning diagnostic bundle,
+    // never message text, to establish that distinction.
+    if diagnostics.iter().any(|reported| {
+        reported.diagnostic.severity() == nia_diagnostic::Severity::Error
+            && !modules.iter().any(|module| {
+                resolve_diagnostic_bundle(&module.layout_diagnostics)
+                    .iter()
+                    .filter(|diagnostic| diagnostic.code == nia_diagnostic::codes::CONST.into())
+                    .any(|diagnostic| {
+                        let path = diagnostic
+                            .source_path
+                            .as_deref()
+                            .unwrap_or(module.path.as_str());
+                        same_reported_diagnostic(path, diagnostic, reported)
+                    })
+            })
+    }) {
+        return Ok(Vec::new());
+    }
+    let has_computations = modules.iter().any(|module| {
+        module
+            .const_eval
+            .symbolic_locals
+            .values()
+            .any(|arg| matches!(arg.value, nia_ty::ConstGenericValue::Computation(_)))
+            || module
+                .const_eval
+                .symbolic_array_lengths
+                .values()
+                .any(|len| matches!(len, nia_ty::ArrayLenTy::Computation(_)))
+            || module
+                .semantic_facts
+                .iter_node_array_repeat_counts()
+                .any(|(_, len)| matches!(len, nia_ty::ArrayLenTy::Computation(_)))
+            || module
+                .semantic_facts
+                .iter_generic_instantiations()
+                .any(|inst| {
+                    inst.const_args
+                        .iter()
+                        .any(|arg| matches!(arg.value, nia_ty::ConstGenericValue::Computation(_)))
+                })
+    });
+    if !has_computations {
+        return Ok(Vec::new());
+    }
+    // Declaration-wide checking also includes unrelated std bodies. Instance
+    // obligations belong to the executable demand closure, shared with emission.
+    let validation = db.get(MonomorphizationQuery)?;
+    let mut validation =
+        monomorphization_diagnostics(modules, resolve_diagnostic_bundle(&validation.diagnostics));
+    validation.retain(|candidate| {
+        !diagnostics.iter().any(|existing| {
+            same_reported_diagnostic(candidate.path.as_str(), &candidate.diagnostic, existing)
+        })
+    });
+    Ok(validation)
+}
+
+/// Program diagnostics move the source path out of the underlying diagnostic.
+/// Compare the same complete report across that representation boundary.
+fn same_reported_diagnostic(
+    path: &str,
+    diagnostic: &Diagnostic,
+    reported: &ProgramDiagnostic,
+) -> bool {
+    if path != reported.path.as_str() {
+        return false;
+    }
+    let mut diagnostic = diagnostic.clone();
+    diagnostic
+        .source_path
+        .clone_from(&reported.diagnostic.source_path);
+    diagnostic == reported.diagnostic
 }
 
 pub(in crate::query) fn provide_codegen_preparation(
@@ -95,6 +190,11 @@ pub(in crate::query) fn provide_codegen_preparation(
             || closure_safety_diagnostics(db, &modules),
         )?);
         if crate::has_error_diagnostics(&diagnostics) {
+            diagnostics.extend(deferred_const_instance_diagnostics(
+                db,
+                &modules,
+                &diagnostics,
+            )?);
             return Ok(CodegenPreparation {
                 diagnostic_sources: diagnostic_sources(db, &graph, &diagnostics)?,
                 type_store: Arc::clone(&db.context().type_store),

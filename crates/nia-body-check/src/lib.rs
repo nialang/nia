@@ -239,6 +239,9 @@ struct BodyChecker<'a> {
     provider_demands: Rc<RefCell<HashSet<ProviderDemand>>>,
     provider_demands_by_function: Rc<RefCell<HashMap<GlobalDefId, HashSet<ProviderDemand>>>>,
     node_expr_types: FastHashMap<VersionedNodeKey, InternedTyId>,
+    // Local validation evidence follows this checker's diagnostics. Probes
+    // start empty; this is not a reusable semantic product or a type cache.
+    checked_integer_literals: HashSet<(VersionedNodeKey, PrimitiveTy)>,
     node_bracket_suffix_resolutions: FastHashMap<VersionedNodeKey, BracketSuffixResolution>,
     node_expr_adjustments: FastHashMap<VersionedNodeKey, ExprAdjustmentPlan>,
     node_builtin_values: FastHashMap<VersionedNodeKey, BuiltinValue>,

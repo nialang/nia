@@ -177,6 +177,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         provider_demands: Rc::new(RefCell::new(HashSet::new())),
         provider_demands_by_function: Rc::new(RefCell::new(HashMap::new())),
         node_expr_types: FastHashMap::default(),
+        checked_integer_literals: HashSet::new(),
         node_bracket_suffix_resolutions: FastHashMap::default(),
         node_expr_adjustments: FastHashMap::default(),
         node_builtin_values: FastHashMap::default(),

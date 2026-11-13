@@ -1068,6 +1068,7 @@ impl TraitSolver<'_> {
                 ConstGenericValue::Int(nia_ty::IntConst::unsigned((*value).into()))
             }
             ArrayLenTy::GenericParam(name) => ConstGenericValue::GenericParam(*name),
+            ArrayLenTy::Computation(expr) => ConstGenericValue::Computation(expr.clone()),
             ArrayLenTy::ConstExpr(id) => ConstGenericValue::ConstExpr(id.clone()),
             // A layout query is its value once the operand's layout is
             // known, and otherwise stays the symbolic query, which binds a

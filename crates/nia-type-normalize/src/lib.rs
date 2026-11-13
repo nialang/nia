@@ -14,6 +14,8 @@ use nia_span::Span;
 use nia_symbol::SymbolMap;
 use nia_ty::{ArrayLenTy, ConstGenericArg, TyKind, TypeStore, TypeStoreAppend};
 
+type ArrayLengthResolver<'a> = dyn Fn(&nia_ids::GlobalConstExprId) -> Option<ArrayLenTy> + 'a;
+
 #[derive(Debug, Clone, PartialEq)]
 /// Normalized type identities and diagnostics for one module.
 pub struct TypeNormalization {
@@ -49,6 +51,8 @@ pub fn normalize_module_types(
         interner: input.type_store.append_for_module(input.module_id),
         aliases: &input.signatures.type_aliases,
         external_alias: input.external_alias,
+        prior: None,
+        array_length: None,
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
         internal_error: None,
@@ -74,6 +78,8 @@ struct TypeNormalizer<'a, 'store> {
     interner: TypeStoreAppend,
     aliases: &'a HashMap<DefId, TypeAliasSignature>,
     external_alias: Option<&'a dyn Fn(GlobalDefId) -> Option<TypeAliasSignature>>,
+    prior: Option<&'a TypeNormalization>,
+    array_length: Option<&'a ArrayLengthResolver<'a>>,
     normalized: HashMap<InternedTyId, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
     internal_error: Option<nia_ice::Ice>,
@@ -116,6 +122,14 @@ impl<'a> TypeNormalizer<'a, '_> {
         if let Some(normalized) = self.normalized.get(&ty_id).copied() {
             return normalized;
         }
+        if let Some(prior) = self.prior {
+            let expanded = prior.normalize(ty_id);
+            if expanded != ty_id {
+                let normalized = self.normalize_ty(expanded, stack);
+                self.normalized.insert(ty_id, normalized);
+                return normalized;
+            }
+        }
         let normalized = match self.type_store.get(ty_id).cloned() {
             Some(TyKind::Opaque | TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
             Some(TyKind::ClosureState {
@@ -145,10 +159,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     const_args: owner
                         .const_args
                         .into_iter()
-                        .map(|mut arg| {
-                            arg.ty = self.normalize_ty(arg.ty, stack);
-                            arg
-                        })
+                        .map(|arg| self.normalize_const_arg(arg, stack))
                         .collect(),
                 });
                 self.intern(TyKind::ClosureState {
@@ -226,10 +237,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let const_args = const_args
                     .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.normalize_ty(arg.ty, stack);
-                        arg
-                    })
+                    .map(|arg| self.normalize_const_arg(arg, stack))
                     .collect();
                 let params = params
                     .into_iter()
@@ -297,10 +305,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect::<Vec<_>>();
                 let const_args = const_args
                     .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.normalize_ty(arg.ty, stack);
-                        arg
-                    })
+                    .map(|arg| self.normalize_const_arg(arg, stack))
                     .collect::<Vec<_>>();
                 let alias = if def_id.module_id == self.module_id {
                     self.aliases.get(&def_id.def_id).cloned()
@@ -337,10 +342,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let trait_const_args = trait_const_args
                     .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.normalize_ty(arg.ty, stack);
-                        arg
-                    })
+                    .map(|arg| self.normalize_const_arg(arg, stack))
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -354,10 +356,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                         trait_const_args: binding
                             .trait_const_args
                             .into_iter()
-                            .map(|mut arg| {
-                                arg.ty = self.normalize_ty(arg.ty, stack);
-                                arg
-                            })
+                            .map(|arg| self.normalize_const_arg(arg, stack))
                             .collect(),
                         name: binding.name,
                         ty: self.normalize_ty(binding.ty, stack),
@@ -383,10 +382,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let trait_const_args = trait_const_args
                     .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.normalize_ty(arg.ty, stack);
-                        arg
-                    })
+                    .map(|arg| self.normalize_const_arg(arg, stack))
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -400,10 +396,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                         trait_const_args: binding
                             .trait_const_args
                             .into_iter()
-                            .map(|mut arg| {
-                                arg.ty = self.normalize_ty(arg.ty, stack);
-                                arg
-                            })
+                            .map(|arg| self.normalize_const_arg(arg, stack))
                             .collect(),
                         name: binding.name,
                         ty: self.normalize_ty(binding.ty, stack),
@@ -430,10 +423,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let trait_const_args = trait_const_args
                     .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.normalize_ty(arg.ty, stack);
-                        arg
-                    })
+                    .map(|arg| self.normalize_const_arg(arg, stack))
                     .collect();
                 self.intern(TyKind::Projection {
                     self_ty,
@@ -533,10 +523,8 @@ impl<'a> TypeNormalizer<'a, '_> {
                     const_args: owner
                         .const_args
                         .into_iter()
-                        .map(|mut arg| {
-                            arg.ty =
-                                self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
-                            arg
+                        .map(|arg| {
+                            self.normalize_const_arg_with_substitutions(arg, substitutions, stack)
                         })
                         .collect(),
                 });
@@ -622,9 +610,8 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let const_args = const_args
                     .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
-                        arg
+                    .map(|arg| {
+                        self.normalize_const_arg_with_substitutions(arg, substitutions, stack)
                     })
                     .collect();
                 let params = params
@@ -696,9 +683,8 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect::<Vec<_>>();
                 let const_args = const_args
                     .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
-                        arg
+                    .map(|arg| {
+                        self.normalize_const_arg_with_substitutions(arg, substitutions, stack)
                     })
                     .collect::<Vec<_>>();
                 let alias = if def_id.module_id == self.module_id {
@@ -736,9 +722,8 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let trait_const_args = trait_const_args
                     .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
-                        arg
+                    .map(|arg| {
+                        self.normalize_const_arg_with_substitutions(arg, substitutions, stack)
                     })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
@@ -755,13 +740,12 @@ impl<'a> TypeNormalizer<'a, '_> {
                         trait_const_args: binding
                             .trait_const_args
                             .into_iter()
-                            .map(|mut arg| {
-                                arg.ty = self.normalize_ty_with_substitutions(
-                                    arg.ty,
+                            .map(|arg| {
+                                self.normalize_const_arg_with_substitutions(
+                                    arg,
                                     substitutions,
                                     stack,
-                                );
-                                arg
+                                )
                             })
                             .collect(),
                         name: binding.name,
@@ -788,9 +772,8 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let trait_const_args = trait_const_args
                     .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
-                        arg
+                    .map(|arg| {
+                        self.normalize_const_arg_with_substitutions(arg, substitutions, stack)
                     })
                     .collect();
                 let associated_type_bindings = associated_type_bindings
@@ -807,13 +790,12 @@ impl<'a> TypeNormalizer<'a, '_> {
                         trait_const_args: binding
                             .trait_const_args
                             .into_iter()
-                            .map(|mut arg| {
-                                arg.ty = self.normalize_ty_with_substitutions(
-                                    arg.ty,
+                            .map(|arg| {
+                                self.normalize_const_arg_with_substitutions(
+                                    arg,
                                     substitutions,
                                     stack,
-                                );
-                                arg
+                                )
                             })
                             .collect(),
                         name: binding.name,
@@ -841,9 +823,8 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .collect();
                 let trait_const_args = trait_const_args
                     .into_iter()
-                    .map(|mut arg| {
-                        arg.ty = self.normalize_ty_with_substitutions(arg.ty, substitutions, stack);
-                        arg
+                    .map(|arg| {
+                        self.normalize_const_arg_with_substitutions(arg, substitutions, stack)
                     })
                     .collect();
                 self.intern(TyKind::Projection {
@@ -880,8 +861,39 @@ impl<'a> TypeNormalizer<'a, '_> {
         ));
     }
 
+    fn normalize_const_arg(
+        &mut self,
+        mut arg: ConstGenericArg,
+        stack: &mut Vec<GlobalDefId>,
+    ) -> ConstGenericArg {
+        arg.map_types(|ty| self.normalize_ty(ty, stack));
+        arg
+    }
+
+    fn normalize_const_arg_with_substitutions(
+        &mut self,
+        mut arg: ConstGenericArg,
+        substitutions: &SymbolMap<InternedTyId>,
+        stack: &mut Vec<GlobalDefId>,
+    ) -> ConstGenericArg {
+        arg.map_types(|ty| self.normalize_ty_with_substitutions(ty, substitutions, stack));
+        arg
+    }
+
     fn normalize_array_len(&mut self, len: ArrayLenTy, stack: &mut Vec<GlobalDefId>) -> ArrayLenTy {
+        if let ArrayLenTy::ConstExpr(id) = &len
+            && let Some(resolved) = self.array_length.and_then(|resolve| resolve(id))
+            && resolved != len
+        {
+            return self.normalize_array_len(resolved, stack);
+        }
         match len {
+            ArrayLenTy::Computation(expr) => {
+                let result: Result<_, std::convert::Infallible> =
+                    expr.try_map_types(&mut |ty| Ok(self.normalize_ty(ty, stack)));
+                let Ok(expr) = result;
+                ArrayLenTy::Computation(expr)
+            }
             ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
                 builtin,
                 // Layout-builtin array lengths are semantically type-level expressions; keep the
@@ -903,6 +915,13 @@ impl<'a> TypeNormalizer<'a, '_> {
         stack: &mut Vec<GlobalDefId>,
     ) -> ArrayLenTy {
         match len {
+            ArrayLenTy::Computation(expr) => {
+                let result: Result<_, std::convert::Infallible> = expr.try_map_types(&mut |ty| {
+                    Ok(self.normalize_ty_with_substitutions(ty, substitutions, stack))
+                });
+                let Ok(expr) = result;
+                ArrayLenTy::Computation(expr)
+            }
             ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
                 builtin,
                 ty: self.normalize_ty_with_substitutions(ty, substitutions, stack),
@@ -916,6 +935,41 @@ impl<'a> TypeNormalizer<'a, '_> {
 }
 
 impl TypeNormalization {
+    /// Refines alias-normalized types with array-length facts from const analysis.
+    /// This is a later phase: alias normalization must not depend on const queries,
+    /// whose inputs already include the alias-normalized types.
+    pub fn resolve_array_lengths(
+        &self,
+        module_id: ModuleId,
+        type_store: &TypeStore,
+        roots: &[InternedTyId],
+        array_length: &dyn Fn(&nia_ids::GlobalConstExprId) -> Option<ArrayLenTy>,
+    ) -> nia_ice::IceResult<Self> {
+        let aliases = HashMap::new();
+        let mut normalizer = TypeNormalizer {
+            module_id,
+            type_store,
+            interner: type_store.append_for_module(module_id),
+            aliases: &aliases,
+            external_alias: None,
+            prior: Some(self),
+            array_length: Some(array_length),
+            normalized: HashMap::new(),
+            diagnostics: Vec::new(),
+            internal_error: None,
+        };
+        for ty in self.normalized.keys().chain(roots) {
+            normalizer.normalize_ty(*ty, &mut Vec::new());
+        }
+        if let Some(error) = normalizer.internal_error {
+            return Err(error);
+        }
+        Ok(Self {
+            normalized: normalizer.normalized,
+            diagnostics: self.diagnostics.clone(),
+        })
+    }
+
     /// Returns the normalized identity, or the original id when it was not requested.
     pub fn normalize(&self, ty_id: InternedTyId) -> InternedTyId {
         self.normalized.get(&ty_id).copied().unwrap_or(ty_id)

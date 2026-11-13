@@ -587,7 +587,7 @@ impl<'a> BodyChecker<'a> {
                 elem,
             }),
             ArrayLenTy::GenericParam(_) => return None,
-            ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. } => {
+            ArrayLenTy::Computation(_) | ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. } => {
                 if self.array_len_value(&len).ok()? != value_len {
                     return None;
                 }

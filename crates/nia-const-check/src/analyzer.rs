@@ -55,12 +55,18 @@ use nia_value_resolve::ValueResolution;
 
 mod aggregate_literals;
 mod array_literals;
+mod computations;
 mod context;
+pub use computations::{
+    evaluate_const_computation, evaluate_const_generic_arg, scalar_const_generic_value,
+};
 mod env_impl;
 mod expr_types;
 mod generics;
 mod indexing;
 mod match_patterns;
+mod symbolic;
+pub use symbolic::classify_symbolic_const_expr;
 mod traits;
 mod ty_substitution;
 mod type_infer;
@@ -138,7 +144,7 @@ pub struct ConstGenericInstantiation {
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedConstCallee {
     pub function_id: GlobalDefId,
-    pub receiver: Option<ResolvedConstExpr>,
+    pub receiver: Option<Box<ResolvedConstExpr>>,
     pub target_instantiation: ConstGenericInstantiation,
 }
 
@@ -157,6 +163,32 @@ pub(crate) struct ConstFunctionInstantiationInput<'a> {
     pub initial: ConstGenericInstantiation,
 }
 
+/// Semantic evidence survives instantiation failure without parsing a message.
+/// Only a return/expected-type disagreement can be owned by the surrounding
+/// body type check; failed bounds, arguments and execution remain independent.
+pub(crate) enum ConstInstantiationError {
+    Other(ConstError),
+    ReturnTypeMismatch(Span),
+}
+
+impl From<ConstError> for ConstInstantiationError {
+    fn from(error: ConstError) -> Self {
+        Self::Other(error)
+    }
+}
+
+impl From<ConstInstantiationError> for ConstError {
+    fn from(error: ConstInstantiationError) -> Self {
+        match error {
+            ConstInstantiationError::Other(error) => error,
+            ConstInstantiationError::ReturnTypeMismatch(span) => Self {
+                span,
+                message: "const call return type does not match expected type".to_owned(),
+            },
+        }
+    }
+}
+
 /// Infers omitted generic arguments for a resolved const function call.
 ///
 /// Explicit arguments are validated against the signature. With no explicit
@@ -172,17 +204,19 @@ pub fn instantiate_resolved_const_function_generics(
     expected_return: Option<InternedTyId>,
 ) -> Result<ConstGenericInstantiation, ConstError> {
     let mut analyzer = Analyzer::for_typed_query(input);
-    analyzer.instantiate_resolved_function_generics(
-        span,
-        ConstFunctionInstantiationInput {
-            signature_module_id,
-            signature,
-            generic_args,
-            arg_exprs,
-            expected_return,
-            initial: ConstGenericInstantiation::default(),
-        },
-    )
+    analyzer
+        .instantiate_resolved_function_generics(
+            span,
+            ConstFunctionInstantiationInput {
+                signature_module_id,
+                signature,
+                generic_args,
+                arg_exprs,
+                expected_return,
+                initial: ConstGenericInstantiation::default(),
+            },
+        )
+        .map_err(Into::into)
 }
 
 /// Infers the semantic value type of one resolved const expression.
@@ -202,6 +236,8 @@ pub fn infer_resolved_const_expr_type(
 #[derive(Debug)]
 /// Value, diagnostics and provider dependencies of one standalone const query.
 pub struct ConstExprEvaluation {
+    /// Original source of an execution failure before call frames were unwound.
+    pub error_source: Option<SourcePath>,
     /// Evaluation result, retaining source errors independently of diagnostics.
     pub value: Result<ConstValue, ConstError>,
     /// Semantic errors found while typing and executing the expression.
@@ -222,6 +258,7 @@ pub fn evaluate_resolved_const_expr(
     let value = nia_const_eval::eval_resolved_const_expr(expr, &mut analyzer);
     analyzer.finish(())?;
     Ok(ConstExprEvaluation {
+        error_source: analyzer.const_error_origin.map(|(_, path)| path),
         value,
         diagnostics: analyzer.diagnostics,
         provider_demands: analyzer.provider_demands,
@@ -261,6 +298,7 @@ pub fn compute_module_const_array_lengths(
     analyzer.finish(())?;
     Ok(ConstArrayLengths {
         values: Arc::new(analyzer.array_lengths),
+        symbolic: Arc::new(analyzer.symbolic_array_lengths),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
     })
@@ -331,6 +369,7 @@ pub fn compute_module_const_values(
     analyzer.finish(())?;
     Ok(ConstValues {
         values: Arc::new(analyzer.values),
+        symbolic_locals: Arc::new(analyzer.symbolic_locals),
         failed: Arc::new(analyzer.failed),
         typed_values: Arc::new(analyzer.typed_values),
         provider_demands: Arc::new(analyzer.provider_demands),
@@ -347,11 +386,13 @@ pub fn check_module_const_with_all_phases(
 ) -> ConstCheck {
     ConstCheck {
         values: values.values,
+        symbolic_locals: values.symbolic_locals,
         failed: values.failed,
         typed_values: typed_facts.typed_values,
         enum_values: enum_values.values,
         typed_enum_values: enum_values.typed_values,
         array_lengths: array_lengths.values,
+        symbolic_array_lengths: array_lengths.symbolic,
         provider_demands: typed_facts.provider_demands,
         diagnostics: typed_facts.diagnostics,
     }
@@ -467,10 +508,15 @@ impl<'a> ConstTypeCx<'a> {
 pub(crate) struct Analyzer<'a> {
     input: ConstInput<'a>,
     values: HashMap<ConstKey, ConstValue>,
+    symbolic_locals: HashMap<LocalId, ConstGenericArg>,
+    symbolic_local_cache: HashMap<(ModuleId, LocalId), ConstGenericArg>,
+    active_symbolic_locals: HashSet<(ModuleId, LocalId)>,
+    symbolic_array_lengths: HashMap<GlobalConstExprId, ArrayLenTy>,
     typed_values: HashMap<ConstKey, TypedConstValue>,
     external_typed_values: Option<&'a HashMap<ConstKey, TypedConstValue>>,
     call_locals: Vec<ConstCallFrame>,
-    execution_module_overrides: Vec<ModuleId>,
+    execution_module_overrides: Vec<(usize, ModuleId)>,
+    const_error_origin: Option<(ConstError, SourcePath)>,
     enum_values: HashMap<DefId, ConstValue>,
     typed_enum_values: HashMap<DefId, TypedConstValue>,
     array_lengths: HashMap<GlobalConstExprId, u64>,
@@ -482,6 +528,9 @@ pub(crate) struct Analyzer<'a> {
     /// Whether the evaluation in progress read a failed constant. Its own
     /// failure is then a consequence of that root, not a new error.
     read_failed_const: bool,
+    /// A declaration type disagreement established before value validation.
+    /// Only structural type failures inherit it; range failures are independent.
+    validation_type_cause: Option<Box<nia_diagnostic::DiagnosticCause>>,
     program_type_normalizations:
         RefCell<HashMap<ModuleId, Arc<nia_type_normalize::TypeNormalization>>>,
     instantiated_type_normalizations: RefCell<HashMap<InternedTyId, InternedTyId>>,
@@ -492,6 +541,9 @@ pub(crate) struct Analyzer<'a> {
     // Each active const root or function instance owns its transient expression facts.
     resolved_expr_types: Vec<HashMap<Span, InternedTyId>>,
     const_eval_budget: nia_const_eval::ConstEvalBudget,
+    /// Bounds under a symbolic branch are validated during concrete instance
+    /// evaluation, after short-circuit branch selection is known.
+    defer_const_bounds: usize,
     next_const_allocation_serial: u64,
     internal_error: Arc<parking_lot::Mutex<Option<nia_ice::Ice>>>,
 }
@@ -568,10 +620,15 @@ impl Analyzer<'_> {
         Analyzer {
             input,
             values: HashMap::new(),
+            symbolic_locals: HashMap::new(),
+            symbolic_local_cache: HashMap::new(),
+            active_symbolic_locals: HashSet::new(),
+            symbolic_array_lengths: HashMap::new(),
             typed_values: HashMap::new(),
             external_typed_values: None,
             call_locals: Vec::new(),
             execution_module_overrides: Vec::new(),
+            const_error_origin: None,
             enum_values: HashMap::new(),
             typed_enum_values: HashMap::new(),
             array_lengths: HashMap::new(),
@@ -580,6 +637,7 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             failed: failed_lowering_keys(input.module),
             read_failed_const: false,
+            validation_type_cause: None,
             program_type_normalizations: RefCell::new(HashMap::new()),
             instantiated_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
@@ -587,6 +645,7 @@ impl Analyzer<'_> {
             resolved_call_instantiations: HashMap::new(),
             resolved_expr_types: Vec::new(),
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
+            defer_const_bounds: 0,
             next_const_allocation_serial: 0,
             internal_error,
         }
@@ -612,6 +671,10 @@ impl Analyzer<'_> {
                 program: input.program,
             },
             values: HashMap::new(),
+            symbolic_locals: HashMap::new(),
+            symbolic_local_cache: HashMap::new(),
+            active_symbolic_locals: HashSet::new(),
+            symbolic_array_lengths: HashMap::new(),
             typed_values: HashMap::new(),
             external_typed_values: Some(input.typed_values),
             call_locals: input
@@ -621,6 +684,7 @@ impl Analyzer<'_> {
                 .map(ConstCallFrame::from)
                 .collect(),
             execution_module_overrides: Vec::new(),
+            const_error_origin: None,
             enum_values: HashMap::new(),
             typed_enum_values: HashMap::new(),
             array_lengths: input.array_lengths.clone(),
@@ -629,6 +693,7 @@ impl Analyzer<'_> {
             active: HashSet::new(),
             failed: failed_lowering_keys(input.module),
             read_failed_const: false,
+            validation_type_cause: None,
             program_type_normalizations: RefCell::new(HashMap::new()),
             instantiated_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
@@ -636,6 +701,7 @@ impl Analyzer<'_> {
             resolved_call_instantiations: HashMap::new(),
             resolved_expr_types: Vec::new(),
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
+            defer_const_bounds: 0,
             next_const_allocation_serial: 0,
             internal_error,
         }
@@ -730,6 +796,9 @@ impl Analyzer<'_> {
             .copied()
             .collect::<Vec<_>>();
         for local_id in local_initializers {
+            if self.symbolic_local_const(local_id).is_some() {
+                continue;
+            }
             let span = self
                 .input
                 .locals
@@ -842,12 +911,35 @@ impl Analyzer<'_> {
             return None;
         }
         let outer_read_failed_const = std::mem::replace(&mut self.read_failed_const, false);
+        let diagnostic_start = self.diagnostics.len();
         let module_id = self.key_module_id(key);
+        let mut type_mismatch = false;
         let result = self.initializer_for_key(key).and_then(|expr| {
             self.with_execution_module(module_id, |this| {
                 let expected = this.explicit_type_for_key(key);
                 this.resolved_expr_types.push(HashMap::new());
-                let _ = this.resolved_const_expr_type(&expr, expected);
+                let actual = this.resolved_const_expr_type(&expr, expected).or_else(|| {
+                    (expected.is_some() && this.is_untyped_const_numeric_expr(&expr))
+                        .then(|| this.resolved_const_expr_with_numeric_defaults(&expr))
+                        .flatten()
+                });
+                type_mismatch = match (expected, actual) {
+                    (Some(expected), Some(ConstValueType::Runtime(actual))) => {
+                        !this.const_function_types_match(expected, actual)
+                    }
+                    _ => false,
+                };
+                // A typed operation is executable only after its operands pass
+                // type/range checking. In particular, an invalid negative
+                // literal must not become an unsigned negation in the engine.
+                // Keep checking other initializer keys independently.
+                if this.diagnostics[diagnostic_start..]
+                    .iter()
+                    .any(|diagnostic| diagnostic.severity() == nia_diagnostic::Severity::Error)
+                {
+                    this.resolved_expr_types.pop();
+                    return None;
+                }
                 let result = nia_const_eval::eval_resolved_const_expr(&expr, this);
                 this.resolved_expr_types.pop();
                 match result {
@@ -878,29 +970,52 @@ impl Analyzer<'_> {
                 }
             })
         });
+        // A computed representation is not a valid constant until both typing
+        // and value validation succeed. In particular, never publish a bool
+        // declaration paired with an integer value to BIR or another constant.
+        let result = result.filter(|_| {
+            !self.diagnostics[diagnostic_start..]
+                .iter()
+                .any(|diagnostic| diagnostic.severity() == nia_diagnostic::Severity::Error)
+        });
+        let result =
+            result.and_then(|value| self.insert_typed_key_value(key, value, type_mismatch));
+        if result.is_none() {
+            self.typed_values.remove(&key);
+        }
         self.active.remove(&key);
         if result.is_none() {
             self.failed.insert(key);
         }
         // A failed key is itself a failed read for the evaluation that asked.
         self.read_failed_const = outer_read_failed_const || result.is_none();
-        result.map(|value| {
-            let value = self.insert_typed_key_value(key, value);
+        result.inspect(|value| {
             self.values.insert(key, value.clone());
-            value
         })
     }
 
-    fn insert_typed_key_value(&mut self, key: ConstKey, value: ConstValue) -> ConstValue {
+    fn insert_typed_key_value(
+        &mut self,
+        key: ConstKey,
+        value: ConstValue,
+        type_mismatch: bool,
+    ) -> Option<ConstValue> {
         let module_id = self.key_module_id(key);
         self.with_execution_module(module_id, |this| {
             let Some(ty) = this.const_value_type_for_key(key) else {
-                return value;
+                return Some(value);
             };
             let initializer_span = this.initializer_span_for_key(key);
             let value = this.normalize_typed_const_value(value, &ty);
+            let diagnostic_start = this.diagnostics.len();
             if let Some(span) = initializer_span {
+                let cause = type_mismatch.then(|| this.const_initializer_type_cause(span));
+                let previous = std::mem::replace(&mut this.validation_type_cause, cause);
                 this.validate_typed_value(span, &value, &ty);
+                this.validation_type_cause = previous;
+            }
+            if this.diagnostics.len() != diagnostic_start {
+                return None;
             }
             this.typed_values.insert(
                 key,
@@ -909,7 +1024,7 @@ impl Analyzer<'_> {
                     ty,
                 },
             );
-            value
+            Some(value)
         })
     }
 
@@ -917,6 +1032,18 @@ impl Analyzer<'_> {
         self.typed_values.get(&key).or_else(|| {
             self.external_typed_values
                 .and_then(|values| values.get(&key))
+        })
+    }
+
+    fn const_initializer_type_cause(&self, span: Span) -> Box<nia_diagnostic::DiagnosticCause> {
+        Box::new(nia_diagnostic::DiagnosticCause {
+            source_path: self
+                .current_execution_source_path()
+                .unwrap_or_else(|| self.input.source_path.clone())
+                .as_str()
+                .to_owned(),
+            code: codes::TYPE_CHECK.code.to_owned(),
+            span,
         })
     }
 
@@ -954,14 +1081,7 @@ impl Analyzer<'_> {
                 if let ConstValueType::Array { len: Some(len), .. } = ty
                     && u64::try_from(values.len()) != Ok(*len)
                 {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::CONST,
-                        span,
-                        format!(
-                            "const array length {} does not match expected length {len}",
-                            values.len()
-                        ),
-                    ));
+                    self.push_const_array_length_mismatch(span, values.len(), *len);
                 }
                 for value in values {
                     self.validate_typed_value(span, value, elem);
@@ -1103,6 +1223,18 @@ impl Analyzer<'_> {
             Some(TyKind::Primitive(primitive)) => {
                 self.validate_primitive_typed_value(span, value, primitive)
             }
+            Some(TyKind::Tuple(types)) => {
+                let ConstValue::Tuple(values) = value else {
+                    self.push_const_type_mismatch(span, "tuple");
+                    return;
+                };
+                if values.len() != types.len() {
+                    self.push_const_type_mismatch(span, "tuple arity");
+                }
+                for (value, ty) in values.iter().zip(types) {
+                    self.validate_runtime_typed_value(span, value, ty);
+                }
+            }
             Some(TyKind::Array { elem, .. }) => {
                 if self.runtime_array_accepts_const_string(value, ty) {
                     return;
@@ -1111,14 +1243,11 @@ impl Analyzer<'_> {
                     && self.runtime_array_is_char_array(ty)
                     && let Some(expected_len) = self.runtime_array_len(ty)
                 {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::CONST,
+                    self.push_const_array_length_mismatch(
                         span,
-                        format!(
-                            "const array length {} does not match expected length {expected_len}",
-                            value.chars().count()
-                        ),
-                    ));
+                        value.chars().count(),
+                        expected_len,
+                    );
                     return;
                 }
                 let ConstValue::Array(values) = value else {
@@ -1128,14 +1257,7 @@ impl Analyzer<'_> {
                 if let Some(expected_len) = self.runtime_array_len(ty)
                     && u64::try_from(values.len()) != Ok(expected_len)
                 {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::CONST,
-                        span,
-                        format!(
-                            "const array length {} does not match expected length {expected_len}",
-                            values.len()
-                        ),
-                    ));
+                    self.push_const_array_length_mismatch(span, values.len(), expected_len);
                 }
                 for value in values {
                     self.validate_runtime_typed_value(span, value, elem);
@@ -1461,12 +1583,22 @@ impl Analyzer<'_> {
 
     fn push_const_type_mismatch(&mut self, span: Span, expected: &str) {
         let summary = format!("const value does not match expected {expected} type");
-        self.diagnostics.push(
-            Diagnostic::user_error(codes::CONST, summary.clone())
-                .primary(span, summary)
-                .help("change the constant expression to produce the expected value type")
-                .finish(),
+        let mut diagnostic = Diagnostic::user_error(codes::CONST, summary.clone())
+            .primary(span, summary)
+            .help("change the constant expression to produce the expected value type")
+            .finish();
+        diagnostic.cause = self.validation_type_cause.clone();
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn push_const_array_length_mismatch(&mut self, span: Span, actual: usize, expected: u64) {
+        let mut diagnostic = Diagnostic::user_error_at(
+            codes::CONST,
+            span,
+            format!("const array length {actual} does not match expected length {expected}"),
         );
+        diagnostic.cause = self.validation_type_cause.clone();
+        self.diagnostics.push(diagnostic);
     }
 
     fn push_const_missing_struct_field(&mut self, span: Span, name: &SymbolId) {
@@ -1492,12 +1624,12 @@ impl Analyzer<'_> {
             "const value does not match primitive type {}",
             primitive.name()
         );
-        self.diagnostics.push(
-            Diagnostic::user_error(codes::CONST, summary.clone())
-                .primary(span, summary)
-                .help("change the constant expression to produce the expected primitive type")
-                .finish(),
-        );
+        let mut diagnostic = Diagnostic::user_error(codes::CONST, summary.clone())
+            .primary(span, summary)
+            .help("change the constant expression to produce the expected primitive type")
+            .finish();
+        diagnostic.cause = self.validation_type_cause.clone();
+        self.diagnostics.push(diagnostic);
     }
 }
 

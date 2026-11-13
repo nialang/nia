@@ -116,7 +116,9 @@ impl TraitSolver<'_> {
     /// query is one when its operand is sized.
     fn array_len_is_known(&mut self, len: &ArrayLenTy) -> bool {
         match len {
-            ArrayLenTy::ConstValue(_) | ArrayLenTy::GenericParam(_) => true,
+            ArrayLenTy::ConstValue(_)
+            | ArrayLenTy::GenericParam(_)
+            | ArrayLenTy::Computation(_) => true,
             ArrayLenTy::Infer => false,
             ArrayLenTy::ConstExpr(id) => self.const_expr_value.is_some_and(|value| {
                 matches!(

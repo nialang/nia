@@ -6,12 +6,16 @@ use super::*;
 pub struct BodyConst<'a> {
     /// Evaluated const values keyed by global/local identity.
     pub values: &'a HashMap<ConstKey, ConstValue>,
+    /// Local scalar constants whose values are supplied per generic instance.
+    pub symbolic_locals: &'a HashMap<LocalId, nia_ty::ConstGenericArg>,
     /// Initializers whose evaluation failed and was reported at the root.
     pub failed: &'a HashSet<ConstKey>,
     /// Const values paired with inferred runtime types.
     pub typed_values: &'a HashMap<ConstKey, TypedConstValue>,
     /// Array lengths computed by the const prerequisite phase.
     pub array_lengths: &'a HashMap<nia_ids::GlobalConstExprId, u64>,
+    /// Array lengths represented by a const parameter or a layout query.
+    pub symbolic_array_lengths: &'a HashMap<nia_ids::GlobalConstExprId, ArrayLenTy>,
 }
 
 impl<'a> BodyConst<'a> {
@@ -23,9 +27,11 @@ impl<'a> BodyConst<'a> {
     ) -> Self {
         Self {
             values: &values.values,
+            symbolic_locals: &values.symbolic_locals,
             failed: &values.failed,
             typed_values: &typed_facts.typed_values,
             array_lengths: &array_lengths.values,
+            symbolic_array_lengths: &array_lengths.symbolic,
         }
     }
 }

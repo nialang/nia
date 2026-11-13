@@ -76,6 +76,9 @@ pub fn substitute_ty(
                     .as_ref()
                     .and_then(array_len_from_const_arg)
                     .unwrap_or_else(|| len.clone()),
+                ArrayLenTy::Computation(expr) => {
+                    ArrayLenTy::Computation(expr.try_map(substitute_const_arg, substitute)?)
+                }
                 ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
                     builtin: *builtin,
                     ty: substitute(*ty)?,
@@ -326,6 +329,7 @@ pub fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
             value.try_into().ok().map(ArrayLenTy::ConstValue)
         }
         ConstGenericValue::GenericParam(name) => Some(ArrayLenTy::GenericParam(*name)),
+        ConstGenericValue::Computation(expr) => Some(ArrayLenTy::Computation(expr.clone())),
         ConstGenericValue::ConstExpr(id) => Some(ArrayLenTy::ConstExpr(id.clone())),
         ConstGenericValue::Layout { builtin, ty } => Some(ArrayLenTy::Builtin {
             builtin: *builtin,
@@ -345,21 +349,36 @@ pub fn substitute_const_generic_arg<E>(
     const_arg: &impl Fn(&SymbolId) -> Option<ConstGenericArg>,
     substitute: &impl Fn(InternedTyId) -> Result<InternedTyId, E>,
 ) -> Result<ConstGenericArg, E> {
+    // Const substitution is simultaneous. A replacement was constructed in
+    // the caller's binder and its embedded type handles belong to that
+    // binder; applying the callee's type map to it again can capture a
+    // same-named caller parameter (for example `size[T]()` in `h[U, T, ...]`).
+    // Terms that were written in the callee are rebuilt below and do receive
+    // the current map exactly once.
+    if let ConstGenericValue::GenericParam(name) = &arg.value
+        && let Some(replacement) = const_arg(name)
+    {
+        return Ok(replacement);
+    }
+    if let ConstGenericValue::Computation(expr) = &arg.value {
+        return Ok(ConstGenericArg {
+            ty: substitute(arg.ty)?,
+            value: ConstGenericValue::Computation(expr.try_map(
+                |arg| substitute_const_generic_arg(arg, const_arg, substitute),
+                substitute,
+            )?),
+        });
+    }
     let mut substituted = match &arg.value {
         ConstGenericValue::GenericParam(name) => const_arg(name).unwrap_or_else(|| arg.clone()),
-        ConstGenericValue::Layout { builtin, ty } => ConstGenericArg {
-            ty: arg.ty,
-            value: ConstGenericValue::Layout {
-                builtin: *builtin,
-                ty: substitute(*ty)?,
-            },
-        },
-        ConstGenericValue::ConstExpr(_)
+        ConstGenericValue::Layout { .. }
+        | ConstGenericValue::Computation(_)
+        | ConstGenericValue::ConstExpr(_)
         | ConstGenericValue::Int(_)
         | ConstGenericValue::Bool(_)
         | ConstGenericValue::Char(_) => arg.clone(),
     };
-    substituted.ty = substitute(substituted.ty)?;
+    substituted.try_map_types(substitute)?;
     Ok(substituted)
 }
 
@@ -371,6 +390,7 @@ pub fn const_generic_value_from_array_len(len: &ArrayLenTy) -> Option<ConstGener
             Some(ConstGenericValue::Int(IntConst::unsigned((*value).into())))
         }
         ArrayLenTy::GenericParam(name) => Some(ConstGenericValue::GenericParam(*name)),
+        ArrayLenTy::Computation(expr) => Some(ConstGenericValue::Computation(expr.clone())),
         ArrayLenTy::ConstExpr(id) => Some(ConstGenericValue::ConstExpr(id.clone())),
         ArrayLenTy::Builtin { builtin, ty } => Some(ConstGenericValue::Layout {
             builtin: *builtin,

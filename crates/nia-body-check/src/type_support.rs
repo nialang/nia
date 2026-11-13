@@ -857,7 +857,9 @@ impl<'a> BodyChecker<'a> {
                         .const_args
                         .into_iter()
                         .map(|mut arg| {
-                            arg.ty = self.normalize_projection_inner(arg.ty, active_projections);
+                            arg.map_types(|ty| {
+                                self.normalize_projection_inner(ty, active_projections)
+                            });
                             arg
                         })
                         .collect(),
@@ -889,7 +891,7 @@ impl<'a> BodyChecker<'a> {
                 let const_args = const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.normalize_projection_inner(arg.ty, active_projections);
+                        arg.map_types(|ty| self.normalize_projection_inner(ty, active_projections));
                         arg
                     })
                     .collect();
@@ -957,7 +959,7 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.normalize_projection_inner(arg.ty, active_projections);
+                        arg.map_types(|ty| self.normalize_projection_inner(ty, active_projections));
                         arg
                     })
                     .collect();
@@ -974,8 +976,9 @@ impl<'a> BodyChecker<'a> {
                             .trait_const_args
                             .into_iter()
                             .map(|mut arg| {
-                                arg.ty =
-                                    self.normalize_projection_inner(arg.ty, active_projections);
+                                arg.map_types(|ty| {
+                                    self.normalize_projection_inner(ty, active_projections)
+                                });
                                 arg
                             })
                             .collect(),
@@ -1005,7 +1008,7 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.normalize_projection_inner(arg.ty, active_projections);
+                        arg.map_types(|ty| self.normalize_projection_inner(ty, active_projections));
                         arg
                     })
                     .collect();
@@ -1022,8 +1025,9 @@ impl<'a> BodyChecker<'a> {
                             .trait_const_args
                             .into_iter()
                             .map(|mut arg| {
-                                arg.ty =
-                                    self.normalize_projection_inner(arg.ty, active_projections);
+                                arg.map_types(|ty| {
+                                    self.normalize_projection_inner(ty, active_projections)
+                                });
                                 arg
                             })
                             .collect(),
@@ -1054,7 +1058,7 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.normalize_projection_inner(arg.ty, active_projections);
+                        arg.map_types(|ty| self.normalize_projection_inner(ty, active_projections));
                         arg
                     })
                     .collect::<Vec<_>>();
@@ -1468,6 +1472,28 @@ impl<'a> BodyChecker<'a> {
         expected: InternedTyId,
         context: &str,
     ) -> bool {
+        let expected = self.normalization.normalize(expected);
+        let Some(TyKind::Primitive(primitive)) = self.interner.get(expected).cloned() else {
+            return false;
+        };
+        if !primitive.is_integer() {
+            return false;
+        }
+        // Contextual typing, operator checking, and the enclosing assignment
+        // can validate the same literal. Own that validation by source node
+        // and destination type, including literals too large to parse as u128.
+        if !matches!(expr.kind, ExprKind::Integer(_))
+            && !matches!(&expr.kind, ExprKind::Unary { op: UnaryOp::Neg, expr }
+                if matches!(expr.kind, ExprKind::Integer(_)))
+        {
+            return false;
+        }
+        if !self
+            .checked_integer_literals
+            .insert((expr.node_key.clone(), primitive))
+        {
+            return true;
+        }
         let Some(value) = integer_literal_value(expr) else {
             let literal = match &expr.kind {
                 ExprKind::Integer(text) => Some(text.as_str()),
@@ -1494,14 +1520,7 @@ impl<'a> BodyChecker<'a> {
             );
             return true;
         };
-        let expected = self.normalization.normalize(expected);
-        let Some(TyKind::Primitive(primitive)) = self.interner.get(expected) else {
-            return false;
-        };
-        if !primitive.is_integer() {
-            return false;
-        }
-        if !value.fits_primitive_int(*primitive, self.target.pointer_width()) {
+        if !value.fits_primitive_int(primitive, self.target.pointer_width()) {
             let value_name = value.display();
             let target_name = self.ty_name(expected);
             let summary = format!(
@@ -1512,7 +1531,7 @@ impl<'a> BodyChecker<'a> {
                 .note(format!(
                     "the literal value `{value_name}` cannot be represented by `{target_name}`"
                 ));
-            if let Some(wider) = wider_integer_type(*primitive) {
+            if let Some(wider) = wider_integer_type(primitive) {
                 diagnostic = diagnostic.help(format!(
                     "use a value representable by `{target_name}`, or change the literal type to `{wider}`"
                 ));
@@ -1890,7 +1909,7 @@ impl<'a> BodyChecker<'a> {
                             .any(|ty| self.type_contains_unstable_const(*ty, visited))
                         || owner.const_args.iter().any(|arg| {
                             matches!(arg.value, ConstGenericValue::ConstExpr(_))
-                                || self.type_contains_unstable_const(arg.ty, visited)
+                                || arg.any_type(|ty| self.type_contains_unstable_const(ty, visited))
                         })
                 }) || captures
                     .iter()
@@ -1905,7 +1924,7 @@ impl<'a> BodyChecker<'a> {
                     .any(|arg| self.type_contains_unstable_const(*arg, visited))
                     || const_args.iter().any(|arg| {
                         matches!(arg.value, ConstGenericValue::ConstExpr(_))
-                            || self.type_contains_unstable_const(arg.ty, visited)
+                            || arg.any_type(|ty| self.type_contains_unstable_const(ty, visited))
                     })
             }
             Some(TyKind::BuiltinTrait { args, .. }) => args
@@ -1928,7 +1947,7 @@ impl<'a> BodyChecker<'a> {
                     .any(|arg| self.type_contains_unstable_const(*arg, visited))
                     || trait_const_args.iter().any(|arg| {
                         matches!(arg.value, ConstGenericValue::ConstExpr(_))
-                            || self.type_contains_unstable_const(arg.ty, visited)
+                            || arg.any_type(|ty| self.type_contains_unstable_const(ty, visited))
                     })
                     || associated_type_bindings.iter().any(|binding| {
                         self.type_contains_unstable_const(binding.ty, visited)
@@ -1938,7 +1957,9 @@ impl<'a> BodyChecker<'a> {
                                 .any(|arg| self.type_contains_unstable_const(*arg, visited))
                             || binding.trait_const_args.iter().any(|arg| {
                                 matches!(arg.value, ConstGenericValue::ConstExpr(_))
-                                    || self.type_contains_unstable_const(arg.ty, visited)
+                                    || arg.any_type(|ty| {
+                                        self.type_contains_unstable_const(ty, visited)
+                                    })
                             })
                     })
             }
@@ -1954,7 +1975,7 @@ impl<'a> BodyChecker<'a> {
                         .any(|arg| self.type_contains_unstable_const(*arg, visited))
                     || trait_const_args.iter().any(|arg| {
                         matches!(arg.value, ConstGenericValue::ConstExpr(_))
-                            || self.type_contains_unstable_const(arg.ty, visited)
+                            || arg.any_type(|ty| self.type_contains_unstable_const(ty, visited))
                     })
             }
             Some(
@@ -2456,6 +2477,27 @@ impl<'a> BodyChecker<'a> {
             ConstGenericValue::ConstExpr(id) => {
                 self.const_expr_value_for_trait_solver(id.clone(), ty)
             }
+            ConstGenericValue::Computation(_) => {
+                let arg = ConstGenericArg {
+                    ty,
+                    value: value.clone(),
+                };
+                let result = self
+                    .with_typed_const_query(|input| {
+                        nia_const_check::evaluate_const_generic_arg(input, &arg)
+                    })
+                    .ok()?;
+                if !result.diagnostics.is_empty() {
+                    return None;
+                }
+                match result.value.ok()? {
+                    nia_const_check::ConstValue::Int(value) => Some(ConstGenericValue::Int(value)),
+                    nia_const_check::ConstValue::Bool(value) => {
+                        Some(ConstGenericValue::Bool(value))
+                    }
+                    _ => None,
+                }
+            }
             ConstGenericValue::GenericParam(_) => None,
             ConstGenericValue::Layout { builtin, ty } => self.layout_of(*ty).map(|layout| {
                 ConstGenericValue::Int(nia_ty::IntConst::unsigned(
@@ -2507,6 +2549,7 @@ impl<'a> BodyChecker<'a> {
             provider_demands: self.provider_demands.clone(),
             provider_demands_by_function: self.provider_demands_by_function.clone(),
             node_expr_types: FastHashMap::default(),
+            checked_integer_literals: HashSet::new(),
             node_bracket_suffix_resolutions: FastHashMap::default(),
             node_expr_adjustments: FastHashMap::default(),
             node_builtin_values: FastHashMap::default(),
@@ -2657,9 +2700,15 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn ty_for_type(&mut self, ty: &TypeRef) -> InternedTyId {
-        self.type_lowering
+        let ty = self
+            .type_lowering
             .ty_for_key(&ty.node_key)
-            .unwrap_or_else(|| self.error())
+            .unwrap_or_else(|| self.error());
+        if self.const_eval.symbolic_array_lengths.is_empty() {
+            ty
+        } else {
+            self.normalize_aliases_in_type(ty)
+        }
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
@@ -2693,6 +2742,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn array_len_value(&self, len: &ArrayLenTy) -> Result<u64, String> {
         match len {
             ArrayLenTy::ConstValue(value) => Ok(*value),
+            ArrayLenTy::Computation(expr) => self.computed_array_len_value(expr),
             ArrayLenTy::ConstExpr(id) => self
                 .array_len_const_expr_value(id.clone())
                 .ok_or_else(|| "array length was not evaluated by const".to_string()),
@@ -2742,6 +2792,13 @@ impl<'a> BodyChecker<'a> {
             {
                 true
             }
+            (ArrayLenTy::Computation(left), ArrayLenTy::Computation(right))
+                if left.equivalent(right, &mut |l, r| {
+                    self.types_equivalent_without_projection_resolution(l, r)
+                }) =>
+            {
+                true
+            }
             (ArrayLenTy::Infer, _) | (_, ArrayLenTy::Infer) => false,
             (ArrayLenTy::GenericParam(_), _) | (_, ArrayLenTy::GenericParam(_)) => false,
             _ => self
@@ -2754,6 +2811,7 @@ impl<'a> BodyChecker<'a> {
     fn array_len_value_for_match(&mut self, len: &ArrayLenTy) -> Option<u64> {
         match len {
             ArrayLenTy::ConstValue(value) => Some(*value),
+            ArrayLenTy::Computation(expr) => self.computed_array_len_value(expr).ok(),
             ArrayLenTy::ConstExpr(id) => {
                 if let Some(value) = self.array_len_const_expr_value(id.clone()) {
                     return Some(value);
@@ -2761,7 +2819,8 @@ impl<'a> BodyChecker<'a> {
                 let usize_ty = self.primitive(PrimitiveTy::Usize);
                 match self.const_expr_value_for_trait_solver(id.clone(), usize_ty)? {
                     ConstGenericValue::Int(value) => u64::try_from(value.bits()).ok(),
-                    ConstGenericValue::Bool(_)
+                    ConstGenericValue::Computation(_)
+                    | ConstGenericValue::Bool(_)
                     | ConstGenericValue::Char(_)
                     | ConstGenericValue::GenericParam(_)
                     | ConstGenericValue::ConstExpr(_)
@@ -2937,6 +2996,9 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn array_len_name(&self, len: &ArrayLenTy) -> String {
         match len {
             ArrayLenTy::Infer => "_".to_string(),
+            ArrayLenTy::Computation(expr) => {
+                self.const_generic_value_name(&ConstGenericValue::Computation(expr.clone()))
+            }
             ArrayLenTy::GenericParam(name) => self.symbol_name(*name),
             ArrayLenTy::ConstValue(value) => value.to_string(),
             ArrayLenTy::ConstExpr(id) => self

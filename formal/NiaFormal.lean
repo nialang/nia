@@ -3,3 +3,5 @@ import NiaFormal.ModuleVisibility
 import NiaFormal.ModuleValueTypes
 import NiaFormal.ReachabilityRetraction
 import NiaFormal.ScopedExports
+import NiaFormal.SymbolicConst
+import NiaFormal.ConstComputation

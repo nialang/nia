@@ -32,5 +32,7 @@ mod resolution_contracts;
 #[path = "tests/test_support.rs"]
 pub(crate) mod test_support;
 use test_support::*;
+#[path = "tests/symbolic.rs"]
+mod symbolic;
 #[path = "tests/typed_values.rs"]
 mod typed_values;

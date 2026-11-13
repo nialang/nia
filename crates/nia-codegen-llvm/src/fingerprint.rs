@@ -1830,6 +1830,10 @@ impl<'a> Encoder<'a> {
     fn const_arg(&mut self, arg: &ConstGenericArg) {
         self.ty(arg.ty);
         match &arg.value {
+            ConstGenericValue::Computation(expr) => {
+                self.tag(6);
+                self.const_computation(expr);
+            }
             ConstGenericValue::GenericParam(name) => {
                 self.tag(0);
                 self.symbol(*name);
@@ -1860,6 +1864,10 @@ impl<'a> Encoder<'a> {
 
     fn array_len(&mut self, len: &ArrayLenTy) {
         match len {
+            ArrayLenTy::Computation(expr) => {
+                self.tag(5);
+                self.const_computation(expr);
+            }
             ArrayLenTy::Infer => self.tag(0),
             ArrayLenTy::GenericParam(name) => {
                 self.tag(1);
@@ -1878,6 +1886,46 @@ impl<'a> Encoder<'a> {
                 self.tag(*builtin as u8);
                 self.ty(*ty);
             }
+        }
+    }
+
+    fn const_computation(&mut self, expr: &nia_ty::ConstComputation) {
+        use nia_ty::ConstComputationKind as C;
+        match &expr.kind {
+            C::Unary { op, .. } => {
+                self.tag(0);
+                self.tag(*op as u8);
+            }
+            C::Binary { op, .. } => {
+                self.tag(1);
+                self.tag(*op as u8);
+            }
+            C::Cast(_) => self.tag(2),
+            C::If { .. } => self.tag(3),
+            C::Call {
+                function,
+                type_args,
+                const_args,
+                args,
+            } => {
+                self.tag(4);
+                self.global_def(*function);
+                self.len(type_args.len());
+                for (name, ty) in type_args {
+                    self.symbol(*name);
+                    self.ty(*ty);
+                }
+                self.len(const_args.len());
+                for (name, _) in const_args {
+                    self.symbol(*name);
+                }
+                self.len(args.len());
+            }
+        }
+        let operands = expr.operands();
+        self.len(operands.len());
+        for arg in operands {
+            self.const_arg(arg);
         }
     }
 

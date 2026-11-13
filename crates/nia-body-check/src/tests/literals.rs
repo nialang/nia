@@ -2,6 +2,137 @@
 use super::common::*;
 
 #[test]
+fn unary_numeric_operands_receive_the_surrounding_expected_type() {
+    let checked = pipeline(
+        r#"
+fun take(value: i128) i128 { value }
+fun minimum() i128 { -170141183460469231731687303715884105728 }
+fun main() i128 {
+    let value: i128 = -170141183460469231731687303715884105728;
+    let wide: i64 = -4294967296;
+    let inverted: u64 = ~4294967296;
+    _ = (wide, inverted);
+    _ = take(-170141183460469231731687303715884105728);
+    _ = minimum();
+    value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn unary_result_address_context_does_not_address_the_operand() {
+    let checked = pipeline(
+        r#"
+fun signed(value: &i64) i64 { value.* }
+fun unsigned(value: &u64) u64 { value.* }
+fun flag(value: &bool) bool { value.* }
+fun main() () {
+    let x: u64 = 3;
+    let negative: &i64 = -(x as i64);
+    let inverted: &u64 = ~x;
+    let logical: &bool = not (x == 3);
+    _ = (negative, inverted, logical);
+    _ = signed(-(x as i64));
+    _ = unsigned(~x);
+    _ = flag(not (x == 3));
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn unary_result_context_does_not_constrain_overloaded_operands() {
+    let checked = pipeline(
+        r#"
+struct Number { value: i64 }
+extend Number : Neg {
+    type Output = i64;
+    fun neg(self) i64 { -self.value }
+}
+extend Number : BitNot {
+    type Output = i64;
+    fun bitNot(self) i64 { ~self.value }
+}
+extend Number : Not {
+    fun logicalNot(self) bool { self.value == 0 }
+}
+fun negative(value: Number) i64 { -value }
+fun inverted(value: Number) i64 { ~value }
+fun logical(value: Number) bool { not value }
+fun main() () {
+    let value = Number { value: 3 };
+    let a: i64 = -value;
+    let b: i64 = ~value;
+    let c: bool = not value;
+    _ = (a, b, c, negative(value), inverted(value), logical(value));
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn unary_numeric_context_does_not_change_literal_domain() {
+    for source in [
+        "fun main() () { let value: f64 = -1; }",
+        "fun main() () { let value: i32 = -1.5; }",
+        "fun main() () { let value: f64 = ~1; }",
+        "fun main() () { let value: i32x4 = -1; }",
+    ] {
+        let checked = pipeline(source);
+        assert_eq!(
+            checked.diagnostics.len(),
+            1,
+            "{source}: {:?}",
+            checked.diagnostics
+        );
+        assert!(
+            checked.diagnostics[0]
+                .summary
+                .contains("type mismatch in binding initializer"),
+            "{source}: {:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+#[test]
+fn integer_range_validation_has_one_owner_per_literal_and_target() {
+    for source in [
+        "fun main() () { let value: u8 = -1; }",
+        "fun main() () { let value: u8 = -1u8; }",
+        "fun main() () { let value: u8 = 256u8; }",
+        "fun main() u8 { -1 }",
+        "fun take(value: u8) () {} fun main() () { take(-1); }",
+        "fun main() () { let value: u128 = 340282366920938463463374607431768211456u128; }",
+        "fun main() () { let value: i128 = -340282366920938463463374607431768211456i128; }",
+    ] {
+        let checked = pipeline(source);
+        assert_eq!(
+            checked.diagnostics.len(),
+            1,
+            "{source}: {:?}",
+            checked.diagnostics
+        );
+        assert!(
+            checked.diagnostics[0].summary.contains("out of range"),
+            "{source}: {:?}",
+            checked.diagnostics
+        );
+    }
+
+    let checked = pipeline("fun main() () { let a: u8 = -1; let b: u8 = -1; }");
+    assert_eq!(checked.diagnostics.len(), 2, "{:?}", checked.diagnostics);
+    assert_ne!(
+        checked.diagnostics[0].primary_span(),
+        checked.diagnostics[1].primary_span()
+    );
+}
+
+#[test]
 fn checks_integer_literal_ranges_against_expected_types() {
     let checked = pipeline(
         r#"

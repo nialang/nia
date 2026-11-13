@@ -9,6 +9,12 @@ use nia_symbol::SymbolId;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{ArrayLenTy, AssociatedTypeBindingTy, TraitId, TyKind};
 
+fn referenced_const_arg_types(arg: &nia_ty::ConstGenericArg) -> Vec<InternedTyId> {
+    let mut types = Vec::new();
+    arg.visit_referenced_types(|ty| types.push(ty));
+    types
+}
+
 #[derive(Clone)]
 struct TraitObjectImplMethodMatch {
     def_id: GlobalDefId,
@@ -1033,7 +1039,9 @@ impl<'a> BodyChecker<'a> {
                     self.check_object_safe_type(span, arg);
                 }
                 for arg in const_args {
-                    self.check_object_safe_type(span, arg.ty);
+                    for ty in referenced_const_arg_types(&arg) {
+                        self.check_object_safe_type(span, ty);
+                    }
                 }
             }
             Some(TyKind::BuiltinTrait { args, .. }) => {
@@ -1066,14 +1074,18 @@ impl<'a> BodyChecker<'a> {
                     self.check_object_safe_type(span, arg);
                 }
                 for arg in trait_const_args {
-                    self.check_object_safe_type(span, arg.ty);
+                    for ty in referenced_const_arg_types(&arg) {
+                        self.check_object_safe_type(span, ty);
+                    }
                 }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
                         self.check_object_safe_type(span, arg);
                     }
                     for arg in binding.trait_const_args {
-                        self.check_object_safe_type(span, arg.ty);
+                        for ty in referenced_const_arg_types(&arg) {
+                            self.check_object_safe_type(span, ty);
+                        }
                     }
                     self.check_object_safe_type(span, binding.ty);
                 }
@@ -1089,7 +1101,9 @@ impl<'a> BodyChecker<'a> {
                     self.check_object_safe_type(span, arg);
                 }
                 for arg in trait_const_args {
-                    self.check_object_safe_type(span, arg.ty);
+                    for ty in referenced_const_arg_types(&arg) {
+                        self.check_object_safe_type(span, ty);
+                    }
                 }
             }
             Some(
@@ -1450,7 +1464,7 @@ impl<'a> BodyChecker<'a> {
                 let const_args = const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.object_safe_ty(check, arg.ty);
+                        arg.map_types(|ty| self.object_safe_ty(check, ty));
                         arg
                     })
                     .collect();
@@ -1484,7 +1498,7 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.object_safe_ty(check, arg.ty);
+                        arg.map_types(|ty| self.object_safe_ty(check, ty));
                         arg
                     })
                     .collect();
@@ -1501,7 +1515,7 @@ impl<'a> BodyChecker<'a> {
                             .trait_const_args
                             .into_iter()
                             .map(|mut arg| {
-                                arg.ty = self.object_safe_ty(check, arg.ty);
+                                arg.map_types(|ty| self.object_safe_ty(check, ty));
                                 arg
                             })
                             .collect(),
@@ -1531,7 +1545,7 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.object_safe_ty(check, arg.ty);
+                        arg.map_types(|ty| self.object_safe_ty(check, ty));
                         arg
                     })
                     .collect();
@@ -1548,7 +1562,7 @@ impl<'a> BodyChecker<'a> {
                             .trait_const_args
                             .into_iter()
                             .map(|mut arg| {
-                                arg.ty = self.object_safe_ty(check, arg.ty);
+                                arg.map_types(|ty| self.object_safe_ty(check, ty));
                                 arg
                             })
                             .collect(),
@@ -1579,7 +1593,7 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.object_safe_ty(check, arg.ty);
+                        arg.map_types(|ty| self.object_safe_ty(check, ty));
                         arg
                     })
                     .collect();
@@ -1664,7 +1678,7 @@ impl<'a> BodyChecker<'a> {
                     .any(|arg| self.type_mentions_self(arg, self_ty))
                     || const_args
                         .into_iter()
-                        .any(|arg| self.type_mentions_self(arg.ty, self_ty))
+                        .any(|arg| arg.any_type(|ty| self.type_mentions_self(ty, self_ty)))
             }
             Some(TyKind::BuiltinTrait { args, .. }) => args
                 .into_iter()
@@ -1686,7 +1700,7 @@ impl<'a> BodyChecker<'a> {
                     .any(|arg| self.type_mentions_self(arg, self_ty))
                     || trait_const_args
                         .into_iter()
-                        .any(|arg| self.type_mentions_self(arg.ty, self_ty))
+                        .any(|arg| arg.any_type(|ty| self.type_mentions_self(ty, self_ty)))
                     || associated_type_bindings.into_iter().any(|binding| {
                         binding
                             .trait_args
@@ -1695,7 +1709,7 @@ impl<'a> BodyChecker<'a> {
                             || binding
                                 .trait_const_args
                                 .into_iter()
-                                .any(|arg| self.type_mentions_self(arg.ty, self_ty))
+                                .any(|arg| arg.any_type(|ty| self.type_mentions_self(ty, self_ty)))
                             || self.type_mentions_self(binding.ty, self_ty)
                     })
             }
@@ -1711,7 +1725,7 @@ impl<'a> BodyChecker<'a> {
                         .any(|arg| self.type_mentions_self(arg, self_ty))
                     || trait_const_args
                         .into_iter()
-                        .any(|arg| self.type_mentions_self(arg.ty, self_ty))
+                        .any(|arg| arg.any_type(|ty| self.type_mentions_self(ty, self_ty)))
             }
             Some(TyKind::SelfParam) => true,
             Some(

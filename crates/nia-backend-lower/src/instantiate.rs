@@ -470,10 +470,9 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         arg: &nia_ty::ConstGenericArg,
     ) -> nia_ty::ConstGenericArg {
-        nia_ty::ConstGenericArg {
-            ty: self.normalize_instance_arg_type(arg.ty),
-            value: arg.value.clone(),
-        }
+        let mut normalized = arg.clone();
+        normalized.map_types(|ty| self.normalize_instance_arg_type(ty));
+        normalized
     }
 
     fn report_missing_type(&mut self, ty: InternedTyId) {
@@ -496,6 +495,27 @@ impl<'a> ModuleLowerer<'a> {
         {
             arg.value = nia_ty::ConstGenericValue::Int(i128::from(*value).into());
         }
+        if let nia_ty::ConstGenericValue::Layout { builtin, ty } = arg.value
+            && let Some(layout) = self.layout_of(ty)
+        {
+            arg.value =
+                nia_ty::ConstGenericValue::Int(i128::from(layout.builtin_value(builtin)).into());
+        }
+        if matches!(arg.value, nia_ty::ConstGenericValue::Computation(_))
+            && !arg.contains_generic(|ty| self.ty_contains_generic_param(ty))
+        {
+            let Some(evaluate) = self.input.const_computation else {
+                self.type_context.record_internal(nia_ice::Ice::new(
+                    "closed const computation has no semantic evaluator",
+                ));
+                return arg;
+            };
+            match evaluate(&arg) {
+                Ok(Ok(value)) => arg = value,
+                Ok(Err(diagnostics)) => self.diagnostics.extend(diagnostics),
+                Err(error) => self.type_context.record_internal(error),
+            }
+        }
         arg
     }
 
@@ -505,24 +525,22 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
         active_projections: &mut Vec<ProjectionInstantiationKey>,
     ) -> nia_ty::ConstGenericArg {
-        if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
-            && let Some(substituted) = self.const_substitution(substitutions, name)
-        {
-            return self.instantiate_const_generic_arg_with_id(
-                &substituted,
-                substitutions,
-                active_projections,
-            );
-        }
         let this = std::cell::RefCell::new((self, active_projections));
         let substituted: Result<nia_ty::ConstGenericArg, std::convert::Infallible> =
-            nia_ty::substitute_const_generic_arg(arg, &|_| None, &|ty| {
-                let mut this = this.borrow_mut();
-                let (lowerer, active_projections) = &mut *this;
-                Ok(lowerer.instantiate_ty_with_id_inner(ty, substitutions, active_projections))
-            });
+            nia_ty::substitute_const_generic_arg(
+                arg,
+                &|name| {
+                    let this = this.borrow_mut();
+                    this.0.const_substitution(substitutions, name)
+                },
+                &|ty| {
+                    let mut this = this.borrow_mut();
+                    let (lowerer, active_projections) = &mut *this;
+                    Ok(lowerer.instantiate_ty_with_id_inner(ty, substitutions, active_projections))
+                },
+            );
         match substituted {
-            Ok(arg) => arg,
+            Ok(arg) => this.borrow_mut().0.canonicalize_instance_const_arg(&arg),
         }
     }
 
@@ -569,6 +587,7 @@ impl<'a> ModuleLowerer<'a> {
                 })
             }
             nia_ty::ConstGenericValue::GenericParam(_)
+            | nia_ty::ConstGenericValue::Computation(_)
             | nia_ty::ConstGenericValue::ConstExpr(_) => FunctionExprKind::ConstGeneric(arg),
         }
     }
@@ -830,10 +849,9 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .chain(method_args)
                 .any(|arg| self.ty_contains_generic_param(*arg))
-            && !trait_const_args.iter().any(|arg| {
-                self.ty_contains_generic_param(arg.ty)
-                    || matches!(arg.value, nia_ty::ConstGenericValue::GenericParam(_))
-            })
+            && !trait_const_args
+                .iter()
+                .any(|arg| arg.contains_generic(|ty| self.ty_contains_generic_param(ty)))
     }
 
     pub(crate) fn trait_method_call_requires_concrete_impl(
@@ -1724,13 +1742,28 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
     ) -> nia_ty::ArrayLenTy {
         match len {
+            nia_ty::ArrayLenTy::Computation(expr) => {
+                let ty = self
+                    .type_context
+                    .intern(TyKind::Primitive(PrimitiveTy::Usize));
+                let arg = nia_ty::ConstGenericArg {
+                    ty,
+                    value: nia_ty::ConstGenericValue::Computation(expr),
+                };
+                let arg = self.instantiate_const_generic_arg(&arg, substitutions);
+                let arg = self.canonicalize_instance_const_arg(&arg);
+                nia_ty::array_len_from_const_arg(&arg).unwrap_or(nia_ty::ArrayLenTy::Infer)
+            }
             nia_ty::ArrayLenTy::GenericParam(name) => self
                 .const_substitution(substitutions, &name)
                 .and_then(|arg| nia_ty::array_len_from_const_arg(&arg))
                 .unwrap_or(nia_ty::ArrayLenTy::GenericParam(name)),
             nia_ty::ArrayLenTy::ConstExpr(id) => match self.input.array_length(&id) {
                 Some(value) => nia_ty::ArrayLenTy::ConstValue(value),
-                None => nia_ty::ArrayLenTy::ConstExpr(id),
+                None => match self.input.program.symbolic_array_length(&id) {
+                    Some(len) => self.instantiate_array_len(len, substitutions),
+                    None => nia_ty::ArrayLenTy::ConstExpr(id),
+                },
             },
             nia_ty::ArrayLenTy::Builtin { builtin, ty } => {
                 let ty = self.instantiate_ty_with_id(ty, substitutions);
@@ -2481,7 +2514,7 @@ impl<'a> ModuleLowerer<'a> {
                         .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
                     && const_args
                         .iter()
-                        .all(|arg| self.extension_pattern_generics_are_bound(arg.ty, substitutions))
+                        .all(|arg| self.extension_const_arg_generics_are_bound(arg, substitutions))
                     && params.iter().all(|param| {
                         self.extension_pattern_generics_are_bound(*param, substitutions)
                     })
@@ -2501,7 +2534,7 @@ impl<'a> ModuleLowerer<'a> {
                     .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
                     && const_args
                         .iter()
-                        .all(|arg| self.extension_pattern_generics_are_bound(arg.ty, substitutions))
+                        .all(|arg| self.extension_const_arg_generics_are_bound(arg, substitutions))
             }
             Some(TyKind::BuiltinTrait { args, .. }) => args
                 .iter()
@@ -2523,12 +2556,12 @@ impl<'a> ModuleLowerer<'a> {
                     .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
                     && trait_const_args
                         .iter()
-                        .all(|arg| self.extension_pattern_generics_are_bound(arg.ty, substitutions))
+                        .all(|arg| self.extension_const_arg_generics_are_bound(arg, substitutions))
                     && associated_type_bindings.iter().all(|binding| {
                         binding.trait_args.iter().all(|arg| {
                             self.extension_pattern_generics_are_bound(*arg, substitutions)
                         }) && binding.trait_const_args.iter().all(|arg| {
-                            self.extension_pattern_generics_are_bound(arg.ty, substitutions)
+                            self.extension_const_arg_generics_are_bound(arg, substitutions)
                         }) && self.extension_pattern_generics_are_bound(binding.ty, substitutions)
                     })
             }
@@ -2544,7 +2577,7 @@ impl<'a> ModuleLowerer<'a> {
                         .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
                     && trait_const_args
                         .iter()
-                        .all(|arg| self.extension_pattern_generics_are_bound(arg.ty, substitutions))
+                        .all(|arg| self.extension_const_arg_generics_are_bound(arg, substitutions))
             }
             Some(
                 TyKind::Error
@@ -2556,6 +2589,18 @@ impl<'a> ModuleLowerer<'a> {
             )
             | None => true,
         }
+    }
+
+    fn extension_const_arg_generics_are_bound(
+        &self,
+        arg: &nia_ty::ConstGenericArg,
+        substitutions: &SymbolMap<InternedTyId>,
+    ) -> bool {
+        arg.all_types(|ty| self.extension_pattern_generics_are_bound(ty, substitutions))
+    }
+
+    fn extension_const_arg_contains_generic(&self, arg: &nia_ty::ConstGenericArg) -> bool {
+        arg.contains_generic(|ty| self.extension_pattern_contains_generic(ty))
     }
 
     fn extension_pattern_contains_generic(&self, pattern: InternedTyId) -> bool {
@@ -2611,7 +2656,7 @@ impl<'a> ModuleLowerer<'a> {
                         .any(|arg| self.extension_pattern_contains_generic(*arg))
                     || const_args
                         .iter()
-                        .any(|arg| self.extension_pattern_contains_generic(arg.ty))
+                        .any(|arg| self.extension_const_arg_contains_generic(arg))
                     || params
                         .iter()
                         .any(|param| self.extension_pattern_contains_generic(*param))
@@ -2629,7 +2674,7 @@ impl<'a> ModuleLowerer<'a> {
                     .any(|arg| self.extension_pattern_contains_generic(*arg))
                     || const_args
                         .iter()
-                        .any(|arg| self.extension_pattern_contains_generic(arg.ty))
+                        .any(|arg| self.extension_const_arg_contains_generic(arg))
             }
             Some(TyKind::BuiltinTrait { args, .. }) => args
                 .iter()
@@ -2649,18 +2694,19 @@ impl<'a> ModuleLowerer<'a> {
                 trait_args
                     .iter()
                     .any(|arg| self.extension_pattern_contains_generic(*arg))
-                    || trait_const_args
-                        .iter()
-                        .any(|arg| self.extension_pattern_contains_generic(arg.ty))
+                    || trait_const_args.iter().any(|arg| {
+                        arg.contains_generic(|ty| self.extension_pattern_contains_generic(ty))
+                    })
                     || associated_type_bindings.iter().any(|binding| {
                         binding
                             .trait_args
                             .iter()
                             .any(|arg| self.extension_pattern_contains_generic(*arg))
-                            || binding
-                                .trait_const_args
-                                .iter()
-                                .any(|arg| self.extension_pattern_contains_generic(arg.ty))
+                            || binding.trait_const_args.iter().any(|arg| {
+                                arg.contains_generic(|ty| {
+                                    self.extension_pattern_contains_generic(ty)
+                                })
+                            })
                             || self.extension_pattern_contains_generic(binding.ty)
                     })
             }
@@ -2674,9 +2720,9 @@ impl<'a> ModuleLowerer<'a> {
                     || trait_args
                         .iter()
                         .any(|arg| self.extension_pattern_contains_generic(*arg))
-                    || trait_const_args
-                        .iter()
-                        .any(|arg| self.extension_pattern_contains_generic(arg.ty))
+                    || trait_const_args.iter().any(|arg| {
+                        arg.contains_generic(|ty| self.extension_pattern_contains_generic(ty))
+                    })
             }
             Some(
                 TyKind::Error

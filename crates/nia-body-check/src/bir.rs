@@ -859,13 +859,15 @@ impl<'a> BodyChecker<'a> {
             }
             if self.type_contains_generic_param(projection.self_ty)
                 || self.type_contains_const_generic_param(projection.self_ty)
-                || projection
-                    .trait_args
-                    .iter()
-                    .any(|arg| self.type_contains_generic_param(*arg))
+                || projection.trait_args.iter().any(|arg| {
+                    self.type_contains_generic_param(*arg)
+                        || self.type_contains_const_generic_param(*arg)
+                })
                 || projection.trait_const_args.iter().any(|arg| {
-                    self.type_contains_generic_param(arg.ty)
-                        || matches!(arg.value, nia_ty::ConstGenericValue::GenericParam(_))
+                    arg.contains_generic(|ty| {
+                        self.type_contains_generic_param(ty)
+                            || self.type_contains_const_generic_param(ty)
+                    })
                 })
             {
                 return TypedExpr {
@@ -1018,6 +1020,13 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Null => TypedExprKind::Null,
             ExprKind::Ident(_) | ExprKind::SelfValue => {
                 if let Some(local_id) = self.local_const_use(expr) {
+                    if let Some(arg) = self.const_eval.symbolic_locals.get(&local_id) {
+                        return TypedExpr {
+                            span: expr.span,
+                            ty,
+                            kind: TypedExprKind::ConstGeneric(arg.clone()),
+                        };
+                    }
                     if self.const_use_failed(expr, nia_const_check::ConstKey::Local(local_id)) {
                         return self.failed_const_use(expr.span, ty);
                     }

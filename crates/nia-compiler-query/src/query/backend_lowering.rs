@@ -154,6 +154,7 @@ impl BackendAssociatedConstEvaluator {
                         const_eval: Arc::clone(&checked.const_eval),
                         const_values: Arc::new(nia_const_check::ConstValues {
                             values: Arc::clone(&checked.const_eval.values),
+                            symbolic_locals: Arc::clone(&checked.const_eval.symbolic_locals),
                             failed: Arc::clone(&checked.const_eval.failed),
                             typed_values: Arc::clone(&checked.const_eval.typed_values),
                             provider_demands: Arc::clone(&checked.const_eval.provider_demands),
@@ -181,7 +182,24 @@ impl BackendAssociatedConstEvaluator {
         &self,
         user: &nia_trait_solve::UserAssociatedConst,
     ) -> Option<nia_const_check::ConstValue> {
-        let module = self.modules.get(&user.impl_module_id)?;
+        self.with_input(user.impl_module_id, |input, module| {
+            nia_const_check::evaluate_associated_const(
+                input,
+                module.const_eval.as_ref(),
+                nia_span::Span::default(),
+                user.clone(),
+            )
+        })
+        .and_then(Result::ok)
+        .and_then(Result::ok)
+    }
+
+    fn with_input<T>(
+        &self,
+        module_id: ModuleId,
+        evaluate: impl FnOnce(nia_const_check::ConstInput<'_>, &BackendAssociatedConstModule) -> T,
+    ) -> Option<T> {
+        let module = self.modules.get(&module_id)?;
         let module_provider = |module_id| {
             self.modules
                 .get(&module_id)
@@ -294,13 +312,7 @@ impl BackendAssociatedConstEvaluator {
                 visible_extensions: Some(&extensions_provider),
             },
         };
-        let result = nia_const_check::evaluate_associated_const(
-            input,
-            module.const_eval.as_ref(),
-            nia_span::Span::default(),
-            user.clone(),
-        );
-        result.ok().and_then(Result::ok)
+        Some(evaluate(input, module))
     }
 }
 
@@ -505,11 +517,21 @@ impl BackendLoweringInputs {
             reachable_unions: Some(&source_item_plan.unions),
             function_instance_plan: &function_instance_plan.instances,
             program: self,
+            const_computation: None,
         })
     }
 }
 
 impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
+    fn symbolic_array_length(&self, id: &GlobalConstExprId) -> Option<nia_ty::ArrayLenTy> {
+        let index = *self.module_indices.get(&id.module_id)?;
+        self.checked_modules[index]
+            .const_eval
+            .symbolic_array_lengths
+            .get(id)
+            .cloned()
+    }
+
     fn source_identities(&self) -> &HashMap<ModuleId, nia_source::SourceIdentity> {
         &self.source_identities
     }
@@ -681,20 +703,30 @@ impl BackendFinalizationTaskContext {
 
     pub(super) fn finalize_module(
         &self,
+        db: &QueryDb<CompilerContext>,
         position: usize,
         module_id: ModuleId,
         module_plan: nia_backend_lower::BackendModuleItemPlan,
     ) -> QueryResult<nia_backend_lower::BackendModuleFinalization> {
-        let input = self.inputs.module_input(position)?;
+        let mut input = self.inputs.module_input(position)?;
+        let query_failure = parking_lot::Mutex::new(None);
+        let evaluate = |arg: &nia_ty::ConstGenericArg| {
+            providers::const_eval::evaluate_const_argument_for_backend(db, &query_failure, arg)
+        };
+        input.const_computation = Some(&evaluate);
         if input.module_id != module_id {
             return Err(QueryError::internal(format!(
                 "backend finalization task position {position} belongs to {:?}, not {module_id:?}",
                 input.module_id
             )));
         }
-        Ok(self
+        let result = self
             .finalization
-            .finalize_module(position, &input, module_plan)?)
+            .finalize_module(position, &input, module_plan);
+        if let Some(error) = query_failure.into_inner() {
+            return Err(error);
+        }
+        Ok(result?)
     }
 }
 

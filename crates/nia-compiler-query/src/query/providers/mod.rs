@@ -27,7 +27,7 @@ mod body_check_flow;
 mod body_executable;
 mod body_signature_lookup;
 pub(in crate::query) mod codegen;
-mod const_eval;
+pub(super) mod const_eval;
 mod executable_reachability;
 mod extension_providers;
 mod frontend;

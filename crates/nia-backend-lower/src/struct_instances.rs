@@ -39,7 +39,12 @@ impl<'a> ModuleLowerer<'a> {
             .cloned()
             .collect::<Vec<_>>();
         let mut instances = Vec::new();
-        for key in keys {
+        for mut key in keys {
+            key.const_args = key
+                .const_args
+                .iter()
+                .map(|arg| self.canonicalize_instance_const_arg(arg))
+                .collect();
             if self.instance_args_contain_generic_param(&key.args) {
                 continue;
             }
@@ -106,7 +111,12 @@ impl<'a> ModuleLowerer<'a> {
             .cloned()
             .collect::<Vec<_>>();
         let mut instances = Vec::new();
-        for key in keys {
+        for mut key in keys {
+            key.const_args = key
+                .const_args
+                .iter()
+                .map(|arg| self.canonicalize_instance_const_arg(arg))
+                .collect();
             if self.instance_args_contain_generic_param(&key.args) {
                 continue;
             }
@@ -299,7 +309,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(arg, seen, out);
                 }
                 for arg in const_args {
-                    self.collect_struct_instance_ty(arg.ty, seen, out);
+                    arg.visit_referenced_types(|ty| self.collect_struct_instance_ty(ty, seen, out));
                 }
                 for param in params {
                     self.collect_struct_instance_ty(param, seen, out);
@@ -320,7 +330,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
                 for arg in &const_args {
-                    self.collect_struct_instance_ty(arg.ty, seen, out);
+                    arg.visit_referenced_types(|ty| self.collect_struct_instance_ty(ty, seen, out));
                 }
                 if seen.insert((def_id, args.clone(), const_args.clone())) {
                     if !args.is_empty() || !const_args.is_empty() {
@@ -355,14 +365,16 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(arg, seen, out);
                 }
                 for arg in trait_const_args {
-                    self.collect_struct_instance_ty(arg.ty, seen, out);
+                    arg.visit_referenced_types(|ty| self.collect_struct_instance_ty(ty, seen, out));
                 }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
                         self.collect_struct_instance_ty(arg, seen, out);
                     }
                     for arg in binding.trait_const_args {
-                        self.collect_struct_instance_ty(arg.ty, seen, out);
+                        arg.visit_referenced_types(|ty| {
+                            self.collect_struct_instance_ty(ty, seen, out)
+                        });
                     }
                     self.collect_struct_instance_ty(binding.ty, seen, out);
                 }
@@ -378,7 +390,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(arg, seen, out);
                 }
                 for arg in trait_const_args {
-                    self.collect_struct_instance_ty(arg.ty, seen, out);
+                    arg.visit_referenced_types(|ty| self.collect_struct_instance_ty(ty, seen, out));
                 }
             }
             Some(
@@ -572,7 +584,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(arg, seen, out);
                 }
                 for arg in const_args {
-                    self.collect_union_instance_ty(arg.ty, seen, out);
+                    arg.visit_referenced_types(|ty| self.collect_union_instance_ty(ty, seen, out));
                 }
                 for param in params {
                     self.collect_union_instance_ty(param, seen, out);
@@ -593,7 +605,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
                 for arg in &const_args {
-                    self.collect_union_instance_ty(arg.ty, seen, out);
+                    arg.visit_referenced_types(|ty| self.collect_union_instance_ty(ty, seen, out));
                 }
                 if seen.insert((def_id, args.clone(), const_args.clone())) {
                     if !args.is_empty() || !const_args.is_empty() {
@@ -628,14 +640,16 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(arg, seen, out);
                 }
                 for arg in trait_const_args {
-                    self.collect_union_instance_ty(arg.ty, seen, out);
+                    arg.visit_referenced_types(|ty| self.collect_union_instance_ty(ty, seen, out));
                 }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
                         self.collect_union_instance_ty(arg, seen, out);
                     }
                     for arg in binding.trait_const_args {
-                        self.collect_union_instance_ty(arg.ty, seen, out);
+                        arg.visit_referenced_types(|ty| {
+                            self.collect_union_instance_ty(ty, seen, out)
+                        });
                     }
                     self.collect_union_instance_ty(binding.ty, seen, out);
                 }
@@ -651,7 +665,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(arg, seen, out);
                 }
                 for arg in trait_const_args {
-                    self.collect_union_instance_ty(arg.ty, seen, out);
+                    arg.visit_referenced_types(|ty| self.collect_union_instance_ty(ty, seen, out));
                 }
             }
             Some(

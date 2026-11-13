@@ -86,7 +86,7 @@ impl TraitSolver<'_> {
                 .trait_const_args
                 .into_iter()
                 .map(|mut arg| {
-                    arg.ty = self.normalize(arg.ty);
+                    arg.map_types(|ty| self.normalize(ty));
                     arg
                 })
                 .collect(),

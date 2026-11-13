@@ -4,6 +4,7 @@ use crate::{
         Analyzer, ConstCallFrame, ConstFunctionInstantiationInput, ResolvedConstCallee,
         ResolvedConstCalleeSelection,
     },
+    scalar_const_generic_value,
     support::{
         cast_const_integer, cast_float_to_float, cast_float_to_integer, cast_int_to_float,
         const_string_to_char_array, enum_next_value, is_float_primitive, primitive_integer_layout,
@@ -36,7 +37,18 @@ use std::path::{Path, PathBuf};
 
 impl ConstCommonEnv for Analyzer<'_> {
     fn begin_const_eval(&mut self) {
+        if !self.const_eval_budget.is_active() {
+            self.const_error_origin = None;
+        }
         self.const_eval_budget.begin_session();
+    }
+
+    fn observe_const_error(&mut self, error: &ConstError) {
+        if self.const_error_origin.is_none() {
+            self.const_error_origin = self
+                .current_execution_source_path()
+                .map(|path| (error.clone(), path));
+        }
     }
 
     fn end_const_eval(&mut self) {
@@ -431,8 +443,11 @@ impl ConstCommonEnv for Analyzer<'_> {
             .transpose()?;
         let resolved_const_substitutions = const_substitutions
             .into_iter()
-            .map(|(name, arg)| (name, self.resolve_const_const_generic_arg(arg)))
-            .collect::<Vec<_>>();
+            .map(|(name, arg)| {
+                self.resolve_const_const_generic_arg(span, arg)
+                    .map(|arg| (name, arg))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let Some(frame) = self.call_locals.last_mut() else {
             return Err(ConstError {
                 span,
@@ -592,6 +607,12 @@ impl Analyzer<'_> {
     }
 
     fn resolved_expr_runtime_primitive(&mut self, expr: &ResolvedConstExpr) -> Option<PrimitiveTy> {
+        if let nia_const_ir::ResolvedConstExprKind::ConstArgument(arg) = expr.kind() {
+            return match self.ty_kind(arg.ty)? {
+                TyKind::Primitive(primitive) => Some(primitive),
+                _ => None,
+            };
+        }
         let mut cached = self
             .resolved_expr_types
             .last()
@@ -1047,6 +1068,14 @@ impl ResolvedConstEnv for Analyzer<'_> {
         self.resolve_field_offset_builtin_for_ty(span, ty_id, field)
     }
 
+    fn resolve_const_argument(
+        &mut self,
+        span: Span,
+        arg: &nia_ty::ConstGenericArg,
+    ) -> Result<ConstValue, ConstError> {
+        self.eval_const_generic_arg(span, arg)
+    }
+
     fn call_resolved_function(
         &mut self,
         span: Span,
@@ -1148,6 +1177,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
         let call_arg_exprs = resolved_callee
             .receiver
             .into_iter()
+            .map(|receiver| *receiver)
             .chain(arg_exprs.iter().cloned())
             .collect::<Vec<_>>();
         let instantiation =
@@ -1803,6 +1833,7 @@ fn const_value_from_const_generic_arg(arg: &nia_ty::ConstGenericArg) -> Option<C
         )),
         // These still depend on a parameter or on evaluation the caller owns.
         nia_ty::ConstGenericValue::GenericParam(_)
+        | nia_ty::ConstGenericValue::Computation(_)
         | nia_ty::ConstGenericValue::ConstExpr(_)
         | nia_ty::ConstGenericValue::Layout { .. } => None,
     }
@@ -1892,17 +1923,21 @@ impl Analyzer<'_> {
     }
 
     fn resolve_const_const_generic_arg(
-        &self,
-        mut arg: nia_ty::ConstGenericArg,
-    ) -> nia_ty::ConstGenericArg {
-        if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
-            && let Some(resolved) = self
-                .active_execution_frames()
-                .find_map(|frame| frame.const_substitutions.get(name))
-        {
-            arg = resolved.clone();
-        }
-        arg
+        &mut self,
+        span: Span,
+        arg: nia_ty::ConstGenericArg,
+    ) -> Result<nia_ty::ConstGenericArg, ConstError> {
+        let (types, consts) = self.current_execution_substitutions();
+        let mut arg = self.substitute_const_generic_arg_from_maps(arg, &types, &consts);
+        let value = self.eval_const_generic_arg(span, &arg)?;
+        arg.value = scalar_const_generic_value(
+            value,
+            arg.ty,
+            self.input.type_store,
+            self.input.target.pointer_width(),
+        )
+        .map_err(|message| ConstError { span, message })?;
+        Ok(arg)
     }
 }
 

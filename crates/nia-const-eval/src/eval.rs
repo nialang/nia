@@ -58,6 +58,9 @@ where
     // what permits the same environment to service the next query.
     env.begin_const_eval();
     let result = evaluate(env);
+    if let Err(error) = &result {
+        env.observe_const_error(error);
+    }
     env.end_const_eval();
     result
 }
@@ -234,6 +237,7 @@ fn eval_resolved_const_expr_flow(
     let span = expr.span();
     env.consume_const_eval_step(span)?;
     let value = match expr.kind() {
+        ResolvedConstExprKind::ConstArgument(arg) => env.resolve_const_argument(span, arg)?,
         ResolvedConstExprKind::UnavailableValue(restriction) => {
             return Err(ConstError {
                 span,

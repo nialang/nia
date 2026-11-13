@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
+use crate::literals::{has_numeric_literal_suffix, integer_literal_value};
 use nia_ast::{BracketArg, ExprKind, PathSegmentKind, TypeKind, TypeRef};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{GlobalDefId, InternedTyId};
@@ -133,9 +134,10 @@ impl<'a> BodyChecker<'a> {
         );
     }
 
-    pub(in crate::calls) fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
+    pub(crate) fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
         match value {
             ConstGenericValue::GenericParam(name) => self.symbol_name(*name),
+            ConstGenericValue::Computation(_) => "a const computation".into(),
             ConstGenericValue::ConstExpr(_) => "an unevaluated constant expression".to_string(),
             ConstGenericValue::Int(value) => value
                 .as_i128()
@@ -392,13 +394,16 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
                 GenericParamSignatureKind::Const { ty } => {
+                    let diagnostics_before = self.diagnostics.len();
                     let Some(value) = self.const_generic_value_from_bracket_arg(arg, *ty) else {
-                        let name = self.symbol_name(param.name);
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            codes::TYPE_CHECK,
-                            arg.span,
-                            format!("generic argument `{name}` must be a const value"),
-                        ));
+                        if self.diagnostics.len() == diagnostics_before {
+                            let name = self.symbol_name(param.name);
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                codes::TYPE_CHECK,
+                                arg.span,
+                                format!("generic argument `{name}` must be a const value"),
+                            ));
+                        }
                         return None;
                     };
                     let arg = ConstGenericArg { ty: *ty, value };
@@ -416,14 +421,7 @@ impl<'a> BodyChecker<'a> {
         expected_ty: InternedTyId,
     ) -> Option<ConstGenericValue> {
         if let Some(expr) = &arg.expr {
-            let value = match &expr.kind {
-                ExprKind::Integer(text) => nia_literals::eval_int_literal(text)
-                    .ok()
-                    .map(|value| ConstGenericValue::Int(IntConst::unsigned(value))),
-                ExprKind::Bool(value) => Some(ConstGenericValue::Bool(*value)),
-                ExprKind::Ident(name) => Some(ConstGenericValue::GenericParam(*name)),
-                _ => self.eval_const_generic_expr(expr, expected_ty),
-            }?;
+            let value = self.eval_const_generic_expr(expr, expected_ty)?;
             if !self.const_generic_value_matches_type(&value, expected_ty) {
                 return None;
             }
@@ -434,18 +432,7 @@ impl<'a> BodyChecker<'a> {
                 value => Some(value),
             };
         }
-        let ty = arg.ty.as_ref()?;
-        let TypeKind::Path { segments } = &ty.kind else {
-            return None;
-        };
-        if segments.len() != 1 || !segments[0].args.is_empty() {
-            return None;
-        }
-        match segments[0].kind {
-            PathSegmentKind::Name(name) => Some(ConstGenericValue::GenericParam(name)),
-            PathSegmentKind::Root | PathSegmentKind::Super | PathSegmentKind::SelfValue => None,
-        }
-        .filter(|value| self.const_generic_value_matches_type(value, expected_ty))
+        None
     }
 
     pub(crate) fn eval_const_generic_expr(
@@ -454,7 +441,49 @@ impl<'a> BodyChecker<'a> {
         expected_ty: InternedTyId,
     ) -> Option<ConstGenericValue> {
         self.with_const_context(|this| {
-            this.check_expr(expr);
+            // Check the expression on its own before applying the const
+            // parameter's representation.  A const expression may produce an
+            // integer in a wider type and then be range-checked/cast below;
+            // feeding the parameter type as contextual typing here would
+            // reject that expression before evaluation (for example a
+            // `usize` const function used for a `u8` parameter).  It would
+            // also turn a non-const value such as `true` into a generic type
+            // mismatch instead of the normal "must be a const value"
+            // diagnostic.
+            // An unsuffixed literal has no source integer width yet. It takes
+            // the parameter's width, exactly as at any other typed boundary;
+            // defaulting it to i32 would reject valid u64/u128/isize values.
+            // Computed expressions and suffixed literals keep their own type.
+            let literal_expected = integer_literal_value(expr).is_some()
+                && !has_numeric_literal_suffix(expr)
+                && matches!(this.interner.get(this.normalization.normalize(expected_ty)),
+                    Some(TyKind::Primitive(primitive)) if primitive.is_integer());
+            let mut actual = if literal_expected {
+                this.check_expr_with_expected(expr, Some(expected_ty))
+            } else {
+                this.check_expr(expr)
+            };
+            // A named constant can produce the recovery type without a
+            // runtime projection. Retry with the parameter context only in
+            // that case; ordinary expressions keep their own type so their
+            // evaluated value can be range-checked even when its source type
+            // is wider than the parameter type.
+            if this.is_error_recovery_ty(actual) {
+                let projected = this.check_expr_with_expected(expr, Some(expected_ty));
+                if !this.is_error_recovery_ty(projected) {
+                    actual = projected;
+                }
+            }
+            if this.is_error_recovery_ty(actual) {
+                return None;
+            }
+            if let Some(arg) = this.symbolic_const_expr(expr) {
+                if !this.types_match(expected_ty, arg.ty) {
+                    this.expect_expr_type(expr, expected_ty, arg.ty, "const generic argument");
+                    return None;
+                }
+                return Some(arg.value);
+            }
             let const_expr = match this.lower_const_expr(expr) {
                 Ok(expr) => expr,
                 Err(err) => {
@@ -519,7 +548,9 @@ impl<'a> BodyChecker<'a> {
         expected_ty: InternedTyId,
     ) -> bool {
         match value {
-            ConstGenericValue::GenericParam(_) | ConstGenericValue::ConstExpr(_) => true,
+            ConstGenericValue::GenericParam(_)
+            | ConstGenericValue::ConstExpr(_)
+            | ConstGenericValue::Computation(_) => true,
             // A size or alignment is a `usize`.
             ConstGenericValue::Layout { .. } => {
                 self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Usize)

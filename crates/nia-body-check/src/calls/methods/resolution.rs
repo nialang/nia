@@ -1078,7 +1078,7 @@ impl<'a> BodyChecker<'a> {
         }
         let mut concrete_trait_const_args = Vec::new();
         for mut trait_const_arg in trait_const_args {
-            trait_const_arg.ty = self.substitute_generics(trait_const_arg.ty, substitutions);
+            trait_const_arg.map_types(|ty| self.substitute_generics(ty, substitutions));
             concrete_trait_const_args.push(trait_const_arg);
         }
         if !self.current_context_proves_trait_obligation_with_const_args(

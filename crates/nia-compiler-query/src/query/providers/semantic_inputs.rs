@@ -757,14 +757,13 @@ fn collect_array_len_const_exprs_in_ty(
                     collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
                 }
                 for arg in &owner.const_args {
-                    collect_array_len_const_exprs_in_ty(
+                    collect_array_len_const_exprs_in_const_arg(
                         type_store,
-                        arg.ty,
+                        arg,
                         candidate_ids,
                         out,
                         seen,
                     );
-                    collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
                 }
             }
             for ty in captures.iter().chain(params).chain([return_type]) {
@@ -816,8 +815,13 @@ fn collect_array_len_const_exprs_in_ty(
                 collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
             }
             for arg in const_args {
-                collect_array_len_const_exprs_in_ty(type_store, arg.ty, candidate_ids, out, seen);
-                collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
+                collect_array_len_const_exprs_in_const_arg(
+                    type_store,
+                    arg,
+                    candidate_ids,
+                    out,
+                    seen,
+                );
             }
             for param in params {
                 collect_array_len_const_exprs_in_ty(type_store, *param, candidate_ids, out, seen);
@@ -831,8 +835,13 @@ fn collect_array_len_const_exprs_in_ty(
                 collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
             }
             for arg in const_args {
-                collect_array_len_const_exprs_in_ty(type_store, arg.ty, candidate_ids, out, seen);
-                collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
+                collect_array_len_const_exprs_in_const_arg(
+                    type_store,
+                    arg,
+                    candidate_ids,
+                    out,
+                    seen,
+                );
             }
         }
         Some(TyKind::BuiltinTrait { args, .. }) => {
@@ -858,22 +867,26 @@ fn collect_array_len_const_exprs_in_ty(
                 collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
             }
             for arg in trait_const_args {
-                collect_array_len_const_exprs_in_ty(type_store, arg.ty, candidate_ids, out, seen);
-                collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
+                collect_array_len_const_exprs_in_const_arg(
+                    type_store,
+                    arg,
+                    candidate_ids,
+                    out,
+                    seen,
+                );
             }
             for binding in associated_type_bindings {
                 for arg in &binding.trait_args {
                     collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
                 }
                 for arg in &binding.trait_const_args {
-                    collect_array_len_const_exprs_in_ty(
+                    collect_array_len_const_exprs_in_const_arg(
                         type_store,
-                        arg.ty,
+                        arg,
                         candidate_ids,
                         out,
                         seen,
                     );
-                    collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
                 }
                 collect_array_len_const_exprs_in_ty(
                     type_store,
@@ -895,8 +908,13 @@ fn collect_array_len_const_exprs_in_ty(
                 collect_array_len_const_exprs_in_ty(type_store, *arg, candidate_ids, out, seen);
             }
             for arg in trait_const_args {
-                collect_array_len_const_exprs_in_ty(type_store, arg.ty, candidate_ids, out, seen);
-                collect_array_len_const_exprs_in_const_arg(arg, candidate_ids, out);
+                collect_array_len_const_exprs_in_const_arg(
+                    type_store,
+                    arg,
+                    candidate_ids,
+                    out,
+                    seen,
+                );
             }
         }
         Some(
@@ -922,6 +940,20 @@ fn collect_array_len_const_exprs_in_len(
     seen: &mut HashSet<InternedTyId>,
 ) {
     match len {
+        ArrayLenTy::Computation(expr) => {
+            for arg in expr.operands() {
+                collect_array_len_const_exprs_in_const_arg(
+                    type_store,
+                    arg,
+                    candidate_ids,
+                    out,
+                    seen,
+                );
+            }
+            expr.visit_referenced_types(&mut |ty| {
+                collect_array_len_const_exprs_in_ty(type_store, ty, candidate_ids, out, seen)
+            });
+        }
         ArrayLenTy::ConstExpr(id) => {
             if candidate_ids.contains(id) {
                 out.insert(id.clone());
@@ -935,10 +967,15 @@ fn collect_array_len_const_exprs_in_len(
 }
 
 fn collect_array_len_const_exprs_in_const_arg(
+    type_store: &nia_ty::TypeStore,
     arg: &nia_ty::ConstGenericArg,
     candidate_ids: &HashSet<GlobalConstExprId>,
     out: &mut HashSet<GlobalConstExprId>,
+    seen: &mut HashSet<InternedTyId>,
 ) {
+    arg.visit_referenced_types(|ty| {
+        collect_array_len_const_exprs_in_ty(type_store, ty, candidate_ids, out, seen)
+    });
     if let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value
         && candidate_ids.contains(id)
     {

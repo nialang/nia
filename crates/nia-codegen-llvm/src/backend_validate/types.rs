@@ -295,6 +295,12 @@ impl BackendValidator<'_> {
             ));
             return;
         }
+        if let nia_ty::ConstGenericValue::Layout { ty, .. } = &arg.value {
+            // A layout query has both the usize argument type and the type
+            // whose layout is queried. Descriptor-only generic operands must
+            // have been instantiated before reaching LLVM lowering.
+            self.validate_runtime_type(*ty, span);
+        }
         let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value else {
             return;
         };
@@ -351,6 +357,11 @@ impl BackendValidator<'_> {
 
     pub(super) fn validate_array_len(&mut self, len: &ArrayLenTy, span: Span) {
         match len {
+            ArrayLenTy::Computation(_) => self.diagnostics.push(Diagnostic::internal_error_at(
+                nia_diagnostic::codes::INVALID_BACKEND_IR,
+                span,
+                "unevaluated const computation reached LLVM codegen",
+            )),
             ArrayLenTy::ConstValue(_) => {}
             ArrayLenTy::ConstExpr(id) => {
                 if !self.index.is_registered_module(id.module_id) {
@@ -626,6 +637,7 @@ impl BackendValidator<'_> {
 
     pub(super) fn array_len_value(&self, len: &ArrayLenTy) -> Option<u64> {
         match len {
+            ArrayLenTy::Computation(_) => None,
             ArrayLenTy::ConstValue(value) => Some(*value),
             ArrayLenTy::ConstExpr(id) => self
                 .index
@@ -788,7 +800,7 @@ mod tests {
     use nia_layout::{TargetDataLayout, TypeLayout};
     use nia_span::Span;
     use nia_symbol::{SymbolId, stable_hash};
-    use nia_ty::{PrimitiveTy, TyKind, TypeStore};
+    use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind, TypeStore};
 
     use crate::program_index::ProgramIndex;
 
@@ -1157,6 +1169,58 @@ mod tests {
             validator.diagnostics[0]
                 .summary
                 .contains("backend IR const generic")
+        );
+    }
+
+    #[test]
+    fn validate_const_arg_requires_a_concrete_layout_operand() {
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let owner = module_ids.allocate().expect("allocate module ID");
+        let type_store = TypeStore::new().expect("create type store");
+        let interner = type_store.append_for_module(owner);
+        let ty = interner.test_primitive(PrimitiveTy::Usize);
+        let concrete = interner.test_primitive(PrimitiveTy::U32);
+        let generic = interner
+            .intern(TyKind::GenericParam(SymbolId::from_stable_hash(
+                stable_hash("T"),
+            )))
+            .expect("intern generic operand");
+        drop(interner);
+        let store = Arc::new(BackendModuleStore::new([owner]).expect("create module store"));
+        let (index, _publisher) = ProgramIndex::new(store, Arc::new(type_store));
+        let mut validator = BackendValidator::new(&index, TargetDataLayout::LP64);
+        for builtin in [LayoutBuiltin::Size, LayoutBuiltin::Align] {
+            validator.validate_const_arg(
+                &nia_ty::ConstGenericArg {
+                    ty,
+                    value: nia_ty::ConstGenericValue::Layout {
+                        builtin,
+                        ty: concrete,
+                    },
+                },
+                Span::default(),
+            );
+        }
+        assert!(
+            validator.diagnostics.is_empty(),
+            "{:?}",
+            validator.diagnostics
+        );
+        validator.validate_const_arg(
+            &nia_ty::ConstGenericArg {
+                ty,
+                value: nia_ty::ConstGenericValue::Layout {
+                    builtin: LayoutBuiltin::Size,
+                    ty: generic,
+                },
+            },
+            Span::default(),
+        );
+        assert_eq!(validator.diagnostics.len(), 1);
+        assert!(
+            validator.diagnostics[0]
+                .summary
+                .contains("has no ABI layout")
         );
     }
 }

@@ -55,6 +55,12 @@ fn with_module_layout_input<T>(
     let type_normalization = db.get(LayoutTypeNormalizationQuery(module_id))?;
     let item_signatures = item_signatures_semantic(db, module_id)?;
     let array_lengths = db.get(ConstArrayLengthsQuery(module_id))?;
+    let type_normalization = type_normalization.resolve_array_lengths(
+        module_id,
+        &db.context().type_store,
+        root_types,
+        &|id| array_lengths.symbolic.get(id).cloned(),
+    )?;
     let target = compiler_target_data_layout(db)?;
     let symbols = db.context().symbols();
     let query_failure = RefCell::new(None);
@@ -125,6 +131,9 @@ fn with_module_layout_input<T>(
         array_lengths: &local_array_lengths,
         target,
         program: nia_layout::ProgramLayoutContext {
+            const_argument: Some(&|arg| {
+                const_eval::evaluate_const_argument_capturing_failure(db, &query_failure, arg)
+            }),
             symbols: Some(&symbols),
             layouts: Some(&layout_query),
             array_lengths: Some(&program_array_lengths),

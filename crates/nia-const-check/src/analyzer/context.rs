@@ -139,7 +139,8 @@ impl Analyzer<'_> {
         // Some queries inspect a foreign initializer without creating a call
         // frame. The override selects that module's signatures, normalization,
         // source path, and type context for precisely the duration of `f`.
-        self.execution_module_overrides.push(module_id);
+        self.execution_module_overrides
+            .push((self.call_locals.len(), module_id));
         let result = f(self);
         self.execution_module_overrides.pop();
         result
@@ -342,11 +343,14 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn push_engine_error(&mut self, err: ConstError) {
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::CONST,
-            err.span,
-            err.message,
-        ));
+        let source_path = self
+            .const_error_origin
+            .as_ref()
+            .filter(|(error, _)| error == &err)
+            .map(|(_, path)| path.clone());
+        let mut diagnostic = Diagnostic::user_error_at(codes::CONST, err.span, err.message);
+        diagnostic.source_path = source_path.map(|path| path.as_str().to_owned());
+        self.diagnostics.push(diagnostic);
     }
 
     pub(super) fn initializer_for_key(&self, key: ConstKey) -> Option<ResolvedConstExpr> {
@@ -486,7 +490,7 @@ impl Analyzer<'_> {
                 let Some(target_ty) = self.resolved_const_arg_runtime_type(receiver, None) else {
                     return ResolvedConstCalleeSelection::NoMatch;
                 };
-                (target_ty, *name, Some(receiver.as_ref().clone()))
+                (target_ty, *name, Some(receiver.clone()))
             }
             ResolvedConstExprKind::AssociatedFunction { target, name } => {
                 let Some(target_ty) =
@@ -1110,13 +1114,19 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn current_execution_module_id(&self) -> ModuleId {
-        if let Some(module_id) = self.execution_module_overrides.last().copied() {
-            return module_id;
-        }
-        self.call_locals
+        let function = self
+            .call_locals
             .iter()
+            .enumerate()
             .rev()
-            .find_map(|frame| frame.module_id)
+            .find_map(|(depth, frame)| frame.module_id.map(|module| (depth + 1, module)));
+        if let Some((depth, module)) = self.execution_module_overrides.last().copied()
+            && function.is_none_or(|(function_depth, _)| depth >= function_depth)
+        {
+            return module;
+        }
+        function
+            .map(|(_, module)| module)
             .unwrap_or(self.input.defs.module_id)
     }
 
@@ -1569,7 +1579,25 @@ impl Analyzer<'_> {
         if !seen.insert(ty) {
             return;
         }
-        match self.ty_kind(ty) {
+        let raw = self.input.type_store.get(ty).cloned();
+        let normalized = self.ty_kind(ty);
+        // Normalization interns equal computations, discarding the spelling's
+        // source identity. Schedule the original const-expression sites before
+        // following normalized aliases and their semantic dependencies. These
+        // are separate obligations even when their resulting types are equal.
+        if raw != normalized {
+            self.collect_array_len_const_exprs_in_kind(raw, out, seen);
+        }
+        self.collect_array_len_const_exprs_in_kind(normalized, out, seen);
+    }
+
+    fn collect_array_len_const_exprs_in_kind(
+        &self,
+        kind: Option<TyKind>,
+        out: &mut HashSet<GlobalConstExprId>,
+        seen: &mut HashSet<InternedTyId>,
+    ) {
+        match kind {
             Some(TyKind::Array { len, elem }) => {
                 if let ArrayLenTy::ConstExpr(id) = len {
                     out.insert(id);
@@ -1758,7 +1786,13 @@ impl Analyzer<'_> {
         {
             out.insert(id.clone());
         }
-        self.collect_array_len_const_exprs_in_ty_inner(arg.ty, out, seen);
+        // A layout const argument carries the queried operand type in its
+        // value.  Traverse both handles so const expressions nested inside
+        // that operand are scheduled before the trait/layout queries that
+        // consume the argument.
+        arg.visit_referenced_types(|ty| {
+            self.collect_array_len_const_exprs_in_ty_inner(ty, out, seen);
+        });
     }
 
     fn const_generic_arg_type_is_array_len(&self, ty: InternedTyId) -> bool {

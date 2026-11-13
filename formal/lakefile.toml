@@ -25,4 +25,9 @@ text = true
 
 [[lean_lib]]
 name = "NiaFormal"
-needs = ["valueInferenceMatrix", "moduleVisibilityMatrix", "moduleValueTypesMatrix", "exportScopeMatrix"]
+needs = ["valueInferenceMatrix", "moduleVisibilityMatrix", "moduleValueTypesMatrix", "exportScopeMatrix", "symbolicConstMatrix"]
+
+[[input_file]]
+name = "symbolicConstMatrix"
+path = "NiaFormal/symbolic_const_matrix.json"
+text = true

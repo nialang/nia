@@ -223,14 +223,19 @@ fn build_module_graph(
     let mut fresh_diagnostics = Vec::new();
     let mut pending_trait_provider_imports = Vec::new();
     let mut fact_memo = ModuleGraphFactMemo::new(db);
-    let mut provider_demands_by_source = HashMap::<SourceIdentity, Vec<&_>>::new();
+    // Index demands by the module whose graph node must process them. Module
+    // activation/body requests name their target explicitly; provider method
+    // requests are owned by their requesting source module. Keeping this
+    // distinction here prevents a demand from being consumed before its node
+    // exists, which used to corrupt persisted replay plans.
+    let mut provider_demands_by_target = HashMap::<SourceIdentity, Vec<&_>>::new();
     for demand in new_provider_demands {
-        provider_demands_by_source
-            .entry(demand.source_path.identity())
+        provider_demands_by_target
+            .entry(provider_demand_target_identity(demand))
             .or_default()
             .push(demand);
     }
-    for demands in provider_demands_by_source.values_mut() {
+    for demands in provider_demands_by_target.values_mut() {
         demands.sort_unstable_by_key(|demand| provider_demand_order(demand));
     }
     let (mut graph, prior_diagnostics, mut index) = match seed {
@@ -277,7 +282,7 @@ fn build_module_graph(
                 .cloned()
                 .collect::<Vec<_>>();
             for node in existing_nodes {
-                let Some(demands) = provider_demands_by_source
+                let Some(demands) = provider_demands_by_target
                     .get(&node.path.identity())
                     .map(Vec::as_slice)
                 else {
@@ -361,7 +366,7 @@ fn build_module_graph(
             &mut graph,
             &node,
             &declarations.semantic.explicit_imports,
-            provider_demands_by_source
+            provider_demands_by_target
                 .get(&node.path.identity())
                 .map(Vec::as_slice)
                 .unwrap_or_default(),
@@ -378,6 +383,19 @@ fn build_module_graph(
         )?;
         index += 1;
     }
+    // Every demand must have reached the node that owns its application. A
+    // missing target is a loader invariant failure, never a satisfied request;
+    // persisting the resulting graph would otherwise make the next build
+    // permanently incomplete.
+    for demand in new_provider_demands {
+        let target = provider_demand_target_identity(demand);
+        if graph.module_id_for_source_identity(&target).is_none() {
+            return Err(QueryError::internal(format!(
+                "provider demand target module was not loaded: {}",
+                target.normalized_path()
+            )));
+        }
+    }
     let diagnostics = ProgramDiagnosticBundles::from_diagnostics_in(
         db.context().diagnostic_store.clone(),
         fresh_diagnostics
@@ -389,6 +407,17 @@ fn build_module_graph(
         semantic: ModuleGraphSnapshot::new(graph),
         diagnostics: prior_diagnostics.append(&diagnostics)?,
     })
+}
+
+fn provider_demand_target_identity(demand: &nia_loader_contract::ProviderDemand) -> SourceIdentity {
+    match &demand.request {
+        nia_loader_contract::ProviderRequest::ModuleSemantic { module_path }
+        | nia_loader_contract::ProviderRequest::ModuleBody { module_path } => {
+            module_path.identity()
+        }
+        nia_loader_contract::ProviderRequest::Method { .. }
+        | nia_loader_contract::ProviderRequest::TraitImpl { .. } => demand.source_path.identity(),
+    }
 }
 
 fn mount_module_packages(

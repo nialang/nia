@@ -116,24 +116,26 @@ impl<'a> ModuleLowerer<'a> {
             if seen.contains(&key) {
                 continue;
             }
-            if args
-                .iter()
-                .chain(const_args.iter().map(|arg| &arg.ty))
-                .any(|arg| {
-                    self.cached_ty_contains_generic_param(*arg)
-                        || self.cached_ty_contains_unresolved_projection(*arg)
-                        || self.cached_ty_contains_error(*arg)
+            if args.iter().any(|arg| {
+                self.cached_ty_contains_generic_param(*arg)
+                    || self.cached_ty_contains_unresolved_projection(*arg)
+                    || self.cached_ty_contains_error(*arg)
+            }) || const_args.iter().any(|arg| {
+                arg.any_type(|ty| {
+                    self.cached_ty_contains_generic_param(ty)
+                        || self.cached_ty_contains_unresolved_projection(ty)
+                        || self.cached_ty_contains_error(ty)
                 })
-            {
+            }) {
                 continue;
             }
-            if args
-                .iter()
-                .chain(const_args.iter().map(|arg| &arg.ty))
-                .any(|arg| {
-                    self.ty_exceeds_backend_instance_depth(*arg, MAX_BACKEND_INSTANCE_TYPE_DEPTH)
+            if args.iter().any(|arg| {
+                self.ty_exceeds_backend_instance_depth(*arg, MAX_BACKEND_INSTANCE_TYPE_DEPTH)
+            }) || const_args.iter().any(|arg| {
+                arg.any_type(|ty| {
+                    self.ty_exceeds_backend_instance_depth(ty, MAX_BACKEND_INSTANCE_TYPE_DEPTH)
                 })
-            {
+            }) {
                 self.report_backend_instance_type_depth_limit(instance.span, instance.def_id);
                 continue;
             }
@@ -360,9 +362,9 @@ impl<'a> ModuleLowerer<'a> {
             } => {
                 args.iter()
                     .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
-                    || const_args
-                        .iter()
-                        .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
+                    || const_args.iter().any(|arg| {
+                        arg.any_type(|ty| self.ty_exceeds_backend_instance_depth(ty, next))
+                    })
             }
             TyKind::BuiltinTrait { args, .. } => args
                 .iter()
@@ -382,18 +384,17 @@ impl<'a> ModuleLowerer<'a> {
                 trait_args
                     .iter()
                     .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
-                    || trait_const_args
-                        .iter()
-                        .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
+                    || trait_const_args.iter().any(|arg| {
+                        arg.any_type(|ty| self.ty_exceeds_backend_instance_depth(ty, next))
+                    })
                     || associated_type_bindings.iter().any(|binding| {
                         binding
                             .trait_args
                             .iter()
                             .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
-                            || binding
-                                .trait_const_args
-                                .iter()
-                                .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
+                            || binding.trait_const_args.iter().any(|arg| {
+                                arg.any_type(|ty| self.ty_exceeds_backend_instance_depth(ty, next))
+                            })
                             || self.ty_exceeds_backend_instance_depth(binding.ty, next)
                     })
             }
@@ -407,9 +408,9 @@ impl<'a> ModuleLowerer<'a> {
                     || trait_args
                         .iter()
                         .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
-                    || trait_const_args
-                        .iter()
-                        .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
+                    || trait_const_args.iter().any(|arg| {
+                        arg.any_type(|ty| self.ty_exceeds_backend_instance_depth(ty, next))
+                    })
             }
             TyKind::ClosureState {
                 owner_instance,
@@ -426,10 +427,9 @@ impl<'a> ModuleLowerer<'a> {
                             .args
                             .iter()
                             .any(|ty| self.ty_exceeds_backend_instance_depth(*ty, next))
-                        || owner
-                            .const_args
-                            .iter()
-                            .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
+                        || owner.const_args.iter().any(|arg| {
+                            arg.any_type(|ty| self.ty_exceeds_backend_instance_depth(ty, next))
+                        })
                 }) || captures
                     .iter()
                     .any(|ty| self.ty_exceeds_backend_instance_depth(*ty, next))
@@ -458,9 +458,9 @@ impl<'a> ModuleLowerer<'a> {
                     || args
                         .iter()
                         .any(|ty| self.ty_exceeds_backend_instance_depth(*ty, next))
-                    || const_args
-                        .iter()
-                        .any(|arg| self.ty_exceeds_backend_instance_depth(arg.ty, next))
+                    || const_args.iter().any(|arg| {
+                        arg.any_type(|ty| self.ty_exceeds_backend_instance_depth(ty, next))
+                    })
                     || params
                         .iter()
                         .any(|ty| self.ty_exceeds_backend_instance_depth(*ty, next))
@@ -958,163 +958,176 @@ pub(crate) fn contains_generic_param(
     {
         return *cached;
     }
-    let contains =
-        match ty_kind(ty) {
-            Some(TyKind::GenericParam(_)) => true,
-            Some(TyKind::SelfParam) => true,
-            Some(TyKind::Tuple(elems)) => elems
-                .iter()
-                .any(|elem| contains_generic_param(*elem, ty_kind, cache.as_deref_mut())),
-            Some(
-                TyKind::Pointer { elem, .. }
-                | TyKind::VolatilePointer { elem, .. }
-                | TyKind::Slice { elem, .. }
-                | TyKind::SlicePointee { elem },
-            ) => contains_generic_param(elem, ty_kind, cache.as_deref_mut()),
-            Some(TyKind::Array { len, elem }) => {
-                contains_generic_param(elem, ty_kind, cache.as_deref_mut())
-                    || matches!(len, ArrayLenTy::Builtin { ty, .. }
+    let contains = match ty_kind(ty) {
+        Some(TyKind::GenericParam(_)) => true,
+        Some(TyKind::SelfParam) => true,
+        Some(TyKind::Tuple(elems)) => elems
+            .iter()
+            .any(|elem| contains_generic_param(*elem, ty_kind, cache.as_deref_mut())),
+        Some(
+            TyKind::Pointer { elem, .. }
+            | TyKind::VolatilePointer { elem, .. }
+            | TyKind::Slice { elem, .. }
+            | TyKind::SlicePointee { elem },
+        ) => contains_generic_param(elem, ty_kind, cache.as_deref_mut()),
+        Some(TyKind::Array { len, elem }) => {
+            matches!(len, ArrayLenTy::GenericParam(_))
+                || contains_generic_param(elem, ty_kind, cache.as_deref_mut())
+                || matches!(len, ArrayLenTy::Builtin { ty, .. }
                     if contains_generic_param(ty, ty_kind, cache.as_deref_mut()))
-            }
-            Some(TyKind::Range { bound, .. }) => bound
-                .is_some_and(|bound| contains_generic_param(bound, ty_kind, cache.as_deref_mut())),
-            Some(TyKind::FunctionPointer {
-                params,
-                return_type,
-                ..
-            })
-            | Some(TyKind::Callable {
-                params,
-                return_type,
-                ..
-            })
-            | Some(TyKind::CallablePointee {
-                params,
-                return_type,
-            }) => {
-                params
+        }
+        Some(TyKind::Range { bound, .. }) => {
+            bound.is_some_and(|bound| contains_generic_param(bound, ty_kind, cache.as_deref_mut()))
+        }
+        Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            ..
+        })
+        | Some(TyKind::Callable {
+            params,
+            return_type,
+            ..
+        })
+        | Some(TyKind::CallablePointee {
+            params,
+            return_type,
+        }) => {
+            params
+                .iter()
+                .any(|param| contains_generic_param(*param, ty_kind, cache.as_deref_mut()))
+                || contains_generic_param(return_type, ty_kind, cache.as_deref_mut())
+        }
+        Some(TyKind::FunctionItem {
+            self_arg,
+            args,
+            const_args,
+            params,
+            return_type,
+            ..
+        }) => {
+            self_arg.is_some_and(|ty| contains_generic_param(ty, ty_kind, cache.as_deref_mut()))
+                || args
+                    .iter()
+                    .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                || const_args.iter().any(|arg| {
+                    arg.contains_generic(|ty| {
+                        contains_generic_param(ty, ty_kind, cache.as_deref_mut())
+                    })
+                })
+                || params
                     .iter()
                     .any(|param| contains_generic_param(*param, ty_kind, cache.as_deref_mut()))
-                    || contains_generic_param(return_type, ty_kind, cache.as_deref_mut())
-            }
-            Some(TyKind::FunctionItem {
-                self_arg,
-                args,
-                const_args,
-                params,
-                return_type,
-                ..
-            }) => {
-                self_arg.is_some_and(|ty| contains_generic_param(ty, ty_kind, cache.as_deref_mut()))
-                    || args
-                        .iter()
-                        .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
-                    || const_args
-                        .iter()
-                        .any(|arg| contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut()))
-                    || params
-                        .iter()
-                        .any(|param| contains_generic_param(*param, ty_kind, cache.as_deref_mut()))
-                    || contains_generic_param(return_type, ty_kind, cache.as_deref_mut())
-            }
-            Some(TyKind::Optional { elem }) => {
-                contains_generic_param(elem, ty_kind, cache.as_deref_mut())
-            }
-            Some(TyKind::ErrorUnion { error, value }) => {
-                contains_generic_param(error, ty_kind, cache.as_deref_mut())
-                    || contains_generic_param(value, ty_kind, cache.as_deref_mut())
-            }
-            Some(TyKind::Nominal {
-                args, const_args, ..
-            }) => {
-                args.iter()
-                    .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
-                    || const_args
-                        .iter()
-                        .any(|arg| contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut()))
-            }
-            Some(TyKind::BuiltinTrait { args, .. }) => args
-                .iter()
-                .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut())),
-            Some(TyKind::TraitObject {
-                trait_args,
-                trait_const_args,
-                associated_type_bindings,
-                ..
-            })
-            | Some(TyKind::TraitObjectPointee {
-                trait_args,
-                trait_const_args,
-                associated_type_bindings,
-                ..
-            }) => {
-                trait_args
-                    .iter()
-                    .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
-                    || trait_const_args
-                        .iter()
-                        .any(|arg| contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut()))
-                    || associated_type_bindings.iter().any(|binding| {
-                        binding
-                            .trait_args
-                            .iter()
-                            .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
-                            || binding.trait_const_args.iter().any(|arg| {
-                                contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut())
-                            })
-                            || contains_generic_param(binding.ty, ty_kind, cache.as_deref_mut())
+                || contains_generic_param(return_type, ty_kind, cache.as_deref_mut())
+        }
+        Some(TyKind::Optional { elem }) => {
+            contains_generic_param(elem, ty_kind, cache.as_deref_mut())
+        }
+        Some(TyKind::ErrorUnion { error, value }) => {
+            contains_generic_param(error, ty_kind, cache.as_deref_mut())
+                || contains_generic_param(value, ty_kind, cache.as_deref_mut())
+        }
+        Some(TyKind::Nominal {
+            args, const_args, ..
+        }) => {
+            args.iter()
+                .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                || const_args.iter().any(|arg| {
+                    arg.contains_generic(|ty| {
+                        contains_generic_param(ty, ty_kind, cache.as_deref_mut())
                     })
-            }
-            Some(TyKind::Projection {
-                self_ty,
-                trait_args,
-                trait_const_args,
-                ..
-            }) => {
-                contains_generic_param(self_ty, ty_kind, cache.as_deref_mut())
-                    || trait_args
+                })
+        }
+        Some(TyKind::BuiltinTrait { args, .. }) => args
+            .iter()
+            .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut())),
+        Some(TyKind::TraitObject {
+            trait_args,
+            trait_const_args,
+            associated_type_bindings,
+            ..
+        })
+        | Some(TyKind::TraitObjectPointee {
+            trait_args,
+            trait_const_args,
+            associated_type_bindings,
+            ..
+        }) => {
+            trait_args
+                .iter()
+                .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                || trait_const_args.iter().any(|arg| {
+                    arg.contains_generic(|ty| {
+                        contains_generic_param(ty, ty_kind, cache.as_deref_mut())
+                    })
+                })
+                || associated_type_bindings.iter().any(|binding| {
+                    binding
+                        .trait_args
                         .iter()
                         .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
-                    || trait_const_args
-                        .iter()
-                        .any(|arg| contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut()))
-            }
-            Some(TyKind::ClosureState {
-                owner_instance,
-                captures,
-                params,
-                return_type,
-                ..
-            }) => {
-                owner_instance.as_ref().is_some_and(|owner| {
-                    owner
-                        .self_arg
-                        .is_some_and(|ty| contains_generic_param(ty, ty_kind, cache.as_deref_mut()))
-                        || owner
-                            .args
-                            .iter()
-                            .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
-                        || owner.const_args.iter().any(|arg| {
-                            contains_generic_param(arg.ty, ty_kind, cache.as_deref_mut())
+                        || binding.trait_const_args.iter().any(|arg| {
+                            arg.contains_generic(|ty| {
+                                contains_generic_param(ty, ty_kind, cache.as_deref_mut())
+                            })
                         })
-                }) || captures
+                        || contains_generic_param(binding.ty, ty_kind, cache.as_deref_mut())
+                })
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_args,
+            trait_const_args,
+            ..
+        }) => {
+            contains_generic_param(self_ty, ty_kind, cache.as_deref_mut())
+                || trait_args
                     .iter()
-                    .any(|capture| contains_generic_param(*capture, ty_kind, cache.as_deref_mut()))
-                    || params
+                    .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                || trait_const_args.iter().any(|arg| {
+                    arg.contains_generic(|ty| {
+                        contains_generic_param(ty, ty_kind, cache.as_deref_mut())
+                    })
+                })
+        }
+        Some(TyKind::ClosureState {
+            owner_instance,
+            captures,
+            params,
+            return_type,
+            ..
+        }) => {
+            owner_instance.as_ref().is_some_and(|owner| {
+                owner
+                    .self_arg
+                    .is_some_and(|ty| contains_generic_param(ty, ty_kind, cache.as_deref_mut()))
+                    || owner
+                        .args
                         .iter()
-                        .any(|param| contains_generic_param(*param, ty_kind, cache.as_deref_mut()))
-                    || contains_generic_param(return_type, ty_kind, cache.as_deref_mut())
-            }
-            Some(
-                TyKind::Primitive(_)
-                | TyKind::Opaque
-                | TyKind::BuiltinType(_)
-                | TyKind::Vector { .. }
-                | TyKind::ConstOnly
-                | TyKind::Error,
-            )
-            | None => false,
-        };
+                        .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                    || owner.const_args.iter().any(|arg| {
+                        arg.contains_generic(|ty| {
+                            contains_generic_param(ty, ty_kind, cache.as_deref_mut())
+                        })
+                    })
+            }) || captures
+                .iter()
+                .any(|capture| contains_generic_param(*capture, ty_kind, cache.as_deref_mut()))
+                || params
+                    .iter()
+                    .any(|param| contains_generic_param(*param, ty_kind, cache.as_deref_mut()))
+                || contains_generic_param(return_type, ty_kind, cache.as_deref_mut())
+        }
+        Some(
+            TyKind::Primitive(_)
+            | TyKind::Opaque
+            | TyKind::BuiltinType(_)
+            | TyKind::Vector { .. }
+            | TyKind::ConstOnly
+            | TyKind::Error,
+        )
+        | None => false,
+    };
     if let Some(cache) = cache {
         cache.insert(ty, contains);
     }
@@ -1177,7 +1190,7 @@ pub(crate) fn contains_unresolved_projection(
                     .any(|arg| contains_unresolved_projection(arg, ty_kind))
                 || const_args
                     .into_iter()
-                    .any(|arg| contains_unresolved_projection(arg.ty, ty_kind))
+                    .any(|arg| arg.any_type(|ty| contains_unresolved_projection(ty, ty_kind)))
                 || params
                     .into_iter()
                     .any(|param| contains_unresolved_projection(param, ty_kind))
@@ -1195,7 +1208,7 @@ pub(crate) fn contains_unresolved_projection(
                 .any(|arg| contains_unresolved_projection(arg, ty_kind))
                 || const_args
                     .into_iter()
-                    .any(|arg| contains_unresolved_projection(arg.ty, ty_kind))
+                    .any(|arg| arg.any_type(|ty| contains_unresolved_projection(ty, ty_kind)))
         }
         Some(TyKind::BuiltinTrait { args, .. }) => args
             .into_iter()
@@ -1217,16 +1230,15 @@ pub(crate) fn contains_unresolved_projection(
                 .any(|arg| contains_unresolved_projection(arg, ty_kind))
                 || trait_const_args
                     .into_iter()
-                    .any(|arg| contains_unresolved_projection(arg.ty, ty_kind))
+                    .any(|arg| arg.any_type(|ty| contains_unresolved_projection(ty, ty_kind)))
                 || associated_type_bindings.into_iter().any(|binding| {
                     binding
                         .trait_args
                         .into_iter()
                         .any(|arg| contains_unresolved_projection(arg, ty_kind))
-                        || binding
-                            .trait_const_args
-                            .into_iter()
-                            .any(|arg| contains_unresolved_projection(arg.ty, ty_kind))
+                        || binding.trait_const_args.into_iter().any(|arg| {
+                            arg.any_type(|ty| contains_unresolved_projection(ty, ty_kind))
+                        })
                         || contains_unresolved_projection(binding.ty, ty_kind)
                 })
         }
@@ -1248,7 +1260,7 @@ pub(crate) fn contains_unresolved_projection(
                     || owner
                         .const_args
                         .iter()
-                        .any(|arg| contains_unresolved_projection(arg.ty, ty_kind))
+                        .any(|arg| arg.any_type(|ty| contains_unresolved_projection(ty, ty_kind)))
             }) || captures
                 .iter()
                 .any(|ty| contains_unresolved_projection(*ty, ty_kind))
@@ -1333,7 +1345,7 @@ pub(crate) fn contains_error(
                     .any(|arg| contains_error(arg, ty_kind, None))
                 || const_args
                     .into_iter()
-                    .any(|arg| contains_error(arg.ty, ty_kind, None))
+                    .any(|arg| arg.any_type(|ty| contains_error(ty, ty_kind, None)))
                 || params
                     .into_iter()
                     .any(|param| contains_error(param, ty_kind, None))
@@ -1350,7 +1362,7 @@ pub(crate) fn contains_error(
                 .any(|arg| contains_error(arg, ty_kind, None))
                 || const_args
                     .into_iter()
-                    .any(|arg| contains_error(arg.ty, ty_kind, None))
+                    .any(|arg| arg.any_type(|ty| contains_error(ty, ty_kind, None)))
         }
         Some(TyKind::BuiltinTrait { args, .. }) => args
             .into_iter()
@@ -1372,7 +1384,7 @@ pub(crate) fn contains_error(
                 .any(|arg| contains_error(arg, ty_kind, None))
                 || trait_const_args
                     .into_iter()
-                    .any(|arg| contains_error(arg.ty, ty_kind, None))
+                    .any(|arg| arg.any_type(|ty| contains_error(ty, ty_kind, None)))
                 || associated_type_bindings.into_iter().any(|binding| {
                     binding
                         .trait_args
@@ -1381,7 +1393,7 @@ pub(crate) fn contains_error(
                         || binding
                             .trait_const_args
                             .into_iter()
-                            .any(|arg| contains_error(arg.ty, ty_kind, None))
+                            .any(|arg| arg.any_type(|ty| contains_error(ty, ty_kind, None)))
                         || contains_error(binding.ty, ty_kind, None)
                 })
         }
@@ -1413,7 +1425,7 @@ pub(crate) fn contains_error(
                     || owner
                         .const_args
                         .iter()
-                        .any(|arg| contains_error(arg.ty, ty_kind, None))
+                        .any(|arg| arg.any_type(|ty| contains_error(ty, ty_kind, None)))
             }) || captures
                 .into_iter()
                 .any(|ty| contains_error(ty, ty_kind, None))

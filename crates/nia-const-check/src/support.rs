@@ -116,14 +116,16 @@ pub(crate) fn cast_const_integer(
     ty: PrimitiveTy,
     pointer_width: u32,
 ) -> Option<IntConst> {
-    let (bits, signed) = primitive_integer_layout(ty, pointer_width)?;
-    let mask = integer_mask(bits)?;
-    let raw = value.bits() & mask;
-    if signed {
-        Some(IntConst::from_i128(sign_extend_integer(raw, bits)))
-    } else {
-        Some(IntConst::unsigned(raw))
-    }
+    // `char` uses unsigned 32-bit representation; integer casts share the
+    // canonical sign-extension rule with body checking and static data.
+    value.cast_to_primitive_int(
+        if ty == PrimitiveTy::Char {
+            PrimitiveTy::U32
+        } else {
+            ty
+        },
+        pointer_width,
+    )
 }
 
 pub(crate) fn cast_int_to_float(value: IntConst, ty: PrimitiveTy) -> Option<f64> {
@@ -215,27 +217,6 @@ pub(crate) fn primitive_integer_layout(ty: PrimitiveTy, pointer_width: u32) -> O
 
 pub(crate) fn is_float_primitive(ty: PrimitiveTy) -> bool {
     matches!(ty, PrimitiveTy::F32 | PrimitiveTy::F64)
-}
-
-fn integer_mask(bits: u32) -> Option<u128> {
-    match bits {
-        0 => None,
-        1..=127 => Some((1u128 << bits) - 1),
-        128 => Some(u128::MAX),
-        _ => None,
-    }
-}
-
-fn sign_extend_integer(raw: u128, bits: u32) -> i128 {
-    if bits == 128 {
-        return raw as i128;
-    }
-    let sign_bit = 1u128 << (bits - 1);
-    if raw & sign_bit == 0 {
-        raw as i128
-    } else {
-        (raw as i128) - (1i128 << bits)
-    }
 }
 
 pub(crate) fn integer_range(ty: PrimitiveTy) -> Option<(i128, i128)> {

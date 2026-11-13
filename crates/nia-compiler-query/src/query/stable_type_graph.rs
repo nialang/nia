@@ -714,6 +714,11 @@ impl StableTypeGraphEncoder<'_> {
                 key.push(3);
                 key.extend_from_slice(&u32::from(*value).to_le_bytes());
             }
+            nia_ty::ConstGenericValue::Computation(_) => {
+                return Err(self.unsupported(
+                    "generic const computation requires executable semantic metadata",
+                ));
+            }
             nia_ty::ConstGenericValue::ConstExpr(_) => {
                 return Err(self.unsupported(
                     "const expression argument has no stable package representation",
@@ -838,6 +843,11 @@ impl StableTypeGraphEncoder<'_> {
             },
             nia_ty::ConstGenericValue::Bool(value) => StableConstValue::Bool(*value),
             nia_ty::ConstGenericValue::Char(value) => StableConstValue::Char(*value),
+            nia_ty::ConstGenericValue::Computation(_) => {
+                return Err(self.unsupported(
+                    "generic const computation requires executable semantic metadata",
+                ));
+            }
             nia_ty::ConstGenericValue::ConstExpr(_) => {
                 return Err(self.unsupported(
                     "const expression argument has no stable package representation",
@@ -874,7 +884,9 @@ impl StableTypeGraphEncoder<'_> {
                         )
                     })
             }
-            nia_ty::ArrayLenTy::Builtin { .. } | nia_ty::ArrayLenTy::Infer => Err(self
+            nia_ty::ArrayLenTy::Computation(_)
+            | nia_ty::ArrayLenTy::Builtin { .. }
+            | nia_ty::ArrayLenTy::Infer => Err(self
                 .unsupported("array length depends on contextual or target-dependent inference")),
         }
     }

@@ -28,7 +28,10 @@ use parking_lot::Mutex;
 use std::fmt;
 use std::sync::{Arc, OnceLock};
 
+mod const_expression;
 mod substitution;
+
+pub use const_expression::{ConstBinaryOp, ConstComputation, ConstComputationKind, ConstUnaryOp};
 
 pub use substitution::{
     array_len_from_const_arg, const_generic_value_from_array_len, substitute_const_generic_arg,
@@ -469,9 +472,7 @@ impl TyKind {
     ) {
         fn const_args(args: &[ConstGenericArg], visit: &mut impl FnMut(SymbolId)) {
             for arg in args {
-                if let ConstGenericValue::GenericParam(name) = arg.value {
-                    visit(name);
-                }
+                arg.visit_const_parameters(&mut *visit);
             }
         }
         match self {
@@ -480,6 +481,14 @@ impl TyKind {
                 len: ArrayLenTy::GenericParam(name),
                 ..
             } => visit_const(*name),
+            Self::Array {
+                len: ArrayLenTy::Computation(expr),
+                ..
+            } => {
+                for operand in expr.operands() {
+                    operand.visit_const_parameters(&mut visit_const);
+                }
+            }
             Self::Nominal {
                 const_args: args, ..
             }
@@ -542,7 +551,7 @@ impl TyKind {
     pub fn visit_referenced_types(&self, mut visit: impl FnMut(InternedTyId)) {
         fn visit_const_args(args: &[ConstGenericArg], visit: &mut impl FnMut(InternedTyId)) {
             for arg in args {
-                visit(arg.ty);
+                arg.visit_referenced_types(&mut *visit);
             }
         }
         match self {
@@ -557,9 +566,7 @@ impl TyKind {
             | Self::SlicePointee { elem }
             | Self::Optional { elem } => visit(*elem),
             Self::Array { len, elem } => {
-                if let ArrayLenTy::Builtin { ty, .. } = len {
-                    visit(*ty);
-                }
+                len.visit_referenced_types(&mut visit);
                 visit(*elem);
             }
             Self::Range { bound, .. } => {
@@ -861,11 +868,21 @@ impl IntConst {
 
     /// Casts the value to a primitive integer width, preserving low bits.
     pub fn cast_to_primitive_int(self, primitive: PrimitiveTy, pointer_width: u32) -> Option<Self> {
-        let bits = primitive.integer_bits(pointer_width)?;
-        let mask = integer_mask(bits);
+        let width = primitive.integer_bits(pointer_width)?;
+        if !(1..=u128::BITS).contains(&width) {
+            return None;
+        }
+        let mask = integer_mask(width);
         let bits = self.bits & mask;
         if primitive.is_signed_integer() {
-            Some(Self::signed_bits(bits))
+            // IntConst has no stored width: negative values must be canonical
+            // 128-bit two's complement, rather than a narrow raw-bit pattern.
+            let sign = 1_u128 << (width - 1);
+            Some(Self::signed_bits(if bits & sign == 0 {
+                bits
+            } else {
+                bits | !mask
+            }))
         } else {
             Some(Self::unsigned(bits))
         }
@@ -897,11 +914,135 @@ pub struct ConstGenericArg {
     pub value: ConstGenericValue,
 }
 
+impl ConstGenericArg {
+    /// Structural equality independent of the stores owning embedded types.
+    pub fn equivalent(
+        &self,
+        other: &Self,
+        same_type: &mut dyn FnMut(InternedTyId, InternedTyId) -> bool,
+    ) -> bool {
+        same_type(self.ty, other.ty)
+            && match (&self.value, &other.value) {
+                (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
+                    left.bits() == right.bits()
+                }
+                (
+                    ConstGenericValue::Layout {
+                        builtin: lb,
+                        ty: lt,
+                    },
+                    ConstGenericValue::Layout {
+                        builtin: rb,
+                        ty: rt,
+                    },
+                ) => lb == rb && same_type(*lt, *rt),
+                (ConstGenericValue::Computation(left), ConstGenericValue::Computation(right)) => {
+                    left.equivalent(right, same_type)
+                }
+                (left, right) => left == right,
+            }
+    }
+
+    /// Visits every type handle carried by this argument.
+    ///
+    /// Layout queries carry a second type, distinct from their `usize` type.
+    pub fn visit_referenced_types(&self, mut visit: impl FnMut(InternedTyId)) {
+        self.visit_types(&mut visit);
+    }
+
+    fn visit_types(&self, visit: &mut dyn FnMut(InternedTyId)) {
+        visit(self.ty);
+        match &self.value {
+            ConstGenericValue::Layout { ty, .. } => visit(*ty),
+            ConstGenericValue::Computation(expr) => expr.visit_referenced_types(visit),
+            _ => {}
+        }
+    }
+
+    /// Visits free const-parameter references, including computation operands.
+    pub fn visit_const_parameters(&self, visit: &mut dyn FnMut(SymbolId)) {
+        match &self.value {
+            ConstGenericValue::GenericParam(name) => visit(*name),
+            ConstGenericValue::Computation(expr) => {
+                for arg in expr.operands() {
+                    arg.visit_const_parameters(visit);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Maps every type handle carried by this argument.
+    pub fn map_types(&mut self, mut map: impl FnMut(InternedTyId) -> InternedTyId) {
+        match self.try_map_types::<std::convert::Infallible>(|ty| Ok(map(ty))) {
+            Ok(()) => {}
+            Err(never) => match never {},
+        }
+    }
+
+    /// Fallibly maps every type handle carried by this argument.
+    pub fn try_map_types<E>(
+        &mut self,
+        mut map: impl FnMut(InternedTyId) -> Result<InternedTyId, E>,
+    ) -> Result<(), E> {
+        self.try_map_types_with(&mut map)
+    }
+
+    fn try_map_types_with<E>(
+        &mut self,
+        map: &mut dyn FnMut(InternedTyId) -> Result<InternedTyId, E>,
+    ) -> Result<(), E> {
+        let ty = map(self.ty)?;
+        let value = match &self.value {
+            ConstGenericValue::Layout { builtin, ty } => ConstGenericValue::Layout {
+                builtin: *builtin,
+                ty: map(*ty)?,
+            },
+            ConstGenericValue::Computation(expr) => {
+                let map = std::cell::RefCell::new(map);
+                ConstGenericValue::Computation(expr.try_map(
+                    |arg| {
+                        let mut arg = arg.clone();
+                        arg.try_map_types_with(&mut **map.borrow_mut())?;
+                        Ok(arg)
+                    },
+                    |ty| map.borrow_mut()(ty),
+                )?)
+            }
+            value => value.clone(),
+        };
+        self.ty = ty;
+        self.value = value;
+        Ok(())
+    }
+
+    /// Whether any type carried by this argument satisfies a predicate.
+    pub fn any_type(&self, mut predicate: impl FnMut(InternedTyId) -> bool) -> bool {
+        let mut found = false;
+        self.visit_types(&mut |ty| found |= predicate(ty));
+        found
+    }
+
+    /// Whether every type handle carried by this argument satisfies a predicate.
+    pub fn all_types(&self, mut predicate: impl FnMut(InternedTyId) -> bool) -> bool {
+        !self.any_type(|ty| !predicate(ty))
+    }
+
+    /// Whether the value or any type it carries depends on a generic parameter.
+    pub fn contains_generic(&self, type_contains: impl FnMut(InternedTyId) -> bool) -> bool {
+        let mut has_parameter = false;
+        self.visit_const_parameters(&mut |_| has_parameter = true);
+        has_parameter || self.any_type(type_contains)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Value identity of a const-generic argument.
 pub enum ConstGenericValue {
     /// Unsubstituted const parameter.
     GenericParam(SymbolId),
+    /// Typed residual computation; execution is deferred until substitution.
+    Computation(Arc<ConstComputation>),
     /// Unevaluated global const expression.
     ConstExpr(GlobalConstExprId),
     /// Integer value with explicit signedness.
@@ -943,6 +1084,8 @@ pub enum ArrayLenTy {
     Infer,
     /// Unsubstituted const parameter.
     GenericParam(SymbolId),
+    /// Typed residual `usize` computation.
+    Computation(Arc<ConstComputation>),
     /// Evaluated non-negative length.
     ConstValue(u64),
     /// Unevaluated global const expression.
@@ -954,6 +1097,17 @@ pub enum ArrayLenTy {
         /// Operand type.
         ty: InternedTyId,
     },
+}
+
+impl ArrayLenTy {
+    /// Visits types carried by layout queries and computed lengths.
+    pub fn visit_referenced_types(&self, mut visit: impl FnMut(InternedTyId)) {
+        match self {
+            Self::Builtin { ty, .. } => visit(*ty),
+            Self::Computation(expr) => expr.visit_referenced_types(&mut visit),
+            _ => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -997,13 +1151,7 @@ pub trait TypeEquivalence {
     ) -> bool {
         left.len() == right.len()
             && left.iter().zip(right).all(|(left, right)| {
-                self.same_type_for_equiv(left.ty, right.ty)
-                    && match (&left.value, &right.value) {
-                        (ConstGenericValue::Int(left), ConstGenericValue::Int(right)) => {
-                            left.bits() == right.bits()
-                        }
-                        (left, right) => left == right,
-                    }
+                left.equivalent(right, &mut |l, r| self.same_type_for_equiv(l, r))
             })
     }
 
@@ -1782,6 +1930,58 @@ mod tests {
     }
 
     #[test]
+    fn const_argument_type_operations_include_layout_operands() {
+        let store = TypeStore::new().expect("create type store");
+        let module = ModuleIdAllocator::new()
+            .expect("create module allocator")
+            .allocate()
+            .expect("allocate module");
+        let append = store.append_for_module(module);
+        let usize_ty = primitive(&append, PrimitiveTy::Usize);
+        let generic = intern(
+            &append,
+            TyKind::GenericParam(SymbolId::from_stable_hash(40)),
+        );
+        let parameter = SymbolId::from_stable_hash(41);
+        let symbolic = ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::GenericParam(parameter),
+        };
+        let layout = ConstGenericArg {
+            ty: usize_ty,
+            value: ConstGenericValue::Layout {
+                builtin: LayoutBuiltin::Size,
+                ty: generic,
+            },
+        };
+
+        assert!(!symbolic.any_type(|ty| ty == generic));
+        assert!(symbolic.contains_generic(|_| false));
+        assert!(layout.any_type(|ty| ty == generic));
+        assert!(layout.contains_generic(|ty| ty == generic));
+        assert!(symbolic.all_types(|ty| ty == usize_ty));
+        assert!(!layout.all_types(|ty| ty == usize_ty));
+        assert!(layout.all_types(|ty| ty == usize_ty || ty == generic));
+        let mut referenced = Vec::new();
+        layout.visit_referenced_types(|ty| referenced.push(ty));
+        assert_eq!(referenced, vec![usize_ty, generic]);
+
+        let substituted = substitute_const_generic_arg(
+            &symbolic,
+            &|name| (*name == parameter).then_some(layout.clone()),
+            &|ty| Ok::<_, std::convert::Infallible>(ty),
+        )
+        .expect("substitute layout argument");
+        assert_eq!(
+            substituted.value,
+            ConstGenericValue::Layout {
+                builtin: LayoutBuiltin::Size,
+                ty: generic,
+            }
+        );
+    }
+
+    #[test]
     fn default_equivalence_matches_integer_const_bits_across_stores() {
         let left = TypeStore::new().expect("create type store");
         let right = TypeStore::new().expect("create type store");
@@ -2074,6 +2274,26 @@ mod tests {
             })
             .expect_err("foreign session dependency must be rejected");
         assert!(error.message.contains("outside its session type store"));
+        let local_module = module_ids.allocate().expect("allocate module ID");
+        let append = local.append_for_module(local_module);
+        let usize_ty = primitive(&append, PrimitiveTy::Usize);
+        let error = append
+            .intern(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id: local_module,
+                    def_id: nia_ids::DefId(1),
+                },
+                args: Vec::new(),
+                const_args: vec![ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::Layout {
+                        builtin: LayoutBuiltin::Size,
+                        ty: foreign_ty,
+                    },
+                }],
+            })
+            .expect_err("foreign layout operand must be rejected even with a local carrier type");
+        assert!(error.message.contains("outside its session type store"));
     }
 
     #[test]
@@ -2116,6 +2336,57 @@ mod tests {
             std::mem::size_of::<InternedTyId>(),
             std::mem::size_of::<u64>()
         );
+    }
+
+    #[test]
+    fn integer_casts_preserve_values_and_sign_extend_narrow_results() {
+        for (ty, width) in [
+            (PrimitiveTy::I8, 8),
+            (PrimitiveTy::I16, 16),
+            (PrimitiveTy::I32, 32),
+            (PrimitiveTy::I64, 64),
+            (PrimitiveTy::I128, 128),
+            (PrimitiveTy::Isize, 32),
+            (PrimitiveTy::Isize, 64),
+        ] {
+            let min = if width == 128 {
+                i128::MIN
+            } else {
+                -(1_i128 << (width - 1))
+            };
+            let max = if width == 128 {
+                i128::MAX
+            } else {
+                (1_i128 << (width - 1)) - 1
+            };
+            for value in [min, -1, 0, 1, max] {
+                let value = IntConst::signed(value);
+                let cast = value
+                    .cast_to_primitive_int(ty, width)
+                    .expect("integer cast");
+                assert_eq!(cast, value, "{ty:?}/{width}");
+                assert!(cast.fits_primitive_int(ty, width));
+            }
+            let raw_sign = IntConst::unsigned(1_u128 << (width - 1));
+            assert_eq!(
+                raw_sign.cast_to_primitive_int(ty, width),
+                Some(IntConst::signed(min))
+            );
+        }
+        assert_eq!(
+            IntConst::unsigned(255).cast_to_primitive_int(PrimitiveTy::I8, 64),
+            Some(IntConst::signed(-1))
+        );
+        assert_eq!(
+            IntConst::signed(-1).cast_to_primitive_int(PrimitiveTy::U8, 64),
+            Some(IntConst::unsigned(255))
+        );
+        for width in [0, 129] {
+            assert_eq!(
+                IntConst::signed(-1).cast_to_primitive_int(PrimitiveTy::Isize, width),
+                None
+            );
+        }
     }
 
     #[test]

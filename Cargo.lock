@@ -1032,6 +1032,7 @@ dependencies = [
  "nia-span",
  "nia-symbol",
  "nia-symbol-table",
+ "nia-ty",
 ]
 
 [[package]]

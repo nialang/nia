@@ -163,6 +163,7 @@ impl Analyzer<'_> {
 
     pub(super) fn resolved_const_unary_expr_type(
         &mut self,
+        span: Span,
         op: ConstUnaryOp,
         inner: &ResolvedConstExpr,
         expected: Option<InternedTyId>,
@@ -185,7 +186,7 @@ impl Analyzer<'_> {
             ConstUnaryOp::Neg => {
                 let inner_ty = match inner.kind() {
                     ResolvedConstExprKind::Integer(text) => self
-                        .resolved_const_integer_literal_type(inner, text, expected, true)?
+                        .resolved_const_integer_literal_type(span, text, expected, true)?
                         .runtime()?,
                     _ => self.resolved_const_arg_runtime_type(inner, expected)?,
                 };
@@ -732,6 +733,7 @@ impl Analyzer<'_> {
         let call_args = resolved_callee
             .receiver
             .into_iter()
+            .map(|receiver| *receiver)
             .chain(args.iter().cloned())
             .collect::<Vec<_>>();
         let specialized_return = super::env_impl::builtin_function(&signature)
@@ -749,7 +751,13 @@ impl Analyzer<'_> {
         ) {
             Ok(instantiation) => instantiation,
             Err(error) => {
-                self.push_engine_error(error);
+                let cause = matches!(error, ConstInstantiationError::ReturnTypeMismatch(_))
+                    .then(|| self.const_initializer_type_cause(span));
+                let error: ConstError = error.into();
+                let mut diagnostic =
+                    Diagnostic::user_error_at(codes::CONST, error.span, error.message);
+                diagnostic.cause = cause;
+                self.diagnostics.push(diagnostic);
                 return None;
             }
         };

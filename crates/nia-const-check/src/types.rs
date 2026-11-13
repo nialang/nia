@@ -30,6 +30,8 @@ use nia_value_resolve::ValueResolution;
 pub struct ConstCheck {
     /// Evaluated module and local initializer values.
     pub values: Arc<HashMap<ConstKey, ConstValue>>,
+    /// Scalar local constants whose value is supplied by each generic instance.
+    pub symbolic_locals: Arc<HashMap<LocalId, nia_ty::ConstGenericArg>>,
     /// Initializers whose evaluation failed. Each failure was reported once,
     /// at its root; a use of a failed constant reports nothing further.
     pub failed: Arc<HashSet<ConstKey>>,
@@ -41,6 +43,8 @@ pub struct ConstCheck {
     pub typed_enum_values: Arc<HashMap<DefId, TypedConstValue>>,
     /// Array lengths required by lowered types.
     pub array_lengths: Arc<HashMap<GlobalConstExprId, u64>>,
+    /// Generic array lengths retained for check-time type normalization.
+    pub symbolic_array_lengths: Arc<HashMap<GlobalConstExprId, nia_ty::ArrayLenTy>>,
     /// Cross-module semantic facts required to complete const analysis.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics accumulated by all phases.
@@ -52,6 +56,8 @@ pub struct ConstCheck {
 pub struct ConstArrayLengths {
     /// Computed array lengths keyed by resolved expression identity.
     pub values: Arc<HashMap<GlobalConstExprId, u64>>,
+    /// Lengths that are known symbolically and become concrete per instance.
+    pub symbolic: Arc<HashMap<GlobalConstExprId, nia_ty::ArrayLenTy>>,
     /// Cross-module semantic facts required by this phase.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted while computing lengths.
@@ -76,6 +82,8 @@ pub struct ConstEnumValues {
 pub struct ConstValues {
     /// Computed initializer values keyed by global or local identity.
     pub values: Arc<HashMap<ConstKey, ConstValue>>,
+    /// Scalar local constants deferred until their generic instance is known.
+    pub symbolic_locals: Arc<HashMap<LocalId, nia_ty::ConstGenericArg>>,
     /// Initializers whose evaluation failed and was reported.
     pub failed: Arc<HashSet<ConstKey>>,
     /// Initializer values paired with inferred runtime types.

@@ -622,7 +622,7 @@ fn collect_function_refs_from_callee(
         } => {
             refs.types.insert(*self_ty);
             refs.types.extend(trait_args.iter().copied());
-            refs.types.extend(trait_const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_types(trait_const_args, refs);
             collect_instance_types(args, const_args, refs);
             collect_function_refs_from_expr(receiver, types, refs);
         }
@@ -636,7 +636,7 @@ fn collect_function_refs_from_callee(
         } => {
             refs.types.insert(*self_ty);
             refs.types.extend(trait_args.iter().copied());
-            refs.types.extend(trait_const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_types(trait_const_args, refs);
             collect_instance_types(args, const_args, refs);
         }
         FunctionCallee::DynamicTraitMethod {
@@ -655,7 +655,7 @@ fn collect_function_refs_from_callee(
                 trait_id: *trait_id,
             });
             refs.types.extend(trait_args.iter().copied());
-            refs.types.extend(trait_const_args.iter().map(|arg| arg.ty));
+            collect_const_arg_types(trait_const_args, refs);
             refs.types.extend(params.iter().copied());
             collect_function_refs_from_expr(receiver, types, refs);
         }
@@ -747,7 +747,15 @@ fn collect_instance_types(
     refs: &mut FunctionBodyRefs,
 ) {
     refs.types.extend(args.iter().copied());
-    refs.types.extend(const_args.iter().map(|arg| arg.ty));
+    collect_const_arg_types(const_args, refs);
+}
+
+fn collect_const_arg_types(args: &[ConstGenericArg], refs: &mut FunctionBodyRefs) {
+    for arg in args {
+        arg.visit_referenced_types(|ty| {
+            refs.types.insert(ty);
+        });
+    }
 }
 
 fn collect_function_refs_from_inline_asm(

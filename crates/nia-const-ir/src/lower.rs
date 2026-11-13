@@ -718,7 +718,21 @@ fn lower_generic_args_with_context(
             // arguments such as `N`. Semantic facts decide whether `N` is a
             // type or const value. Before those facts exist, keep the type
             // interpretation so early lowering remains deterministic.
+            let resolved_value = arg
+                .expr
+                .as_ref()
+                .and_then(|expr| context.probe_name_resolution(&expr.node_key))
+                .is_some_and(|resolution| {
+                    matches!(
+                        resolution,
+                        ConstNameResolution::GenericParam(_)
+                            | ConstNameResolution::Local(_)
+                            | ConstNameResolution::AssociatedConstProjection(_)
+                            | ConstNameResolution::BuiltinAssociatedValue(_)
+                    )
+                });
             if let Some(ty) = &arg.ty
+                && !resolved_value
                 && (context.probe_type_id(&ty.node_key).is_some()
                     || !context.has_semantic_facts()
                     || arg.expr.is_none())

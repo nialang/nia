@@ -2127,6 +2127,7 @@ impl Analyzer<'_> {
                 Some(ConstGenericValue::Int(value))
             }
             ArrayLenTy::GenericParam(name) => Some(ConstGenericValue::GenericParam(name)),
+            ArrayLenTy::Computation(expr) => Some(ConstGenericValue::Computation(expr)),
             ArrayLenTy::Infer => None,
         };
         let Some(value) = value else {

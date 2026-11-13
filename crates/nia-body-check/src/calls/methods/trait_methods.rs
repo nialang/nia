@@ -574,7 +574,9 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.normalize_dynamic_trait_object_projection(candidate, arg.ty);
+                        arg.map_types(|ty| {
+                            self.normalize_dynamic_trait_object_projection(candidate, ty)
+                        });
                         arg
                     })
                     .collect();
@@ -593,8 +595,9 @@ impl<'a> BodyChecker<'a> {
                             .trait_const_args
                             .into_iter()
                             .map(|mut arg| {
-                                arg.ty = self
-                                    .normalize_dynamic_trait_object_projection(candidate, arg.ty);
+                                arg.map_types(|ty| {
+                                    self.normalize_dynamic_trait_object_projection(candidate, ty)
+                                });
                                 arg
                             })
                             .collect(),
@@ -624,7 +627,9 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.normalize_dynamic_trait_object_projection(candidate, arg.ty);
+                        arg.map_types(|ty| {
+                            self.normalize_dynamic_trait_object_projection(candidate, ty)
+                        });
                         arg
                     })
                     .collect();
@@ -643,8 +648,9 @@ impl<'a> BodyChecker<'a> {
                             .trait_const_args
                             .into_iter()
                             .map(|mut arg| {
-                                arg.ty = self
-                                    .normalize_dynamic_trait_object_projection(candidate, arg.ty);
+                                arg.map_types(|ty| {
+                                    self.normalize_dynamic_trait_object_projection(candidate, ty)
+                                });
                                 arg
                             })
                             .collect(),
@@ -675,7 +681,9 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.normalize_dynamic_trait_object_projection(candidate, arg.ty);
+                        arg.map_types(|ty| {
+                            self.normalize_dynamic_trait_object_projection(candidate, ty)
+                        });
                         arg
                     })
                     .collect();

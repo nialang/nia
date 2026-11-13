@@ -2074,8 +2074,14 @@ impl BackendValidator<'_> {
         if self_arg
             .into_iter()
             .chain(args.iter().copied())
-            .chain(const_args.iter().map(|arg| arg.ty))
             .any(|ty| self.index.type_store().get(ty).is_none())
+            || const_args.iter().any(|arg| {
+                let mut missing = false;
+                arg.visit_referenced_types(|ty| {
+                    missing |= self.index.type_store().get(ty).is_none();
+                });
+                missing
+            })
         {
             return Ok(None);
         }

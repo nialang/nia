@@ -465,9 +465,12 @@ In a generic body, a length or repeat count may also be a const parameter, or
 `std::builtin::size` or `align` of a generic type. Its value comes from each
 instance, and the body is checked once for all of them, so such lengths
 compare as written: `N` matches `N`, and a layout query matches the same
-query of the same type. A number never matches one of them, even where some
-instance would make the two equal. A length computed from a generic
-parameter, such as `N + 1`, is not accepted.
+query of the same type. Computations such as `N + 1` retain their operand
+types, operation order and resolved callees. They match the same computation;
+aliases expose their initializer's computation. A number never matches an open
+computation, even where some instance would make the two equal. The compiler
+does not reorder, cancel or invert arithmetic to prove equality or infer a
+parameter: `N + 1` and `1 + N` are different symbolic lengths.
 
 ```nia
 fun filled[N: usize](value: u8) [u8; N] {
@@ -479,7 +482,48 @@ where T: Sized {
     let bytes = [0u8; std::builtin::size[T]()];
     bytes.len()
 }
+
+fun value[N: usize]() usize { N }
+
+fun forward[N: usize]() usize {
+    const M: usize = N;
+    const K = M;
+    value[K]()
+}
 ```
+
+A local `const` may keep that same symbolic value through aliases, so it can
+also supply an explicit const argument. Its value is resolved separately for
+each generic instance.
+
+Symbolic computations can supply array lengths, repeat counts, const arguments
+and local `const` initializers. A `const fun` can encapsulate a computation,
+including loops and local state; its body executes in the ordinary const
+interpreter once its arguments are concrete:
+
+```nia
+fun next[N: usize]() usize { N + 1 }
+
+const fun folded_next[N: usize]() usize { N + 1 }
+const FOUR: usize = folded_next[3]();
+const FIVE: usize = 4 + 1;
+
+fun scratch[N: usize]() usize {
+    const M = folded_next[N]();
+    let bytes = [0u8; N + 1];
+    value[M]() + bytes.len()
+}
+
+fun value[N: usize]() usize { N }
+```
+
+The generic body is type checked once. Each demanded concrete instance must
+then evaluate its required constants successfully, including unused local
+constants. Overflow, division by zero and invalid shifts are errors in constant
+contexts, using the artifact target's integer widths. Boolean `and`/`or` and
+`if` evaluate only the selected operands; an unselected operand cannot cause an
+execution error. Instantiation validates these values without type checking the
+body again. Executable arithmetic follows the ordinary overflow rules.
 
 An array value is not a slice or a pointer. Where a pointer or slice is
 expected, its address is taken implicitly as described under

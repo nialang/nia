@@ -492,6 +492,7 @@ impl TraitSolver<'_> {
                 .map(|value| ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into())))
                 .unwrap_or_else(|| value.clone()),
             ConstGenericValue::GenericParam(_)
+            | ConstGenericValue::Computation(_)
             | ConstGenericValue::Int(_)
             | ConstGenericValue::Bool(_)
             | ConstGenericValue::Char(_) => value.clone(),

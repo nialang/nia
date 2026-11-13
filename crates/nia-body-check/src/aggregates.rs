@@ -1646,41 +1646,43 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         count: &Expr,
     ) -> Result<ArrayLenTy, ConstError> {
-        match nia_type_lower::classify_array_len_expr(count) {
-            nia_type_lower::ArrayLenExpr::Name(name)
-                if self.current_const_generic_arg(&name).is_some() =>
-            {
-                self.with_const_context(|this| this.check_expr(count));
-                Ok(ArrayLenTy::GenericParam(name))
+        let expected = self.primitive(nia_ty::PrimitiveTy::Usize);
+        let actual =
+            self.with_const_context(|this| this.check_expr_with_expected(count, Some(expected)));
+        if !self.types_match(expected, actual) {
+            return Err(ConstError {
+                span: count.span,
+                message: "array repeat count must have type `usize`".to_string(),
+            });
+        }
+        if let Some(arg) = self.symbolic_const_expr(count)
+            && let Some(len) = nia_ty::array_len_from_const_arg(&arg)
+        {
+            return Ok(len);
+        }
+        let count = self.lower_const_expr(count).map_err(|err| ConstError {
+            span: err.span,
+            message: err.message,
+        })?;
+        self.evaluate_const_array_len_expr(&count)
+            .map(ArrayLenTy::ConstValue)
+    }
+
+    pub(crate) fn symbolic_const_expr(&mut self, expr: &Expr) -> Option<nia_ty::ConstGenericArg> {
+        let expr = self.lower_const_expr(expr).ok()?;
+        let result = self.with_typed_const_query(|input| {
+            nia_const_check::classify_symbolic_const_expr(input, &expr)
+        });
+        match result {
+            Ok(value) => value,
+            Err(error) => {
+                self.record_internal(error);
+                None
             }
-            nia_type_lower::ArrayLenExpr::Layout { builtin, ty } => {
-                self.with_const_context(|this| this.check_expr(count));
-                let ty = self.ty_for_type(ty);
-                Ok(match self.layout_of(ty) {
-                    Some(layout) => ArrayLenTy::ConstValue(layout.builtin_value(builtin)),
-                    None => ArrayLenTy::Builtin { builtin, ty },
-                })
-            }
-            nia_type_lower::ArrayLenExpr::Name(_) | nia_type_lower::ArrayLenExpr::Value => self
-                .eval_array_repeat_count(count)
-                .map(ArrayLenTy::ConstValue),
         }
     }
 
-    pub(crate) fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ConstError> {
-        self.with_const_context(|this| {
-            this.check_expr(count);
-            let count = this
-                .lower_const_expr(count)
-                .map_err(|err| nia_const_eval::ConstError {
-                    span: err.span,
-                    message: err.message,
-                })?;
-            this.evaluate_const_array_len_expr(&count)
-        })
-    }
-
-    fn with_typed_const_query<T>(
+    pub(crate) fn with_typed_const_query<T>(
         &self,
         query: impl FnOnce(nia_const_check::TypedConstQueryInput<'_>) -> T,
     ) -> T {
@@ -1731,6 +1733,32 @@ impl<'a> BodyChecker<'a> {
             array_lengths: self.const_eval.array_lengths,
             frames: &[],
         })
+    }
+
+    pub(crate) fn computed_array_len_value(
+        &self,
+        expr: &std::sync::Arc<nia_ty::ConstComputation>,
+    ) -> Result<u64, String> {
+        let ty = self.interner.primitive(nia_ty::PrimitiveTy::Usize);
+        let arg = nia_ty::ConstGenericArg {
+            ty,
+            value: nia_ty::ConstGenericValue::Computation(expr.clone()),
+        };
+        let result = self
+            .with_typed_const_query(|input| {
+                nia_const_check::evaluate_const_generic_arg(input, &arg)
+            })
+            .map_err(|error| error.to_string())?;
+        if let Some(diagnostic) = result.diagnostics.first() {
+            return Err(diagnostic.summary.clone());
+        }
+        let value = result.value.map_err(|error| error.message)?;
+        match value {
+            nia_const_check::ConstValue::Int(value) => {
+                nia_const_eval::int_to_array_len(expr.span, value).map_err(|error| error.message)
+            }
+            _ => Err("array length computation must have type usize".into()),
+        }
     }
 
     pub(crate) fn evaluate_const_expr(

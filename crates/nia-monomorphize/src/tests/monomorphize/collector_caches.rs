@@ -97,7 +97,7 @@ fn closure_owner_instance_is_monomorphized_with_its_type_and_const_arguments() {
     let i32_ty = append.primitive(PrimitiveTy::I32).expect("intern i32");
     let u64_ty = append.primitive(PrimitiveTy::U64).expect("intern u64");
     let concrete_n = ConstGenericArg {
-        ty: generic_u,
+        ty: u64_ty,
         value: ConstGenericValue::Int(IntConst::unsigned(7)),
     };
     let substitutions = collector.intern_ordered_substitutions(
@@ -140,6 +140,9 @@ fn empty_collector() -> (ModuleId, MonoCollector<'static>) {
     });
     let (type_store, module_id) = &*FIXTURE;
     let collector = MonoCollector {
+        const_context: ConstInstantiationContext::default(),
+        const_evaluations: HashMap::new(),
+        const_evaluation_failures: 0,
         type_store,
         source_identities: HashMap::from([(
             *module_id,

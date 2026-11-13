@@ -611,6 +611,13 @@ pub(super) fn signature_layouts_for_types(
                 array_lengths: &local_array_lengths,
                 target,
                 program: nia_layout::ProgramLayoutContext {
+                    const_argument: Some(&|arg| {
+                        const_eval::evaluate_const_argument_capturing_failure(
+                            db,
+                            &query_failure,
+                            arg,
+                        )
+                    }),
                     symbols: Some(&symbols),
                     array_lengths: Some(&program_array_lengths),
                     struct_: Some(&program_struct),

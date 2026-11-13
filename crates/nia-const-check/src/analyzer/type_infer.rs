@@ -27,7 +27,7 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         input: ConstFunctionInstantiationInput<'_>,
-    ) -> Result<ConstGenericInstantiation, ConstError> {
+    ) -> Result<ConstGenericInstantiation, ConstInstantiationError> {
         let ConstFunctionInstantiationInput {
             signature_module_id,
             signature,
@@ -48,7 +48,8 @@ impl Analyzer<'_> {
                     signature.generic_params.len(),
                     actual
                 ),
-            });
+            }
+            .into());
         }
         if let ArityCheck::Mismatch { actual, .. } =
             check_exact_arity(signature.params.len(), arg_exprs.len())
@@ -60,7 +61,8 @@ impl Analyzer<'_> {
                     signature.params.len(),
                     actual
                 ),
-            });
+            }
+            .into());
         }
         let mut substitutions = initial.type_substitutions;
         let mut const_substitutions = initial.const_substitutions;
@@ -136,7 +138,8 @@ impl Analyzer<'_> {
                                 _ => "const call argument does not match expected type",
                             }
                             .to_string(),
-                        });
+                        }
+                        .into());
                     }
                     continue;
                 };
@@ -186,7 +189,8 @@ impl Analyzer<'_> {
                         span: arg_expr.span(),
                         message: self
                             .const_call_argument_mismatch_message(expected, arg_ty, &arg_expr),
-                    });
+                    }
+                    .into());
                 }
             }
             if let Some(expected) = expected_return {
@@ -202,10 +206,7 @@ impl Analyzer<'_> {
                         message: "cannot resolve const call return type".to_string(),
                     })?;
                 if !self.const_call_return_accepts(instantiated_return, expected) {
-                    return Err(ConstError {
-                        span,
-                        message: "const call return type does not match expected type".to_string(),
-                    });
+                    return Err(ConstInstantiationError::ReturnTypeMismatch(span));
                 }
             }
             for generic in &signature.generic_params {
@@ -227,7 +228,7 @@ impl Analyzer<'_> {
                         format!("cannot infer const generic argument `{name}`")
                     }
                 };
-                return Err(ConstError { span, message });
+                return Err(ConstError { span, message }.into());
             }
         } else {
             let mut has_infer_slot = false;
@@ -258,14 +259,16 @@ impl Analyzer<'_> {
                         return Err(ConstError {
                             span: arg.span(),
                             message: format!("generic argument `{name}` must be a type"),
-                        });
+                        }
+                        .into());
                     }
                     (GenericParamSignatureKind::Const { .. }, _) => {
                         let name = self.symbol_name(generic.name);
                         return Err(ConstError {
                             span: arg.span(),
                             message: format!("generic argument `{name}` must be a const value"),
-                        });
+                        }
+                        .into());
                     }
                 }
             }
@@ -314,7 +317,8 @@ impl Analyzer<'_> {
                             _ => "const call argument does not match expected type",
                         }
                         .to_string(),
-                    });
+                    }
+                    .into());
                 }
             }
             if let Some(expected) = expected_return
@@ -332,10 +336,7 @@ impl Analyzer<'_> {
                         message: "cannot resolve const call return type".to_string(),
                     })?;
                 if !self.const_call_return_accepts(instantiated_return, expected) {
-                    return Err(ConstError {
-                        span,
-                        message: "const call return type does not match expected type".to_string(),
-                    });
+                    return Err(ConstInstantiationError::ReturnTypeMismatch(span));
                 }
             }
         }
@@ -391,6 +392,15 @@ impl Analyzer<'_> {
         module_id: ModuleId,
     ) -> Result<nia_ty::ConstGenericValue, ConstError> {
         let expected_ty = self.type_for_module(expr.span(), expected_ty, module_id)?;
+        if let Some(arg) = self.symbolic_const_expr(expr) {
+            if self.const_function_types_match(arg.ty, expected_ty) {
+                return Ok(arg.value);
+            }
+            return Err(ConstError {
+                span: expr.span(),
+                message: "const generic argument does not match parameter type".into(),
+            });
+        }
         let expected = self.type_context(module_id).get(expected_ty).cloned();
         let value = nia_const_eval::eval_resolved_const_expr(expr, self)?;
         match (expected, value) {
@@ -411,17 +421,7 @@ impl Analyzer<'_> {
                 if primitive_integer_layout(primitive, self.input.target.pointer_width())
                     .is_some() =>
             {
-                let Some((min, max)) = primitive_integer_range_for_target(
-                    primitive,
-                    self.input.target.pointer_width(),
-                ) else {
-                    return Err(ConstError {
-                        span: expr.span(),
-                        message: "const generic integer argument requires a supported target pointer width"
-                            .to_string(),
-                    });
-                };
-                if !int_const_in_i128_range(value, min, max) {
+                if !value.fits_primitive_int(primitive, self.input.target.pointer_width()) {
                     return Err(ConstError {
                         span: expr.span(),
                         message:
@@ -429,6 +429,9 @@ impl Analyzer<'_> {
                                 .to_string(),
                     });
                 }
+                let value = value
+                    .cast_to_primitive_int(primitive, self.input.target.pointer_width())
+                    .expect("validated primitive integer width");
                 Ok(nia_ty::ConstGenericValue::Int(value))
             }
             _ => Err(ConstError {
@@ -659,7 +662,7 @@ impl Analyzer<'_> {
 
     pub(super) fn resolved_const_integer_literal_type(
         &mut self,
-        expr: &ResolvedConstExpr,
+        span: Span,
         text: &str,
         expected: Option<InternedTyId>,
         negative: bool,
@@ -674,7 +677,7 @@ impl Analyzer<'_> {
             Ok(value) => value,
             Err(_) => {
                 self.push_const_type_error(
-                    expr.span(),
+                    span,
                     &format!(
                         "const integer literal {text} is out of range for {}",
                         primitive.name()
@@ -708,7 +711,7 @@ impl Analyzer<'_> {
                 value.to_string()
             };
             self.push_const_type_error(
-                expr.span(),
+                span,
                 &format!(
                     "const integer literal {value_name} is out of range for {}",
                     primitive.name()
@@ -809,14 +812,19 @@ impl Analyzer<'_> {
     ) -> Option<ConstValueType> {
         match expr.kind() {
             ResolvedConstExprKind::UnavailableValue(_) => None,
+            ResolvedConstExprKind::ConstArgument(arg) => Some(ConstValueType::Runtime(arg.ty)),
             ResolvedConstExprKind::Name(resolution) => self
                 .resolved_const_enum_variant_value_type(expr, expected)
-                .or_else(|| self.const_name_resolution_type(resolution.clone())),
+                .or_else(|| self.const_name_resolution_type(resolution.clone()))
+                .or_else(|| {
+                    self.symbolic_const_expr(expr)
+                        .map(|arg| ConstValueType::Runtime(arg.ty))
+                }),
             ResolvedConstExprKind::OmittedVariant(_) => {
                 self.resolved_const_enum_variant_value_type(expr, expected)
             }
             ResolvedConstExprKind::Integer(text) => {
-                self.resolved_const_integer_literal_type(expr, text, expected, false)
+                self.resolved_const_integer_literal_type(expr.span(), text, expected, false)
             }
             ResolvedConstExprKind::Float(text) => {
                 self.resolved_const_float_literal_type(expr, text, expected)
@@ -971,7 +979,7 @@ impl Analyzer<'_> {
                 self.resolved_const_binary_expr_type(lhs, *op, rhs, expected)
             }
             ResolvedConstExprKind::Unary { op, expr: inner } => {
-                self.resolved_const_unary_expr_type(*op, inner, expected)
+                self.resolved_const_unary_expr_type(expr.span(), *op, inner, expected)
             }
             ResolvedConstExprKind::If {
                 cond,
@@ -1803,6 +1811,23 @@ impl Analyzer<'_> {
     pub(super) fn array_len_const_value(&mut self, len: ArrayLenTy) -> Option<u64> {
         match len {
             ArrayLenTy::ConstValue(len) => Some(len),
+            ArrayLenTy::Computation(expr) => {
+                let span = expr.span;
+                let ty = self.current_runtime_primitive_type(PrimitiveTy::Usize);
+                let ConstValue::Int(value) = self
+                    .eval_const_generic_arg(
+                        span,
+                        &ConstGenericArg {
+                            ty,
+                            value: ConstGenericValue::Computation(expr),
+                        },
+                    )
+                    .ok()?
+                else {
+                    return None;
+                };
+                u64::try_from(value.bits()).ok()
+            }
             ArrayLenTy::ConstExpr(id) => self
                 .array_lengths
                 .get(&id)
@@ -1831,6 +1856,12 @@ impl Analyzer<'_> {
                 .clone()
         };
         let value = self.with_execution_module(id.module_id, |this| {
+            if let Some(arg) = this.symbolic_const_expr(&expr)
+                && let Some(len) = nia_ty::array_len_from_const_arg(&arg)
+            {
+                this.symbolic_array_lengths.insert(id.clone(), len);
+                return None;
+            }
             this.eval_resolved_array_len_expr(&expr)
         })?;
         self.array_lengths.insert(id.clone(), value);
@@ -1912,8 +1943,7 @@ impl Analyzer<'_> {
                             .iter()
                             .any(|ty| self.type_contains_generic_inner(*ty, seen))
                         || owner.const_args.iter().any(|arg| {
-                            self.type_contains_generic_inner(arg.ty, seen)
-                                || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                            arg.contains_generic(|ty| self.type_contains_generic_inner(ty, seen))
                         })
                 }) || captures
                     .into_iter()
@@ -1930,6 +1960,8 @@ impl Analyzer<'_> {
                 self.type_contains_generic_inner(elem, seen)
                     || match len {
                         ArrayLenTy::GenericParam(_) => true,
+                        ArrayLenTy::Computation(expr) => expr
+                            .contains_generic(&mut |ty| self.type_contains_generic_inner(ty, seen)),
                         ArrayLenTy::Builtin { ty, .. } => {
                             self.type_contains_generic_inner(ty, seen)
                         }
@@ -1973,8 +2005,7 @@ impl Analyzer<'_> {
                         .into_iter()
                         .any(|ty| self.type_contains_generic_inner(ty, seen))
                     || const_args.into_iter().any(|arg| {
-                        self.type_contains_generic_inner(arg.ty, seen)
-                            || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                        arg.contains_generic(|ty| self.type_contains_generic_inner(ty, seen))
                     })
                     || params
                         .into_iter()
@@ -1991,8 +2022,7 @@ impl Analyzer<'_> {
                 args.into_iter()
                     .any(|arg| self.type_contains_generic_inner(arg, seen))
                     || const_args.into_iter().any(|arg| {
-                        self.type_contains_generic_inner(arg.ty, seen)
-                            || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                        arg.contains_generic(|ty| self.type_contains_generic_inner(ty, seen))
                     })
             }
             Some(TyKind::BuiltinTrait { args, .. }) => args
@@ -2014,8 +2044,7 @@ impl Analyzer<'_> {
                     .into_iter()
                     .any(|arg| self.type_contains_generic_inner(arg, seen))
                     || trait_const_args.into_iter().any(|arg| {
-                        self.type_contains_generic_inner(arg.ty, seen)
-                            || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                        arg.contains_generic(|ty| self.type_contains_generic_inner(ty, seen))
                     })
                     || associated_type_bindings.into_iter().any(|binding| {
                         binding
@@ -2023,8 +2052,9 @@ impl Analyzer<'_> {
                             .into_iter()
                             .any(|arg| self.type_contains_generic_inner(arg, seen))
                             || binding.trait_const_args.into_iter().any(|arg| {
-                                self.type_contains_generic_inner(arg.ty, seen)
-                                    || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                                arg.contains_generic(|ty| {
+                                    self.type_contains_generic_inner(ty, seen)
+                                })
                             })
                             || self.type_contains_generic_inner(binding.ty, seen)
                     })
@@ -2040,8 +2070,7 @@ impl Analyzer<'_> {
                         .into_iter()
                         .any(|arg| self.type_contains_generic_inner(arg, seen))
                     || trait_const_args.into_iter().any(|arg| {
-                        self.type_contains_generic_inner(arg.ty, seen)
-                            || matches!(arg.value, ConstGenericValue::GenericParam(_))
+                        arg.contains_generic(|ty| self.type_contains_generic_inner(ty, seen))
                     })
             }
             Some(
@@ -2226,6 +2255,25 @@ impl Analyzer<'_> {
         expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
         self.check_resolved_const_bool_condition(cond)?;
+        let defer_bounds = self.symbolic_const_expr(cond).is_some();
+        if defer_bounds {
+            self.defer_const_bounds += 1;
+        }
+        let result =
+            self.resolved_const_if_expr_type_inner(cond, then_branch, else_branch, expected);
+        if defer_bounds {
+            self.defer_const_bounds -= 1;
+        }
+        result
+    }
+
+    fn resolved_const_if_expr_type_inner(
+        &mut self,
+        _cond: &ResolvedConstExpr,
+        then_branch: &ResolvedConstBlock,
+        else_branch: Option<&ResolvedConstExpr>,
+        expected: Option<InternedTyId>,
+    ) -> Option<ConstValueType> {
         let expected = expected.and_then(|expected| self.usable_const_expected_type(expected));
         let else_branch = else_branch?;
         if let Some(expected) = expected {

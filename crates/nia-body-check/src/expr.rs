@@ -305,6 +305,35 @@ impl<'a> BodyChecker<'a> {
                 }
                 match op {
                     UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot => {
+                        // Numeric literals need a carrier before applying the
+                        // intrinsic operator. Other operands keep their own
+                        // type: an overloaded operator may have a different
+                        // Output, and implicit addressing adapts the result.
+                        let literal = match &inner.kind {
+                            ExprKind::Unary {
+                                op: UnaryOp::Neg,
+                                expr,
+                            } => expr,
+                            _ => inner,
+                        };
+                        let expected = expected
+                            .filter(|_| self.is_untyped_numeric_literal_expr(inner))
+                            .filter(|expected| {
+                                let expected = self.normalization.normalize(*expected);
+                                match (self.interner.get(expected), &literal.kind, op) {
+                                    (
+                                        Some(TyKind::Primitive(primitive)),
+                                        ExprKind::Integer(_),
+                                        UnaryOp::Neg | UnaryOp::BitNot,
+                                    ) => primitive.is_integer(),
+                                    (
+                                        Some(TyKind::Primitive(primitive)),
+                                        ExprKind::Float(_),
+                                        UnaryOp::Neg,
+                                    ) => primitive.is_float(),
+                                    _ => false,
+                                }
+                            });
                         let signed_integer_literal_ty = if matches!(op, UnaryOp::Neg)
                             && matches!(inner.kind, ExprKind::Integer(_))
                         {
@@ -319,12 +348,12 @@ impl<'a> BodyChecker<'a> {
                                     float_literal_suffix_ty(expr)
                                         .map(|primitive| self.primitive(primitive))
                                 })
-                                .or(expected_ref_target)
+                                .or(expected)
                                 .or_else(|| {
                                     matches!(inner.kind, ExprKind::Integer(_)).then(|| self.i32())
                                 })
                         } else {
-                            expected_ref_target
+                            expected
                         };
                         let unsuffixed_signed_integer = matches!(
                             (&inner.kind, signed_integer_literal_ty, expected),

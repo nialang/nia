@@ -187,6 +187,17 @@ fn semantic_name_resolution(
                 .map(ConstNameResolution::BuiltinAssociatedValue)
         })
         .or_else(|| {
+            // Type resolution knows parameter scopes but does not resolve
+            // lexical value shadowing. A concrete local binding wins over
+            // that parameter candidate, as it does in ordinary body checking.
+            semantic_uses
+                .node_value_use(key)
+                .and_then(|value| match value {
+                    SemanticValueUse::Local(local) => Some(ConstNameResolution::Local(local)),
+                    SemanticValueUse::Global(_) => None,
+                })
+        })
+        .or_else(|| {
             semantic_uses
                 .node_const_generic_use(key)
                 .map(|name| ConstNameResolution::GenericParam(*name))

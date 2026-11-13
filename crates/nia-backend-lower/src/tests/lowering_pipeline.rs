@@ -59,6 +59,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         module_id,
         &values,
         &locals,
+        &type_resolved,
         &type_lowering,
         &active_item_tree,
     );
@@ -127,11 +128,13 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         .expect("compute backend-lower pipeline test layouts");
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
+        symbolic: const_eval.symbolic_array_lengths.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };
     let const_values = nia_const_check::ConstValues {
         values: const_eval.values.clone(),
+        symbolic_locals: const_eval.symbolic_locals.clone(),
         failed: const_eval.failed.clone(),
         typed_values: const_eval.typed_values.clone(),
         provider_demands: const_eval.provider_demands.clone(),
@@ -239,6 +242,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         }],
         [(module_id, nia_source::SourceIdentity::new("main"))],
         &type_store,
+        nia_monomorphize::ConstInstantiationContext::default(),
     )
     .expect("collect backend-lower pipeline monomorphizations");
     assert!(
@@ -251,6 +255,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     mutate_const(&mut const_eval, &type_lowering);
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
+        symbolic: const_eval.symbolic_array_lengths.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };
@@ -309,6 +314,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         reachable_unions: None,
         function_instance_plan: &function_instance_plan,
         program: &program,
+        const_computation: None,
     };
     let lowering = lower_backend_program(&[input], &type_store, optimization)
         .expect("lower backend test program");

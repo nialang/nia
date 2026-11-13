@@ -773,7 +773,7 @@ impl Analyzer<'_> {
         out: &mut HashSet<GlobalConstExprId>,
     ) {
         for arg in args {
-            self.collect_array_len_const_exprs_in_ty(arg.ty, out);
+            arg.visit_referenced_types(|ty| self.collect_array_len_const_exprs_in_ty(ty, out));
             if matches!(
                 self.ty_kind(arg.ty),
                 Some(TyKind::Primitive(PrimitiveTy::Usize))
@@ -816,23 +816,21 @@ impl Analyzer<'_> {
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> ConstGenericArg {
-        let arg = match &arg.value {
-            nia_ty::ConstGenericValue::GenericParam(name) => {
-                const_substitutions.get(name).cloned().unwrap_or(arg)
-            }
-            _ => arg,
-        };
         let this = std::cell::RefCell::new(self);
         let substituted: Result<ConstGenericArg, std::convert::Infallible> =
-            nia_ty::substitute_const_generic_arg(&arg, &|_| None, &|ty| {
-                Ok(this
-                    .borrow_mut()
-                    .substitute_ty_generics_and_consts_from_maps(
-                        ty,
-                        substitutions,
-                        const_substitutions,
-                    ))
-            });
+            nia_ty::substitute_const_generic_arg(
+                &arg,
+                &|name| const_substitutions.get(name).cloned(),
+                &|ty| {
+                    Ok(this
+                        .borrow_mut()
+                        .substitute_ty_generics_and_consts_from_maps(
+                            ty,
+                            substitutions,
+                            const_substitutions,
+                        ))
+                },
+            );
         match substituted {
             Ok(arg) => arg,
         }

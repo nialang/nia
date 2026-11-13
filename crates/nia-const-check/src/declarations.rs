@@ -13,8 +13,9 @@ use std::collections::HashMap;
 use nia_ast::{BindingItem, BindingStmt, LocalBindingKind, Pattern, PatternKind, Stmt, StmtKind};
 use nia_ast_walk::Visitor;
 use nia_defs::{DefId, DefKind};
-use nia_ids::LocalId;
+use nia_ids::{GlobalDefId, LocalId};
 use nia_item_tree::ItemTreeNodeKind;
+use nia_node_id::VersionedNodeKey;
 
 use crate::ConstModuleInput;
 
@@ -22,6 +23,8 @@ use crate::ConstModuleInput;
 pub(crate) struct ConstDeclarations<'a> {
     locals: HashMap<LocalId, &'a BindingStmt>,
     globals: HashMap<DefId, &'a BindingItem>,
+    pub(crate) local_owners: HashMap<LocalId, GlobalDefId>,
+    pub(crate) expression_owners: HashMap<VersionedNodeKey, GlobalDefId>,
 }
 
 impl<'a> ConstDeclarations<'a> {
@@ -29,6 +32,9 @@ impl<'a> ConstDeclarations<'a> {
         let mut collector = Collector {
             input,
             locals: HashMap::new(),
+            owner: None,
+            local_owners: HashMap::new(),
+            expression_owners: HashMap::new(),
         };
         let mut globals = HashMap::new();
         for item in input.active_item_tree.items.iter() {
@@ -50,6 +56,8 @@ impl<'a> ConstDeclarations<'a> {
         Self {
             locals: collector.locals,
             globals,
+            local_owners: collector.local_owners,
+            expression_owners: collector.expression_owners,
         }
     }
 
@@ -67,6 +75,9 @@ impl<'a> ConstDeclarations<'a> {
 struct Collector<'i, 'a> {
     input: &'i ConstModuleInput<'a>,
     locals: HashMap<LocalId, &'a BindingStmt>,
+    owner: Option<GlobalDefId>,
+    local_owners: HashMap<LocalId, GlobalDefId>,
+    expression_owners: HashMap<VersionedNodeKey, GlobalDefId>,
 }
 
 impl<'a> Collector<'_, 'a> {
@@ -106,12 +117,37 @@ impl Collector<'_, '_> {
 }
 
 impl<'a> Visitor<'a> for Collector<'_, 'a> {
+    fn visit_function(&mut self, function: &'a nia_ast::FunctionItem) {
+        let owner = self
+            .input
+            .defs
+            .def_nodes
+            .get(&function.node_key)
+            .map(|def_id| GlobalDefId {
+                module_id: self.input.defs.module_id,
+                def_id,
+            });
+        let previous = std::mem::replace(&mut self.owner, owner);
+        nia_ast_walk::walk_function(self, function);
+        self.owner = previous;
+    }
+
+    fn visit_expr(&mut self, expr: &'a nia_ast::Expr) {
+        if let Some(owner) = self.owner {
+            self.expression_owners.insert(expr.node_key.clone(), owner);
+        }
+        nia_ast_walk::walk_expr(self, expr);
+    }
+
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         if let StmtKind::Binding(binding) = &stmt.kind
             && binding.kind == LocalBindingKind::Const
             && let Some(local_id) = self.bound_local(&binding.pattern)
         {
             self.locals.insert(local_id, binding);
+            if let Some(owner) = self.owner {
+                self.local_owners.insert(local_id, owner);
+            }
         }
         nia_ast_walk::walk_stmt(self, stmt);
     }

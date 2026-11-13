@@ -22,6 +22,10 @@ use std::collections::{HashMap, HashSet};
 /// Initializers are kept separate by execution/storage role so query clients do
 /// not need to reinterpret a single heterogeneous expression table.
 pub struct ResolvedConstModule {
+    /// Lexical function owners of const bindings, including unused bindings.
+    pub local_owners: HashMap<LocalId, GlobalDefId>,
+    /// Lexical function owners of standalone constant expressions.
+    pub const_expr_owners: HashMap<GlobalConstExprId, GlobalDefId>,
     enums: Vec<ResolvedConstEnum>,
     global_initializers: HashMap<GlobalDefId, ResolvedConstExpr>,
     deferred_global_initializers: HashMap<GlobalDefId, ResolvedConstExpr>,
@@ -1276,6 +1280,9 @@ pub enum ResolvedConstMatchArmBodyKind {
 /// semantic facts. Required types such as casts and builtin type arguments use
 /// non-optional resolved ids in their owning nodes.
 pub enum ResolvedConstExprKind {
+    /// A checked typed const operand reified from a substituted semantic term.
+    /// This form is never produced by syntax lowering.
+    ConstArgument(nia_ty::ConstGenericArg),
     /// A well-formed source value whose representation requires runtime support.
     /// Retained for capability diagnostics rather than failing syntax lowering.
     UnavailableValue(nia_sema::ConstValueRestriction),
@@ -2331,63 +2338,7 @@ pub struct ConstStringLiteral {
     pub parts: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Unary operations available in const expressions.
-pub enum ConstUnaryOp {
-    /// Arithmetic negation.
-    Neg,
-    /// Boolean/logical negation.
-    Not,
-    /// Integer bitwise complement.
-    BitNot,
-    /// Read-only reference creation.
-    RefReadOnly,
-    /// Mutable reference creation.
-    Ref,
-    /// Pointer dereference.
-    Deref,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Binary operations available in const expressions.
-pub enum ConstBinaryOp {
-    /// Multiplication.
-    Mul,
-    /// Division.
-    Div,
-    /// Remainder.
-    Rem,
-    /// Addition.
-    Add,
-    /// Subtraction.
-    Sub,
-    /// Left shift.
-    Shl,
-    /// Right shift.
-    Shr,
-    /// Less-than comparison.
-    Lt,
-    /// Less-than-or-equal comparison.
-    Le,
-    /// Greater-than comparison.
-    Gt,
-    /// Greater-than-or-equal comparison.
-    Ge,
-    /// Equality comparison.
-    Eq,
-    /// Inequality comparison.
-    Ne,
-    /// Bitwise and.
-    BitAnd,
-    /// Bitwise xor.
-    BitXor,
-    /// Bitwise or.
-    BitOr,
-    /// Logical and.
-    And,
-    /// Logical or.
-    Or,
-}
+pub use nia_ty::{ConstBinaryOp, ConstUnaryOp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Assignment operators accepted by const locals.

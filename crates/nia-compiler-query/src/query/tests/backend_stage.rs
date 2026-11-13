@@ -715,12 +715,26 @@ value.number
 }
 
 #[test]
-fn codegen_reuses_per_function_lowering_between_mono_and_backend() {
+fn monomorphization_validates_constants_before_cached_function_lowering() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",
-        "fun helper() i32 { 1 } pub fun main() i32 { helper() }",
+        "fun helper[N: usize]() usize { const K = N + 1; K } pub fun main() usize { helper[3]() }",
     );
     let db = query_db(fixture.program());
+
+    let monomorphization = db.expect_get(MonomorphizationQuery);
+    assert!(
+        monomorphization.diagnostics.is_empty(),
+        "{:?}",
+        monomorphization.diagnostics
+    );
+    let trace = db.query_trace().expect("query trace");
+    assert_eq!(query_executions(&trace, "lowered_function_body"), 0);
+    assert!(!trace_has_dependency(
+        &trace,
+        "monomorphization",
+        "lowered_function_body"
+    ));
 
     let codegen = db.expect_get(CodegenProgramQuery);
     let trace = db.query_trace().expect("query trace");
@@ -735,15 +749,6 @@ fn codegen_reuses_per_function_lowering_between_mono_and_backend() {
         query_executions(&trace, "lowered_function_body"),
         body_count
     );
-    assert!(
-        query_cache_hits(&trace, "lowered_function_body") >= body_count,
-        "backend lowering should reuse monomorphization's function products"
-    );
-    assert!(trace_has_dependency(
-        &trace,
-        "monomorphization",
-        "lowered_function_body"
-    ));
     assert!(trace_has_dependency(
         &trace,
         "backend_lowering_inputs",
@@ -759,4 +764,16 @@ fn codegen_reuses_per_function_lowering_between_mono_and_backend() {
         "lowered_function_body",
         "executable_function_body"
     ));
+
+    for module in &codegen.modules {
+        for def_id in module.body_ir.function_bodies.keys() {
+            db.expect_get(LoweredFunctionBodyQuery(*def_id));
+        }
+    }
+    let trace = db.query_trace().expect("query trace");
+    assert_eq!(
+        query_executions(&trace, "lowered_function_body"),
+        body_count
+    );
+    assert!(query_cache_hits(&trace, "lowered_function_body") >= body_count);
 }

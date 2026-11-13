@@ -184,7 +184,7 @@ impl<'a> BodyChecker<'a> {
         let trait_const_args = trait_const_args
             .into_iter()
             .map(|mut arg| {
-                arg.ty = self.normalize_aliases_in_type(arg.ty);
+                arg.map_types(|ty| self.normalize_aliases_in_type(ty));
                 arg
             })
             .collect::<Vec<_>>();
@@ -623,11 +623,13 @@ impl<'a> BodyChecker<'a> {
                     .zip(&impl_signature.trait_const_args)
                 {
                     let mut impl_arg = impl_arg.clone();
-                    impl_arg.ty = self.substitute_generics_and_consts(
-                        impl_arg.ty,
-                        &impl_substitutions,
-                        &impl_const_substitutions,
-                    );
+                    impl_arg.map_types(|ty| {
+                        self.substitute_generics_and_consts(
+                            ty,
+                            &impl_substitutions,
+                            &impl_const_substitutions,
+                        )
+                    });
                     if let ConstGenericValue::GenericParam(name) = impl_arg.value
                         && let Some(substitution) = impl_const_substitutions.get(&name)
                     {
@@ -883,7 +885,7 @@ impl<'a> BodyChecker<'a> {
                 let const_args = const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg.map_types(|ty| self.substitute_ty(ty, substitutions));
                         arg
                     })
                     .collect();
@@ -917,7 +919,7 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg.map_types(|ty| self.substitute_ty(ty, substitutions));
                         arg
                     })
                     .collect();
@@ -934,7 +936,7 @@ impl<'a> BodyChecker<'a> {
                             .trait_const_args
                             .into_iter()
                             .map(|mut arg| {
-                                arg.ty = self.substitute_ty(arg.ty, substitutions);
+                                arg.map_types(|ty| self.substitute_ty(ty, substitutions));
                                 arg
                             })
                             .collect(),
@@ -964,7 +966,7 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg.map_types(|ty| self.substitute_ty(ty, substitutions));
                         arg
                     })
                     .collect();
@@ -981,7 +983,7 @@ impl<'a> BodyChecker<'a> {
                             .trait_const_args
                             .into_iter()
                             .map(|mut arg| {
-                                arg.ty = self.substitute_ty(arg.ty, substitutions);
+                                arg.map_types(|ty| self.substitute_ty(ty, substitutions));
                                 arg
                             })
                             .collect(),
@@ -1012,7 +1014,7 @@ impl<'a> BodyChecker<'a> {
                 let trait_const_args = trait_const_args
                     .into_iter()
                     .map(|mut arg| {
-                        arg.ty = self.substitute_ty(arg.ty, substitutions);
+                        arg.map_types(|ty| self.substitute_ty(ty, substitutions));
                         arg
                     })
                     .collect();
@@ -1442,11 +1444,13 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .map(|arg| {
                     let mut arg = arg.clone();
-                    arg.ty = self.substitute_generics_and_consts(
-                        arg.ty,
-                        &substitutions,
-                        &const_substitutions,
-                    );
+                    arg.map_types(|ty| {
+                        self.substitute_generics_and_consts(
+                            ty,
+                            &substitutions,
+                            &const_substitutions,
+                        )
+                    });
                     match &arg.value {
                         nia_ty::ConstGenericValue::GenericParam(name) => {
                             const_substitutions.get(name).cloned().unwrap_or(arg)
@@ -1664,8 +1668,7 @@ impl<'a> BodyChecker<'a> {
                     self.check_type_projection_obligations(span, *arg, obligations);
                 }
                 for arg in &const_args {
-                    self.check_const_generic_arg_projection_obligations(arg, obligations);
-                    self.check_type_projection_obligations(span, arg.ty, obligations);
+                    self.check_const_generic_arg_projection_obligations(span, arg, obligations);
                 }
                 self.check_nominal_where_obligations(span, def_id, &args, &const_args, obligations);
             }
@@ -1692,8 +1695,7 @@ impl<'a> BodyChecker<'a> {
                     self.check_type_projection_obligations(span, *arg, obligations);
                 }
                 for arg in &trait_const_args {
-                    self.check_const_generic_arg_projection_obligations(arg, obligations);
-                    self.check_type_projection_obligations(span, arg.ty, obligations);
+                    self.check_const_generic_arg_projection_obligations(span, arg, obligations);
                 }
                 if let TraitId::Source(def_id) = trait_id {
                     self.check_nominal_where_obligations(
@@ -1709,8 +1711,11 @@ impl<'a> BodyChecker<'a> {
                         self.check_type_projection_obligations(span, arg, obligations);
                     }
                     for arg in binding.trait_const_args {
-                        self.check_const_generic_arg_projection_obligations(&arg, obligations);
-                        self.check_type_projection_obligations(span, arg.ty, obligations);
+                        self.check_const_generic_arg_projection_obligations(
+                            span,
+                            &arg,
+                            obligations,
+                        );
                     }
                     self.check_type_projection_obligations(span, binding.ty, obligations);
                 }
@@ -1727,8 +1732,7 @@ impl<'a> BodyChecker<'a> {
                     self.check_type_projection_obligations(span, *arg, obligations);
                 }
                 for arg in &trait_const_args {
-                    self.check_const_generic_arg_projection_obligations(arg, obligations);
-                    self.check_type_projection_obligations(span, arg.ty, obligations);
+                    self.check_const_generic_arg_projection_obligations(span, arg, obligations);
                 }
                 let required = TraitObligation {
                     self_ty,
@@ -1778,15 +1782,28 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::Builtin { ty, .. } => {
                 self.check_type_projection_obligations(span, *ty, obligations);
             }
+            ArrayLenTy::Computation(expr) => {
+                let mut types = Vec::new();
+                expr.visit_referenced_types(&mut |ty| types.push(ty));
+                for ty in types {
+                    self.check_type_projection_obligations(span, ty, obligations);
+                }
+            }
             ArrayLenTy::Infer | ArrayLenTy::GenericParam(_) | ArrayLenTy::ConstValue(_) => {}
         }
     }
 
     fn check_const_generic_arg_projection_obligations(
         &mut self,
+        span: Span,
         arg: &ConstGenericArg,
         obligations: &[TraitObligation],
     ) {
+        let mut referenced_types = Vec::new();
+        arg.visit_referenced_types(|ty| referenced_types.push(ty));
+        for ty in referenced_types {
+            self.check_type_projection_obligations(span, ty, obligations);
+        }
         if let ConstGenericValue::ConstExpr(id) = &arg.value {
             self.check_const_expr_projection_obligations(id.clone(), obligations);
         }
@@ -1822,8 +1839,7 @@ impl<'a> BodyChecker<'a> {
             self.check_type_projection_obligations(span, *arg, obligations);
         }
         for arg in &projection.trait_const_args {
-            self.check_const_generic_arg_projection_obligations(arg, obligations);
-            self.check_type_projection_obligations(span, arg.ty, obligations);
+            self.check_const_generic_arg_projection_obligations(span, arg, obligations);
         }
         let required = TraitObligation {
             self_ty: projection.self_ty,

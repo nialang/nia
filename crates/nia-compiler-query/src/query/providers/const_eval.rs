@@ -1,6 +1,68 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+/// Executes a substituted semantic term without rechecking its declaration.
+pub(super) fn evaluate_const_argument(
+    db: &QueryDb<CompilerContext>,
+    arg: &nia_ty::ConstGenericArg,
+) -> QueryResult<Result<nia_ty::ConstGenericArg, Vec<Diagnostic>>> {
+    let nia_ty::ConstGenericValue::Computation(term) = &arg.value else {
+        return Ok(Ok(arg.clone()));
+    };
+    with_const_input_and_program_facts(
+        db,
+        term.module_id,
+        None,
+        |_| false,
+        |input, _| {
+            let evaluated = nia_const_check::evaluate_const_computation(input, arg)?;
+            let mut result = evaluated.into_const_generic_arg(
+                arg,
+                input.type_store,
+                input.target.pointer_width(),
+            );
+            if let Err(diagnostics) = &mut result {
+                for diagnostic in diagnostics {
+                    if diagnostic.source_path.is_none() {
+                        diagnostic.source_path = Some(input.source_path.as_str().to_owned());
+                    }
+                }
+            }
+            Ok(result)
+        },
+    )
+}
+
+pub(in crate::query) fn evaluate_const_argument_capturing_failure(
+    db: &QueryDb<CompilerContext>,
+    failure: &RefCell<Option<QueryError>>,
+    arg: &nia_ty::ConstGenericArg,
+) -> nia_ice::IceResult<Result<nia_ty::ConstGenericArg, Vec<Diagnostic>>> {
+    match evaluate_const_argument(db, arg) {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            *failure.borrow_mut() = Some(error);
+            Err(nia_ice::Ice::new("const argument evaluation query failed"))
+        }
+    }
+}
+
+/// Backend inputs can cross module-finalization worker boundaries. Keep their
+/// query failure channel synchronized with the rest of the input contract.
+pub(in crate::query) fn evaluate_const_argument_for_backend(
+    db: &QueryDb<CompilerContext>,
+    failure: &parking_lot::Mutex<Option<QueryError>>,
+    arg: &nia_ty::ConstGenericArg,
+) -> nia_ice::IceResult<Result<nia_ty::ConstGenericArg, Vec<Diagnostic>>> {
+    match evaluate_const_argument(db, arg) {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            *failure.lock() = Some(error);
+            Err(nia_ice::Ice::new("const argument evaluation query failed"))
+        }
+    }
+}
+
 pub(super) fn provide_const_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,

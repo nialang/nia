@@ -333,6 +333,7 @@ impl BackendValidator<'_> {
 
     pub(super) fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
         match value {
+            ConstGenericValue::Computation(_) => "an unevaluated const computation".into(),
             ConstGenericValue::GenericParam(name) => mangle_symbol_id(*name),
             ConstGenericValue::ConstExpr(id) => format!("{id:?}"),
             ConstGenericValue::Int(value) => value.bits().to_string(),

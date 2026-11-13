@@ -98,6 +98,7 @@ fn missing_source_identity_in_symbols_is_diagnostic_not_panic() {
         )],
         std::iter::empty(),
         &fixture.type_store,
+        ConstInstantiationContext::default(),
     )
     .expect("collect monomorphizations");
 

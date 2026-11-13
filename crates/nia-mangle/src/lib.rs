@@ -1179,6 +1179,9 @@ where
     match len {
         ArrayLenTy::Infer => "infer".to_string(),
         ArrayLenTy::GenericParam(name) => format!("gen_len__{}", mangle_symbol_id(*name)),
+        ArrayLenTy::Computation(expr) => {
+            mangle_const_computation(type_store, expr, module_id, nominal_name, array_len)
+        }
         ArrayLenTy::ConstValue(value) => format!("len__{value}"),
         ArrayLenTy::ConstExpr(id) => array_len(id.clone())
             .map(|value| format!("len__{value}"))
@@ -1215,6 +1218,9 @@ where
     let ty = mangle_type_inner(type_store, arg.ty, module_id, nominal_name, array_len);
     let value = match &arg.value {
         ConstGenericValue::GenericParam(name) => format!("g{}", mangle_symbol_id(*name)),
+        ConstGenericValue::Computation(expr) => {
+            mangle_const_computation(type_store, expr, module_id, nominal_name, array_len)
+        }
         ConstGenericValue::ConstExpr(id) => array_len(id.clone())
             .map(|value| format!("expr_len__{value}"))
             .unwrap_or_else(|| {
@@ -1238,6 +1244,62 @@ where
         ),
     };
     format!("const__{ty}__{value}")
+}
+
+/// Encodes the typed structure of a residual const computation for symbolic identities.
+pub fn mangle_const_computation<F, G, H>(
+    type_store: &TypeStore,
+    expr: &nia_ty::ConstComputation,
+    module_id: &mut F,
+    nominal_name: &mut G,
+    array_len: &mut H,
+) -> String
+where
+    F: FnMut(ModuleId) -> MangleModuleId,
+    G: FnMut(GlobalDefId) -> String,
+    H: FnMut(GlobalConstExprId) -> Option<u64>,
+{
+    use nia_ty::ConstComputationKind as C;
+    // A length-prefixed structural encoding keeps unresolved terms distinct.
+    // Valid concrete instances are evaluated before their linkage identity is built.
+    let mut parts = Vec::new();
+    match &expr.kind {
+        C::Unary { op, .. } => parts.push(format!("unary{}", *op as u8)),
+        C::Binary { op, .. } => parts.push(format!("binary{}", *op as u8)),
+        C::Cast(_) => parts.push("cast".into()),
+        C::If { .. } => parts.push("if".into()),
+        C::Call {
+            function,
+            type_args,
+            ..
+        } => {
+            parts.push("call".into());
+            parts.push(mangle_source_def(*function, module_id, nominal_name));
+            for (_, ty) in type_args {
+                parts.push(mangle_type_inner(
+                    type_store,
+                    *ty,
+                    module_id,
+                    nominal_name,
+                    array_len,
+                ));
+            }
+        }
+    }
+    for arg in expr.operands() {
+        parts.push(mangle_const_generic_arg(
+            type_store,
+            arg,
+            module_id,
+            nominal_name,
+            array_len,
+        ));
+    }
+    let mut result = String::from("computed__");
+    for part in parts {
+        result.push_str(&format!("{}_{}", part.len(), part));
+    }
+    result
 }
 
 fn mangle_primitive(primitive: PrimitiveTy) -> String {

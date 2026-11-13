@@ -51,14 +51,18 @@ impl<'a> BodyChecker<'a> {
     ) -> ConstGenericArg {
         let this = std::cell::RefCell::new(self);
         let substituted: Result<ConstGenericArg, std::convert::Infallible> =
-            nia_ty::substitute_const_generic_arg(&arg, &|_| None, &|ty| {
-                Ok(this.borrow_mut().substitute_generics_and_consts_with_self(
-                    ty,
-                    substitutions,
-                    const_substitutions,
-                    self_ty,
-                ))
-            });
+            nia_ty::substitute_const_generic_arg(
+                &arg,
+                &|name| const_substitutions.get(name).cloned(),
+                &|ty| {
+                    Ok(this.borrow_mut().substitute_generics_and_consts_with_self(
+                        ty,
+                        substitutions,
+                        const_substitutions,
+                        self_ty,
+                    ))
+                },
+            );
         match substituted {
             Ok(arg) => arg,
         }
@@ -531,6 +535,18 @@ impl<'a> BodyChecker<'a> {
             },
         ) {
             Ok(normalization) => {
+                let normalization = match normalization.resolve_array_lengths(
+                    self.defs.module_id,
+                    self.type_store,
+                    &[ty],
+                    &|id| self.const_eval.symbolic_array_lengths.get(id).cloned(),
+                ) {
+                    Ok(normalization) => normalization,
+                    Err(error) => {
+                        self.failure.record(error);
+                        return self.error();
+                    }
+                };
                 let normalized = normalization.normalize(ty);
                 self.dynamic_normalized_types
                     .extend(normalization.normalized);

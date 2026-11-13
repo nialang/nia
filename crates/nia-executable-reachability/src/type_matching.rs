@@ -878,7 +878,7 @@ fn match_array_len_pattern(
     actual: &nia_ty::ArrayLenTy,
     substitutions: &mut PatternSubstitutions,
 ) -> bool {
-    if pattern == actual {
+    if array_lens_equivalent(pattern_store, pattern, actual_store, actual) {
         return true;
     }
     if let (
@@ -908,22 +908,33 @@ fn match_array_len_pattern(
     let nia_ty::ArrayLenTy::GenericParam(name) = pattern else {
         return false;
     };
-    if let Some(existing) = substitutions.array_lens.get(name) {
-        return existing == actual;
+    // The first match retained the actual length, including its operand
+    // handles; both values therefore belong to the actual store.
+    if let Some(existing) = substitutions.array_lens.get(name)
+        && !array_lens_equivalent(actual_store, existing, actual_store, actual)
+    {
+        return false;
     }
-    substitutions.array_lens.insert(*name, actual.clone());
 
     let Some(value) = const_value_from_array_len(actual) else {
-        // Layout builtins are valid concrete lengths, but this phase has no
-        // evaluator with which to encode their result as a const-generic
-        // value. Retaining the length still enforces repeated-N consistency
-        // and keeps the matching implementation executable-reachable.
-        return matches!(actual, nia_ty::ArrayLenTy::Builtin { .. });
+        return false;
     };
     let Some(ty) = substitutions.const_param_types.get(name).copied() else {
         return false;
     };
-    record_const_substitution(*name, nia_ty::ConstGenericArg { ty, value }, substitutions)
+    // The carrier comes from the declaration, while nested value types belong
+    // to the matched argument's store. Retain the symbolic value itself; this
+    // phase neither executes layout queries nor invents their numeric results.
+    if !record_const_substitution(
+        *name,
+        nia_ty::ConstGenericArg { ty, value },
+        actual_store,
+        substitutions,
+    ) {
+        return false;
+    }
+    substitutions.array_lens.insert(*name, actual.clone());
+    true
 }
 
 fn match_const_generic_arg_patterns(
@@ -950,10 +961,11 @@ fn match_const_generic_arg_patterns(
                     ty: pattern.ty,
                     value: actual.value.clone(),
                 },
+                actual_store,
                 substitutions,
             );
         }
-        const_generic_values_equivalent(&pattern.value, &actual.value)
+        const_generic_values_equivalent(pattern_store, &pattern.value, actual_store, &actual.value)
             && typed_refs_equivalent(
                 TypedTyRef {
                     store: pattern_store,
@@ -970,10 +982,17 @@ fn match_const_generic_arg_patterns(
 fn record_const_substitution(
     name: SymbolId,
     arg: nia_ty::ConstGenericArg,
+    value_store: &TypeStore,
     substitutions: &mut PatternSubstitutions,
 ) -> bool {
     if let Some(existing) = substitutions.consts.get(&name) {
-        existing.ty == arg.ty && const_generic_values_equivalent(&existing.value, &arg.value)
+        existing.ty == arg.ty
+            && const_generic_values_equivalent(
+                value_store,
+                &existing.value,
+                value_store,
+                &arg.value,
+            )
     } else {
         substitutions.consts.insert(name, arg);
         true
@@ -981,16 +1000,7 @@ fn record_const_substitution(
 }
 
 fn const_value_from_array_len(len: &nia_ty::ArrayLenTy) -> Option<nia_ty::ConstGenericValue> {
-    match len {
-        nia_ty::ArrayLenTy::GenericParam(name) => {
-            Some(nia_ty::ConstGenericValue::GenericParam(*name))
-        }
-        nia_ty::ArrayLenTy::ConstValue(value) => Some(nia_ty::ConstGenericValue::Int(
-            nia_ty::IntConst::unsigned((*value).into()),
-        )),
-        nia_ty::ArrayLenTy::ConstExpr(id) => Some(nia_ty::ConstGenericValue::ConstExpr(id.clone())),
-        nia_ty::ArrayLenTy::Infer | nia_ty::ArrayLenTy::Builtin { .. } => None,
-    }
+    nia_ty::const_generic_value_from_array_len(len)
 }
 
 fn substitution_ty_equivalent(existing: SubstitutionTy, actual: TypedTyRef<'_>) -> bool {
@@ -1016,7 +1026,7 @@ fn typed_pointer_elem_ref(ty: TypedTyRef<'_>) -> Option<TypedTyRef<'_>> {
 }
 
 pub(super) fn typed_refs_equivalent(left: TypedTyRef<'_>, right: TypedTyRef<'_>) -> bool {
-    if left.ty == right.ty {
+    if std::ptr::eq(left.store, right.store) && left.ty == right.ty {
         return true;
     }
     typed_refs_structurally_equivalent(left, right)
@@ -1515,6 +1525,20 @@ fn array_lens_equivalent(
 ) -> bool {
     use nia_ty::ArrayLenTy;
     match (left, right) {
+        (ArrayLenTy::Computation(left), ArrayLenTy::Computation(right)) => {
+            left.equivalent(right, &mut |l, r| {
+                typed_refs_equivalent(
+                    TypedTyRef {
+                        store: left_store,
+                        ty: l,
+                    },
+                    TypedTyRef {
+                        store: right_store,
+                        ty: r,
+                    },
+                )
+            })
+        }
         (ArrayLenTy::Infer, ArrayLenTy::Infer) => true,
         (ArrayLenTy::GenericParam(left), ArrayLenTy::GenericParam(right)) => left == right,
         (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstValue(right)) => left == right,
@@ -1553,7 +1577,7 @@ pub(super) fn const_generic_args_equivalent(
 ) -> bool {
     left.len() == right.len()
         && left.iter().zip(right).all(|(left, right)| {
-            const_generic_values_equivalent(&left.value, &right.value)
+            const_generic_values_equivalent(left_store, &left.value, right_store, &right.value)
                 && typed_refs_equivalent(
                     TypedTyRef {
                         store: left_store,
@@ -1568,12 +1592,51 @@ pub(super) fn const_generic_args_equivalent(
 }
 
 fn const_generic_values_equivalent(
+    left_store: &TypeStore,
     left: &nia_ty::ConstGenericValue,
+    right_store: &TypeStore,
     right: &nia_ty::ConstGenericValue,
 ) -> bool {
     match (left, right) {
+        (
+            nia_ty::ConstGenericValue::Computation(left),
+            nia_ty::ConstGenericValue::Computation(right),
+        ) => left.equivalent(right, &mut |l, r| {
+            typed_refs_equivalent(
+                TypedTyRef {
+                    store: left_store,
+                    ty: l,
+                },
+                TypedTyRef {
+                    store: right_store,
+                    ty: r,
+                },
+            )
+        }),
         (nia_ty::ConstGenericValue::Int(left), nia_ty::ConstGenericValue::Int(right)) => {
             left.bits() == right.bits()
+        }
+        (
+            nia_ty::ConstGenericValue::Layout {
+                builtin: left_builtin,
+                ty: left_ty,
+            },
+            nia_ty::ConstGenericValue::Layout {
+                builtin: right_builtin,
+                ty: right_ty,
+            },
+        ) => {
+            left_builtin == right_builtin
+                && typed_refs_equivalent(
+                    TypedTyRef {
+                        store: left_store,
+                        ty: *left_ty,
+                    },
+                    TypedTyRef {
+                        store: right_store,
+                        ty: *right_ty,
+                    },
+                )
         }
         (left, right) => left == right,
     }
@@ -1792,9 +1855,9 @@ pub(super) fn substitute_const_arg(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_ids::{ClosureId, DefId, ModuleIdAllocator};
+    use nia_ids::{ClosureId, DefId, LayoutBuiltin, ModuleIdAllocator};
     use nia_symbol::stable_hash;
-    use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, PrimitiveTy};
+    use nia_ty::{ArrayLenTy, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy};
 
     trait TestTypeStoreAppend {
         fn test_intern(&self, kind: TyKind) -> InternedTyId;
@@ -2009,7 +2072,7 @@ mod tests {
     }
 
     #[test]
-    fn array_pattern_accepts_builtin_length_without_fabricating_const_value() {
+    fn array_pattern_retains_symbolic_builtin_length_as_const_argument() {
         let module_id = module();
         let store = TypeStore::new().expect("create type store");
         let append = store.append_for_module(module_id);
@@ -2051,7 +2114,16 @@ mod tests {
         .expect("layout builtin is a valid concrete array length");
 
         assert_eq!(matched.array_lens.get(&const_name), Some(&builtin_len));
-        assert!(!matched.consts.contains_key(&const_name));
+        assert_eq!(
+            matched.consts.get(&const_name),
+            Some(&ConstGenericArg {
+                ty: usize_ty,
+                value: ConstGenericValue::Layout {
+                    builtin: LayoutBuiltin::Size,
+                    ty: i32_ty,
+                },
+            })
+        );
     }
 
     #[test]
@@ -2445,6 +2517,194 @@ mod tests {
                 ..
             }) if value.bits() == 7
         ));
+    }
+
+    #[test]
+    fn layout_const_identity_compares_operands_across_type_stores() {
+        let module_id = module();
+        let left = TypeStore::new().expect("create type store");
+        let right = TypeStore::new().expect("create type store");
+        let left_append = left.append_for_module(module_id);
+        let right_append = right.append_for_module(module_id);
+        let left_usize = left_append.test_primitive(PrimitiveTy::Usize);
+        let right_usize = right_append.test_primitive(PrimitiveTy::Usize);
+        let left_operand = left_append.test_primitive(PrimitiveTy::U32);
+        let right_operand = right_append.test_primitive(PrimitiveTy::U32);
+        let other_operand = right_append.test_primitive(PrimitiveTy::U64);
+        let argument = |ty, builtin, operand| ConstGenericArg {
+            ty,
+            value: ConstGenericValue::Layout {
+                builtin,
+                ty: operand,
+            },
+        };
+        let left_arg = argument(left_usize, LayoutBuiltin::Size, left_operand);
+        for (query, operand, equal) in [
+            (LayoutBuiltin::Size, right_operand, true),
+            (LayoutBuiltin::Size, other_operand, false),
+            (LayoutBuiltin::Align, right_operand, false),
+        ] {
+            let right_arg = argument(right_usize, query, operand);
+            assert_eq!(
+                const_generic_args_equivalent(
+                    &left,
+                    std::slice::from_ref(&left_arg),
+                    &right,
+                    std::slice::from_ref(&right_arg),
+                ),
+                equal,
+            );
+            assert_eq!(
+                array_lens_equivalent(
+                    &left,
+                    &nia_ty::ArrayLenTy::Builtin {
+                        builtin: LayoutBuiltin::Size,
+                        ty: left_operand,
+                    },
+                    &right,
+                    &nia_ty::ArrayLenTy::Builtin {
+                        builtin: query,
+                        ty: operand
+                    },
+                ),
+                equal,
+            );
+        }
+        let name = symbol("N");
+        let pattern_len = ArrayLenTy::GenericParam(name);
+        let actual_len = ArrayLenTy::Builtin {
+            builtin: LayoutBuiltin::Size,
+            ty: right_operand,
+        };
+        let mut substitutions =
+            PatternSubstitutions::for_impl(&[nia_item_signatures::GenericParamSignature {
+                name,
+                kind: nia_item_signatures::GenericParamSignatureKind::Const { ty: left_usize },
+            }]);
+        for _ in 0..2 {
+            assert!(match_array_len_pattern(
+                &left,
+                &pattern_len,
+                &right,
+                &actual_len,
+                &mut substitutions,
+            ));
+        }
+        assert_eq!(
+            substitutions.consts.get(&name),
+            Some(&ConstGenericArg {
+                ty: left_usize,
+                value: ConstGenericValue::Layout {
+                    builtin: LayoutBuiltin::Size,
+                    ty: right_operand,
+                },
+            })
+        );
+        assert!(!match_array_len_pattern(
+            &left,
+            &pattern_len,
+            &right,
+            &ArrayLenTy::Builtin {
+                builtin: LayoutBuiltin::Size,
+                ty: other_operand,
+            },
+            &mut substitutions,
+        ));
+    }
+
+    #[test]
+    fn array_and_const_patterns_share_symbolic_evidence_across_stores() {
+        let module_id = module();
+        let pattern_store = TypeStore::new().expect("pattern store");
+        let actual_store = TypeStore::new().expect("actual store");
+        let pattern_append = pattern_store.append_for_module(module_id);
+        let actual_append = actual_store.append_for_module(module_id);
+        let pattern_usize = pattern_append.test_primitive(PrimitiveTy::Usize);
+        let actual_usize = actual_append.test_primitive(PrimitiveTy::Usize);
+        let def_id = GlobalDefId {
+            module_id,
+            def_id: DefId(17),
+        };
+        // These operand handles differ, but const integers compare by value.
+        let operands = [IntConst::signed(3), IntConst::unsigned(3)].map(|value| {
+            actual_append.test_intern(TyKind::Nominal {
+                def_id,
+                args: Vec::new(),
+                const_args: vec![ConstGenericArg {
+                    ty: actual_usize,
+                    value: ConstGenericValue::Int(value),
+                }],
+            })
+        });
+        assert_ne!(operands[0], operands[1]);
+        let name = symbol("N");
+        let parameter = ConstGenericArg {
+            ty: pattern_usize,
+            value: ConstGenericValue::GenericParam(name),
+        };
+        let actual = ConstGenericArg {
+            ty: actual_usize,
+            value: ConstGenericValue::Layout {
+                builtin: LayoutBuiltin::Size,
+                ty: operands[0],
+            },
+        };
+        let length = ArrayLenTy::Builtin {
+            builtin: LayoutBuiltin::Size,
+            ty: operands[1],
+        };
+        let params = [nia_item_signatures::GenericParamSignature {
+            name,
+            kind: nia_item_signatures::GenericParamSignatureKind::Const { ty: pattern_usize },
+        }];
+        let mut substitutions = PatternSubstitutions::for_impl(&params);
+        assert!(match_const_generic_arg_patterns(
+            &pattern_store,
+            std::slice::from_ref(&parameter),
+            &actual_store,
+            std::slice::from_ref(&actual),
+            &mut substitutions,
+        ));
+        assert!(match_array_len_pattern(
+            &pattern_store,
+            &ArrayLenTy::GenericParam(name),
+            &actual_store,
+            &length,
+            &mut substitutions,
+        ));
+
+        // A rejected binding must not publish partial length evidence.
+        let conflicting = ArrayLenTy::Builtin {
+            builtin: LayoutBuiltin::Align,
+            ty: operands[1],
+        };
+        let mut conflict = PatternSubstitutions::for_impl(&params);
+        assert!(match_const_generic_arg_patterns(
+            &pattern_store,
+            std::slice::from_ref(&parameter),
+            &actual_store,
+            std::slice::from_ref(&actual),
+            &mut conflict,
+        ));
+        assert!(!match_array_len_pattern(
+            &pattern_store,
+            &ArrayLenTy::GenericParam(name),
+            &actual_store,
+            &conflicting,
+            &mut conflict,
+        ));
+        assert!(conflict.array_lens.is_empty());
+        assert_eq!(conflict.consts.len(), 1);
+        let mut missing_declaration = PatternSubstitutions::default();
+        assert!(!match_array_len_pattern(
+            &pattern_store,
+            &ArrayLenTy::GenericParam(name),
+            &actual_store,
+            &length,
+            &mut missing_declaration,
+        ));
+        assert!(missing_declaration.array_lens.is_empty());
+        assert!(missing_declaration.consts.is_empty());
     }
 
     #[test]

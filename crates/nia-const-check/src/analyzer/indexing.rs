@@ -77,6 +77,9 @@ impl Analyzer<'_> {
         index: &ResolvedConstExpr,
         len: Option<u64>,
     ) {
+        if self.defer_const_bounds != 0 {
+            return;
+        }
         let Some(index_value) = self.probe_resolved_const_int_expr(index) else {
             return;
         };

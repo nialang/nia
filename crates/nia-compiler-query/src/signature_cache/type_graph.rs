@@ -619,7 +619,7 @@ pub(crate) fn write_array_len(
             encoded.push(2);
             write_u64(encoded, *value);
         }
-        ArrayLenTy::ConstExpr(_) => {
+        ArrayLenTy::Computation(_) | ArrayLenTy::ConstExpr(_) => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "const-expression array length is not cacheable",
@@ -664,7 +664,7 @@ pub(crate) fn write_const_args(
                 encoded.push(0);
                 graph.write_symbol(encoded, name)?;
             }
-            ConstGenericValue::ConstExpr(_) => {
+            ConstGenericValue::Computation(_) | ConstGenericValue::ConstExpr(_) => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "const-expression generic argument is not cacheable",

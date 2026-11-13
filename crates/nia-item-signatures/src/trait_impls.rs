@@ -111,7 +111,7 @@ fn type_contains_pattern(type_store: &TypeStore, ty: InternedTyId) -> bool {
                         matches!(
                             arg.value,
                             ConstGenericValue::GenericParam(_) | ConstGenericValue::ConstExpr(_)
-                        ) || visit(type_store, arg.ty)
+                        ) || arg.any_type(|ty| visit(type_store, ty))
                     })
             }
             TyKind::Array { len, elem } => {

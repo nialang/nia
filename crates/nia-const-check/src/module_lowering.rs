@@ -117,6 +117,14 @@ impl ConstModuleLowerer<'_> {
     }
 
     fn lower_module(&mut self) {
+        self.module.local_owners = self.declarations.local_owners.clone();
+        for id in self.input.const_exprs.keys() {
+            if let nia_ids::ConstExprId::Syntax(node) = &id.const_expr_id
+                && let Some(owner) = self.declarations.expression_owners.get(node)
+            {
+                self.module.const_expr_owners.insert(id.clone(), *owner);
+            }
+        }
         for item in self.input.active_item_tree.items.iter() {
             match &item.kind {
                 ItemTreeNodeKind::Enum(item_enum) => self.lower_enum(item, item_enum),

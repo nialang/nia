@@ -2,8 +2,6 @@
 
 use super::*;
 
-mod bracket_resolution;
-
 pub(super) fn resolve_module_locals_from_filtered_items(
     filtered_items: &ItemTreeItems,
     full_items: &ItemTreeItems,
@@ -474,11 +472,9 @@ impl<'a> LocalResolver<'a> {
             | ExprKind::Error => {}
             ExprKind::BracketSuffix { callee, args } => {
                 self.resolve_callee(callee);
-                if self.should_resolve_expr_bracket_args(callee, args) {
-                    for arg in args {
-                        if let Some(expr) = &arg.expr {
-                            self.resolve_expr(expr);
-                        }
+                for arg in args {
+                    if let Some(expr) = &arg.expr {
+                        self.resolve_expr(expr);
                     }
                 }
             }
@@ -757,11 +753,9 @@ impl<'a> LocalResolver<'a> {
     fn resolve_callee(&mut self, callee: &Expr) {
         if let ExprKind::BracketSuffix { callee, args } = &callee.kind {
             self.resolve_callee(callee);
-            if self.should_resolve_callee_bracket_args(callee, args) {
-                for arg in args {
-                    if let Some(expr) = &arg.expr {
-                        self.resolve_expr(expr);
-                    }
+            for arg in args {
+                if let Some(expr) = &arg.expr {
+                    self.resolve_expr(expr);
                 }
             }
             return;

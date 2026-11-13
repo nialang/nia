@@ -2,6 +2,39 @@
 use super::common::*;
 
 #[test]
+fn explicit_const_arguments_use_semantic_values_and_types() {
+    for source in [
+        "const W: usize = 4; fun f[N: usize]() usize { N } fun main() usize { f[W]() }",
+        "fun f[N: usize]() usize { N } fun main() usize { const W: usize = 4; f[W]() }",
+        "fun f[N: usize]() usize { N } fun g[N: usize]() usize { const W = N; f[W]() } fun main() usize { g[3]() }",
+    ] {
+        let checked = pipeline(source);
+        assert!(
+            checked.diagnostics.is_empty(),
+            "{source}\n{:?}",
+            checked.diagnostics
+        );
+    }
+    let checked = pipeline("fun f[N: usize]() usize { N } fun g[B: bool]() usize { f[B]() }");
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|d| d.summary.contains("const generic argument")),
+        "{:?}",
+        checked.diagnostics
+    );
+    let checked = pipeline("fun f[B: bool]() usize { let a = [0u8; B]; 0 }");
+    assert!(
+        checked.diagnostics.iter().any(|d| d
+            .summary
+            .contains("array repeat count must have type `usize`")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn recursive_associated_projection_normalization_terminates() {
     let checked = pipeline(
         r#"

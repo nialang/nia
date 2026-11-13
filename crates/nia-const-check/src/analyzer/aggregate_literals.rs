@@ -397,7 +397,8 @@ impl Analyzer<'_> {
             .iter()
             .cloned()
             .map(|mut arg| {
-                arg.ty = self.type_for_module_or_none(arg.ty, current_module)?;
+                arg.try_map_types(|ty| self.type_for_module_or_none(ty, current_module).ok_or(()))
+                    .ok()?;
                 Some(arg)
             })
             .collect::<Option<Vec<_>>>()?;

@@ -116,15 +116,28 @@ pub struct MonomorphizeModuleInput<'a> {
     pub instantiations: &'a [GenericInstantiation],
 }
 
+/// Deferred value obligations and their semantic execution service.
+#[derive(Default)]
+pub struct ConstInstantiationContext<'a> {
+    /// Evaluates closed const computations before they become instance identities.
+    pub evaluate: Option<&'a nia_layout::ConstArgumentEvaluator<'a>>,
+    /// Checked-once const uses indexed by their lexical function owner.
+    pub obligations: Option<&'a HashMap<GlobalDefId, Vec<ConstGenericArg>>>,
+}
+
 /// Collects concrete instances reachable from all supplied module roots.
 pub fn collect_monomorphizations(
     inputs: &[MonomorphizeModuleInput<'_>],
     source_identities: impl IntoIterator<Item = (ModuleId, SourceIdentity)>,
     type_store: &TypeStore,
+    const_context: ConstInstantiationContext<'_>,
 ) -> IceResult<Monomorphization> {
     let empty_trait_impl_index = ProgramTraitImplIndex::default();
     let mut collector = MonoCollector {
         type_store,
+        const_context,
+        const_evaluations: HashMap::new(),
+        const_evaluation_failures: 0,
         source_identities: source_identities.into_iter().collect(),
         symbol_package_identities: inputs
             .iter()
@@ -203,6 +216,9 @@ pub fn collect_monomorphizations(
 }
 
 struct MonoCollector<'a> {
+    const_context: ConstInstantiationContext<'a>,
+    const_evaluations: HashMap<(ModuleId, Span, ConstGenericArg), Result<ConstGenericArg, ()>>,
+    const_evaluation_failures: usize,
     type_store: &'a TypeStore,
     source_identities: HashMap<ModuleId, SourceIdentity>,
     symbol_package_identities: HashMap<ModuleId, String>,
@@ -448,10 +464,8 @@ impl MonoCollector<'_> {
     }
 
     fn const_args_contain_generic_param(&self, args: &[ConstGenericArg]) -> bool {
-        args.iter().any(|arg| {
-            matches!(arg.value, ConstGenericValue::GenericParam(_))
-                || self.ty_contains_generic_param(arg.ty)
-        })
+        args.iter()
+            .any(|arg| arg.contains_generic(|ty| self.ty_contains_generic_param(ty)))
     }
 
     fn ty_contains_generic_param(&self, ty: InternedTyId) -> bool {
@@ -479,8 +493,7 @@ impl MonoCollector<'_> {
                             .iter()
                             .any(|ty| self.ty_contains_generic_param(*ty))
                         || owner.const_args.iter().any(|arg| {
-                            matches!(arg.value, ConstGenericValue::GenericParam(_))
-                                || self.ty_contains_generic_param(arg.ty)
+                            arg.contains_generic(|ty| self.ty_contains_generic_param(ty))
                         })
                 }) || captures
                     .iter()
@@ -493,9 +506,14 @@ impl MonoCollector<'_> {
             | TyKind::Slice { elem, .. }
             | TyKind::SlicePointee { elem } => self.ty_contains_generic_param(elem),
             TyKind::Array { len, elem } => {
-                matches!(len, ArrayLenTy::GenericParam(_))
-                    || matches!(len, ArrayLenTy::Builtin { ty, .. } if self.ty_contains_generic_param(ty))
-                    || self.ty_contains_generic_param(elem)
+                (match &len {
+                    ArrayLenTy::GenericParam(_) => true,
+                    ArrayLenTy::Builtin { ty, .. } => self.ty_contains_generic_param(*ty),
+                    ArrayLenTy::Computation(expr) => {
+                        expr.contains_generic(&mut |ty| self.ty_contains_generic_param(ty))
+                    }
+                    _ => false,
+                }) || self.ty_contains_generic_param(elem)
             }
             TyKind::Range { bound, .. } => {
                 bound.is_some_and(|bound| self.ty_contains_generic_param(bound))
@@ -607,13 +625,6 @@ impl MonoCollector<'_> {
                 continue;
             }
 
-            let Some(edge_indices) = self
-                .instantiations_by_source
-                .get(&pending_instance.key.def_id)
-                .cloned()
-            else {
-                continue;
-            };
             // Edges were recorded in the generic source body. Instantiate both
             // argument vectors with the current concrete caller before adding
             // the callee key to the queue.
@@ -624,6 +635,25 @@ impl MonoCollector<'_> {
                 substitutions.types,
                 substitutions.consts,
             );
+            if let Some(obligations) = self
+                .const_context
+                .obligations
+                .and_then(|all| all.get(&pending_instance.key.def_id))
+                .cloned()
+            {
+                for arg in obligations {
+                    self.instantiate_const_arg(
+                        pending_instance.key.def_id.module_id,
+                        &arg,
+                        substitution_id,
+                    );
+                }
+            }
+            let edge_indices = self
+                .instantiations_by_source
+                .get(&pending_instance.key.def_id)
+                .cloned()
+                .unwrap_or_default();
             for edge_index in edge_indices {
                 let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
                     continue;
@@ -661,17 +691,28 @@ impl MonoCollector<'_> {
     fn enqueue_instance(
         &mut self,
         pending: &mut VecDeque<PendingMonoInstance>,
-        key: MonoInstanceKey,
+        mut key: MonoInstanceKey,
         span: Span,
     ) {
-        if !self.seen.insert(key.clone()) {
-            return;
-        }
         if key
             .self_arg
             .is_some_and(|self_arg| self.ty_contains_generic_param(self_arg))
             || self.args_contain_generic_param(&key.args)
             || self.const_args_contain_generic_param(&key.const_args)
+        {
+            return;
+        }
+        let substitutions = self.intern_ordered_substitutions(None, vec![], vec![]);
+        let failure_count = self.const_evaluation_failures;
+        key.self_arg = key
+            .self_arg
+            .map(|ty| self.instantiate_ty(key.arg_module_id, ty, substitutions));
+        key.args = self.instantiate_args(key.arg_module_id, &key.args, substitutions);
+        key.const_args =
+            self.instantiate_const_args(key.arg_module_id, &key.const_args, substitutions);
+        if self.internal_error.is_some()
+            || self.const_evaluation_failures != failure_count
+            || !self.seen.insert(key.clone())
         {
             return;
         }
@@ -686,7 +727,9 @@ impl MonoCollector<'_> {
             .iter()
             .any(|arg| self.ty_exceeds_instance_depth(*arg, MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH))
             || key.const_args.iter().any(|arg| {
-                self.ty_exceeds_instance_depth(arg.ty, MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH)
+                arg.any_type(|ty| {
+                    self.ty_exceeds_instance_depth(ty, MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH)
+                })
             })
         {
             self.report_instance_type_depth_limit(span, &key);
@@ -791,7 +834,7 @@ impl MonoCollector<'_> {
                         || owner
                             .const_args
                             .iter()
-                            .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
+                            .any(|arg| arg.any_type(|ty| self.ty_exceeds_instance_depth(ty, next)))
                 }) || captures
                     .iter()
                     .chain(params.iter())
@@ -843,7 +886,7 @@ impl MonoCollector<'_> {
                         .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
                     || const_args
                         .iter()
-                        .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
+                        .any(|arg| arg.any_type(|ty| self.ty_exceeds_instance_depth(ty, next)))
                     || params
                         .iter()
                         .any(|param| self.ty_exceeds_instance_depth(*param, next))
@@ -861,7 +904,7 @@ impl MonoCollector<'_> {
                     .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
                     || const_args
                         .iter()
-                        .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
+                        .any(|arg| arg.any_type(|ty| self.ty_exceeds_instance_depth(ty, next)))
             }
             TyKind::BuiltinTrait { args, .. } => args
                 .iter()
@@ -883,16 +926,15 @@ impl MonoCollector<'_> {
                     .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
                     || trait_const_args
                         .iter()
-                        .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
+                        .any(|arg| arg.any_type(|ty| self.ty_exceeds_instance_depth(ty, next)))
                     || associated_type_bindings.iter().any(|binding| {
                         binding
                             .trait_args
                             .iter()
                             .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
-                            || binding
-                                .trait_const_args
-                                .iter()
-                                .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
+                            || binding.trait_const_args.iter().any(|arg| {
+                                arg.any_type(|ty| self.ty_exceeds_instance_depth(ty, next))
+                            })
                             || self.ty_exceeds_instance_depth(binding.ty, next)
                     })
             }
@@ -908,7 +950,7 @@ impl MonoCollector<'_> {
                         .any(|arg| self.ty_exceeds_instance_depth(*arg, next))
                     || trait_const_args
                         .iter()
-                        .any(|arg| self.ty_exceeds_instance_depth(arg.ty, next))
+                        .any(|arg| arg.any_type(|ty| self.ty_exceeds_instance_depth(ty, next)))
             }
             TyKind::GenericParam(_)
             | TyKind::SelfParam
@@ -978,7 +1020,7 @@ impl MonoCollector<'_> {
             .get(substitutions.0)
             .map(|substitutions| substitutions.const_substitutions.clone())
             .unwrap_or_default();
-        let this = std::cell::RefCell::new(self);
+        let this = std::cell::RefCell::new(&mut *self);
         let substituted: Result<ConstGenericArg, std::convert::Infallible> =
             nia_ty::substitute_const_generic_arg(
                 arg,
@@ -990,7 +1032,101 @@ impl MonoCollector<'_> {
                 },
             );
         match substituted {
-            Ok(arg) => arg,
+            Ok(arg) => {
+                let arg = self.canonicalize_const_arg(arg);
+                let evaluated = self.evaluate_closed_const_arg(arg);
+                self.canonicalize_const_arg(evaluated)
+            }
+        }
+    }
+
+    /// Canonicalizes closed scalar identities before they become instance keys.
+    /// Layout queries and evaluated const expressions denote values, so their
+    /// signedness must follow the declared primitive type rather than whichever
+    /// evaluator path produced the value. This keeps `4`, `3 + 1`, and
+    /// `size[u32]()` on one linkage identity.
+    fn canonicalize_const_arg(&self, mut arg: ConstGenericArg) -> ConstGenericArg {
+        let pointer_width = self
+            .layouts_by_module
+            .values()
+            .next()
+            .map_or(64, |layouts| layouts.target.pointer_size as u32 * 8);
+        let Some(TyKind::Primitive(primitive)) = self.type_store.get(arg.ty) else {
+            return arg;
+        };
+        match arg.value.clone() {
+            ConstGenericValue::Int(value) if primitive.is_integer() => {
+                if let Some(value) = value.cast_to_primitive_int(*primitive, pointer_width) {
+                    arg.value = ConstGenericValue::Int(value);
+                }
+            }
+            ConstGenericValue::ConstExpr(id) => {
+                if let Some(value) = self
+                    .const_by_module
+                    .get(&id.module_id)
+                    .and_then(|check| check.array_lengths.get(&id))
+                {
+                    arg.value = ConstGenericValue::Int(nia_ty::IntConst::unsigned((*value).into()));
+                }
+            }
+            ConstGenericValue::Layout { builtin, ty } => {
+                if let Some(layout) = self
+                    .layouts_by_module
+                    .values()
+                    .find_map(|layouts| layouts.types.get(&ty))
+                {
+                    arg.value = ConstGenericValue::Int(nia_ty::IntConst::unsigned(
+                        layout.builtin_value(builtin).into(),
+                    ));
+                }
+            }
+            _ => {}
+        }
+        arg
+    }
+
+    fn evaluate_closed_const_arg(&mut self, arg: ConstGenericArg) -> ConstGenericArg {
+        if !matches!(arg.value, ConstGenericValue::Computation(_))
+            || arg.contains_generic(|ty| self.ty_contains_generic_param(ty))
+        {
+            return arg;
+        }
+        let Some(evaluate) = self.const_context.evaluate else {
+            self.record_internal_error(Ice::new(
+                "closed instance computation has no semantic evaluator",
+            ));
+            return arg;
+        };
+        let ConstGenericValue::Computation(term) = &arg.value else {
+            unreachable!()
+        };
+        // Provenance is outside term identity, but failed obligations belong to
+        // source sites. Repeated visits to one substituted site share its cause.
+        let key = (term.module_id, term.span, arg.clone());
+        if let Some(cached) = self.const_evaluations.get(&key) {
+            return match cached {
+                Ok(value) => value.clone(),
+                Err(()) => {
+                    self.const_evaluation_failures += 1;
+                    arg
+                }
+            };
+        }
+        match evaluate(&arg) {
+            Ok(Ok(value)) => {
+                self.const_evaluations.insert(key, Ok(value.clone()));
+                value
+            }
+            Ok(Err(diagnostics)) => {
+                self.const_evaluation_failures += 1;
+                self.const_evaluations.insert(key, Err(()));
+                self.diagnostics.extend(diagnostics);
+                arg
+            }
+            Err(error) => {
+                self.record_internal_error(error);
+                arg
+            }
         }
     }
 
@@ -1001,6 +1137,21 @@ impl MonoCollector<'_> {
         substitutions: TypeSubstitutionId,
     ) -> ArrayLenTy {
         match len {
+            ArrayLenTy::Computation(expr) => {
+                let arg = ConstGenericArg {
+                    ty: self.intern_working_ty(
+                        module_id,
+                        TyKind::Primitive(nia_ty::PrimitiveTy::Usize),
+                    ),
+                    value: ConstGenericValue::Computation(expr.clone()),
+                };
+                nia_ty::array_len_from_const_arg(&self.instantiate_const_arg(
+                    module_id,
+                    &arg,
+                    substitutions,
+                ))
+                .unwrap_or_else(|| len.clone())
+            }
             ArrayLenTy::GenericParam(name) => self
                 .type_substitutions
                 .get(substitutions.0)
@@ -1037,6 +1188,7 @@ impl MonoCollector<'_> {
             substitutions,
         };
         let can_use_cache = active_projections.is_empty();
+        let const_failure_count = self.const_evaluation_failures;
         if can_use_cache && let Some(cached) = self.type_instantiations.get(&key).copied() {
             return cached;
         }
@@ -1571,7 +1723,7 @@ impl MonoCollector<'_> {
             }
             TyKind::Primitive(_) | TyKind::Vector { .. } | TyKind::ConstOnly | TyKind::Error => ty,
         };
-        if can_use_cache {
+        if can_use_cache && self.const_evaluation_failures == const_failure_count {
             self.type_instantiations.insert(key, instantiated);
         }
         instantiated
@@ -1720,6 +1872,17 @@ impl MonoCollector<'_> {
     fn const_arg_symbol(&mut self, module_id: ModuleId, arg: &ConstGenericArg) -> String {
         let ty = self.type_symbol(module_id, arg.ty);
         let value = match &arg.value {
+            ConstGenericValue::Computation(expr) => {
+                let store = self.type_store;
+                let this = RefCell::new(&mut *self);
+                nia_mangle::mangle_const_computation(
+                    store,
+                    expr,
+                    &mut |module| this.borrow_mut().module_mangle_id(module),
+                    &mut |def| mangle_symbol_id(this.borrow_mut().def_name(def)),
+                    &mut |_| None,
+                )
+            }
             ConstGenericValue::GenericParam(name) => {
                 format!("g{}", mangle_symbol_id(*name))
             }

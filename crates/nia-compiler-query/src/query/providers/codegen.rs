@@ -172,7 +172,6 @@ pub(super) fn monomorphization_for_checked_modules(
         .map(|module| Ok((module.id, item_signatures_semantic(db, module.id)?)))
         .collect::<QueryResult<HashMap<_, _>>>()?;
     let generic_params = HashMap::new();
-    let _function_bodies = function_bodies_from_checked_modules(db, checked_modules)?;
     let semantic_instantiations = checked_modules
         .iter()
         .map(|module| {
@@ -184,7 +183,48 @@ pub(super) fn monomorphization_for_checked_modules(
         })
         .collect::<Vec<_>>();
     let mut module_inputs = Vec::with_capacity(checked_modules.len());
+    let mut const_obligations: HashMap<GlobalDefId, Vec<nia_ty::ConstGenericArg>> = HashMap::new();
+    let usize_ty = db
+        .context()
+        .type_store
+        .append_for_module(graph.entry())
+        .primitive(nia_ty::PrimitiveTy::Usize)?;
     for (module, semantic_instantiations) in checked_modules.iter().zip(&semantic_instantiations) {
+        let const_module = db.get(ConstModuleQuery(module.id))?;
+        for (local, arg) in module.const_eval.symbolic_locals.iter() {
+            if let Some(owner) = const_module.module.local_owners.get(local) {
+                const_obligations
+                    .entry(*owner)
+                    .or_default()
+                    .push(arg.clone());
+            }
+        }
+        for (id, len) in module.const_eval.symbolic_array_lengths.iter() {
+            if let Some(owner) = const_module.module.const_expr_owners.get(id)
+                && let Some(value) = nia_ty::const_generic_value_from_array_len(len)
+            {
+                const_obligations
+                    .entry(*owner)
+                    .or_default()
+                    .push(nia_ty::ConstGenericArg {
+                        ty: usize_ty,
+                        value,
+                    });
+            }
+        }
+        for (owner, facts) in &module.semantic_facts.function_facts {
+            for (_, len) in facts.node_array_repeat_counts.iter() {
+                if let Some(value) = nia_ty::const_generic_value_from_array_len(len) {
+                    const_obligations
+                        .entry(*owner)
+                        .or_default()
+                        .push(nia_ty::ConstGenericArg {
+                            ty: usize_ty,
+                            value,
+                        });
+                }
+            }
+        }
         let Some(symbol_package_identity) = symbol_package_identities.get(&module.id).cloned()
         else {
             return Err(QueryError::internal(format!(
@@ -215,11 +255,28 @@ pub(super) fn monomorphization_for_checked_modules(
             instantiations: semantic_instantiations,
         });
     }
-    Ok(nia_monomorphize::collect_monomorphizations(
+    let query_failure = RefCell::new(None);
+    let evaluate =
+        |arg: &nia_ty::ConstGenericArg| match const_eval::evaluate_const_argument(db, arg) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                *query_failure.borrow_mut() = Some(error);
+                Err(nia_ice::Ice::new("const instance evaluation query failed"))
+            }
+        };
+    let result = nia_monomorphize::collect_monomorphizations(
         &module_inputs,
         source_identities,
         &db.context().type_store,
-    )?)
+        nia_monomorphize::ConstInstantiationContext {
+            evaluate: Some(&evaluate),
+            obligations: Some(&const_obligations),
+        },
+    );
+    if let Some(error) = query_failure.into_inner() {
+        return Err(error);
+    }
+    Ok(result?)
 }
 
 pub(super) fn checked_modules_for_codegen(
@@ -337,13 +394,24 @@ pub(in crate::query) fn provide_backend_item_plan(
         let optimization = *db.get(CompilerOptimizationQuery)?;
         match inputs.semantic.as_ref() {
             Some(inputs) => {
-                let module_inputs = inputs.module_inputs()?;
-                Ok(nia_backend_lower::plan_backend_program_with_timings(
+                let mut module_inputs = inputs.module_inputs()?;
+                let query_failure = parking_lot::Mutex::new(None);
+                let evaluate = |arg: &nia_ty::ConstGenericArg| {
+                    const_eval::evaluate_const_argument_for_backend(db, &query_failure, arg)
+                };
+                for input in &mut module_inputs {
+                    input.const_computation = Some(&evaluate);
+                }
+                let result = nia_backend_lower::plan_backend_program_with_timings(
                     &module_inputs,
                     &db.context().type_store,
                     optimization,
                     db.context().timings(),
-                )?)
+                );
+                if let Some(error) = query_failure.into_inner() {
+                    return Err(error);
+                }
+                Ok(result?)
             }
             None => Ok(nia_backend_lower::BackendItemPlan::from_diagnostics(
                 optimization,
@@ -370,7 +438,7 @@ pub(in crate::query) fn provide_backend_module_finalization(
 ) -> QueryResult<nia_backend_lower::BackendModuleFinalization> {
     let context = db.get(BackendFinalizationTaskContextQuery)?;
     let module_plan = db.get_owned(BackendModuleItemPlanQuery(key.module_id))?;
-    context.finalize_module(key.position, key.module_id, module_plan)
+    context.finalize_module(db, key.position, key.module_id, module_plan)
 }
 
 fn provide_backend_lowering_inner(
@@ -832,11 +900,11 @@ pub(super) fn checked_module_diagnostics(
         let const_errors = resolve_diagnostic_bundle(&checked.const_diagnostics);
         let duplicate_call_count = const_errors
             .iter()
-            .filter(|diagnostic| redundant_const_error(diagnostic, body))
+            .filter(|diagnostic| redundant_const_error(diagnostic, body, &checked.path))
             .count();
         let const_errors = const_errors
             .iter()
-            .filter(|diagnostic| !redundant_const_error(diagnostic, body))
+            .filter(|diagnostic| !redundant_const_error(diagnostic, body, &checked.path))
             .cloned()
             .collect::<Vec<_>>();
         gate.suppressed_downstream += duplicate_call_count;
@@ -875,11 +943,24 @@ pub(super) fn checked_module_diagnostics(
     Ok((diagnostics, suppressed_downstream))
 }
 
-/// A const error is redundant only when the body check reported the same
-/// root on exactly the same node: a mismatched call argument, or an omitted
-/// member naming no variant of its expected enum, which const lowering then
-/// cannot resolve. Other const errors on that node remain independent.
-fn redundant_const_error(diagnostic: &Diagnostic, body: &[Diagnostic]) -> bool {
+/// A const error is redundant only with a reported body root: an explicit
+/// semantic cause identity, or the two older exact-node call/omitted-member
+/// rules below. Other const errors on that node remain independent.
+fn redundant_const_error(diagnostic: &Diagnostic, body: &[Diagnostic], path: &SourcePath) -> bool {
+    // Value validation retains its standalone diagnostic, but a proven
+    // declaration-type disagreement belongs to the body checker when that
+    // checker actually reported the identified root. Never infer this edge
+    // from wording or merely from overlapping initializer spans.
+    if let Some(cause) = diagnostic.cause.as_deref()
+        && cause.code == "E0301"
+        && body.iter().any(|candidate| {
+            candidate.code.as_str() == cause.code
+                && candidate.primary_span() == Some(cause.span)
+                && candidate.source_path.as_deref().unwrap_or(path.as_str()) == cause.source_path
+        })
+    {
+        return true;
+    }
     let body_root = match diagnostic.summary.as_str() {
         "const call argument does not match expected type" => "type mismatch in call argument ",
         "unsupported const expression" => "unknown variant `",
@@ -1202,10 +1283,16 @@ pub(super) fn monomorphization_diagnostics(
         .iter()
         .cloned()
         .map(|diagnostic| ProgramDiagnostic {
-            path: path_for_diagnostic_span(
-                checked_modules,
-                diagnostic.primary_span().unwrap_or_default(),
-            ),
+            path: diagnostic
+                .source_path
+                .as_ref()
+                .map(nia_source::SourcePath::new)
+                .unwrap_or_else(|| {
+                    path_for_diagnostic_span(
+                        checked_modules,
+                        diagnostic.primary_span().unwrap_or_default(),
+                    )
+                }),
             diagnostic,
         })
         .collect()
@@ -1219,10 +1306,16 @@ pub(super) fn backend_lowering_diagnostics(
         .iter()
         .cloned()
         .map(|diagnostic| ProgramDiagnostic {
-            path: path_for_diagnostic_span(
-                checked_modules,
-                diagnostic.primary_span().unwrap_or_default(),
-            ),
+            path: diagnostic
+                .source_path
+                .as_ref()
+                .map(nia_source::SourcePath::new)
+                .unwrap_or_else(|| {
+                    path_for_diagnostic_span(
+                        checked_modules,
+                        diagnostic.primary_span().unwrap_or_default(),
+                    )
+                }),
             diagnostic,
         })
         .collect()
@@ -1240,6 +1333,10 @@ mod tests {
 
     #[test]
     fn const_call_duplicate_requires_precise_body_evidence() {
+        let path = SourcePath::new("main.nia");
+        let redundant_const_error = |diagnostic: &Diagnostic, body: &[Diagnostic]| {
+            super::redundant_const_error(diagnostic, body, &path)
+        };
         let span = Span::new(8, 12);
         let body = [Diagnostic::user_error_at(
             codes::TYPE_CHECK,
@@ -1288,6 +1385,28 @@ mod tests {
                 "unknown variant `Blue` of enum `Color`",
             )],
         ));
+    }
+
+    #[test]
+    fn const_validation_duplicate_requires_the_identified_type_root() {
+        let path = SourcePath::new("main.nia");
+        let span = Span::new(8, 12);
+        let root = Diagnostic::user_error_at(codes::TYPE_CHECK, span, "type disagreement");
+        let consequence = Diagnostic::user_error(codes::CONST, "value shape disagreement")
+            .primary(span, "invalid representation")
+            .caused_by(path.as_str(), codes::TYPE_CHECK.code, span)
+            .finish();
+        assert!(redundant_const_error(
+            &consequence,
+            std::slice::from_ref(&root),
+            &path
+        ));
+        assert!(!redundant_const_error(&consequence, &[], &path));
+        let mut foreign = root.clone();
+        foreign.source_path = Some("other.nia".to_owned());
+        assert!(!redundant_const_error(&consequence, &[foreign], &path));
+        let independent = Diagnostic::user_error_at(codes::CONST, span, "out of range");
+        assert!(!redundant_const_error(&independent, &[root], &path));
     }
 
     #[test]

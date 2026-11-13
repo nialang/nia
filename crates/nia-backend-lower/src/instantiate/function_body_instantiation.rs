@@ -770,6 +770,7 @@ impl<'a> ModuleLowerer<'a> {
                 ))
             }
             nia_ty::ConstGenericValue::GenericParam(_)
+            | nia_ty::ConstGenericValue::Computation(_)
             | nia_ty::ConstGenericValue::ConstExpr(_) => FunctionExprKind::Error,
         }
     }

@@ -2,6 +2,106 @@ use super::*;
 use nia_const_eval::ConstValue;
 use nia_ty::IntConst;
 
+#[test]
+fn invalid_typed_constants_are_failed_facts_not_published_values() {
+    let fixture = check_source(
+        r#"
+const WRONG: bool = 1;
+const FOLLOW: bool = WRONG;
+const RANGE: u8 = 300;
+const GOOD: usize = 42;
+fun local() bool { const BAD: bool = 2; BAD }
+"#,
+    );
+    for name in ["WRONG", "FOLLOW", "RANGE"] {
+        let key = ConstKey::Global(GlobalDefId {
+            module_id: fixture.module_id,
+            def_id: fixture
+                .defs
+                .module_scope
+                .values
+                .get(&sym(name))
+                .expect("const"),
+        });
+        assert!(fixture.checked.failed.contains(&key), "{name}");
+        assert!(!fixture.checked.values.contains_key(&key), "{name}");
+        assert!(!fixture.checked.typed_values.contains_key(&key), "{name}");
+    }
+    assert!(
+        fixture
+            .checked
+            .failed
+            .iter()
+            .any(|key| matches!(key, ConstKey::Local(_)))
+    );
+    assert_eq!(
+        const_value(&fixture, "GOOD"),
+        ConstValue::Int(IntConst::unsigned(42))
+    );
+    let mismatches = fixture
+        .checked
+        .diagnostics
+        .iter()
+        .filter(|d| d.summary == "const value does not match primitive type bool")
+        .collect::<Vec<_>>();
+    assert_eq!(mismatches.len(), 2, "{:?}", fixture.checked.diagnostics);
+    assert!(mismatches.iter().all(|d| {
+        d.cause
+            .as_ref()
+            .is_some_and(|cause| cause.code == "E0301" && Some(cause.span) == d.primary_span())
+    }));
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|d| d.summary.contains("out of range"))
+    );
+}
+
+#[test]
+fn tuple_validation_retains_independent_range_failures() {
+    let fixture = check_source(
+        "const BAD: (bool, u8) = (1i32, 300u16); const GOOD: (bool, u8) = (true, 255u8);",
+    );
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|d| d.summary.contains("primitive type bool")),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    assert!(
+        fixture
+            .checked
+            .diagnostics
+            .iter()
+            .any(|d| d.summary.contains("out of range for u8") && d.cause.is_none()),
+        "{:?}",
+        fixture.checked.diagnostics
+    );
+    let key = ConstKey::Global(GlobalDefId {
+        module_id: fixture.module_id,
+        def_id: fixture
+            .defs
+            .module_scope
+            .values
+            .get(&sym("BAD"))
+            .expect("const"),
+    });
+    assert!(fixture.checked.failed.contains(&key));
+    assert!(!fixture.checked.typed_values.contains_key(&key));
+    assert_eq!(
+        const_value(&fixture, "GOOD"),
+        ConstValue::Tuple(vec![
+            ConstValue::Bool(true),
+            ConstValue::Int(IntConst::unsigned(255))
+        ])
+    );
+}
+
 /// The analyzer types a variant path by the shared constructor rule: a
 /// prefix gives the instance it writes, an alias's transparently, and a
 /// generic enum's bare path gives none. Const IR keeps `.B` apart from these
@@ -1702,8 +1802,7 @@ const ASSIGN_BITS: u32 = replaceBits();
 
 #[test]
 fn scalar_union_rejects_invalid_scalar_representations() {
-    let fixture = check_source(
-        r#"
+    let source = r#"
 union Tiny {
     value: u8,
     other: u8,
@@ -1717,22 +1816,51 @@ union BoolBits {
 const OUT_OF_RANGE: Tiny = Tiny { value: 256 };
 const BOOL_BITS: BoolBits = BoolBits { raw: 2 };
 const INVALID_BOOL: bool = BOOL_BITS.flag;
-"#,
-    );
-    for message in [
-        "const union integer field value is out of range",
-        "const union field has an invalid bool representation",
+const GOOD: Tiny = Tiny { value: 255 };
+const GOOD_VALUE: u8 = GOOD.value;
+"#;
+    let fixture = check_source(source);
+    assert_eq!(fixture.checked.diagnostics.len(), 2);
+    for (code, message, expression) in [
+        ("E0301", "out of range for u8", "256"),
+        (
+            "E0401",
+            "const union field has an invalid bool representation",
+            "BOOL_BITS.flag",
+        ),
     ] {
+        let start = source.find(expression).expect("diagnostic source");
         assert!(
             fixture
                 .checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.summary.contains(message)),
+                .any(|diagnostic| diagnostic.code.as_str() == code
+                    && diagnostic.summary.contains(message)
+                    && diagnostic.primary_span()
+                        == Some(Span::new(start, start + expression.len()))),
             "missing {message:?}: {:?}",
             fixture.checked.diagnostics
         );
     }
+    for name in ["OUT_OF_RANGE", "INVALID_BOOL"] {
+        let key = ConstKey::Global(GlobalDefId {
+            module_id: fixture.module_id,
+            def_id: fixture
+                .defs
+                .module_scope
+                .values
+                .get(&sym(name))
+                .expect("const"),
+        });
+        assert!(fixture.checked.failed.contains(&key), "{name}");
+        assert!(!fixture.checked.values.contains_key(&key), "{name}");
+        assert!(!fixture.checked.typed_values.contains_key(&key), "{name}");
+    }
+    assert_eq!(
+        const_value(&fixture, "GOOD_VALUE"),
+        ConstValue::Int(IntConst::unsigned(255))
+    );
 }
 
 #[test]

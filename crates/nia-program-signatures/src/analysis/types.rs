@@ -215,15 +215,17 @@ fn alpha_normalize_trait_method_signature(
     }
     let original_consts = const_substitutions.clone();
     for arg in const_substitutions.values_mut() {
-        arg.ty = substitute_type(
-            append,
-            module,
-            type_store,
-            arg.ty,
-            &substitutions,
-            &original_consts,
-            TypeSubstitutionTarget::default(),
-        )?;
+        arg.try_map_types(|ty| {
+            substitute_type(
+                append,
+                module,
+                type_store,
+                ty,
+                &substitutions,
+                &original_consts,
+                TypeSubstitutionTarget::default(),
+            )
+        })?;
     }
     let mut normalized = substitute_function_signature(
         append,
@@ -478,7 +480,7 @@ pub(super) fn substitute_type(
                             .iter()
                             .map(|arg| {
                                 let mut arg = arg.clone();
-                                arg.ty = substitute(arg.ty)?;
+                                arg.try_map_types(&substitute)?;
                                 Ok(arg)
                             })
                             .collect::<nia_ice::IceResult<Vec<_>>>()?,
@@ -1054,22 +1056,21 @@ fn substitute_const_arg(
     const_substitutions: &SymbolMap<nia_ty::ConstGenericArg>,
     target: TypeSubstitutionTarget<'_>,
 ) -> nia_ice::IceResult<nia_ty::ConstGenericArg> {
-    if let nia_ty::ConstGenericValue::GenericParam(name) = &arg.value
-        && let Some(substituted) = const_substitutions.get(name)
-    {
-        return Ok(substituted.clone());
-    }
-    nia_ty::substitute_const_generic_arg(arg, &|_| None, &|ty| {
-        substitute_type(
-            append,
-            module,
-            type_store,
-            ty,
-            substitutions,
-            const_substitutions,
-            target,
-        )
-    })
+    nia_ty::substitute_const_generic_arg(
+        arg,
+        &|name| const_substitutions.get(name).cloned(),
+        &|ty| {
+            substitute_type(
+                append,
+                module,
+                type_store,
+                ty,
+                substitutions,
+                const_substitutions,
+                target,
+            )
+        },
+    )
 }
 
 fn substitute_associated_type_binding(
