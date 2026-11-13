@@ -2,7 +2,7 @@ use crate::{
     ConstKey, ConstValueType, TypedConstValue,
     analyzer::{
         Analyzer, ConstCallFrame, ConstFunctionInstantiationInput, ResolvedConstCallee,
-        ResolvedConstCalleeSelection,
+        ResolvedConstCalleeSelection, ResolvedConstExprFacts,
     },
     scalar_const_generic_value,
     support::{
@@ -411,8 +411,8 @@ impl ConstCommonEnv for Analyzer<'_> {
             is_execution_frame: true,
             ..ConstCallFrame::default()
         });
-        self.resolved_expr_types
-            .push(std::collections::HashMap::new());
+        self.resolved_expr_facts
+            .push(ResolvedConstExprFacts::default());
         Ok(())
     }
 
@@ -421,7 +421,7 @@ impl ConstCommonEnv for Analyzer<'_> {
         // lifetimes. Pop both before releasing the budget depth so an
         // imbalance fails close to the frame operation that caused it.
         self.call_locals.pop();
-        self.resolved_expr_types.pop();
+        self.resolved_expr_facts.pop();
         self.const_eval_budget.leave_call();
     }
 
@@ -613,27 +613,13 @@ impl Analyzer<'_> {
                 _ => None,
             };
         }
-        let mut cached = self
-            .resolved_expr_types
+        let cached = self
+            .resolved_expr_facts
             .last()
-            .and_then(|types| types.get(&expr.span()).copied());
-        if cached.is_none()
-            && let Some(function_id) = self.current_execution_function_id()
-            && let Some(tail) = self
-                .const_function_body(function_id)
-                .and_then(|function| function.body().tail().cloned())
-            && tail.span().start <= expr.span().start
-            && tail.span().end >= expr.span().end
-        {
-            let expected = self
-                .active_execution_frames()
-                .find_map(|frame| frame.return_type);
-            let _ = self.resolved_const_expr_type(&tail, expected);
-            cached = self
-                .resolved_expr_types
-                .last()
-                .and_then(|types| types.get(&expr.span()).copied());
-        }
+            .and_then(|facts| facts.types.get(&expr.span()).copied());
+        // Contextual roots prepare their operands before execution. Metadata
+        // lookup must never infer a containing expression: it may be the call
+        // whose generic argument is currently being evaluated.
         let ty = cached.or_else(|| self.resolved_const_expr_type(expr, None)?.runtime())?;
         let TyKind::Primitive(primitive) = self.ty_kind(ty)? else {
             return None;
@@ -719,16 +705,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
         &mut self,
         binding: &ResolvedConstBinding,
     ) -> Result<(), ConstError> {
-        if !matches!(
-            binding.value().kind(),
-            nia_const_ir::ResolvedConstExprKind::StructLiteral { .. }
-        ) {
-            return Ok(());
-        }
-        let expected = binding
-            .explicit_type()
-            .map(|ty| self.substitute_ty_generics(ty));
-        let _ = self.resolved_const_expr_type(binding.value(), expected);
+        let _ = self.resolved_const_binding_type(binding);
         Ok(())
     }
 
@@ -736,12 +713,6 @@ impl ResolvedConstEnv for Analyzer<'_> {
         &mut self,
         binding: &ResolvedConstPatternBinding,
     ) -> Result<(), ConstError> {
-        if !matches!(
-            binding.value().kind(),
-            nia_const_ir::ResolvedConstExprKind::StructLiteral { .. }
-        ) {
-            return Ok(());
-        }
         let expected = binding
             .explicit_type()
             .map(|ty| self.substitute_ty_generics(ty));
@@ -753,10 +724,14 @@ impl ResolvedConstEnv for Analyzer<'_> {
         &mut self,
         expr: &ResolvedConstExpr,
     ) -> Result<(), ConstError> {
-        if !matches!(
-            expr.kind(),
-            nia_const_ir::ResolvedConstExprKind::StructLiteral { .. }
-        ) {
+        // Block tails also pass here inside local initializers and arguments.
+        // Their enclosing contextual root has already typed them; replacing
+        // that context with the function return type would change arithmetic.
+        if self
+            .resolved_expr_facts
+            .last()
+            .is_some_and(|facts| facts.types.contains_key(&expr.span()))
+        {
             return Ok(());
         }
         let expected = self
@@ -773,15 +748,15 @@ impl ResolvedConstEnv for Analyzer<'_> {
         generic_args: &[ResolvedConstGenericArg],
         args: &[ResolvedConstExpr],
     ) -> Result<(), ConstError> {
-        if !args.iter().any(|arg| {
-            matches!(
-                arg.kind(),
-                nia_const_ir::ResolvedConstExprKind::StructLiteral { .. }
-            )
-        }) {
+        if self.call_instantiations().contains_key(&span) {
             return Ok(());
         }
-        let _ = self.resolved_const_call_return_type(span, callee, generic_args, args, None);
+        let expected = self
+            .resolved_expr_facts
+            .last()
+            .and_then(|facts| facts.types.get(&span).copied());
+        let _ =
+            self.resolved_const_call_expr_runtime_type(span, callee, generic_args, args, expected);
         Ok(())
     }
 
@@ -831,9 +806,9 @@ impl ResolvedConstEnv for Analyzer<'_> {
         // This matters for omitted generic unions, whose field ABI depends
         // on arguments inferred at the current contextual root.
         let ty = self
-            .resolved_expr_types
+            .resolved_expr_facts
             .last()
-            .and_then(|types| types.get(&span).copied())
+            .and_then(|facts| facts.types.get(&span).copied())
             .unwrap_or_else(|| self.substitute_ty_generics(ty));
         let Some((def_id, args, const_args)) = self.expected_nominal_parts(ty) else {
             return Ok(ConstValue::Struct(fields));
@@ -1188,7 +1163,7 @@ impl ResolvedConstEnv for Analyzer<'_> {
             .chain(arg_exprs.iter().cloned())
             .collect::<Vec<_>>();
         let instantiation =
-            if let Some(instantiation) = self.resolved_call_instantiations.get(&span).cloned() {
+            if let Some(instantiation) = self.call_instantiations().get(&span).cloned() {
                 instantiation
             } else {
                 self.instantiate_resolved_function_generics(
@@ -1903,11 +1878,11 @@ impl Analyzer<'_> {
                 .explicit_type_for_key(key)
                 .map(|ty| this.substitute_ty_generics(ty));
             let expected = expected_ty.map(ConstValueType::Runtime);
-            this.resolved_expr_types
-                .push(std::collections::HashMap::new());
+            this.resolved_expr_facts
+                .push(ResolvedConstExprFacts::default());
             let _ = this.resolved_const_expr_type(&expr, expected_ty);
             let evaluated = nia_const_eval::eval_resolved_const_expr(&expr, this);
-            this.resolved_expr_types.pop();
+            this.resolved_expr_facts.pop();
             let value = evaluated?;
             let value = if let Some(expected) = expected {
                 let value = match &expected {

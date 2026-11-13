@@ -163,7 +163,8 @@ impl Analyzer<'_> {
                         ResolvedConstExprKind::ConstArgument(arg.clone()),
                     ))
                 };
-                self.resolved_expr_types.push(HashMap::new());
+                self.resolved_expr_facts
+                    .push(ResolvedConstExprFacts::default());
                 // Each computation gets a separate typing/cache frame. Reified
                 // operands expose their own type directly, so equal source spans
                 // cannot overwrite a comparison's operand width with bool.
@@ -182,7 +183,7 @@ impl Analyzer<'_> {
                             const_substitutions: const_args.iter().cloned().collect(),
                         };
                         let previous = self
-                            .resolved_call_instantiations
+                            .call_instantiations_mut()
                             .insert(computation.span, instantiation);
                         let callee = ResolvedConstExpr::name(
                             computation.span,
@@ -199,7 +200,7 @@ impl Analyzer<'_> {
                                                 .into(),
                                     })?;
                             let instantiation = self
-                                .resolved_call_instantiations
+                                .call_instantiations()
                                 .get(&computation.span)
                                 .expect("installed instantiation");
                             let generic_args = signature
@@ -249,11 +250,11 @@ impl Analyzer<'_> {
                         })();
                         match previous {
                             Some(previous) => {
-                                self.resolved_call_instantiations
+                                self.call_instantiations_mut()
                                     .insert(computation.span, previous);
                             }
                             None => {
-                                self.resolved_call_instantiations.remove(&computation.span);
+                                self.call_instantiations_mut().remove(&computation.span);
                             }
                         }
                         result
@@ -306,8 +307,8 @@ impl Analyzer<'_> {
                             C::Call { .. } => unreachable!(),
                         };
                         let expr = ResolvedConstExpr::from_parts(computation.span, kind);
-                        if let Some(types) = self.resolved_expr_types.last_mut() {
-                            types.insert(computation.span, arg.ty);
+                        if let Some(types) = self.resolved_expr_facts.last_mut() {
+                            types.types.insert(computation.span, arg.ty);
                         }
                         nia_const_eval::eval_resolved_const_expr(&expr, self)
                     }
@@ -315,7 +316,7 @@ impl Analyzer<'_> {
                 if let Err(error) = &result {
                     nia_const_eval::ConstCommonEnv::observe_const_error(self, error);
                 }
-                self.resolved_expr_types.pop();
+                self.resolved_expr_facts.pop();
                 self.execution_module_overrides.pop();
                 result
             }

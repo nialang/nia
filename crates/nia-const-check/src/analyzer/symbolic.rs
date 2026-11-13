@@ -75,10 +75,11 @@ impl Analyzer<'_> {
             | ResolvedConstExprKind::If { .. }
             | ResolvedConstExprKind::Block(_) => {
                 let before = self.diagnostics.len();
-                self.resolved_expr_types.push(HashMap::new());
+                self.resolved_expr_facts
+                    .push(ResolvedConstExprFacts::default());
                 let ty = self.resolved_const_arg_runtime_type(expr, expected);
                 let value = ty.and_then(|ty| self.const_term(expr, ty));
-                self.resolved_expr_types.pop();
+                self.resolved_expr_facts.pop();
                 let value =
                     value.filter(|arg| arg.contains_generic(|ty| self.type_contains_generic(ty)));
                 if value.is_none() {
@@ -103,9 +104,9 @@ impl Analyzer<'_> {
         use nia_ty::{ConstComputation, ConstComputationKind as C};
         let operand = |this: &mut Self, expr: &ResolvedConstExpr| {
             let ty = this
-                .resolved_expr_types
+                .resolved_expr_facts
                 .last()
-                .and_then(|types| types.get(&expr.span()))
+                .and_then(|facts| facts.types.get(&expr.span()))
                 .copied()
                 .or_else(|| {
                     this.resolved_const_arg_runtime_type(expr, None)
@@ -180,7 +181,7 @@ impl Analyzer<'_> {
                 if !signature.is_const {
                     return None;
                 }
-                let instantiation = self.resolved_call_instantiations.get(&expr.span())?.clone();
+                let instantiation = self.call_instantiations().get(&expr.span())?.clone();
                 let mut type_args = instantiation
                     .type_substitutions
                     .into_iter()

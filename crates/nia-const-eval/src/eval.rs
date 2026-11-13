@@ -57,7 +57,11 @@ where
     // Always close the session before returning the caller's result; this is
     // what permits the same environment to service the next query.
     env.begin_const_eval();
-    let result = evaluate(env);
+    // Logical call depth is bounded by the environment. Reserve physical stack
+    // independently: generic dispatch and typing add variable-size Rust frames,
+    // and the CLI's Windows main stack can run out before the logical limit.
+    // Nested entries stay on the same thread, preserving query and scope state.
+    let result = stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || evaluate(env));
     if let Err(error) = &result {
         env.observe_const_error(error);
     }

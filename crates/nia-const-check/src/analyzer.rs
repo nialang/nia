@@ -253,7 +253,9 @@ pub fn evaluate_resolved_const_expr(
     expr: &ResolvedConstExpr,
 ) -> nia_ice::IceResult<ConstExprEvaluation> {
     let mut analyzer = Analyzer::for_typed_query(input);
-    analyzer.resolved_expr_types.push(HashMap::new());
+    analyzer
+        .resolved_expr_facts
+        .push(ResolvedConstExprFacts::default());
     let _ = analyzer.resolved_const_expr_type(expr, None);
     let value = nia_const_eval::eval_resolved_const_expr(expr, &mut analyzer);
     analyzer.finish(())?;
@@ -505,6 +507,14 @@ impl<'a> ConstTypeCx<'a> {
     }
 }
 
+/// Expression facts depend on the active generic environment, not just a
+/// source span. Recursive calls and independent roots must own both caches.
+#[derive(Default)]
+struct ResolvedConstExprFacts {
+    types: HashMap<Span, InternedTyId>,
+    calls: HashMap<Span, ConstGenericInstantiation>,
+}
+
 pub(crate) struct Analyzer<'a> {
     input: ConstInput<'a>,
     values: HashMap<ConstKey, ConstValue>,
@@ -539,9 +549,8 @@ pub(crate) struct Analyzer<'a> {
     program_trait_impls: RefCell<HashMap<ModuleId, Vec<ProgramTraitImplSignature>>>,
     program_global_initializers:
         RefCell<HashMap<GlobalDefId, Option<nia_const_ir::ResolvedConstExpr>>>,
-    resolved_call_instantiations: HashMap<Span, ConstGenericInstantiation>,
     // Each active const root or function instance owns its transient expression facts.
-    resolved_expr_types: Vec<HashMap<Span, InternedTyId>>,
+    resolved_expr_facts: Vec<ResolvedConstExprFacts>,
     const_eval_budget: nia_const_eval::ConstEvalBudget,
     /// Bounds under a symbolic branch are validated during concrete instance
     /// evaluation, after short-circuit branch selection is known.
@@ -618,6 +627,24 @@ fn failed_lowering_keys(module: &ResolvedConstModule) -> HashSet<ConstKey> {
 }
 
 impl Analyzer<'_> {
+    pub(super) fn call_instantiations_mut(
+        &mut self,
+    ) -> &mut HashMap<Span, ConstGenericInstantiation> {
+        &mut self
+            .resolved_expr_facts
+            .last_mut()
+            .expect("const expression facts frame")
+            .calls
+    }
+
+    pub(super) fn call_instantiations(&self) -> &HashMap<Span, ConstGenericInstantiation> {
+        &self
+            .resolved_expr_facts
+            .last()
+            .expect("const expression facts frame")
+            .calls
+    }
+
     pub(crate) fn symbol_name(&self, symbol: SymbolId) -> String {
         symbol_text_or_unresolved(self.input.symbols, symbol)
     }
@@ -649,8 +676,7 @@ impl Analyzer<'_> {
             instantiated_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
-            resolved_call_instantiations: HashMap::new(),
-            resolved_expr_types: Vec::new(),
+            resolved_expr_facts: vec![ResolvedConstExprFacts::default()],
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
             defer_const_bounds: 0,
             next_const_allocation_serial: 0,
@@ -705,8 +731,7 @@ impl Analyzer<'_> {
             instantiated_type_normalizations: RefCell::new(HashMap::new()),
             program_trait_impls: RefCell::new(HashMap::new()),
             program_global_initializers: RefCell::new(HashMap::new()),
-            resolved_call_instantiations: HashMap::new(),
-            resolved_expr_types: Vec::new(),
+            resolved_expr_facts: vec![ResolvedConstExprFacts::default()],
             const_eval_budget: nia_const_eval::ConstEvalBudget::default(),
             defer_const_bounds: 0,
             next_const_allocation_serial: 0,
@@ -880,10 +905,11 @@ impl Analyzer<'_> {
 
     fn eval_resolved_array_len_expr(&mut self, expr: &ResolvedConstExpr) -> Option<u64> {
         let usize_ty = self.current_runtime_primitive_type(PrimitiveTy::Usize);
-        self.resolved_expr_types.push(HashMap::new());
+        self.resolved_expr_facts
+            .push(ResolvedConstExprFacts::default());
         let _ = self.resolved_const_expr_type(expr, Some(usize_ty));
         let result = nia_const_eval::eval_resolved_const_array_len_expr(expr, self);
-        self.resolved_expr_types.pop();
+        self.resolved_expr_facts.pop();
         match result {
             Ok(value) => Some(value),
             Err(err) => {
@@ -924,7 +950,8 @@ impl Analyzer<'_> {
         let result = self.initializer_for_key(key).and_then(|expr| {
             self.with_execution_module(module_id, |this| {
                 let expected = this.explicit_type_for_key(key);
-                this.resolved_expr_types.push(HashMap::new());
+                this.resolved_expr_facts
+                    .push(ResolvedConstExprFacts::default());
                 let actual = this.resolved_const_expr_type(&expr, expected).or_else(|| {
                     (expected.is_some() && this.is_untyped_const_numeric_expr(&expr))
                         .then(|| this.resolved_const_expr_with_numeric_defaults(&expr))
@@ -944,11 +971,11 @@ impl Analyzer<'_> {
                     .iter()
                     .any(|diagnostic| diagnostic.severity() == nia_diagnostic::Severity::Error)
                 {
-                    this.resolved_expr_types.pop();
+                    this.resolved_expr_facts.pop();
                     return None;
                 }
                 let result = nia_const_eval::eval_resolved_const_expr(&expr, this);
-                this.resolved_expr_types.pop();
+                this.resolved_expr_facts.pop();
                 match result {
                     Ok(value) => {
                         if let Some(expected) = expected {

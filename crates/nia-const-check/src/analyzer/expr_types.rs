@@ -760,7 +760,7 @@ impl Analyzer<'_> {
                 return None;
             }
         };
-        self.resolved_call_instantiations
+        self.call_instantiations_mut()
             .insert(span, instantiation.clone());
         if let Some(return_ty) =
             self.builtin_function_call_return_type(&signature, &instantiation, &call_args, expected)

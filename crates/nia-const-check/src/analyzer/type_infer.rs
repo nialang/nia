@@ -402,6 +402,9 @@ impl Analyzer<'_> {
             });
         }
         let expected = self.type_context(module_id).get(expected_ty).cloned();
+        // Establish the argument's own contextual operand types before its
+        // execution. Metadata lookup must not re-infer the enclosing call.
+        self.resolved_const_arg_runtime_type(expr, Some(expected_ty));
         let value = nia_const_eval::eval_resolved_const_expr(expr, self)?;
         match (expected, value) {
             (Some(TyKind::Primitive(PrimitiveTy::Bool)), ConstValue::Bool(value)) => {
@@ -653,9 +656,9 @@ impl Analyzer<'_> {
     ) -> Option<ConstValueType> {
         let inferred = self.resolved_const_expr_type_inner(expr, expected);
         if let Some(ConstValueType::Runtime(ty)) = inferred
-            && let Some(types) = self.resolved_expr_types.last_mut()
+            && let Some(types) = self.resolved_expr_facts.last_mut()
         {
-            types.insert(expr.span(), ty);
+            types.types.insert(expr.span(), ty);
         }
         inferred
     }

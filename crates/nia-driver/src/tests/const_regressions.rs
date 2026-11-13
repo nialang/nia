@@ -111,6 +111,19 @@ fun main() usize { f[1]() }
 }
 
 #[test]
+fn nested_const_computation_call_respects_binders() {
+    check_and_emit(
+        "nested_const_computation_binders",
+        r#"
+const fun plus[N: usize]() usize { N + 1 }
+const fun twice[N: usize]() usize { plus[N + 1]() }
+const K = twice[2]();
+fun main() usize { K }
+"#,
+    );
+}
+
+#[test]
 fn computed_fields_preserve_imported_declaration_binders() {
     let root = temp_dir("computed_imported_fields");
     write(
@@ -135,6 +148,97 @@ fun f[N: usize]() usize {
 fun main() usize { f[3]() }
 "#,
     );
+}
+
+#[test]
+fn terminating_generic_const_recursion_keeps_context() {
+    check_and_emit(
+        "terminating_generic_const_recursion",
+        r#"
+const fun countdown[N: usize]() usize {
+    if N == 0 { return 0; }
+    countdown[N - 1]() + 1
+}
+
+const K = countdown[16]();
+fun main() usize { K }
+"#,
+    );
+}
+
+#[test]
+fn const_followup_results_execute() {
+    let root = temp_dir("const_followup_results");
+    let source = root.join("main.nia");
+    write(
+        &root.join("types.nia"),
+        r#"
+pub struct Buffer[M: usize] { a: [u8; M + 1] }
+pub enum Packet[K: usize] { Bytes([u8; K + 1]), Empty }
+"#,
+    );
+    write(
+        &source,
+        r#"
+using std::process;
+module types;
+fun foreign[N: usize]() usize {
+    let b = types::Buffer[N] { a: [0u8; N + 1] };
+    let make: &fun([u8; N + 1]) types::Packet[N] = types::Packet[N]::Bytes;
+    let p = make([0u8; N + 1]);
+    b.a.len() + match p { .Bytes(x) => x.len(), .Empty => 0 }
+}
+struct Buffer[N: usize] { a: [u8; N + 1] }
+struct Holder[N: usize] { a: usize }
+fun mk[N: usize]() Holder[N] { Holder[N] { a: N } }
+fun aliased[T]() usize where T: Sized {
+    const S = std::builtin::size[T]();
+    let x: Holder[S] = mk[S]();
+    x.a
+}
+fun field[N: usize]() usize { Buffer[N] { a: [0u8; N + 1] }.a.len() }
+const ARR: [usize; 1] = [9];
+fun lazy[N: usize]() usize {
+    const K = if N > 5 { ARR[7] } else { 2usize };
+    K
+}
+fun contextual[N: usize]() usize {
+    [0u8; if N > 0 and 1 < N { 1 } else { 2 }].len()
+}
+const fun plus[N: usize]() usize { N + 1 }
+const fun twice[N: usize]() usize { plus[N + 1]() }
+const fun countdown[N: usize]() usize {
+    if N == 0 { return 0; }
+    countdown[N - 1]() + 1
+}
+const K = twice[2]();
+const R = countdown[16]();
+const R2 = countdown[8]();
+const J = twice[7]();
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if aliased[u32]() != 4 or aliased[u64]() != 8 or field[3]() != 4
+        or field[7]() != 8 or lazy[1]() != 2 or contextual[2]() != 1
+        or contextual[0]() != 2 or contextual[1]() != 2 or K != 4 or R != 16
+        or R2 != 8 or J != 9 or foreign[3]() != 8 or foreign[7]() != 16 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("link const follow-up regression");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("execute const follow-up regression");
+    assert_eq!(status.code(), Some(0));
 }
 
 #[test]
@@ -190,6 +294,57 @@ fun main() i32 {
     let c = \ -> { let b: Box[X] = Box[i32] { a: 1 }; b.a };
     c()
 }
+"#,
+    );
+}
+
+#[test]
+fn const_expression_roots_preserve_their_own_integer_context() {
+    for (name, body) in [
+        ("binding", "let x: u8 = { (255 + 1) - 1 }; x as usize"),
+        (
+            "pattern",
+            "let (x, _): (u8, u8) = ({ (255 + 1) - 1 }, 0); x as usize",
+        ),
+        ("argument", "byte({ (255 + 1) - 1 }) as usize"),
+        (
+            "constructor",
+            "match Event::Data({ (255 + 1) - 1 }) { .Data(x) => x as usize }",
+        ),
+    ] {
+        let root = temp_dir(&format!("const_expression_root_{name}"));
+        let source = root.join("main.nia");
+        write(
+            &source,
+            &format!(
+                "enum Event {{ Data(u8) }}\n\
+                 const fun byte(x: u8) u8 {{ x }}\n\
+                 const fun compute() usize {{ {body} }}\n\
+                 const K = compute();\nfun main() usize {{ K }}\n"
+            ),
+        );
+        let program = check_program(source.to_string_lossy().into_owned());
+        assert!(
+            program.diagnostics.iter().any(|diagnostic| diagnostic
+                .diagnostic
+                .summary
+                .contains("integer overflow in const addition")),
+            "{name}: {:?}",
+            program.diagnostics
+        );
+    }
+    check_and_emit(
+        "const_nested_wider_context",
+        r#"
+const fun byte(x: usize) u8 { if x == 256 { 0 } else { 1 } }
+const fun compute() u8 {
+    let x: usize = { 255 + 1 };
+    let (y, _): (usize, u8) = ({ 255 + 1 }, 0);
+    byte({ x + y - 256 })
+}
+
+const K = compute();
+fun main() u8 { K }
 "#,
     );
 }

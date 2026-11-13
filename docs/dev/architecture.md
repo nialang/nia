@@ -156,6 +156,31 @@ uses the ordinary program signature scope for this lookup. Module signature
 subsets remain query inputs selected by declaration kind; a type-only subset
 must never serve as the function declaration provider.
 
+Const expression types and call instantiations share a transient facts frame.
+Each evaluation root, residual computation, and function invocation owns its
+frame: a source span does not identify an instance when recursive calls bind
+different generic arguments. Argument typing establishes its own operand
+context before execution. The function-result preparation hook propagates the
+return type through the whole result expression before evaluating its operands,
+including intermediate integer widths. Local initializers and arguments prepare
+their own contexts, which nested block tails retain instead of overwriting them
+with the enclosing function's return type. Inferring a containing call from an
+operand would re-enter argument evaluation before a function frame exists.
+
+The interpreter shares step and call-depth budgets across nested entry points.
+Physical stack growth at those entry points is independent of the logical
+budget, so host stack size does not turn budget exhaustion into process abort.
+Stack segments execute on the same thread and preserve query-local state.
+
+Generic field lengths become residual computations before declaration parameters
+are substituted. This refinement also applies to type-only modules and foreign
+payload declarations. Backend finalization roots those declarations, extends
+concrete enum instance layouts, and publishes canonical type facts for closed
+substituted types. Enum contracts, constructor adapters and fingerprints consume
+the same facts; LLVM emission does not execute const terms.
+Index publication resolves those facts through its owned write snapshot; it
+must not re-enter a reader API while publishing vtables under the same lock.
+
 Types synthesized during body checking use the same recursive alias normalizer
 as explicit types, including aliases nested in callable signatures and trait
 arguments. A body-local cache retains these additional normalized identities;

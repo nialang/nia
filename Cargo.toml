@@ -187,6 +187,7 @@ nia-opt = { path = "crates/nia-opt" }
 llvm-sys = { version = "231.0.0" }
 cc = "1.2.65"
 shlex = "2.0.1"
+stacker = "0.1.22"
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
     "Win32_Security",
