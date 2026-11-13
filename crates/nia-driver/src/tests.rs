@@ -23,6 +23,47 @@ mod value_inference_matrix;
 mod visibility_matrix;
 
 #[test]
+fn persistent_provider_demand_replay_materializes_float_format_modules() {
+    let root = common::temp_dir("persistent_float_format_provider_demand_replay");
+    let source = root.join("main.nia");
+    common::write(
+        &source,
+        r#"
+using std::fmt;
+
+struct Sink {}
+
+extend Sink : fmt::FormatWriter {
+    fun writeFmtBytes(&mut self, bytes: &[u8]) fmt::Error!() {
+        _ = bytes;
+        !()
+    }
+}
+
+fun main() fmt::Error!() {
+    let mut sink = Sink {};
+    let mut formatter = fmt::Formatter::init(&mut sink);
+    formatter.writeFloat(1.5f64)
+}
+"#,
+    );
+    let cache = root.join("cache");
+    for phase in ["cold", "warm"] {
+        let driver = crate::Driver::with_config(crate::DriverConfig {
+            artifact_cache_dir: Some(cache.clone()),
+            ..crate::DriverConfig::new(common::test_toolchain_layout())
+        });
+        let output = driver.emit_llvm_ir(crate::EmitLlvmRequest::new(crate::CheckRequest::new(
+            source.to_string_lossy().into_owned(),
+        )));
+        assert!(
+            output.result.is_ok(),
+            "{phase} float-format build: {output:?}"
+        );
+    }
+}
+
+#[test]
 fn driver_invocation_target_overrides_toolchain_default() {
     let toolchain = common::test_toolchain_layout();
     // A target whose OS differs from the toolchain default proves the override

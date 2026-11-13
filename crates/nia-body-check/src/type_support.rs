@@ -2704,6 +2704,9 @@ impl<'a> BodyChecker<'a> {
             .type_lowering
             .ty_for_key(&ty.node_key)
             .unwrap_or_else(|| self.error());
+        // Static normalization precedes const analysis. Only run the later
+        // refinement pass when const analysis has open array-length facts to
+        // resolve into these already alias-normalized type roots.
         if self.const_eval.symbolic_array_lengths.is_empty() {
             ty
         } else {

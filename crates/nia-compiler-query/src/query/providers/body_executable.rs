@@ -34,6 +34,25 @@ fn type_contains_error_recovery(type_store: &nia_ty::TypeStore, root: InternedTy
     false
 }
 
+fn checked_type_normalization(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    lowered: &nia_type_lower::TypeLowering,
+    normalization: &Arc<TypeNormalization>,
+    symbolic_array_lengths: &HashMap<nia_ids::GlobalConstExprId, nia_ty::ArrayLenTy>,
+) -> QueryResult<Arc<TypeNormalization>> {
+    if symbolic_array_lengths.is_empty() {
+        return Ok(Arc::clone(normalization));
+    }
+    let resolved = normalization.resolve_array_lengths(
+        module_id,
+        &db.context().type_store,
+        &lowered.explicit_type_roots(),
+        &|id| symbolic_array_lengths.get(id).cloned(),
+    )?;
+    Ok(Arc::new(resolved))
+}
+
 pub(in crate::query) struct ExecutableFactLayoutCacheEntry {
     inputs: ExecutableFactLayoutInputs,
     layouts: ModuleLayouts,
@@ -2158,6 +2177,13 @@ fn checked_module_with_body_and_flow_check(
         .then(|| db.get(LayoutsQuery(module_id)))
         .transpose()?;
     let const_eval = db.get(ConstQuery(module_id))?;
+    let normalized_types = checked_type_normalization(
+        db,
+        module_id,
+        &type_lowering.semantic,
+        &type_normalization.semantic,
+        &const_eval.semantic.symbolic_array_lengths,
+    )?;
     let static_check = db.get(StaticCheckQuery(module_id))?;
     let abi_check = db.get(AbiCheckQuery(module_id))?;
     let definitions = db.get(FullModuleDefsQuery(module_id))?;
@@ -2174,7 +2200,7 @@ fn checked_module_with_body_and_flow_check(
         type_lowering: Arc::clone(&type_lowering.semantic),
         value_resolution: Arc::clone(&value_resolution.semantic),
         local_resolution: Arc::clone(&local_resolution.semantic),
-        type_normalization: Arc::clone(&type_normalization.semantic),
+        type_normalization: normalized_types,
         const_eval: Arc::clone(&const_eval.semantic),
         static_check: Arc::clone(&static_check.semantic),
         layouts: match layouts {
@@ -2279,6 +2305,13 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
     };
     let provider_demands =
         merge_provider_demands(&body_check.provider_demands, &const_eval.provider_demands);
+    let normalized_types = checked_type_normalization(
+        db,
+        module_id,
+        &type_lowering.semantic,
+        &type_normalization.semantic,
+        &const_eval.symbolic_array_lengths,
+    )?;
     Ok(CheckedModule {
         id: module_id,
         path: db.get(ModulePathQuery(module_id))?.as_ref().clone(),
@@ -2288,7 +2321,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         type_lowering: Arc::clone(&type_lowering.semantic),
         value_resolution: body_inputs.values,
         local_resolution: body_inputs.locals,
-        type_normalization: Arc::clone(&type_normalization.semantic),
+        type_normalization: normalized_types,
         const_eval,
         static_check: Arc::new(nia_static_check::StaticCheck {
             diagnostics: Vec::new(),

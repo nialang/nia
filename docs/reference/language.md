@@ -1977,6 +1977,11 @@ A parameter written `Name` is a type parameter. A parameter written
 types and expressions; array lengths use `usize` const parameters. Generic
 parameters exist only at compile time.
 
+Within a function body, a const parameter is a lexical value binding and
+shadows a same-named module constant in bare reads, array lengths, and explicit
+const arguments such as `value[N]()`. A local binding may shadow the parameter
+in its own scope.
+
 Generic types are instantiated with brackets directly after the name:
 `Pair[i32, bool]`, `Buffer[64]`. A generic type always takes all of its
 arguments, in type positions and in constructors: `Pair[i32, bool] { .. }`,

@@ -3,12 +3,12 @@ use crate::BodyChecker;
 use crate::literals::{has_numeric_literal_suffix, integer_literal_value};
 use nia_ast::{BracketArg, ExprKind, PathSegmentKind, TypeKind, TypeRef};
 use nia_diagnostic::{Diagnostic, codes};
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{ConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{FunctionSignature, GenericParamSignature, GenericParamSignatureKind};
 use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
-use nia_ty::{ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TyKind};
+use nia_ty::{ConstComputation, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TyKind};
 
 /// Type and const parameter bindings for one generic signature.
 ///
@@ -137,8 +137,18 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
         match value {
             ConstGenericValue::GenericParam(name) => self.symbol_name(*name),
-            ConstGenericValue::Computation(_) => "a const computation".into(),
-            ConstGenericValue::ConstExpr(_) => "an unevaluated constant expression".to_string(),
+            ConstGenericValue::Computation(computation) => {
+                self.const_computation_source(computation).map_or_else(
+                    || "an unevaluated const expression".into(),
+                    |source| format!("`{source}`"),
+                )
+            }
+            ConstGenericValue::ConstExpr(id) => self
+                .const_expr_source(id.module_id, &id.const_expr_id)
+                .map_or_else(
+                    || "an unevaluated constant expression".to_string(),
+                    |source| format!("`{source}`"),
+                ),
             ConstGenericValue::Int(value) => value
                 .as_i128()
                 .map_or_else(|| value.bits().to_string(), |value| value.to_string()),
@@ -148,6 +158,46 @@ impl<'a> BodyChecker<'a> {
                 format!("@{}[{}]()", builtin.name(), self.ty_name(*ty))
             }
         }
+    }
+
+    fn const_computation_source(&self, computation: &ConstComputation) -> Option<String> {
+        self.source_expression(computation.module_id, computation.span)
+    }
+
+    fn const_expr_source(&self, module_id: ModuleId, id: &ConstExprId) -> Option<String> {
+        if module_id == self.defs.module_id
+            && let Some(expr) = self
+                .type_lowering
+                .const_exprs
+                .get(&nia_ids::GlobalConstExprId {
+                    module_id,
+                    const_expr_id: id.clone(),
+                })
+        {
+            return self.source_expression(module_id, expr.span);
+        }
+        let ConstExprId::Syntax(node) = id else {
+            return None;
+        };
+        let nia_node_id::NodePosition::Span(span) = node.position() else {
+            return None;
+        };
+        self.source_expression(module_id, *span)
+    }
+
+    fn source_expression(&self, module_id: ModuleId, span: Span) -> Option<String> {
+        let source = if module_id == self.defs.module_id {
+            self.source_text.get(span.start..span.end)?
+        } else {
+            let source = (self.program.module_source_text?)(module_id)?;
+            return source
+                .get(span.start..span.end)
+                .map(str::trim)
+                .filter(|source| !source.is_empty())
+                .map(str::to_owned);
+        };
+        let source = source.trim();
+        (!source.is_empty()).then(|| source.to_owned())
     }
 
     pub(super) fn lower_bracket_type_args(

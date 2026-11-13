@@ -266,6 +266,16 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
+    pub(crate) fn current_const_generic_arg_for_expr(
+        &mut self,
+        expr: &nia_ast::Expr,
+    ) -> Option<ConstGenericArg> {
+        let nia_ast::ExprKind::Ident(name) = &expr.kind else {
+            return None;
+        };
+        self.current_const_generic_arg(name)
+    }
+
     /// The type of a const parameter of the `extend` block that declares the
     /// current method, as `N` in `extend[N: usize] Box : Make[N]`. The block
     /// is not the method's definition parent, and `N` need not appear in

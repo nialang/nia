@@ -2611,18 +2611,36 @@ fn const_parameter_shadows_module_constant_in_all_value_contexts() {
     write(
         &source,
         r#"
+using std::process;
 const N: usize = 9;
-const fun value[N: usize]() usize { N }
-fun f[N: usize]() usize {
+fun value[N: usize]() usize { N }
+fun f[N: usize]() bool {
+    const K = N;
     let a: [u8; N] = [0; N];
-    value[N]() + a.len()
+    K == 2 and a.len() == 2 and value[N]() == 2
 }
 
-fun main() usize { f[2]() }
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if not f[2]() { return process::ExitCode(1)!; }
+    !()
+}
 "#,
     );
     let program = check_program(source.to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("const parameter shadowing builds");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run const parameter shadowing check");
+    assert_eq!(status.code(), Some(0));
 }
 
 #[test]
@@ -2641,4 +2659,81 @@ fun main() usize { f[u16]() }
     );
     let program = check_program(source.to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let output = test_driver().emit_llvm_ir(crate::EmitLlvmRequest::new(crate::CheckRequest::new(
+        source.to_string_lossy().into_owned(),
+    )));
+    assert!(output.result.is_ok(), "{output:?}");
+}
+
+#[test]
+fn symbolic_computations_work_in_nominal_const_arguments_and_field_lengths() {
+    let root = temp_dir("symbolic_computations_work_in_nominal_const_arguments_and_field_lengths");
+    let source = root.join("main.nia");
+    write(
+        &source,
+        r#"
+struct Holder[N: usize] { values: [u8; N] }
+struct Buffer[N: usize] { values: [u8; N] }
+type HolderAlias[N: usize] = Holder[N];
+type BufferAlias[N: usize] = Buffer[N];
+
+fun holder[N: usize](value: HolderAlias[N + 1]) usize {
+    value.values.len()
+}
+
+fun layout[T]() usize where T: Sized {
+    let value: BufferAlias[std::builtin::size[T]()] = Buffer[std::builtin::size[T]()] {
+        values: [0; std::builtin::size[T]()],
+    };
+    value.values.len()
+}
+
+fun main() usize { holder[3](Holder[4] { values: [0; 4] }) + layout[u16]() }
+"#,
+    );
+    let program = check_program(source.to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let output = test_driver().emit_llvm_ir(crate::EmitLlvmRequest::new(crate::CheckRequest::new(
+        source.to_string_lossy().into_owned(),
+    )));
+    assert!(output.result.is_ok(), "{output:?}");
+}
+
+#[test]
+fn type_alias_checking_is_independent_of_module_symbolic_array_facts() {
+    let root = temp_dir("type_alias_checking_is_independent_of_module_symbolic_array_facts");
+    let fixed = r#"
+type Fixed = [u8; 4];
+fun fixed() usize {
+    let bytes: Fixed = [0; 4];
+    bytes.len()
+}
+fun main() usize { fixed() }
+"#;
+    let with_symbolic_length = format!(
+        r#"
+{fixed}
+fun unrelated[N: usize]() usize {{
+    let bytes: [u8; N + 1] = [0; N + 1];
+    bytes.len()
+}}
+"#
+    );
+    for (name, text) in [
+        ("without_symbolic", fixed),
+        ("with_symbolic", &with_symbolic_length),
+    ] {
+        let source = root.join(format!("{name}.nia"));
+        write(&source, text);
+        let program = check_program(source.to_string_lossy().into_owned());
+        assert!(
+            program.diagnostics.is_empty(),
+            "{name}: {:?}",
+            program.diagnostics
+        );
+        let output = test_driver().emit_llvm_ir(crate::EmitLlvmRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned()),
+        ));
+        assert!(output.result.is_ok(), "{name}: {output:?}");
+    }
 }

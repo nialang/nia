@@ -2257,6 +2257,9 @@ impl<'a> BodyChecker<'a> {
             }
             Some(LocalUse::Static(global_id)) => TypedExprKind::Global(global_id),
             Some(LocalUse::ModuleValue) => {
+                if let Some(arg) = self.current_const_generic_arg_for_expr(expr) {
+                    return TypedExprKind::ConstGeneric(arg);
+                }
                 if let Some(variant_id) = self.qualified_value(expr)
                     && self.variant_enum(expr).is_some()
                 {

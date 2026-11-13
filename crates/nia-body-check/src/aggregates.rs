@@ -1845,10 +1845,19 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn global_const_use(&self, expr: &Expr) -> Option<GlobalDefId> {
-        if !matches!(
-            generic_inst_base(expr).kind,
-            ExprKind::Ident(_) | ExprKind::Qualified { .. }
-        ) {
+        let base = generic_inst_base(expr);
+        if !matches!(base.kind, ExprKind::Ident(_) | ExprKind::Qualified { .. }) {
+            return None;
+        }
+        // Value resolution records same-named module constants even when a
+        // const generic parameter shadows them in this lexical scope. The
+        // generic-use fact is the authoritative interpretation for this
+        // syntax node; don't fold it as a closed module constant in BIR.
+        if self
+            .semantic_uses
+            .node_const_generic_use(&base.node_key)
+            .is_some()
+        {
             return None;
         }
         let Some(SemanticValueUse::Global(global_id)) =

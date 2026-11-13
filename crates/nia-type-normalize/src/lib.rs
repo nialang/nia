@@ -12,7 +12,10 @@ use nia_ids::{DefId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{ItemSignatures, TypeAliasSignature, generic_argument_substitutions};
 use nia_span::Span;
 use nia_symbol::SymbolMap;
-use nia_ty::{ArrayLenTy, ConstGenericArg, TyKind, TypeStore, TypeStoreAppend};
+use nia_ty::{
+    ArrayLenTy, ConstGenericArg, TyKind, TypeStore, TypeStoreAppend,
+    const_generic_value_from_array_len,
+};
 
 type ArrayLengthResolver<'a> = dyn Fn(&nia_ids::GlobalConstExprId) -> Option<ArrayLenTy> + 'a;
 
@@ -863,20 +866,37 @@ impl<'a> TypeNormalizer<'a, '_> {
 
     fn normalize_const_arg(
         &mut self,
-        mut arg: ConstGenericArg,
+        arg: ConstGenericArg,
         stack: &mut Vec<GlobalDefId>,
     ) -> ConstGenericArg {
+        // Type-level usize expressions appear both as array lengths and as
+        // const arguments on nominal types. Resolve both views from the same
+        // const-analysis fact; otherwise substituting `Holder[N + 1]` into
+        // `Holder`'s `[u8; N]` field leaves a closed-looking ConstExpr behind
+        // and layout tries to evaluate an open generic expression eagerly.
+        let mut arg = self.resolve_const_arg_value(arg);
         arg.map_types(|ty| self.normalize_ty(ty, stack));
         arg
     }
 
     fn normalize_const_arg_with_substitutions(
         &mut self,
-        mut arg: ConstGenericArg,
+        arg: ConstGenericArg,
         substitutions: &SymbolMap<InternedTyId>,
         stack: &mut Vec<GlobalDefId>,
     ) -> ConstGenericArg {
+        let mut arg = self.resolve_const_arg_value(arg);
         arg.map_types(|ty| self.normalize_ty_with_substitutions(ty, substitutions, stack));
+        arg
+    }
+
+    fn resolve_const_arg_value(&self, mut arg: ConstGenericArg) -> ConstGenericArg {
+        if let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value
+            && let Some(length) = self.array_length.and_then(|resolve| resolve(id))
+            && let Some(value) = const_generic_value_from_array_len(&length)
+        {
+            arg.value = value;
+        }
         arg
     }
 
@@ -914,6 +934,12 @@ impl<'a> TypeNormalizer<'a, '_> {
         substitutions: &SymbolMap<InternedTyId>,
         stack: &mut Vec<GlobalDefId>,
     ) -> ArrayLenTy {
+        if let ArrayLenTy::ConstExpr(id) = &len
+            && let Some(resolved) = self.array_length.and_then(|resolve| resolve(id))
+            && resolved != len
+        {
+            return self.normalize_array_len_with_substitutions(resolved, substitutions, stack);
+        }
         match len {
             ArrayLenTy::Computation(expr) => {
                 let result: Result<_, std::convert::Infallible> = expr.try_map_types(&mut |ty| {
@@ -980,12 +1006,17 @@ impl TypeNormalization {
 mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
-    use nia_ids::ModuleIdAllocator;
+    use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, ModuleIdAllocator};
     use nia_item_signatures::{ItemSignatureInput, ItemSignatureSource, collect_item_signatures};
     use nia_parser::parse_module;
-    use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind, TypeStore};
+    use nia_symbol::{SymbolId, stable_hash};
+    use nia_ty::{
+        ArrayLenTy, ConstBinaryOp, ConstComputation, ConstComputationKind, ConstGenericArg,
+        ConstGenericValue, IntConst, LayoutBuiltin, PrimitiveTy, TyKind, TypeStore,
+    };
     use nia_type_lower::{ProgramDefsContext, TypeLowering, TypeLoweringContext};
     use nia_type_resolve::resolve_module_types;
+    use std::sync::Arc;
 
     fn normalize_lowered(
         module_id: ModuleId,
@@ -1516,5 +1547,112 @@ fun take(xs: [u8; 2 + 3]) () {}
         assert!(!normalization.normalized.contains_key(&slice));
         assert!(type_store.get(pointer).is_some());
         assert!(type_store.get(slice).is_some());
+    }
+
+    #[test]
+    fn resolves_open_const_arguments_on_nominal_types_with_array_length_facts() {
+        let module_ids = ModuleIdAllocator::new().expect("create module ID allocator");
+        let module_id = module_ids.allocate().expect("allocate module ID");
+        let type_store = TypeStore::new().expect("type store");
+        let append = type_store.append_for_module(module_id);
+        let usize_ty = append.primitive(PrimitiveTy::Usize).expect("usize");
+        let generic_ty = append
+            .intern(TyKind::GenericParam(SymbolId::from_stable_hash(
+                stable_hash("T"),
+            )))
+            .expect("generic type");
+        let generic_const = SymbolId::from_stable_hash(stable_hash("N"));
+        let expression_id = GlobalConstExprId {
+            module_id,
+            const_expr_id: nia_ids::ConstExprId::synthetic(1),
+        };
+        let layout_id = GlobalConstExprId {
+            module_id,
+            const_expr_id: nia_ids::ConstExprId::synthetic(2),
+        };
+        let nominal = append
+            .intern(TyKind::Nominal {
+                def_id: GlobalDefId {
+                    module_id,
+                    def_id: DefId(1),
+                },
+                args: Vec::new(),
+                const_args: vec![
+                    ConstGenericArg {
+                        ty: usize_ty,
+                        value: ConstGenericValue::ConstExpr(expression_id.clone()),
+                    },
+                    ConstGenericArg {
+                        ty: usize_ty,
+                        value: ConstGenericValue::ConstExpr(layout_id.clone()),
+                    },
+                ],
+            })
+            .expect("nominal type");
+        let signatures = ItemSignatures {
+            functions: HashMap::new(),
+            structs: HashMap::new(),
+            unions: HashMap::new(),
+            traits: HashMap::new(),
+            trait_impls: Vec::new(),
+            enums: HashMap::new(),
+            type_aliases: HashMap::new(),
+            globals: HashMap::new(),
+            consts: HashMap::new(),
+            diagnostics: Vec::new(),
+        };
+        let initial = normalize_module_types(TypeNormalizationInput {
+            module_id,
+            type_store: &type_store,
+            input_ids: &[nominal],
+            signatures: &signatures,
+            external_alias: None,
+        })
+        .expect("normalize nominal type");
+        let computation = ArrayLenTy::Computation(Arc::new(ConstComputation {
+            module_id,
+            span: nia_span::Span::new(10, 15),
+            kind: ConstComputationKind::Binary {
+                op: ConstBinaryOp::Add,
+                lhs: ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::GenericParam(generic_const),
+                },
+                rhs: ConstGenericArg {
+                    ty: usize_ty,
+                    value: ConstGenericValue::Int(IntConst::unsigned(1)),
+                },
+            },
+        }));
+        let facts = HashMap::from([
+            (expression_id, computation),
+            (
+                layout_id,
+                ArrayLenTy::Builtin {
+                    builtin: LayoutBuiltin::Size,
+                    ty: generic_ty,
+                },
+            ),
+        ]);
+        let resolved = initial
+            .resolve_array_lengths(module_id, &type_store, &[nominal], &|id| {
+                facts.get(id).cloned()
+            })
+            .expect("resolve symbolic const arguments");
+        let Some(TyKind::Nominal { const_args, .. }) = type_store.get(resolved.normalize(nominal))
+        else {
+            panic!("normalized type should remain nominal");
+        };
+        assert!(matches!(
+            const_args[0].value,
+            ConstGenericValue::Computation(_)
+        ));
+        assert!(matches!(
+            const_args[1].value,
+            ConstGenericValue::Layout {
+                builtin: LayoutBuiltin::Size,
+                ty,
+            } if ty == generic_ty
+        ));
     }
 }

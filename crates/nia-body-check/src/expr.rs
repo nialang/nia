@@ -2395,6 +2395,14 @@ impl<'a> BodyChecker<'a> {
             }
             Some(LocalUse::Static(global_id)) => self.program_global_type(global_id, span),
             Some(LocalUse::ModuleValue) => {
+                // A const generic parameter is a lexical value binding. The
+                // module value resolver does not own generic scopes, so it
+                // may also report a same-named module constant here. Locals
+                // and statics were handled above; in their absence the
+                // function's const parameter takes precedence.
+                if let Some(arg) = self.current_const_generic_arg_for_expr(expr) {
+                    return arg.ty;
+                }
                 if let Some(failure) = self.values.node_unresolved_usings.get(&expr.node_key) {
                     self.diagnostics
                         .push(self.unresolved_using_diagnostic(expr, failure.clone()));

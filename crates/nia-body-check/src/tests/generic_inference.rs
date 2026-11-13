@@ -484,6 +484,43 @@ fun main(left: [i32; 2], right: [i32; 3]) () {
 }
 
 #[test]
+fn conflicting_symbolic_const_arguments_name_their_source_expressions() {
+    let checked = pipeline(
+        r#"
+struct Buffer[N: usize] {
+    bytes: [u8; N],
+}
+
+fun same[N: usize](left: Buffer[N], right: Buffer[N]) () {
+    _ = left;
+    _ = right;
+}
+
+fun caller[M: usize](left: Buffer[M + 1], right: Buffer[M + 2]) () {
+    same(left, right)
+}
+"#,
+    );
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("conflicting inferred value for const generic parameter `N`")
+        })
+        .expect("conflicting symbolic const generic diagnostic");
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("`M + 1`") && note.contains("`M + 2`")),
+        "the note should identify both source expressions: {:?}",
+        diagnostic.notes
+    );
+}
+
+#[test]
 fn rejects_implicit_trailing_generic_argument_inference() {
     let checked = pipeline(
         r#"
