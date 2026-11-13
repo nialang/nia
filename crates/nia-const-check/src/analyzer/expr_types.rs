@@ -380,8 +380,7 @@ impl Analyzer<'_> {
                 self.resolved_const_equality_expr_type(lhs, rhs)
             }
             ConstBinaryOp::Lt | ConstBinaryOp::Le | ConstBinaryOp::Gt | ConstBinaryOp::Ge => {
-                let (lhs_ty, rhs_ty) =
-                    self.resolved_const_binary_operand_types(lhs, rhs, expected)?;
+                let (lhs_ty, rhs_ty) = self.resolved_const_binary_operand_types(lhs, rhs, None)?;
                 if lhs_ty != rhs_ty
                     || (!self.is_integer_runtime_type(lhs_ty)
                         && !self.is_float_runtime_type(lhs_ty))

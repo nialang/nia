@@ -12,9 +12,10 @@ use super::*;
 pub fn classify_symbolic_const_expr(
     input: TypedConstQueryInput<'_>,
     expr: &ResolvedConstExpr,
+    expected: Option<InternedTyId>,
 ) -> nia_ice::IceResult<Option<ConstGenericArg>> {
     let mut analyzer = Analyzer::for_typed_query(input);
-    let value = analyzer.symbolic_const_expr(expr);
+    let value = analyzer.symbolic_const_expr_with_expected(expr, expected);
     analyzer.finish(value)
 }
 
@@ -22,6 +23,14 @@ impl Analyzer<'_> {
     pub(super) fn symbolic_const_expr(
         &mut self,
         expr: &ResolvedConstExpr,
+    ) -> Option<ConstGenericArg> {
+        self.symbolic_const_expr_with_expected(expr, None)
+    }
+
+    pub(super) fn symbolic_const_expr_with_expected(
+        &mut self,
+        expr: &ResolvedConstExpr,
+        expected: Option<InternedTyId>,
     ) -> Option<ConstGenericArg> {
         match expr.kind() {
             ResolvedConstExprKind::Name(ConstNameResolution::GenericParam(name)) => {
@@ -67,7 +76,7 @@ impl Analyzer<'_> {
             | ResolvedConstExprKind::Block(_) => {
                 let before = self.diagnostics.len();
                 self.resolved_expr_types.push(HashMap::new());
-                let ty = self.resolved_const_arg_runtime_type(expr, None);
+                let ty = self.resolved_const_arg_runtime_type(expr, expected);
                 let value = ty.and_then(|ty| self.const_term(expr, ty));
                 self.resolved_expr_types.pop();
                 let value =
@@ -216,13 +225,47 @@ impl Analyzer<'_> {
         ty: InternedTyId,
     ) -> Option<ConstGenericArg> {
         let value = nia_const_eval::eval_resolved_const_expr(expr, self).ok()?;
+        self.const_term_from_value(expr.span(), ty, value)
+    }
+
+    /// Closed array operands remain values in the residual term. In particular
+    /// reading ARR must not force execution of an enclosing ARR[index] before
+    /// a symbolic branch chooses it. Reuse ArrayList rather than introducing a
+    /// second interpreter representation for immutable aggregate operands.
+    fn const_term_from_value(
+        &mut self,
+        span: Span,
+        ty: InternedTyId,
+        value: ConstValue,
+    ) -> Option<ConstGenericArg> {
         let value = match value {
+            ConstValue::Array(values) => {
+                let TyKind::Array { elem, .. } = self.ty_kind(ty)? else {
+                    return None;
+                };
+                let values = values
+                    .into_iter()
+                    .map(|value| self.const_term_from_value(span, elem, value))
+                    .collect::<Option<Vec<_>>>()?;
+                ConstGenericValue::Computation(Arc::new(nia_ty::ConstComputation {
+                    module_id: self.current_execution_module_id(),
+                    span,
+                    kind: nia_ty::ConstComputationKind::ArrayList(values),
+                }))
+            }
             ConstValue::Int(value)
                 if matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::Char))) =>
             {
                 ConstGenericValue::Char(char::from_u32(value.bits().try_into().ok()?)?)
             }
-            ConstValue::Int(value) => ConstGenericValue::Int(value),
+            ConstValue::Int(value) => {
+                let TyKind::Primitive(primitive) = self.ty_kind(ty)? else {
+                    return None;
+                };
+                ConstGenericValue::Int(
+                    value.cast_to_primitive_int(primitive, self.input.target.pointer_width())?,
+                )
+            }
             ConstValue::Bool(value) => ConstGenericValue::Bool(value),
             _ => return None,
         };

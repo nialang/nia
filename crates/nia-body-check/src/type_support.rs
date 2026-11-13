@@ -3064,7 +3064,7 @@ impl<'a> BodyChecker<'a> {
         // expression forever. The const classifier already knows how to
         // residualize typed computations, layout queries, and const calls;
         // closed expressions still fall through to ordinary evaluation.
-        if let Some(arg) = checker.symbolic_const_expr(expr) {
+        if let Some(arg) = checker.symbolic_const_expr(expr, Some(ty)) {
             if !checker.types_match(ty, arg.ty) {
                 return None;
             }

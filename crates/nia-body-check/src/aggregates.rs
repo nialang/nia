@@ -1655,7 +1655,7 @@ impl<'a> BodyChecker<'a> {
                 message: "array repeat count must have type `usize`".to_string(),
             });
         }
-        if let Some(arg) = self.symbolic_const_expr(count)
+        if let Some(arg) = self.symbolic_const_expr(count, Some(expected))
             && let Some(len) = nia_ty::array_len_from_const_arg(&arg)
         {
             return Ok(len);
@@ -1668,10 +1668,14 @@ impl<'a> BodyChecker<'a> {
             .map(ArrayLenTy::ConstValue)
     }
 
-    pub(crate) fn symbolic_const_expr(&mut self, expr: &Expr) -> Option<nia_ty::ConstGenericArg> {
+    pub(crate) fn symbolic_const_expr(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> Option<nia_ty::ConstGenericArg> {
         let expr = self.lower_const_expr(expr).ok()?;
         let result = self.with_typed_const_query(|input| {
-            nia_const_check::classify_symbolic_const_expr(input, &expr)
+            nia_const_check::classify_symbolic_const_expr(input, &expr, expected)
         });
         match result {
             Ok(value) => value,

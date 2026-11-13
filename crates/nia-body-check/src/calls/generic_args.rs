@@ -527,7 +527,7 @@ impl<'a> BodyChecker<'a> {
             if this.is_error_recovery_ty(actual) {
                 return None;
             }
-            if let Some(arg) = this.symbolic_const_expr(expr) {
+            if let Some(arg) = this.symbolic_const_expr(expr, Some(expected_ty)) {
                 if !this.types_match(expected_ty, arg.ty) {
                     this.expect_expr_type(expr, expected_ty, arg.ty, "const generic argument");
                     return None;

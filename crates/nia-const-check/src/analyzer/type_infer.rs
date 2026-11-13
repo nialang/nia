@@ -392,7 +392,7 @@ impl Analyzer<'_> {
         module_id: ModuleId,
     ) -> Result<nia_ty::ConstGenericValue, ConstError> {
         let expected_ty = self.type_for_module(expr.span(), expected_ty, module_id)?;
-        if let Some(arg) = self.symbolic_const_expr(expr) {
+        if let Some(arg) = self.symbolic_const_expr_with_expected(expr, Some(expected_ty)) {
             if self.const_function_types_match(arg.ty, expected_ty) {
                 return Ok(arg.value);
             }
@@ -1008,21 +1008,15 @@ impl Analyzer<'_> {
                 callee,
                 generic_args,
                 args,
-            } => {
-                if self.resolved_const_enum_variant(callee).is_some() {
-                    self.resolved_const_tuple_enum_literal_type(expr.span(), callee, args, expected)
-                        .map(ConstValueType::Runtime)
-                } else {
-                    self.resolved_const_call_return_type(
-                        expr.span(),
-                        callee,
-                        generic_args,
-                        args,
-                        expected,
-                    )
-                    .map(ConstValueType::Runtime)
-                }
-            }
+            } => self
+                .resolved_const_call_expr_runtime_type(
+                    expr.span(),
+                    callee,
+                    generic_args,
+                    args,
+                    expected,
+                )
+                .map(ConstValueType::Runtime),
             ResolvedConstExprKind::AssociatedFunction { .. } => {
                 self.resolved_const_enum_variant_value_type(expr, None)
             }
@@ -1375,6 +1369,23 @@ impl Analyzer<'_> {
         }
         self.resolved_const_constructor_type(variant_expr, expected)
             .map(ConstValueType::Runtime)
+    }
+
+    /// Both pre-execution preparation and ordinary inference must classify a
+    /// constructor before considering function-call capability and generics.
+    pub(super) fn resolved_const_call_expr_runtime_type(
+        &mut self,
+        span: Span,
+        callee: &ResolvedConstExpr,
+        generic_args: &[ResolvedConstGenericArg],
+        args: &[ResolvedConstExpr],
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        if self.resolved_const_enum_variant(callee).is_some() {
+            self.resolved_const_tuple_enum_literal_type(span, callee, args, expected)
+        } else {
+            self.resolved_const_call_return_type(span, callee, generic_args, args, expected)
+        }
     }
 
     fn resolved_const_tuple_enum_literal_type(
@@ -1857,7 +1868,8 @@ impl Analyzer<'_> {
                 .clone()
         };
         let value = self.with_execution_module(id.module_id, |this| {
-            if let Some(arg) = this.symbolic_const_expr(&expr)
+            let expected = this.current_runtime_primitive_type(PrimitiveTy::Usize);
+            if let Some(arg) = this.symbolic_const_expr_with_expected(&expr, Some(expected))
                 && let Some(len) = nia_ty::array_len_from_const_arg(&arg)
             {
                 this.symbolic_array_lengths.insert(id.clone(), len);
