@@ -286,6 +286,23 @@ impl Analyzer<'_> {
                                 ),
                                 else_branch: Some(operand(else_value)),
                             },
+                            C::ArrayList(values) => ResolvedConstExprKind::ArrayLiteral {
+                                elems: ResolvedConstArrayElements::list(
+                                    values.iter().map(|value| *operand(value)).collect(),
+                                ),
+                            },
+                            C::ArrayRepeat { value, count } => {
+                                ResolvedConstExprKind::ArrayLiteral {
+                                    elems: ResolvedConstArrayElements::repeat(
+                                        *operand(value),
+                                        *operand(count),
+                                    ),
+                                }
+                            }
+                            C::Index { array, index } => ResolvedConstExprKind::Index {
+                                lhs: operand(array),
+                                index: operand(index),
+                            },
                             C::Call { .. } => unreachable!(),
                         };
                         let expr = ResolvedConstExpr::from_parts(computation.span, kind);

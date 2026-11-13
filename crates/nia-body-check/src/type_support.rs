@@ -3055,6 +3055,18 @@ impl<'a> BodyChecker<'a> {
         }
         let expr = self.type_lowering.const_exprs.get(&id)?;
         let mut checker = self.clone_for_type_compare();
+        // Keep open expressions symbolic while preparing trait-solver facts.
+        // Evaluating (for example) `N + 1` asks the solver to prove `Add`,
+        // which rebuilds these same facts and would recursively evaluate the
+        // expression forever. The const classifier already knows how to
+        // residualize typed computations, layout queries, and const calls;
+        // closed expressions still fall through to ordinary evaluation.
+        if let Some(arg) = checker.symbolic_const_expr(expr) {
+            if !checker.types_match(ty, arg.ty) {
+                return None;
+            }
+            return Some(arg.value);
+        }
         checker.eval_const_generic_expr(expr, ty)
     }
 

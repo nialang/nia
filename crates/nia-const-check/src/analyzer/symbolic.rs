@@ -60,6 +60,8 @@ impl Analyzer<'_> {
             ResolvedConstExprKind::Unary { .. }
             | ResolvedConstExprKind::Binary { .. }
             | ResolvedConstExprKind::Cast { .. }
+            | ResolvedConstExprKind::ArrayLiteral { .. }
+            | ResolvedConstExprKind::Index { .. }
             | ResolvedConstExprKind::Call { .. }
             | ResolvedConstExprKind::If { .. }
             | ResolvedConstExprKind::Block(_) => {
@@ -96,7 +98,13 @@ impl Analyzer<'_> {
                 .last()
                 .and_then(|types| types.get(&expr.span()))
                 .copied()
-                .or_else(|| this.resolved_const_arg_runtime_type(expr, None))?;
+                .or_else(|| {
+                    this.resolved_const_arg_runtime_type(expr, None)
+                        .or_else(|| {
+                            this.resolved_const_expr_with_numeric_defaults(expr)
+                                .and_then(|ty| ty.runtime())
+                        })
+                })?;
             this.const_term(expr, ty)
         };
         let kind = match expr.kind() {
@@ -125,6 +133,22 @@ impl Analyzer<'_> {
                 rhs: operand(self, rhs)?,
             },
             ResolvedConstExprKind::Cast { expr: inner, .. } => C::Cast(operand(self, inner)?),
+            ResolvedConstExprKind::ArrayLiteral { elems } => match elems.kind() {
+                ResolvedConstArrayElementsKind::List(elems) => C::ArrayList(
+                    elems
+                        .iter()
+                        .map(|elem| operand(self, elem))
+                        .collect::<Option<Vec<_>>>()?,
+                ),
+                ResolvedConstArrayElementsKind::Repeat { value, count } => C::ArrayRepeat {
+                    value: operand(self, value)?,
+                    count: operand(self, count)?,
+                },
+            },
+            ResolvedConstExprKind::Index { lhs, index } => C::Index {
+                array: operand(self, lhs)?,
+                index: operand(self, index)?,
+            },
             ResolvedConstExprKind::If {
                 cond,
                 then_branch,
@@ -259,9 +283,20 @@ impl Analyzer<'_> {
             add(signature.span, &signature.generic_params);
         }
         for extension in &signatures.trait_impls {
+            // Extension signatures retain component spans rather than an
+            // enclosing span: `span` covers only the target type. Generic
+            // parameters remain in scope in the trait reference, predicates,
+            // associated types, and methods.
             add(extension.span, &extension.generic_params);
-            // An extension's diagnostic span covers its target type, not its
-            // methods. Their ownership relation supplies the inherited scope.
+            if let Some(trait_span) = extension.trait_span {
+                add(trait_span, &extension.generic_params);
+            }
+            for predicate in &extension.where_predicates {
+                add(predicate.span, &extension.generic_params);
+            }
+            for associated_type in &extension.associated_types {
+                add(associated_type.span, &extension.generic_params);
+            }
             for method in &extension.methods {
                 add(method.span, &extension.generic_params);
             }

@@ -1268,6 +1268,9 @@ where
         C::Binary { op, .. } => parts.push(format!("binary{}", *op as u8)),
         C::Cast(_) => parts.push("cast".into()),
         C::If { .. } => parts.push("if".into()),
+        C::ArrayList(values) => parts.push(format!("array_list_{}", values.len())),
+        C::ArrayRepeat { .. } => parts.push("array_repeat".into()),
+        C::Index { .. } => parts.push("index".into()),
         C::Call {
             function,
             type_args,

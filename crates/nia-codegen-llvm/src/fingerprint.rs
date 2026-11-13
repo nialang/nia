@@ -1902,6 +1902,12 @@ impl<'a> Encoder<'a> {
             }
             C::Cast(_) => self.tag(2),
             C::If { .. } => self.tag(3),
+            C::ArrayList(values) => {
+                self.tag(5);
+                self.len(values.len());
+            }
+            C::ArrayRepeat { .. } => self.tag(6),
+            C::Index { .. } => self.tag(7),
             C::Call {
                 function,
                 type_args,

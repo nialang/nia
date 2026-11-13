@@ -1019,6 +1019,42 @@ fun main() i32 {
 }
 
 #[test]
+fn trait_solver_keeps_open_const_bounds_symbolic() {
+    let root = temp_dir("trait_solver_keeps_open_const_bounds_symbolic");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Tr[K: usize] {
+    fun k(&self) usize;
+}
+
+struct X[N: usize] {}
+
+extend[N: usize] X[N] : Tr[N + 1] {
+    fun k(&self) usize { N + 1 }
+}
+
+fun by_parameter[N: usize](x: X[N]) usize
+where X[N]: Tr[N + 1]
+{
+    x.k()
+}
+
+fun by_concrete_type[N: usize](x: X[2]) usize
+where X[2]: Tr[N + 1]
+{
+    x.k()
+}
+
+fun main() usize { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn const_generic_default_trait_method_codegen_keeps_owner_assumption() {
     let root = temp_dir("const_generic_default_trait_method_codegen_keeps_owner_assumption");
     write(
@@ -2501,7 +2537,7 @@ fn symbolic_const_short_circuit_does_not_check_unselected_failure() {
         &source,
         r#"
 fun f[N: usize]() bool {
-    const K = if N > 5 { 1usize / 0usize == 0 } else { true };
+    const K = if N > 5 { [false; 7][8] } else { true };
     K
 }
 
@@ -2511,6 +2547,61 @@ fun main() bool { f[1]() and g[2]() }
     );
     let program = check_program(source.to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let output = test_driver().emit_llvm_ir(crate::EmitLlvmRequest::new(crate::CheckRequest::new(
+        source.to_string_lossy().into_owned(),
+    )));
+    assert!(output.result.is_ok(), "{output:?}");
+}
+
+#[test]
+fn symbolic_const_short_circuit_checks_selected_array_index_failure() {
+    let root = temp_dir("symbolic_const_short_circuit_checks_selected_array_index_failure");
+    let source = root.join("main.nia");
+    write(
+        &source,
+        r#"
+fun f[N: usize]() bool {
+    const K = if N > 5 { [false; 7][8] } else { true };
+    K
+}
+
+fun main() bool { f[6]() }
+"#,
+    );
+    let program = check_program(source.to_string_lossy().into_owned());
+    let errors = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.diagnostic.severity() == nia_diagnostic::Severity::Error)
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(errors, ["const array index 8 is out of bounds"]);
+}
+
+#[test]
+fn symbolic_const_array_list_and_repeat_execute_after_substitution() {
+    let root = temp_dir("symbolic_const_array_list_and_repeat_execute_after_substitution");
+    let source = root.join("main.nia");
+    write(
+        &source,
+        r#"
+fun list[N: usize]() bool {
+    const K = [N, N + 1][1] == N + 1;
+    K
+}
+fun repeat[N: usize]() bool {
+    const K = [N; 2][1] == N;
+    K
+}
+fun main() bool { list[3]() and repeat[3]() }
+"#,
+    );
+    let program = check_program(source.to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let output = test_driver().emit_llvm_ir(crate::EmitLlvmRequest::new(crate::CheckRequest::new(
+        source.to_string_lossy().into_owned(),
+    )));
+    assert!(output.result.is_ok(), "{output:?}");
 }
 
 #[test]
@@ -2528,6 +2619,24 @@ fun f[N: usize]() usize {
 }
 
 fun main() usize { f[2]() }
+"#,
+    );
+    let program = check_program(source.to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn const_computation_accepts_layout_operand_without_local_alias() {
+    let root = temp_dir("const_computation_accepts_layout_operand_without_local_alias");
+    let source = root.join("main.nia");
+    write(
+        &source,
+        r#"
+fun f[T]() usize where T: Sized {
+    let a: [u8; std::builtin::size[T]() + 1] = [0; std::builtin::size[T]() + 1];
+    a.len()
+}
+fun main() usize { f[u16]() }
 "#,
     );
     let program = check_program(source.to_string_lossy().into_owned());

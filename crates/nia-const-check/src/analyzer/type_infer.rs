@@ -1027,9 +1027,10 @@ impl Analyzer<'_> {
                 self.resolved_const_enum_variant_value_type(expr, None)
             }
             ResolvedConstExprKind::LayoutBuiltin { .. }
-            | ResolvedConstExprKind::FieldOffsetBuiltin { .. }
-            | ResolvedConstExprKind::Method { .. }
-            | ResolvedConstExprKind::Null => None,
+            | ResolvedConstExprKind::FieldOffsetBuiltin { .. } => Some(ConstValueType::Runtime(
+                self.current_runtime_primitive_type(PrimitiveTy::Usize),
+            )),
+            ResolvedConstExprKind::Method { .. } | ResolvedConstExprKind::Null => None,
             ResolvedConstExprKind::Discard(value) => {
                 self.resolved_const_expr_type(value, None);
                 Some(ConstValueType::Runtime(

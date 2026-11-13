@@ -63,6 +63,22 @@ pub enum ConstComputationKind {
         /// Value when false.
         else_value: ConstGenericArg,
     },
+    /// Array literal with explicit elements.
+    ArrayList(Vec<ConstGenericArg>),
+    /// Array literal that repeats one value a const number of times.
+    ArrayRepeat {
+        /// Repeated value.
+        value: ConstGenericArg,
+        /// Number of repetitions.
+        count: ConstGenericArg,
+    },
+    /// Indexed array projection.
+    Index {
+        /// Array value.
+        array: ConstGenericArg,
+        /// Element index.
+        index: ConstGenericArg,
+    },
     /// A resolved const function. The interpreter owns its complete body.
     Call {
         /// Authoritative callee identity, independent of spelling or imports.
@@ -88,6 +104,10 @@ impl ConstComputation {
             (C::Unary { op: left, .. }, C::Unary { op: right, .. }) => left == right,
             (C::Binary { op: left, .. }, C::Binary { op: right, .. }) => left == right,
             (C::Cast(_), C::Cast(_)) | (C::If { .. }, C::If { .. }) => true,
+            (C::ArrayList(left), C::ArrayList(right)) => left.len() == right.len(),
+            (C::ArrayRepeat { .. }, C::ArrayRepeat { .. }) | (C::Index { .. }, C::Index { .. }) => {
+                true
+            }
             (
                 C::Call {
                     function: left,
@@ -187,6 +207,9 @@ impl ConstComputation {
             } => {
                 vec![condition, then_value, else_value]
             }
+            ConstComputationKind::ArrayList(values) => values.iter().collect(),
+            ConstComputationKind::ArrayRepeat { value, count } => vec![value, count],
+            ConstComputationKind::Index { array, index } => vec![array, index],
             ConstComputationKind::Call {
                 const_args, args, ..
             } => const_args.iter().map(|(_, arg)| arg).chain(args).collect(),
@@ -218,6 +241,19 @@ impl ConstComputation {
                 condition: operand(condition)?,
                 then_value: operand(then_value)?,
                 else_value: operand(else_value)?,
+            },
+            ConstComputationKind::ArrayList(values) => ConstComputationKind::ArrayList(
+                values.iter().map(&mut operand).collect::<Result<_, _>>()?,
+            ),
+            ConstComputationKind::ArrayRepeat { value, count } => {
+                ConstComputationKind::ArrayRepeat {
+                    value: operand(value)?,
+                    count: operand(count)?,
+                }
+            }
+            ConstComputationKind::Index { array, index } => ConstComputationKind::Index {
+                array: operand(array)?,
+                index: operand(index)?,
             },
             ConstComputationKind::Call {
                 function,
