@@ -763,6 +763,7 @@ fn collect_executable_value_ref_edge_for_key(
         | Some(nia_local_resolve::LocalUse::Module)
         | Some(nia_local_resolve::LocalUse::TypePrefix)
         | Some(nia_local_resolve::LocalUse::Unresolved)
+        | Some(nia_local_resolve::LocalUse::Uncaptured(_))
         | None => {}
     }
     if let Some(global_id) = values

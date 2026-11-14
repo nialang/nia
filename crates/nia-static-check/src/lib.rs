@@ -309,7 +309,7 @@ impl StaticChecker<'_> {
                     }
                     _ => Some("bare global value is not static data; take its address explicitly"),
                 },
-                Some(LocalUse::Unresolved) | None => None,
+                Some(LocalUse::Unresolved | LocalUse::Uncaptured(_)) | None => None,
                 Some(LocalUse::Local(local_id)) => {
                     if self.local_const_is_static_data(local_id) {
                         None
@@ -402,7 +402,7 @@ impl StaticChecker<'_> {
                     Some(ValueNameResolution::Def(_)) => Some("address target is not static"),
                     _ => None,
                 },
-                Some(LocalUse::Unresolved) | None => None,
+                Some(LocalUse::Unresolved | LocalUse::Uncaptured(_)) | None => None,
                 Some(LocalUse::Local(_)) => Some("address target is local storage"),
                 Some(LocalUse::Static(_)) => None,
                 Some(LocalUse::Module) => Some("module namespace has no address"),

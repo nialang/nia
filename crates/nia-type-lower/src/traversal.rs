@@ -225,13 +225,25 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_, '_> {
         match &expr.kind {
             ExprKind::BracketSuffix { callee, args } => {
                 self.visit_expr(callee);
+                // An argument with both readings is lowered as the type, which
+                // records it for whichever the callee's parameter kind selects;
+                // the types inside its expression reading, such as the target
+                // of `(1 as i32)`, are lowered too. An argument with only an
+                // expression reading is visited as an expression. The type
+                // reading is not lowered from inside another argument's
+                // expression reading, where it is only a candidate.
                 for arg in args {
-                    if let Some(ty) = &arg.ty {
-                        if !matches!(ty.kind, TypeKind::Infer) {
-                            self.lower_type_in_context(ty, TypeContext::Value);
+                    match (&arg.ty, &arg.expr) {
+                        (Some(ty), expr) => {
+                            if !matches!(ty.kind, TypeKind::Infer) {
+                                self.lower_type_in_context(ty, TypeContext::Value);
+                            }
+                            if let Some(expr) = expr {
+                                self.visit_types_in_expr(expr);
+                            }
                         }
-                    } else if let Some(expr) = &arg.expr {
-                        self.visit_expr(expr);
+                        (None, Some(expr)) => self.visit_expr(expr),
+                        (None, None) => {}
                     }
                 }
             }
@@ -254,6 +266,38 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_, '_> {
 }
 
 impl TypeLowerer<'_, '_> {
+    /// Lowers the types an expression writes in type positions, the target
+    /// of a cast and the type of a typed literal, without lowering a bracket
+    /// argument's candidate type: the expression is itself the candidate
+    /// reading of an argument whose type reading was lowered. A candidate's
+    /// types are recorded without the checks a value type gets at its
+    /// boundary, which belong to the reading that is selected: in
+    /// `Box[[W as Tr]::E]`, the expression reading's cast to `Tr` is not a
+    /// value type, and the type reading is the one used.
+    fn visit_types_in_expr(&mut self, expr: &Expr) {
+        struct Types<'l, 'a, 'b>(&'l mut TypeLowerer<'a, 'b>);
+        impl<'ast> nia_ast_walk::Visitor<'ast> for Types<'_, '_, '_> {
+            fn visit_type(&mut self, ty: &'ast nia_ast::TypeRef) {
+                let lowered = self.0.lower_type(ty, TypeContext::Value);
+                self.0.type_uses.insert(ty.node_key.site().clone(), lowered);
+            }
+            fn visit_expr(&mut self, expr: &'ast Expr) {
+                match &expr.kind {
+                    ExprKind::BracketSuffix { callee, args } => {
+                        self.visit_expr(callee);
+                        for arg in args {
+                            if let Some(expr) = &arg.expr {
+                                self.visit_expr(expr);
+                            }
+                        }
+                    }
+                    _ => nia_ast_walk::walk_expr(self, expr),
+                }
+            }
+        }
+        nia_ast_walk::Visitor::visit_expr(&mut Types(self), expr);
+    }
+
     pub(crate) fn visit_item_tree_node(&mut self, item: &ItemTreeNode) {
         match &item.kind {
             ItemTreeNodeKind::Struct(item_struct) => {

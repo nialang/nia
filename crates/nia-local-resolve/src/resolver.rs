@@ -434,12 +434,22 @@ impl<'a> LocalResolver<'a> {
     }
 
     // An ambiguous type path is also parsed as a value expression. Record a
-    // visible lexical value, but do not diagnose captures for an interpretation
-    // that may be discarded when the declaration selects a type parameter.
+    // visible lexical value. A local of an enclosing function that a closure
+    // has not captured is the value interpretation only when no type has the
+    // name; otherwise the declaration may select the type, and diagnosing a
+    // capture for it would be wrong.
     fn resolve_const_argument_candidate(&mut self, expr: &Expr) {
-        if let ExprKind::Ident(name) = &expr.kind
-            && (self.lookup_local(name).is_some() || self.lookup_static(name).is_some())
-        {
+        let ExprKind::Ident(name) = &expr.kind else {
+            return;
+        };
+        let names_value = self.lookup_local(name).is_some() || self.lookup_static(name).is_some();
+        let names_uncaptured_value = self.lookup_outer_closure_local(name).is_some()
+            && self.defs.module_scope.types.get(name).is_none()
+            && !self
+                .values
+                .node_imported_type_prefixes
+                .contains_key(&expr.node_key);
+        if names_value || names_uncaptured_value {
             self.resolve_expr(expr);
         }
     }
@@ -473,9 +483,12 @@ impl<'a> LocalResolver<'a> {
                     self.record_use(expr.node_key.clone(), LocalUse::Unresolved);
                 }
             }
-            ExprKind::TypeTarget { .. }
-            | ExprKind::TraitTarget { .. }
-            | ExprKind::PathRoot(_)
+            ExprKind::TypeTarget { ty } => self.resolve_type(ty),
+            ExprKind::TraitTarget { ty, trait_ref } => {
+                self.resolve_type(ty);
+                self.resolve_type(trait_ref);
+            }
+            ExprKind::PathRoot(_)
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
             | ExprKind::String(_)
@@ -553,7 +566,8 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(count);
                 }
             },
-            ExprKind::TypedStructLiteral { fields, .. } => {
+            ExprKind::TypedStructLiteral { ty, fields } => {
+                self.resolve_type(ty);
                 for field in fields {
                     self.resolve_expr(&field.value);
                 }
@@ -579,7 +593,10 @@ impl<'a> LocalResolver<'a> {
                 self.resolve_expr(lhs);
                 self.resolve_expr(rhs);
             }
-            ExprKind::Cast { expr, .. } => self.resolve_expr(expr),
+            ExprKind::Cast { expr, ty } => {
+                self.resolve_expr(expr);
+                self.resolve_type(ty);
+            }
             ExprKind::Call { callee, args } => {
                 self.resolve_callee(callee);
                 for arg in args {
@@ -797,13 +814,33 @@ impl<'a> LocalResolver<'a> {
     }
 
     fn try_resolve_type_prefix(&mut self, expr: &Expr) -> bool {
-        if let ExprKind::BracketSuffix { callee, .. } = &expr.kind {
-            return self.try_resolve_type_prefix(callee);
+        if let ExprKind::BracketSuffix { callee, args } = &expr.kind {
+            if !self.try_resolve_type_prefix(callee) {
+                return false;
+            }
+            // The suffix holds the type's generic arguments, as in
+            // `Packet[S + 0]::Empty`: resolve them as a type path's.
+            for arg in args {
+                match (&arg.ty, &arg.expr) {
+                    (Some(ty), Some(expr)) => {
+                        self.resolve_type_candidate(ty);
+                        self.resolve_const_argument_candidate(expr);
+                    }
+                    (Some(ty), None) => self.resolve_type(ty),
+                    (None, Some(expr)) => self.resolve_expr(expr),
+                    (None, None) => {}
+                }
+            }
+            return true;
         }
-        if matches!(
-            expr.kind,
-            ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. }
-        ) {
+        if let ExprKind::TypeTarget { ty } = &expr.kind {
+            self.resolve_type(ty);
+            self.record_use(expr.node_key.clone(), LocalUse::TypePrefix);
+            return true;
+        }
+        if let ExprKind::TraitTarget { ty, trait_ref } = &expr.kind {
+            self.resolve_type(ty);
+            self.resolve_type(trait_ref);
             self.record_use(expr.node_key.clone(), LocalUse::TypePrefix);
             return true;
         }
@@ -861,7 +898,7 @@ impl<'a> LocalResolver<'a> {
             self.record_use(node_key, LocalUse::Local(local.id));
             return;
         }
-        if self.lookup_outer_closure_local(name).is_some() {
+        if let Some(outer) = self.lookup_outer_closure_local(name) {
             let summary = format!(
                 "local `{}` is not captured by this closure; add it to the closure capture list",
                 self.symbol_name(*name)
@@ -872,7 +909,7 @@ impl<'a> LocalResolver<'a> {
                     .help("add the local to the closure capture list, or pass it as an explicit argument")
                     .finish(),
             );
-            self.record_use(node_key, LocalUse::Unresolved);
+            self.record_use(node_key, LocalUse::Uncaptured(outer.id));
             return;
         }
         if let Some(item) = self.lookup_static(name) {

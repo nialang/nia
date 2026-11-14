@@ -222,6 +222,10 @@ pub enum LocalUse {
     Module,
     /// Type-prefix position in an expression.
     TypePrefix,
+    /// A local of an enclosing function that a closure body names without
+    /// capturing it. Local resolution reports it; later phases treat the
+    /// use as an error that is already explained.
+    Uncaptured(LocalId),
     /// Unresolved or invalid use.
     Unresolved,
 }

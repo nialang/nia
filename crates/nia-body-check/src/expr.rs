@@ -2448,6 +2448,8 @@ impl<'a> BodyChecker<'a> {
                     .push(self.unavailable_value_diagnostic(expr));
                 self.error()
             }
+            // Local resolution reported the missing capture.
+            Some(LocalUse::Uncaptured(_)) => self.error(),
             Some(LocalUse::Module) | Some(LocalUse::Unresolved) | None => {
                 if let Some(arg) =
                     expr_ident_name(expr).and_then(|name| self.current_const_generic_arg(name))

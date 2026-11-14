@@ -2294,6 +2294,7 @@ impl<'a> BodyChecker<'a> {
                     _ => TypedExprKind::Error,
                 }
             }
+            Some(LocalUse::Uncaptured(_)) => TypedExprKind::Error,
             Some(LocalUse::Module)
             | Some(LocalUse::TypePrefix)
             | Some(LocalUse::Unresolved)

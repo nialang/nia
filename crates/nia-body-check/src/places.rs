@@ -293,6 +293,9 @@ impl<'a> BodyChecker<'a> {
                 Some(LocalUse::TypePrefix) => {
                     Some(PlaceFailure::Storage("type prefix is not a value place"))
                 }
+                Some(LocalUse::Uncaptured(_)) => {
+                    Some(PlaceFailure::Storage("closure does not capture this local"))
+                }
                 Some(LocalUse::Unresolved) | None => {
                     Some(PlaceFailure::Storage("name is unresolved"))
                 }
@@ -408,6 +411,7 @@ impl<'a> BodyChecker<'a> {
             }
             Some(LocalUse::Module) => Some("module namespace is not assignable"),
             Some(LocalUse::TypePrefix) => Some("type prefix is not a value place"),
+            Some(LocalUse::Uncaptured(_)) => Some("closure does not capture this local"),
             Some(LocalUse::Unresolved) | None => Some("name is unresolved"),
         }
     }

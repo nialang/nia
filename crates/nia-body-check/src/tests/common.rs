@@ -655,7 +655,10 @@ pub(super) fn semantic_use_table(
     let mut builder = SemanticUseTable::builder();
     for (key, local_use) in &locals.node_uses {
         match local_use {
-            nia_local_resolve::LocalUse::Local(local_id) => {
+            // An uncaptured local keeps its meaning, so a const argument naming
+            // it adds nothing to the reported capture error.
+            nia_local_resolve::LocalUse::Local(local_id)
+            | nia_local_resolve::LocalUse::Uncaptured(local_id) => {
                 builder.insert_node_local_value_use(key.clone(), *local_id);
             }
             nia_local_resolve::LocalUse::Static(global_id) => {
