@@ -177,6 +177,18 @@ where W: Writer
         }
     }
 
+    pub fun writeByte(&mut self, byte: u8) Error!() {
+        if self.len == self.buffer.len() {
+            if self.buffer.len() == 0 {
+                return self.writer.writeByte(byte);
+            }
+            self.flush().?;
+        }
+        self.buffer[self.len] = byte;
+        self.len += 1;
+        !()
+    }
+
     pub fun flush(&mut self) Error!() {
         while self.len != 0 {
             let n = self.writer.write(& self.buffer[0..self.len]).?;

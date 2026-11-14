@@ -335,11 +335,24 @@ extend TextFormatWriter : io::Writer {
     }
 
     fun write(&mut self, bytes: &[u8]) mem::Error!usize {
+        self.writeAll(bytes).?;
+        !bytes.len()
+    }
+
+    fun writeAll(&mut self, bytes: &[u8]) mem::Error!() {
         if self.bytes.appendSlice(self.allocator, bytes) is error! {
             self.failure = ?error;
             return error!;
         }
-        !bytes.len()
+        !()
+    }
+
+    fun writeByte(&mut self, byte: u8) mem::Error!() {
+        if self.bytes.push(self.allocator, byte) is error! {
+            self.failure = ?error;
+            return error!;
+        }
+        !()
     }
 }
 

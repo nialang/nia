@@ -85,11 +85,7 @@ extend FileWriter {
     }
 
     fun appendBuffered(&mut self, bytes: &[u8]) () {
-        let mut index: usize = 0;
-        while index < bytes.len() {
-            self.buffer[self.len + index] = bytes[index];
-            index += 1;
-        }
+        _ = (&mut self.buffer[self.len..(self.len + bytes.len())]).copyFrom(bytes);
         self.len += bytes.len();
     }
 }
@@ -131,14 +127,41 @@ extend FileWriter : Writer {
             if n == self.len {
                 self.len = 0;
             } else {
-                let mut index = n;
-                while index < self.len {
-                    self.buffer[index - n] = self.buffer[index];
-                    index += 1;
-                }
+                _ = (&mut self.buffer[0..(self.len - n)]).copyFrom(&self.buffer[n..self.len]);
                 self.len -= n;
             }
         }
+        !()
+    }
+
+    // Bytes that fit in the buffer are buffered; others go through `write`,
+    // which flushes and writes large runs directly.
+    pub fun writeAll(&mut self, bytes: &[u8]) Error!() {
+        if bytes.len() <= self.buffer.len() - self.len {
+            self.appendBuffered(bytes);
+            return !();
+        }
+        let mut written: usize = 0;
+        while written < bytes.len() {
+            let n = self.write(&bytes[written..]).?;
+            if n == 0 {
+                return self.shortWrite()!;
+            }
+            written += n;
+        }
+        !()
+    }
+
+    pub fun writeByte(&mut self, byte: u8) Error!() {
+        if self.len == self.buffer.len() {
+            if self.buffer.len() == 0 {
+                let bytes: [u8; 1] = [byte];
+                return self.writeAll(&bytes[..]);
+            }
+            self.flush().?;
+        }
+        self.buffer[self.len] = byte;
+        self.len += 1;
         !()
     }
 }

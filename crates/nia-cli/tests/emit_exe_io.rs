@@ -259,6 +259,85 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 
 #[test]
+fn std_io_writers_write_bytes_and_runs_directly() {
+    // Every in-memory writer implements `writeAll` and `writeByte` itself,
+    // with one meaning whether called directly or through `Writer`: a fixed
+    // buffer writes every byte or none, and a zero-capacity buffered writer
+    // passes bytes straight through.
+    let root = temp_dir("std_io_writers_write_bytes_and_runs_directly");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::io;
+using std::process;
+using std::slice;
+
+fun viaTrait[W](writer: &mut W, bytes: &[u8]) bool
+where W: io::Writer
+{
+    match writer.writeAll(bytes) { !ok => { _ = ok; false }, error! => { _ = error; true } }
+}
+
+fun byteViaTrait[W](writer: &mut W, byte: u8) bool
+where W: io::Writer
+{
+    match writer.writeByte(byte) { !ok => { _ = ok; false }, error! => { _ = error; true } }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut storage: [u8; 4] = [0, 0, 0, 0];
+    let mut fixed = io::FixedBufferWriter::init(&mut storage[..]);
+    if fixed.writeAll(&b"ab") is error! { return process::ExitCode(1)!; }
+    // Two bytes do not fit in the one left: nothing is written.
+    if fixed.writeAll(&b"cde") is error! {} else { return process::ExitCode(2)!; }
+    if not viaTrait(&mut fixed, &b"cde") { return process::ExitCode(3)!; }
+    if fixed.len() != 2 { return process::ExitCode(4)!; }
+    if byteViaTrait(&mut fixed, b'c') { return process::ExitCode(5)!; }
+    if fixed.writeByte(b'd') is error! { return process::ExitCode(6)!; }
+    if not byteViaTrait(&mut fixed, b'e') { return process::ExitCode(7)!; }
+    if not fixed.written().equals(&b"abcd") { return process::ExitCode(8)!; }
+
+    let mut discarding = io::DiscardingWriter::init();
+    if viaTrait(&mut discarding, &b"abc") or byteViaTrait(&mut discarding, b'd') {
+        return process::ExitCode(9)!;
+    }
+    if discarding.len() != 4 { return process::ExitCode(10)!; }
+
+    let mut inner: [u8; 4] = [0, 0, 0, 0];
+    let mut target = io::FixedBufferWriter::init(&mut inner[..]);
+    let mut none: [u8; 0] = [];
+    let mut passing = io::BufferedWriter[io::FixedBufferWriter]::init(&mut target, &mut none[..]);
+    if byteViaTrait(&mut passing, b'x') or viaTrait(&mut passing, &b"yz") {
+        return process::ExitCode(11)!;
+    }
+    if passing.flush() is error! { return process::ExitCode(12)!; }
+    if not target.written().equals(&b"xyz") { return process::ExitCode(13)!; }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe");
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let status = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_fmt_formats_primitives_and_array_list() {
     let root = temp_dir("emit_exe_std_fmt_formats_primitives_and_array_list");
     let main = root.join("main.nia");
