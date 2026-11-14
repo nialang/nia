@@ -80,8 +80,9 @@ pub fn evaluate_const_generic_arg(
     Ok(ConstExprEvaluation {
         value,
         error_source: analyzer.const_error_origin.map(|(_, path)| path),
-        diagnostics: analyzer.diagnostics,
+        diagnostics: analyzer.diagnostics.into_vec(),
         provider_demands: analyzer.provider_demands,
+        error_reported: analyzer.read_failed_const,
     })
 }
 
@@ -102,8 +103,9 @@ pub fn evaluate_const_computation(
     Ok(ConstExprEvaluation {
         value,
         error_source: analyzer.const_error_origin.map(|(_, path)| path),
-        diagnostics: analyzer.diagnostics,
+        diagnostics: analyzer.diagnostics.into_vec(),
         provider_demands: analyzer.provider_demands,
+        error_reported: analyzer.read_failed_const,
     })
 }
 

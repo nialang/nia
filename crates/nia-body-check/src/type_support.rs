@@ -1614,7 +1614,7 @@ impl<'a> BodyChecker<'a> {
             PrimitiveTy::F32 => {
                 if !parse_float_literal::<f32>(text) {
                     let summary =
-                        format!("float literal `{text}` is out of range for F32 in {context}");
+                        format!("float literal `{text}` is out of range for f32 in {context}");
                     let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
                         .primary(expr.span, summary)
                         .note(format!(
@@ -1637,7 +1637,7 @@ impl<'a> BodyChecker<'a> {
             PrimitiveTy::F64 => {
                 if !parse_float_literal::<f64>(text) {
                     let summary =
-                        format!("float literal `{text}` is out of range for F64 in {context}");
+                        format!("float literal `{text}` is out of range for f64 in {context}");
                     self.diagnostics.push(
                         Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
                             .primary(expr.span, summary)
@@ -2569,6 +2569,7 @@ impl<'a> BodyChecker<'a> {
             local_types: HashMap::new(),
             global_types: HashMap::new(),
             global_type_issues: HashMap::new(),
+            body_check_rejections: Default::default(),
             const_types: HashMap::new(),
             method_receiver_kinds: HashMap::new(),
             traits_by_method_name: SymbolMap::default(),

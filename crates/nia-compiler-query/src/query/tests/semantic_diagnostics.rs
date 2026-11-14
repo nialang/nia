@@ -735,7 +735,8 @@ fn const_check_separates_semantic_value_from_diagnostics() {
     });
     assert!(const_eval.semantic.diagnostics.is_empty());
     assert!(
-        resolve_diagnostic_bundle(&const_eval.diagnostics)
+        const_eval
+            .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.summary == "cyclic const dependency")
     );

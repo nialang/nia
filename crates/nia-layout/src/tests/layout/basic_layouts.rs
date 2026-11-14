@@ -34,7 +34,13 @@ fun main(p: &Pair, xs: [u16; 3]) {}
         signatures: &signatures,
         root_types: &root_types,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })
@@ -98,7 +104,13 @@ fun main(value: Empty) {}
         signatures: &signatures,
         root_types: &root_types,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })
@@ -143,7 +155,13 @@ fun main(unit: (), pair: (u8, i32), nested: (u8, (), i64)) {}
         signatures: &signatures,
         root_types: &root_types,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })
@@ -192,7 +210,13 @@ fun invoke(readonly: &Fun(i32) i32, mutable: &mut Fun(i32) i32) {}
         signatures: &signatures,
         root_types: &root_types,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })

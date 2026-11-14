@@ -272,7 +272,7 @@ pub(super) fn signature_const_array_lengths(
         non_function_signatures_override,
         |input, module| {
             let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input)?;
-            array_lengths.diagnostics.extend(module.diagnostics.clone());
+            array_lengths.diagnostics.append_from(&module.diagnostics);
             Ok(array_lengths)
         },
     )
@@ -292,7 +292,7 @@ pub(super) fn signature_const_values(
         |input, module| {
             let mut enum_values =
                 nia_const_check::compute_module_const_enum_values(input, array_lengths.clone())?;
-            enum_values.diagnostics.extend(module.diagnostics.clone());
+            enum_values.diagnostics.append_from(&module.diagnostics);
             Ok(enum_values)
         },
     )?;
@@ -303,7 +303,7 @@ pub(super) fn signature_const_values(
         |input, module| {
             let mut values =
                 nia_const_check::compute_module_const_values(input, array_lengths, enum_values)?;
-            values.diagnostics.extend(module.diagnostics.clone());
+            values.diagnostics.append_from(&module.diagnostics);
             Ok(values)
         },
     )
@@ -550,14 +550,14 @@ pub(super) fn signature_layouts_for_types(
             non_function_signatures_override,
             |input, module| {
                 let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input)?;
-                array_lengths.diagnostics.extend(module.diagnostics.clone());
+                array_lengths.diagnostics.append_from(&module.diagnostics);
                 Ok(array_lengths)
             },
         )?);
         let local_array_lengths = |id| {
             array_lengths
                 .as_ref()
-                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+                .and_then(|array_lengths| array_lengths.length(&id))
         };
         // Another module's const tables, from its type signatures.
         let const_tables = |other: ModuleId| {
@@ -570,7 +570,7 @@ pub(super) fn signature_layouts_for_types(
                     |input, module| {
                         let mut array_lengths =
                             nia_const_check::compute_module_const_array_lengths(input)?;
-                        array_lengths.diagnostics.extend(module.diagnostics.clone());
+                        array_lengths.diagnostics.append_from(&module.diagnostics);
                         Ok(array_lengths)
                     },
                 ),
@@ -578,8 +578,7 @@ pub(super) fn signature_layouts_for_types(
             .map(Arc::new)
         };
         let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
-            const_tables(id.module_id)
-                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+            const_tables(id.module_id).and_then(|array_lengths| array_lengths.length(&id))
         };
         let symbols = db.context().symbols();
         let active_item_tree = db.get(SignatureItemTreeQuery(

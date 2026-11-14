@@ -357,8 +357,8 @@ fn ill_typed_const_values_report_only_their_source() {
     assert_eq!(
         errors,
         [
-            "const integer literal 256 is out of range for u8",
-            "const integer literal 300 is out of range for u8",
+            "integer literal 256 is out of range for u8 in struct literal field",
+            "integer literal 300 is out of range for u8 in call argument 1",
         ]
     );
 }

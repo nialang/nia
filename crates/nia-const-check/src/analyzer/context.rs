@@ -141,7 +141,15 @@ impl Analyzer<'_> {
         // source path, and type context for precisely the duration of `f`.
         self.execution_module_overrides
             .push((self.call_locals.len(), module_id));
+        let diagnostic_start = self.diagnostics.len();
         let result = f(self);
+        // What was found checking the foreign code is located in its file.
+        if module_id != self.input.defs.module_id
+            && let Some(path) = self.current_execution_source_path()
+        {
+            self.diagnostics
+                .locate_unlocated_since(diagnostic_start, path.as_str());
+        }
         self.execution_module_overrides.pop();
         result
     }
@@ -343,14 +351,19 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn push_engine_error(&mut self, err: ConstError) {
-        let source_path = self
+        let origin = self
             .const_error_origin
             .as_ref()
-            .filter(|(error, _)| error == &err)
-            .map(|(_, path)| path.clone());
+            .filter(|(error, _)| error == &err);
+        let source_path = origin.map(|(_, path)| path.clone());
+        // An error that arose executing a function body belongs to it.
+        let function = origin.and(self.const_error_function);
         let mut diagnostic = Diagnostic::user_error_at(codes::CONST, err.span, err.message);
         diagnostic.source_path = source_path.map(|path| path.as_str().to_owned());
-        self.diagnostics.push(diagnostic);
+        match function {
+            Some(function_id) => self.diagnostics.push_for_function(diagnostic, function_id),
+            None => self.diagnostics.push(diagnostic),
+        }
     }
 
     pub(super) fn initializer_for_key(&self, key: ConstKey) -> Option<ResolvedConstExpr> {
@@ -674,21 +687,13 @@ impl Analyzer<'_> {
             TyKind::Pointer { elem, .. } => self.ty_kind(*elem),
             _ => None,
         };
+        // Whether the receiver is writable is a static rule body checking
+        // owns; evaluation refuses a mutable reference to storage that is not.
         let elem = nia_sema::slice_method_receiver_element(
             &receiver_kind,
             pointer_element.as_ref(),
             !mutable,
         )?;
-        if mutable
-            && matches!(receiver_kind, TyKind::Array { .. })
-            && !self.resolved_const_place_is_writable(receiver)
-        {
-            self.push_const_type_error(
-                receiver.span(),
-                "const mutable slice pointer requires a writable place",
-            );
-            return None;
-        }
         let elem = self.type_for_module_or_none(elem, self.current_execution_module_id())?;
         Some((mutable, elem))
     }
@@ -1344,7 +1349,8 @@ impl Analyzer<'_> {
         };
         let mut root_types = signatures.as_ref().type_roots();
         root_types.push(ty);
-        let array_lengths = |id| layout_array_lengths.get(&id).copied();
+        let array_lengths =
+            |id| crate::array_length_value(&layout_array_lengths, &self.failed_const_exprs, &id);
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
         let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
@@ -1462,7 +1468,8 @@ impl Analyzer<'_> {
                 message: format!("type has no field `{field}` for builtin `offset`"),
             });
         };
-        let array_lengths = |id| layout_array_lengths.get(&id).copied();
+        let array_lengths =
+            |id| crate::array_length_value(&layout_array_lengths, &self.failed_const_exprs, &id);
         let layout_query =
             |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
         let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
@@ -1841,7 +1848,9 @@ impl Analyzer<'_> {
         ) else {
             return false;
         };
-        let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
+        let array_lengths_for_layout = |id: GlobalConstExprId| {
+            crate::array_length_value(array_lengths, &self.failed_const_exprs, &id)
+        };
         let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
         let program_union = |def_id| self.program_union_signature_for_layout(def_id);
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);
@@ -1896,7 +1905,9 @@ impl Analyzer<'_> {
         let signatures = self.signatures_for_module(module_id)?;
         let root_types = signatures.as_ref().type_roots();
         let normalization = self.type_normalization_for_module(module_id)?;
-        let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
+        let array_lengths_for_layout = |id: GlobalConstExprId| {
+            crate::array_length_value(array_lengths, &self.failed_const_exprs, &id)
+        };
         let program_struct = |def_id| self.program_struct_signature_for_layout(def_id);
         let program_union = |def_id| self.program_union_signature_for_layout(def_id);
         let program_enum = |def_id| self.program_enum_signature_for_layout(def_id);

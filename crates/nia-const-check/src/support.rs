@@ -7,7 +7,7 @@ use nia_symbol::SymbolId;
 use nia_ty::{IntConst, PrimitiveTy};
 
 pub(crate) fn validate_assignment_shape(
-    diagnostics: &mut Vec<Diagnostic>,
+    diagnostics: &mut crate::ConstDiagnostics,
     span: Span,
     value: &ConstValue,
     previous: &ConstValue,

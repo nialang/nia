@@ -130,7 +130,7 @@ pub fun main() i32 {
             signatures: &signatures,
             root_types: &root_types,
             normalized: &normalization.normalized,
-            array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+            array_lengths: &|id| const_eval.array_length(&id),
             target: nia_layout::TargetDataLayout::LP64,
             program: nia_layout::ProgramLayoutContext::default(),
         })
@@ -227,9 +227,10 @@ pub fun main() i32 {
     let program_signatures = EmptyBodyProgramSignatures::new();
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
+        failed: const_eval.failed_const_exprs.clone(),
         symbolic: const_eval.symbolic_const_exprs.clone(),
         provider_demands: const_eval.provider_demands.clone(),
-        diagnostics: Vec::new(),
+        diagnostics: Default::default(),
     };
     let const_values = nia_const_check::ConstValues {
         values: const_eval.values.clone(),
@@ -237,12 +238,12 @@ pub fun main() i32 {
         failed: const_eval.failed.clone(),
         typed_values: const_eval.typed_values.clone(),
         provider_demands: const_eval.provider_demands.clone(),
-        diagnostics: Vec::new(),
+        diagnostics: Default::default(),
     };
     let const_typed_facts = nia_const_check::ConstTypedFacts {
         typed_values: const_eval.typed_values.clone(),
         provider_demands: const_eval.provider_demands.clone(),
-        diagnostics: Vec::new(),
+        diagnostics: Default::default(),
     };
     let body_const = nia_body_check::BodyConst::from_phases(
         &const_values,
@@ -487,7 +488,7 @@ fn const_enum_values_from_check(
         values: const_eval.enum_values.clone(),
         typed_values: const_eval.typed_enum_values.clone(),
         provider_demands: const_eval.provider_demands.clone(),
-        diagnostics: Vec::new(),
+        diagnostics: Default::default(),
     }
 }
 

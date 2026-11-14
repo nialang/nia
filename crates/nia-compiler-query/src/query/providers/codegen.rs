@@ -938,37 +938,23 @@ pub(super) fn checked_module_diagnostics(
     Ok((diagnostics, suppressed_downstream))
 }
 
-/// A const error is redundant only with a reported body root: an explicit
-/// semantic cause identity, or the two older exact-node call/omitted-member
-/// rules below. Other const errors on that node remain independent.
+/// A const error is redundant only with a reported body root it names as its
+/// explicit semantic cause. Errors of initializers and bodies body checking
+/// rejected never reach here; other const errors remain independent.
 fn redundant_const_error(diagnostic: &Diagnostic, body: &[Diagnostic], path: &SourcePath) -> bool {
     // Const-call return-type failures can be downstream of a type-check root.
     // Suppress them only when their explicit semantic cause resolves to the
     // exact reported body diagnostic. Never infer the edge from wording or
     // merely from overlapping spans.
-    if let Some(cause) = diagnostic.cause.as_deref()
-        && cause.code == "E0301"
-        && body.iter().any(|candidate| {
-            candidate.code.as_str() == cause.code
-                && candidate.primary_span() == Some(cause.span)
-                && candidate.source_path.as_deref().unwrap_or(path.as_str()) == cause.source_path
-        })
-    {
-        return true;
-    }
-    let body_root = match diagnostic.summary.as_str() {
-        "const call argument does not match expected type" => "type mismatch in call argument ",
-        "unsupported const expression" => "unknown variant `",
-        _ => return false,
-    };
-    diagnostic.code.as_str() == "E0401"
-        && diagnostic.primary_span().is_some_and(|span| {
-            body.iter().any(|candidate| {
-                candidate.code.as_str() == "E0301"
-                    && candidate.summary.starts_with(body_root)
-                    && candidate.primary_span() == Some(span)
+    diagnostic.cause.as_deref().is_some_and(|cause| {
+        cause.code == "E0301"
+            && body.iter().any(|candidate| {
+                candidate.code.as_str() == cause.code
+                    && candidate.primary_span() == Some(cause.span)
+                    && candidate.source_path.as_deref().unwrap_or(path.as_str())
+                        == cause.source_path
             })
-        })
+    })
 }
 
 fn redundant_static_data_body_error(diagnostic: &Diagnostic, static_errors: &[Diagnostic]) -> bool {
@@ -1327,59 +1313,35 @@ mod tests {
     use nia_span::Span;
 
     #[test]
-    fn const_call_duplicate_requires_precise_body_evidence() {
+    fn const_error_wording_is_never_evidence_of_a_duplicate() {
+        // Errors of initializers and bodies body checking rejected are
+        // filtered by their filing before this; matching wording or a span
+        // must not hide an independent const error.
         let path = SourcePath::new("main.nia");
-        let redundant_const_error = |diagnostic: &Diagnostic, body: &[Diagnostic]| {
-            super::redundant_const_error(diagnostic, body, &path)
-        };
         let span = Span::new(8, 12);
-        let body = [Diagnostic::user_error_at(
-            codes::TYPE_CHECK,
-            span,
-            "type mismatch in call argument 1: expected i32, got bool",
-        )];
-        let generic = Diagnostic::user_error_at(
-            codes::CONST,
-            span,
-            "const call argument does not match expected type",
-        );
-        assert!(redundant_const_error(&generic, &body));
-        assert!(!redundant_const_error(&generic, &[]));
-        assert!(!redundant_const_error(
-            &Diagnostic::user_error_at(
-                codes::CONST,
-                Span::new(7, 12),
-                "const call argument does not match expected type",
-            ),
-            &body,
-        ));
-        assert!(!redundant_const_error(
-            &Diagnostic::user_error_at(
-                codes::CONST,
+        let body = [
+            Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
                 span,
-                "const call trait bound is not satisfied"
+                "type mismatch in call argument 1: expected i32, got bool",
             ),
-            &body,
-        ));
-        assert!(!redundant_const_error(
-            &Diagnostic::user_error_at(codes::CONST, span, "embedded file is missing"),
-            &body,
-        ));
-        assert!(!redundant_const_error(
-            &Diagnostic::user_error_at(codes::CONST, span, "integer out of range"),
-            &body,
-        ));
-        let unsupported =
-            Diagnostic::user_error_at(codes::CONST, span, "unsupported const expression");
-        assert!(!redundant_const_error(&unsupported, &body));
-        assert!(redundant_const_error(
-            &unsupported,
-            &[Diagnostic::user_error_at(
+            Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 span,
                 "unknown variant `Blue` of enum `Color`",
-            )],
-        ));
+            ),
+        ];
+        for summary in [
+            "const call argument does not match expected type",
+            "unsupported const expression",
+            "integer out of range",
+        ] {
+            let diagnostic = Diagnostic::user_error_at(codes::CONST, span, summary);
+            assert!(
+                !redundant_const_error(&diagnostic, &body, &path),
+                "{summary}"
+            );
+        }
     }
 
     #[test]

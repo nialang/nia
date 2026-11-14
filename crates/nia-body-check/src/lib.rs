@@ -263,6 +263,9 @@ struct BodyChecker<'a> {
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     global_type_issues: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
+    /// Constant initializers whose checking reported an error. Body checking
+    /// owns their typing; evaluating them only observes that error again.
+    body_check_rejections: nia_const_check::BodyCheckRejections,
     const_types: HashMap<DefId, InternedTyId>,
     method_receiver_kinds: HashMap<GlobalDefId, Option<ReceiverKind>>,
     traits_by_method_name: SymbolMap<Vec<GlobalDefId>>,

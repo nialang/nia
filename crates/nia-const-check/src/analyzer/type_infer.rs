@@ -772,7 +772,7 @@ impl Analyzer<'_> {
         expr: &ResolvedConstExpr,
     ) -> Option<ConstValueType> {
         let diagnostic_len = self.diagnostics.len();
-        let mut last_failed_diagnostics = Vec::new();
+        let mut last_failed_diagnostics = crate::ConstDiagnostics::default();
         for primitive in [PrimitiveTy::I32, PrimitiveTy::F64] {
             let default_ty = self.current_runtime_primitive_type(primitive);
             if let Some(result) = self.resolved_const_expr_type(expr, Some(default_ty)) {
@@ -784,7 +784,7 @@ impl Analyzer<'_> {
             }
             self.diagnostics.truncate(diagnostic_len);
         }
-        self.diagnostics.extend(last_failed_diagnostics);
+        self.diagnostics.append(last_failed_diagnostics);
         None
     }
 
@@ -1908,21 +1908,31 @@ impl Analyzer<'_> {
             match this.symbolic_const_expr_with_expected(&expr, Some(expected)) {
                 Ok(Some(arg)) => {
                     this.symbolic_const_exprs.insert(id.clone(), arg);
-                    return None;
+                    return Ok(None);
                 }
                 Ok(None) => {}
                 // Reported where the expression is written.
-                Err(symbolic::SymbolicReported) => return None,
+                Err(symbolic::SymbolicReported) => return Err(()),
             }
             // A closed const argument of another type is evaluated where it
             // is compared; only lengths have a value table.
             if !is_length {
-                return None;
+                return Ok(None);
             }
-            this.eval_resolved_array_len_expr(&expr)
-        })?;
-        self.array_lengths.insert(id.clone(), value);
-        Some(value)
+            this.eval_resolved_array_len_expr(&expr).map(Some).ok_or(())
+        });
+        match value {
+            Ok(Some(value)) => {
+                self.array_lengths.insert(id.clone(), value);
+                Some(value)
+            }
+            Ok(None) => None,
+            // Its failure was reported; a type using it reports nothing more.
+            Err(()) => {
+                self.failed_const_exprs.insert(id.clone());
+                None
+            }
+        }
     }
 
     pub(super) fn value_type_for_module(

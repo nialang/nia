@@ -4,9 +4,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::{
-    ConstArmType, ConstArrayLengths, ConstCheck, ConstEnumValues, ConstInput, ConstKey,
-    ConstProgramContext, ConstTypedFacts, ConstValue, ConstValueType, ConstValues, TypedConstValue,
-    resolved_pattern_local_id,
+    ConstArmType, ConstArrayLengths, ConstCheck, ConstDiagnostics, ConstEnumValues, ConstInput,
+    ConstKey, ConstProgramContext, ConstTypedFacts, ConstValue, ConstValueType, ConstValues,
+    TypedConstValue, resolved_pattern_local_id,
     support::{
         const_string_to_char_array, enum_next_value, float_literal_suffix_ty,
         int_const_in_i128_range, integer_literal_suffix_ty, is_float_primitive,
@@ -244,6 +244,10 @@ pub struct ConstExprEvaluation {
     pub diagnostics: Vec<Diagnostic>,
     /// Provider facts required by the selected const calls.
     pub provider_demands: HashSet<ProviderDemand>,
+    /// An error in `value` was already reported: in `diagnostics`, when the
+    /// expression did not type, or at the root of a constant it read whose
+    /// evaluation failed. The caller does not report it again.
+    pub error_reported: bool,
 }
 
 /// Evaluates a body-checking const query with the module analyzer's memory,
@@ -257,13 +261,24 @@ pub fn evaluate_resolved_const_expr(
         .resolved_expr_facts
         .push(ResolvedConstExprFacts::default());
     let _ = analyzer.resolved_const_expr_type(expr, None);
-    let value = nia_const_eval::eval_resolved_const_expr(expr, &mut analyzer);
+    // As for an initializer: an expression is executable only after it types.
+    // What typing found is the report; executing would find it again.
+    let typed = !analyzer.diagnostics.has_errors_since(0);
+    let value = if typed {
+        nia_const_eval::eval_resolved_const_expr(expr, &mut analyzer)
+    } else {
+        Err(nia_const_eval::ConstError {
+            span: expr.span(),
+            message: "const expression does not type".to_owned(),
+        })
+    };
     analyzer.finish(())?;
     Ok(ConstExprEvaluation {
         error_source: analyzer.const_error_origin.map(|(_, path)| path),
         value,
-        diagnostics: analyzer.diagnostics,
+        diagnostics: analyzer.diagnostics.into_vec(),
         provider_demands: analyzer.provider_demands,
+        error_reported: analyzer.read_failed_const || !typed,
     })
 }
 
@@ -300,6 +315,7 @@ pub fn compute_module_const_array_lengths(
     analyzer.finish(())?;
     Ok(ConstArrayLengths {
         values: Arc::new(analyzer.array_lengths),
+        failed: Arc::new(analyzer.failed_const_exprs),
         symbolic: Arc::new(analyzer.symbolic_const_exprs),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
@@ -322,6 +338,7 @@ pub fn compute_module_const_enum_values(
 ) -> nia_ice::IceResult<ConstEnumValues> {
     let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
+    analyzer.failed_const_exprs = Arc::unwrap_or_clone(array_lengths.failed);
     analyzer.provider_demands = Arc::unwrap_or_clone(array_lengths.provider_demands);
     analyzer.diagnostics = array_lengths.diagnostics;
     analyzer.analyze_enum_values();
@@ -363,6 +380,7 @@ pub fn compute_module_const_values(
 ) -> nia_ice::IceResult<ConstValues> {
     let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
+    analyzer.failed_const_exprs = Arc::unwrap_or_clone(array_lengths.failed);
     analyzer.enum_values = Arc::unwrap_or_clone(enum_values.values);
     analyzer.typed_enum_values = Arc::unwrap_or_clone(enum_values.typed_values);
     analyzer.provider_demands = Arc::unwrap_or_clone(enum_values.provider_demands);
@@ -394,6 +412,7 @@ pub fn check_module_const_with_all_phases(
         enum_values: enum_values.values,
         typed_enum_values: enum_values.typed_values,
         array_lengths: array_lengths.values,
+        failed_const_exprs: array_lengths.failed,
         symbolic_const_exprs: array_lengths.symbolic,
         provider_demands: typed_facts.provider_demands,
         diagnostics: typed_facts.diagnostics,
@@ -409,6 +428,7 @@ pub fn compute_module_const_typed_facts(
 ) -> nia_ice::IceResult<ConstTypedFacts> {
     let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
+    analyzer.failed_const_exprs = Arc::unwrap_or_clone(array_lengths.failed);
     analyzer.enum_values = Arc::unwrap_or_clone(enum_values.values);
     analyzer.typed_enum_values = Arc::unwrap_or_clone(enum_values.typed_values);
     analyzer.values = Arc::unwrap_or_clone(values.values);
@@ -541,10 +561,14 @@ pub(crate) struct Analyzer<'a> {
     call_locals: Vec<ConstCallFrame>,
     execution_module_overrides: Vec<(usize, ModuleId)>,
     const_error_origin: Option<(ConstError, SourcePath)>,
+    /// The function executing where [`Self::const_error_origin`] arose.
+    const_error_function: Option<GlobalDefId>,
     enum_values: HashMap<DefId, ConstValue>,
     typed_enum_values: HashMap<DefId, TypedConstValue>,
     array_lengths: HashMap<GlobalConstExprId, u64>,
-    diagnostics: Vec<Diagnostic>,
+    /// Const expressions written in types whose evaluation failed.
+    failed_const_exprs: HashSet<GlobalConstExprId>,
+    diagnostics: ConstDiagnostics,
     provider_demands: HashSet<ProviderDemand>,
     active: HashSet<ConstKey>,
     /// Keys whose evaluation failed; their root error was reported.
@@ -586,6 +610,9 @@ struct TypedValueValidation {
 /// to callers and must not participate in local or substitution lookup.
 pub(crate) struct ConstCallFrame {
     is_execution_frame: bool,
+    /// Where this function invocation's diagnostics begin; what it finds
+    /// is filed under its function when it returns.
+    diagnostic_start: usize,
     module_id: Option<ModuleId>,
     function_id: Option<GlobalDefId>,
     caller_location: Option<nia_source::SourceLocation>,
@@ -606,6 +633,7 @@ impl From<TypedConstFrame> for ConstCallFrame {
     fn from(frame: TypedConstFrame) -> Self {
         Self {
             is_execution_frame: false,
+            diagnostic_start: 0,
             module_id: frame.module_id,
             function_id: frame.function_id,
             caller_location: None,
@@ -680,10 +708,12 @@ impl Analyzer<'_> {
             call_locals: Vec::new(),
             execution_module_overrides: Vec::new(),
             const_error_origin: None,
+            const_error_function: None,
             enum_values: HashMap::new(),
             typed_enum_values: HashMap::new(),
             array_lengths: HashMap::new(),
-            diagnostics: Vec::new(),
+            failed_const_exprs: HashSet::new(),
+            diagnostics: ConstDiagnostics::default(),
             provider_demands: HashSet::new(),
             active: HashSet::new(),
             failed: failed_lowering_keys(input.module),
@@ -738,10 +768,12 @@ impl Analyzer<'_> {
                 .collect(),
             execution_module_overrides: Vec::new(),
             const_error_origin: None,
+            const_error_function: None,
             enum_values: HashMap::new(),
             typed_enum_values: HashMap::new(),
             array_lengths: input.array_lengths.clone(),
-            diagnostics: Vec::new(),
+            failed_const_exprs: HashSet::new(),
+            diagnostics: ConstDiagnostics::default(),
             provider_demands: HashSet::new(),
             active: HashSet::new(),
             failed: failed_lowering_keys(input.module),
@@ -876,10 +908,11 @@ impl Analyzer<'_> {
         let mut next_value = IntConst::from_i128(0);
         for variant in item_enum.variants() {
             let value = if let Some(expr) = variant.value() {
-                match nia_const_eval::eval_resolved_const_int_expr(expr, self) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        self.push_engine_error(err);
+                match self
+                    .evaluate_root(|this| nia_const_eval::eval_resolved_const_int_expr(expr, this))
+                {
+                    Some(value) => value,
+                    None => {
                         next_value = enum_next_value(next_value);
                         continue;
                     }
@@ -936,12 +969,30 @@ impl Analyzer<'_> {
         self.resolved_expr_facts
             .push(ResolvedConstExprFacts::default());
         let _ = self.resolved_const_expr_type(expr, Some(usize_ty));
-        let result = nia_const_eval::eval_resolved_const_array_len_expr(expr, self);
+        let result = self
+            .evaluate_root(|this| nia_const_eval::eval_resolved_const_array_len_expr(expr, this));
         self.resolved_expr_facts.pop();
+        result
+    }
+
+    /// Runs one evaluation root and reports its error. A failure reached by
+    /// reading a constant that already failed is a consequence of that
+    /// constant's reported root, so it is not reported again: a use of a
+    /// failed constant reports nothing further.
+    fn evaluate_root<T>(
+        &mut self,
+        evaluate: impl FnOnce(&mut Self) -> Result<T, nia_const_eval::ConstError>,
+    ) -> Option<T> {
+        let outer_read_failed_const = std::mem::replace(&mut self.read_failed_const, false);
+        let result = evaluate(self);
+        let read_failed_const =
+            std::mem::replace(&mut self.read_failed_const, outer_read_failed_const);
         match result {
             Ok(value) => Some(value),
             Err(err) => {
-                self.push_engine_error(err);
+                if !read_failed_const {
+                    self.push_engine_error(err);
+                }
                 None
             }
         }
@@ -992,14 +1043,14 @@ impl Analyzer<'_> {
                     }
                     _ => false,
                 };
+                // What typing found is a static error of this initializer;
+                // dependencies checked meanwhile filed their own.
+                this.diagnostics.file_static(diagnostic_start, key);
                 // A typed operation is executable only after its operands pass
                 // type/range checking. In particular, an invalid negative
                 // literal must not become an unsigned negation in the engine.
                 // Keep checking other initializer keys independently.
-                if this.diagnostics[diagnostic_start..]
-                    .iter()
-                    .any(|diagnostic| diagnostic.severity() == nia_diagnostic::Severity::Error)
-                {
+                if this.reported_errors_since(diagnostic_start) {
                     this.resolved_expr_facts.pop();
                     return None;
                 }
@@ -1036,25 +1087,48 @@ impl Analyzer<'_> {
         // A computed representation is not a valid constant until both typing
         // and value validation succeed. In particular, never publish a bool
         // declaration paired with an integer value to BIR or another constant.
-        let result = result.filter(|_| {
-            !self.diagnostics[diagnostic_start..]
-                .iter()
-                .any(|diagnostic| diagnostic.severity() == nia_diagnostic::Severity::Error)
-        });
+        let result = result.filter(|_| !self.reported_errors_since(diagnostic_start));
         self.evaluation_roots.pop();
         let result =
             result.and_then(|value| self.insert_typed_key_value(key, value, type_mismatch));
-        if result.is_none() {
-            self.typed_values.remove(&key);
-        }
         self.active.remove(&key);
-        if result.is_none() {
-            self.failed.insert(key);
+        match &result {
+            Some(value) => {
+                self.values.insert(key, value.clone());
+            }
+            None => {
+                self.typed_values.remove(&key);
+                self.failed.insert(key);
+            }
         }
         // A failed key is itself a failed read for the evaluation that asked.
         self.read_failed_const = outer_read_failed_const || result.is_none();
-        result.inspect(|value| {
-            self.values.insert(key, value.clone());
+        // The rest was found evaluating the initializer.
+        self.diagnostics.file_evaluation(diagnostic_start);
+        result
+    }
+
+    /// Whether an error was reported since `start` in this evaluation.
+    fn reported_errors_since(&self, start: usize) -> bool {
+        self.diagnostics.has_errors_since(start)
+    }
+
+    /// The result of preparing a node for execution, whose typing reported
+    /// from `start` on. A node that does not type is not executed: typing
+    /// reported why, and executing would find the same error again, so the
+    /// failure is marked as already reported.
+    pub(super) fn prepared(
+        &mut self,
+        start: usize,
+        span: Span,
+    ) -> Result<(), nia_const_eval::ConstError> {
+        if !self.reported_errors_since(start) {
+            return Ok(());
+        }
+        self.read_failed_const = true;
+        Err(nia_const_eval::ConstError {
+            span,
+            message: "const expression does not type".to_owned(),
         })
     }
 
@@ -1147,11 +1221,11 @@ impl Analyzer<'_> {
         // was reported, such as an out-of-range literal. The constant fails
         // through that report; validating again at each boundary the value
         // crosses would report one root cause many times.
-        if self.evaluation_roots.last().is_some_and(|start| {
-            self.diagnostics[*start..]
-                .iter()
-                .any(|diagnostic| diagnostic.severity() == nia_diagnostic::Severity::Error)
-        }) {
+        if self
+            .evaluation_roots
+            .last()
+            .is_some_and(|start| self.diagnostics.has_errors_since(*start))
+        {
             return;
         }
         match ty {

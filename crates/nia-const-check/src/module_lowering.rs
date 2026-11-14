@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{ConstModuleInput, ConstModuleLowering, declarations::ConstDeclarations};
+use crate::{ConstKey, ConstModuleInput, ConstModuleLowering, declarations::ConstDeclarations};
 use nia_ast::Expr;
 use nia_const_ir::{
     ResolvedConstEnum, ResolvedConstEnumVariant, ResolvedConstExpr, ResolvedConstExprKind,
@@ -48,7 +48,8 @@ pub fn lower_module_const(input: ConstModuleInput<'_>) -> nia_ice::IceResult<Con
         hinting_globals: RefCell::new(HashSet::new()),
         input,
         module: ResolvedConstModule::default(),
-        diagnostics: Vec::new(),
+        diagnostics: crate::ConstDiagnostics::default(),
+        owner: None,
         normalization: RefCell::new(crate::TypeNormalization {
             normalized: HashMap::new(),
             diagnostics: Vec::new(),
@@ -75,7 +76,10 @@ struct ConstModuleLowerer<'a> {
     /// initializer yields no hint instead of recursing.
     hinting_globals: RefCell<HashSet<DefId>>,
     module: ResolvedConstModule,
-    diagnostics: Vec<Diagnostic>,
+    diagnostics: crate::ConstDiagnostics,
+    /// The initializer or function whose lowering is in progress; its
+    /// lowering errors are static errors of it.
+    owner: Option<crate::types::DiagnosticOwner>,
     normalization: RefCell<crate::TypeNormalization>,
     internal_error: RefCell<Option<nia_ice::Ice>>,
 }
@@ -187,7 +191,14 @@ impl ConstModuleLowerer<'_> {
                 .ty
                 .as_ref()
                 .and_then(|ty| self.input.semantic_uses.node_type_use(&ty.node_key));
-            match self.lower_initializer(value, explicit_type, binding.ty.as_ref()) {
+            let outer = self
+                .owner
+                .replace(crate::types::DiagnosticOwner::Initializer(ConstKey::Local(
+                    local_id,
+                )));
+            let lowered = self.lower_initializer(value, explicit_type, binding.ty.as_ref());
+            self.owner = outer;
+            match lowered {
                 Some(value) => {
                     self.module.insert_local_initializer(
                         local_id,
@@ -237,6 +248,20 @@ impl ConstModuleLowerer<'_> {
         else {
             return;
         };
+        let owner = crate::types::DiagnosticOwner::Initializer(ConstKey::Global(
+            self.global_def_id(def_id),
+        ));
+        let outer = self.owner.replace(owner);
+        self.lower_global_initializer_of(item_span, def_id, binding);
+        self.owner = outer;
+    }
+
+    fn lower_global_initializer_of(
+        &mut self,
+        item_span: Span,
+        def_id: DefId,
+        binding: &nia_ast::BindingItem,
+    ) {
         let value = binding.value.as_ref();
         let Some(value) = value else {
             if let Some(builtin) = self
@@ -312,6 +337,19 @@ impl ConstModuleLowerer<'_> {
         else {
             return;
         };
+        let owner = crate::types::DiagnosticOwner::Initializer(ConstKey::Global(
+            self.global_def_id(def_id),
+        ));
+        let outer = self.owner.replace(owner);
+        self.lower_deferred_global_initializer_of(def_id, binding);
+        self.owner = outer;
+    }
+
+    fn lower_deferred_global_initializer_of(
+        &mut self,
+        def_id: DefId,
+        binding: &nia_ast::BindingItem,
+    ) {
         let value = binding.value.as_ref();
         let Some(value) = value else {
             return;
@@ -342,6 +380,19 @@ impl ConstModuleLowerer<'_> {
         let Some(def_id) = self.def_id_for_node(&function.node_key, function.span, kind) else {
             return;
         };
+        let outer = self.owner.replace(crate::types::DiagnosticOwner::Function(
+            self.global_def_id(def_id),
+        ));
+        self.lower_function_of(def_id, function, receiver_type);
+        self.owner = outer;
+    }
+
+    fn lower_function_of(
+        &mut self,
+        def_id: DefId,
+        function: &nia_ast::FunctionItem,
+        receiver_type: Option<(InternedTyId, &nia_ast::TypeRef)>,
+    ) {
         let function_locals = self.function_locals(function);
         let semantic_uses = self.semantic_uses_with_allowed_locals(&function_locals);
         let expected_type = self
@@ -405,11 +456,11 @@ impl ConstModuleLowerer<'_> {
         if maps.erroneous_members.contains(&err.span) {
             return;
         }
-        self.diagnostics.push(Diagnostic::user_error_at(
-            codes::CONST,
-            err.span,
-            err.message,
-        ));
+        let diagnostic = Diagnostic::user_error_at(codes::CONST, err.span, err.message);
+        match self.owner {
+            Some(owner) => self.diagnostics.push_owned(diagnostic, owner),
+            None => self.diagnostics.push(diagnostic),
+        }
     }
 
     fn lower_expr(&mut self, expr: &Expr) -> Option<ResolvedConstExpr> {

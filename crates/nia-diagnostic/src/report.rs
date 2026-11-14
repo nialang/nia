@@ -316,17 +316,28 @@ fn span_source_rank(diagnostic: &Diagnostic) -> u8 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Two entries are one diagnostic when they say the same thing about the
+/// same file, whether the file came from the reporting module or from the
+/// diagnostic naming it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct DiagnosticDedupeKey<'a> {
     path: Option<&'a str>,
-    diagnostic: &'a Diagnostic,
+    diagnostic: std::borrow::Cow<'a, Diagnostic>,
 }
 
 impl<'a> DiagnosticDedupeKey<'a> {
     fn from_item<T: DiagnosticReportItem>(item: &'a T) -> Self {
+        let diagnostic = item.report_diagnostic();
+        let diagnostic = if diagnostic.source_path.is_some() {
+            let mut unlocated = diagnostic.clone();
+            unlocated.source_path = None;
+            std::borrow::Cow::Owned(unlocated)
+        } else {
+            std::borrow::Cow::Borrowed(diagnostic)
+        };
         Self {
             path: item.report_source_path(),
-            diagnostic: item.report_diagnostic(),
+            diagnostic,
         }
     }
 }

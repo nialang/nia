@@ -69,10 +69,10 @@ const n: usize = accept_short("linux");
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
-        program
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("expected length 4")),
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("expected [char; 4], got [char; 5]")),
         "{:?}",
         program.diagnostics
     );

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
+use crate::aggregates::ConstEvalError;
 use crate::literals::{has_numeric_literal_suffix, integer_literal_value};
 use nia_ast::{BracketArg, ExprKind, PathSegmentKind, TypeKind, TypeRef};
 use nia_diagnostic::{Diagnostic, codes};
@@ -677,7 +678,8 @@ impl<'a> BodyChecker<'a> {
             };
             let value = match this.evaluate_const_expr(&const_expr) {
                 Ok(value) => value,
-                Err(err) => {
+                Err(ConstEvalError::Reported) => return None,
+                Err(ConstEvalError::Error(err)) => {
                     this.diagnostics.push(Diagnostic::user_error_at(
                         codes::CONST,
                         err.span,
@@ -829,16 +831,13 @@ impl<'a> BodyChecker<'a> {
         args: &[InternedTyId],
         span: Span,
     ) {
-        let instantiation = GenericInstantiation {
+        self.record_generic_instantiation_with_self_and_const_args(
             def_id,
             self_arg,
-            args: args.to_vec(),
-            const_args: Vec::new(),
-            generics: self.effective_generics_for_def(def_id),
+            args,
+            &[],
             span,
-            source_def_id: self.current_def_id,
-        };
-        self.generic_instantiations.push(instantiation);
+        );
     }
 
     pub(crate) fn record_generic_instantiation_with_const_args(
@@ -853,6 +852,9 @@ impl<'a> BodyChecker<'a> {
         );
     }
 
+    /// Records an instance the checked code executes. A call made while
+    /// evaluating a constant runs at compile time, so like its resolved call
+    /// it is no instance of the program.
     pub(crate) fn record_generic_instantiation_with_self_and_const_args(
         &mut self,
         def_id: GlobalDefId,
@@ -861,6 +863,9 @@ impl<'a> BodyChecker<'a> {
         const_args: &[ConstGenericArg],
         span: Span,
     ) {
+        if self.in_const_context() {
+            return;
+        }
         let instantiation = GenericInstantiation {
             def_id,
             self_arg,

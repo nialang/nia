@@ -14,11 +14,21 @@ pub struct BodyConst<'a> {
     pub typed_values: &'a HashMap<ConstKey, TypedConstValue>,
     /// Array lengths computed by the const prerequisite phase.
     pub array_lengths: &'a HashMap<nia_ids::GlobalConstExprId, u64>,
+    /// Const expressions written in types whose evaluation failed.
+    pub failed_const_exprs: &'a HashSet<nia_ids::GlobalConstExprId>,
     /// Terms of the generic const expressions written in types.
     pub symbolic_const_exprs: &'a HashMap<nia_ids::GlobalConstExprId, nia_ty::ConstGenericArg>,
 }
 
 impl<'a> BodyConst<'a> {
+    /// What const analysis found for the array length `id`, for layout.
+    pub fn array_length(
+        &self,
+        id: &nia_ids::GlobalConstExprId,
+    ) -> Option<nia_layout::ArrayLengthValue> {
+        nia_const_check::array_length_value(self.array_lengths, self.failed_const_exprs, id)
+    }
+
     /// Builds a body-check view from cached const phases.
     pub fn from_phases(
         values: &'a ConstValues,
@@ -31,6 +41,7 @@ impl<'a> BodyConst<'a> {
             failed: &values.failed,
             typed_values: &typed_facts.typed_values,
             array_lengths: &array_lengths.values,
+            failed_const_exprs: &array_lengths.failed,
             symbolic_const_exprs: &array_lengths.symbolic,
         }
     }

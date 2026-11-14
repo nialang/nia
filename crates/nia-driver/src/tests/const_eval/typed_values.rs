@@ -681,7 +681,7 @@ const value: bool = id(1usize == true);
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("incompatible operand types")),
+            .contains("trait bound not satisfied: usize: Eq[bool]")),
         "{:?}",
         program.diagnostics
     );
@@ -706,7 +706,7 @@ const value: bool = id(true and 1usize);
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("incompatible operand types")),
+            .contains("type mismatch in logical operator: expected bool, got usize")),
         "{:?}",
         program.diagnostics
     );
@@ -731,7 +731,7 @@ const value: bool = id(not 1usize);
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("bool")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("usize: Not")),
         "{:?}",
         program.diagnostics
     );
@@ -788,7 +788,7 @@ const selected: u8 = config.values[1];
             diagnostic
                 .diagnostic
                 .summary
-                .contains("const array literal element does not match its expected type")
+                .contains("type mismatch in array literal element: expected u8, got u16")
         })
         .count();
     assert!(count >= 2, "{:?}", program.diagnostics);
@@ -826,7 +826,7 @@ const packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
             diagnostic
                 .diagnostic
                 .summary
-                .contains("const struct literal field does not match its expected type")
+                .contains("type mismatch in struct literal field: expected u8, got u16")
         })
         .count();
     assert!(count >= 1, "{:?}", program.diagnostics);
@@ -1078,13 +1078,21 @@ fn const_array_pointer_methods_reject_immutable_places_and_temporaries() {
             ),
         );
         let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+        // Body checking owns the rule and reports it once; executing the
+        // rejected body adds nothing.
+        let errors = program
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| {
+                diagnostic.diagnostic.severity() == nia_diagnostic::Severity::Error
+            })
+            .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+            .collect::<Vec<_>>();
         assert!(
-            program.diagnostics.iter().any(|diagnostic| diagnostic
-                .diagnostic
-                .summary
-                .contains("requires a writable place")),
-            "{body}: {:?}",
-            program.diagnostics
+            matches!(errors.as_slice(), [summary] if summary.contains("ptrMut")
+                && (summary.contains("is not assignable")
+                    || summary.contains("requires a writable place"))),
+            "{body}: {errors:?}"
         );
     }
 }

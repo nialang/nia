@@ -199,6 +199,7 @@ impl<'a> BodyChecker<'a> {
                         self.diagnostics.extend(diagnostics);
                         None
                     }
+                    Err(RepeatCountError::Reported) => None,
                 }
             }
         };
@@ -1675,7 +1676,10 @@ impl<'a> BodyChecker<'a> {
             .map_err(RepeatCountError::Invalid)?;
         self.evaluate_const_array_len_expr(&count)
             .map(ArrayLenTy::ConstValue)
-            .map_err(RepeatCountError::Invalid)
+            .map_err(|error| match error {
+                ConstEvalError::Reported => RepeatCountError::Reported,
+                ConstEvalError::Error(error) => RepeatCountError::Invalid(error),
+            })
     }
 
     /// Classifies a const expression for a generic body
@@ -1786,7 +1790,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn evaluate_const_expr(
         &mut self,
         expr: &ResolvedConstExpr,
-    ) -> Result<ConstValue, ConstError> {
+    ) -> Result<ConstValue, ConstEvalError> {
         let evaluation = self.with_typed_const_query(|input| {
             nia_const_check::evaluate_resolved_const_expr(input, expr)
         });
@@ -1796,14 +1800,18 @@ impl<'a> BodyChecker<'a> {
                 for demand in evaluation.provider_demands {
                     self.record_provider_demand(demand);
                 }
-                evaluation.value
+                match evaluation.value {
+                    Ok(value) => Ok(value),
+                    Err(_) if evaluation.error_reported => Err(ConstEvalError::Reported),
+                    Err(error) => Err(ConstEvalError::Error(error)),
+                }
             }
             Err(error) => {
                 self.record_internal(error);
-                Err(ConstError {
+                Err(ConstEvalError::Error(ConstError {
                     span: expr.span(),
                     message: "const evaluation failed after an internal compiler error".to_string(),
-                })
+                }))
             }
         }
     }
@@ -1811,22 +1819,22 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn evaluate_const_int_expr(
         &mut self,
         expr: &ResolvedConstExpr,
-    ) -> Result<nia_ty::IntConst, ConstError> {
+    ) -> Result<nia_ty::IntConst, ConstEvalError> {
         match self.evaluate_const_expr(expr)? {
             ConstValue::Int(value) => Ok(value),
-            _ => Err(ConstError {
+            _ => Err(ConstEvalError::Error(ConstError {
                 span: expr.span(),
                 message: "const expression must be an integer".to_string(),
-            }),
+            })),
         }
     }
 
     pub(crate) fn evaluate_const_array_len_expr(
         &mut self,
         expr: &ResolvedConstExpr,
-    ) -> Result<u64, ConstError> {
+    ) -> Result<u64, ConstEvalError> {
         let value = self.evaluate_const_int_expr(expr)?;
-        nia_const_eval::int_to_array_len(expr.span(), value)
+        Ok(nia_const_eval::int_to_array_len(expr.span(), value)?)
     }
 
     pub(crate) fn const_expr_type_for_ir_with_expected(
@@ -1849,7 +1857,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         projection: AssociatedConstProjection,
-    ) -> Result<ConstValue, ConstError> {
+    ) -> Result<ConstValue, ConstEvalError> {
         self.evaluate_const_expr(&ResolvedConstExpr::name(
             span,
             ConstNameResolution::AssociatedConstProjection(projection),
@@ -1948,6 +1956,8 @@ fn array_literal_elem_requires_expected(elem: &Expr) -> bool {
 pub(crate) enum RepeatCountError {
     /// The count is not a valid constant.
     Invalid(ConstError),
+    /// Evaluating the count failed with an error already reported.
+    Reported,
     /// The count depends on a generic instance but is not a const
     /// computation; the diagnostics say why.
     NotATerm(Vec<Diagnostic>),
@@ -1970,5 +1980,22 @@ pub(crate) fn explicit_array_literal_len(
                 })
             }),
         nia_ast::ArrayElements::Repeat { count, .. } => checker.array_repeat_count_len(count),
+    }
+}
+
+/// Why a const evaluation in a body produced no value.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ConstEvalError {
+    /// Its error was already reported, by const analysis typing the
+    /// expression or at the root of a failed constant it read. The caller
+    /// reports nothing more.
+    Reported,
+    /// The evaluation's own error, which the caller reports.
+    Error(ConstError),
+}
+
+impl From<ConstError> for ConstEvalError {
+    fn from(error: ConstError) -> Self {
+        Self::Error(error)
     }
 }

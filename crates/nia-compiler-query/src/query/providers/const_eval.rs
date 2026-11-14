@@ -149,14 +149,14 @@ pub(super) fn provide_const(
                 values,
                 typed_facts,
             );
-            const_eval.diagnostics.extend(module.diagnostics.clone());
+            const_eval.diagnostics.append_from(&module.diagnostics);
             Ok(const_eval)
         })
     })?;
     let declaration_check = super::body_executable::body_check_const_declarations(db, module_id)?;
     const_eval
         .diagnostics
-        .extend(declaration_check.diagnostics.iter().cloned());
+        .extend(declaration_check.diagnostics.iter());
     // Declaration-wide `const fun` checking proves trait obligations too; the
     // implementations it needs must reach the loader like any other demand.
     if !declaration_check.provider_demands.is_empty() {
@@ -164,10 +164,40 @@ pub(super) fn provide_const(
             .extend(declaration_check.provider_demands.iter().cloned());
     }
     let diagnostics = std::mem::take(&mut const_eval.diagnostics);
+    let source_path = db.get(ModulePathQuery(module_id))?;
     Ok(ModuleConstCheck {
         semantic: Arc::new(const_eval),
-        diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
+        diagnostics: Arc::new(diagnostics),
+        rejected_const_functions: Arc::new(rejected_function_diagnostics(
+            &declaration_check,
+            source_path.as_str(),
+        )),
     })
+}
+
+/// The functions a body check rejected, each with its errors located in
+/// `path`, the file of the checked module.
+fn rejected_function_diagnostics(
+    check: &nia_body_check::BodyCheck,
+    path: &str,
+) -> HashMap<GlobalDefId, Vec<Diagnostic>> {
+    let mut rejected = HashMap::<GlobalDefId, Vec<Diagnostic>>::new();
+    for (index, diagnostic) in check.diagnostics.iter().enumerate() {
+        let Some(function) = check.diagnostic_owners.get(index).copied().flatten() else {
+            continue;
+        };
+        if !check.body_check_rejections.functions.contains(&function)
+            || diagnostic.severity() != nia_diagnostic::Severity::Error
+        {
+            continue;
+        }
+        let mut diagnostic = diagnostic.clone();
+        diagnostic
+            .source_path
+            .get_or_insert_with(|| path.to_owned());
+        rejected.entry(function).or_default().push(diagnostic);
+    }
+    rejected
 }
 
 pub(super) fn provide_const_array_lengths(
@@ -176,7 +206,7 @@ pub(super) fn provide_const_array_lengths(
 ) -> QueryResult<nia_const_check::ConstArrayLengths> {
     with_const_input(db, module_id, |input, module| {
         let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input)?;
-        array_lengths.diagnostics.extend(module.diagnostics.clone());
+        array_lengths.diagnostics.append_from(&module.diagnostics);
         Ok(array_lengths)
     })
 }
@@ -189,7 +219,7 @@ pub(super) fn provide_const_enum_values(
     with_const_input(db, module_id, |input, module| {
         let mut enum_values =
             nia_const_check::compute_module_const_enum_values(input, array_lengths)?;
-        enum_values.diagnostics.extend(module.diagnostics.clone());
+        enum_values.diagnostics.append_from(&module.diagnostics);
         Ok(enum_values)
     })
 }
@@ -203,7 +233,7 @@ pub(super) fn provide_const_values(
     with_const_input(db, module_id, |input, module| {
         let mut values =
             nia_const_check::compute_module_const_values(input, array_lengths, enum_values)?;
-        values.diagnostics.extend(module.diagnostics.clone());
+        values.diagnostics.append_from(&module.diagnostics);
         Ok(values)
     })
 }

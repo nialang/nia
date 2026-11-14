@@ -81,6 +81,7 @@ pub(super) struct ExecutableFactModuleState {
     pub(super) semantic_facts: nia_sema_ir::SemanticFacts,
     pub(super) global_type_issues:
         HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
+    pub(super) body_check_rejections: nia_const_check::BodyCheckRejections,
     pub(super) provider_demands: HashSet<ProviderDemand>,
     pub(super) provider_demands_by_function: HashMap<GlobalDefId, HashSet<ProviderDemand>>,
     pub(super) unowned_provider_demands: HashSet<ProviderDemand>,
@@ -427,6 +428,7 @@ impl ExecutableFactModuleState {
             ir,
             facts,
             global_type_issues,
+            body_check_rejections,
             static_init_refs,
             provider_demands,
             provider_demands_by_function,
@@ -454,6 +456,7 @@ impl ExecutableFactModuleState {
             static_init_refs,
             semantic_facts: Arc::unwrap_or_clone(facts),
             global_type_issues,
+            body_check_rejections,
             provider_demands,
             provider_demands_by_function,
             unowned_provider_demands,
@@ -498,6 +501,7 @@ impl ExecutableFactModuleState {
             ir,
             facts,
             global_type_issues,
+            body_check_rejections,
             static_init_refs,
             provider_demands,
             provider_demands_by_function,
@@ -526,6 +530,7 @@ impl ExecutableFactModuleState {
         self.static_init_refs.extend(static_init_refs);
         self.semantic_facts.extend(facts);
         self.global_type_issues.extend(global_type_issues);
+        self.body_check_rejections.extend(&body_check_rejections);
         let owned_provider_demands = provider_demands_by_function
             .values()
             .flat_map(|demands| demands.iter().cloned())

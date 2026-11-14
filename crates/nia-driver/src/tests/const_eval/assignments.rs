@@ -56,7 +56,7 @@ fun main() i32 { n }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("cannot assign to immutable const local `value`")),
+            .contains("assignment target is not assignable: local is let")),
         "{:?}",
         program.diagnostics
     );
@@ -83,7 +83,7 @@ const n: usize = width();
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("primitive type usize")),
+            .contains("type mismatch in assignment: expected usize, got bool")),
         "{:?}",
         program.diagnostics
     );
@@ -110,7 +110,7 @@ const n: usize = width();
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("primitive type bool")),
+            .contains("type mismatch in assignment: expected bool, got usize")),
         "{:?}",
         program.diagnostics
     );
@@ -137,7 +137,7 @@ const n: usize = width();
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("expected array type")),
+            .contains("type mismatch in assignment: expected [usize; 2], got bool")),
         "{:?}",
         program.diagnostics
     );
@@ -168,7 +168,7 @@ const n: usize = width();
         .collect::<Vec<_>>();
     assert_eq!(
         summaries,
-        ["const array literal length mismatch: expected 2, got 3"],
+        ["array literal length mismatch: expected 2, got 3"],
         "{:?}",
         program.diagnostics
     );
@@ -195,7 +195,7 @@ const n: usize = width();
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("expected optional type")),
+            .contains("type mismatch in assignment: expected ?usize, got bool")),
         "{:?}",
         program.diagnostics
     );
@@ -222,7 +222,7 @@ const n: usize = width();
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("expected error union type")),
+            .contains("type mismatch in assignment: expected usize!usize, got bool")),
         "{:?}",
         program.diagnostics
     );
@@ -253,7 +253,7 @@ const n: usize = width();
             diagnostic
                 .diagnostic
                 .summary
-                .contains("missing const struct field `enabled`")
+                .contains("missing struct field `enabled`")
         }),
         "{:?}",
         program.diagnostics
@@ -287,7 +287,7 @@ const n: usize = width();
             diagnostic
                 .diagnostic
                 .summary
-                .contains("missing const struct field `y`")
+                .contains("missing struct field `y`")
         }),
         "{:?}",
         program.diagnostics
@@ -318,7 +318,7 @@ const n: usize = width();
             diagnostic
                 .diagnostic
                 .summary
-                .contains("unknown const struct field `enabled`")
+                .contains("unknown struct field `enabled`")
         }),
         "{:?}",
         program.diagnostics
@@ -352,7 +352,7 @@ const n: usize = width();
             diagnostic
                 .diagnostic
                 .summary
-                .contains("unknown const struct field `z`")
+                .contains("unknown struct field `z`")
         }),
         "{:?}",
         program.diagnostics
@@ -811,7 +811,7 @@ const n: usize = width();
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("primitive type usize")),
+            .contains("type mismatch in assignment: expected usize, got bool")),
         "{:?}",
         program.diagnostics
     );

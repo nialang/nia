@@ -34,7 +34,13 @@ fun main(xs: [u8; std::builtin::size[Pair]()], ys: [u8; std::builtin::align[Pair
         signatures: &signatures,
         root_types: &root_types,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })
@@ -99,7 +105,13 @@ fun main(buf: Buffer[u8, 4]) {}
         signatures: &signatures,
         root_types: &root_types,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })
@@ -147,7 +159,13 @@ fun main(packet: Packet[3]) {}
         signatures: &signatures,
         root_types: &roots,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })
@@ -235,7 +253,13 @@ fun main(value: Mixed[u8, 3, u32], bits: MixedBits[u16, 5, u8]) {}
         signatures: &signatures,
         root_types: &root_types,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })
@@ -368,7 +392,13 @@ fun main(value: Mixed[u8, 3, u32]) {}
         signatures: &signatures,
         root_types: &root_types,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })

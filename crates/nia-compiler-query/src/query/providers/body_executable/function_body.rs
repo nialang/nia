@@ -85,6 +85,7 @@ pub(in crate::query) fn provide_executable_function_body(
                 },
                 facts: semantic_facts,
                 global_type_issues: module.global_type_issues.as_ref().clone(),
+                body_check_rejections: module.body_check_rejections.as_ref().clone(),
                 checked_functions: functions.clone(),
                 diagnostic_owners: Vec::new(),
                 diagnostics: Vec::new(),

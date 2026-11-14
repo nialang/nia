@@ -11,7 +11,7 @@ pub fn check_module_bodies_with_program_signatures(
     input: BodyCheckWithProgramSignaturesInput<'_>,
 ) -> BodyCheck {
     let root_types = input.signatures.type_roots();
-    let array_lengths = |id| input.const_eval.array_lengths.get(&id).copied();
+    let array_lengths = |id| input.const_eval.array_length(&id);
     let target_layout = nia_layout::TargetDataLayout::for_target(*input.target);
     let layouts =
         match nia_layout::compute_layouts_with_program_context(nia_layout::LayoutComputationInput {
@@ -74,6 +74,7 @@ fn body_check_internal_error(error: nia_ice::Ice) -> BodyCheck {
         }),
         facts: Arc::new(SemanticFacts::default()),
         global_type_issues: HashMap::new(),
+        body_check_rejections: Default::default(),
         static_init_refs: HashMap::new(),
         checked_functions: HashSet::new(),
         provider_demands: Arc::new(HashSet::new()),
@@ -197,6 +198,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         local_types: HashMap::new(),
         global_types: HashMap::new(),
         global_type_issues: HashMap::new(),
+        body_check_rejections: Default::default(),
         const_types: HashMap::new(),
         method_receiver_kinds: HashMap::new(),
         traits_by_method_name: SymbolMap::default(),
@@ -310,6 +312,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
             }),
             facts: Arc::new(facts),
             global_type_issues: checker.global_type_issues,
+            body_check_rejections: checker.body_check_rejections,
             static_init_refs: checker.static_init_refs,
             checked_functions: checker.checked_functions,
             provider_demands: Arc::new(checker.provider_demands.borrow().clone()),

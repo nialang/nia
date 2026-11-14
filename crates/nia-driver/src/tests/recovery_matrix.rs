@@ -415,17 +415,22 @@ fn const_static_precedence_survives_edits_and_cache() {
 
 #[test]
 fn specialized_const_roots_survive_report_precedence() {
-    for (source, summary) in [
+    // Body checking owns an initializer's static rules, const evaluation what
+    // executing it finds.
+    for (source, code, summary) in [
         (
             "trait Marker {}\nconst fun constrained[T]() usize where T: Marker { 7usize }\nconst WIDTH: usize = constrained[i32]();\n",
-            "trait bound not satisfied for const function call",
+            "E0301",
+            "trait bound not satisfied: i32: Marker",
         ),
         (
             "const PAYLOAD = std::builtin::embed(\"missing.bin\");\n",
+            "E0401",
             "failed to embed",
         ),
         (
             "const COUNT: u8 = 1u8 << 8u8;\n",
+            "E0401",
             "shift count is out of range in const expression",
         ),
     ] {
@@ -438,8 +443,7 @@ fn specialized_const_roots_survive_report_precedence() {
         );
         assert!(
             checked.diagnostics.iter().any(|item| {
-                item.diagnostic.code.as_str() == "E0401"
-                    && item.diagnostic.summary.contains(summary)
+                item.diagnostic.code.as_str() == code && item.diagnostic.summary.contains(summary)
             }),
             "{source}: {:?}",
             checked.diagnostics

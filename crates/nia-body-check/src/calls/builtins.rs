@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
+use crate::aggregates::ConstEvalError;
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ice::Ice;
@@ -1108,19 +1109,19 @@ impl<'a> BodyChecker<'a> {
     /// The lane indices of a `shuffle` index argument: a non-empty array of
     /// non-negative integers known at compile time. Reports when it is not.
     fn const_shuffle_indices(&mut self, indices: &Expr) -> Option<Vec<u128>> {
-        let value = self
-            .with_const_context(|this| {
-                let expr =
-                    this.lower_const_expr(indices)
-                        .map_err(|err| nia_const_eval::ConstError {
-                            span: err.span,
-                            message: err.message,
-                        })?;
-                this.evaluate_const_expr(&expr)
-            })
-            .ok();
+        let value = self.with_const_context(|this| {
+            let expr =
+                this.lower_const_expr(indices)
+                    .map_err(|err| nia_const_eval::ConstError {
+                        span: err.span,
+                        message: err.message,
+                    })?;
+            this.evaluate_const_expr(&expr)
+        });
         let lanes = match value {
-            Some(nia_const_eval::ConstValue::Array(values)) if !values.is_empty() => values
+            // Already reported; this use adds nothing.
+            Err(ConstEvalError::Reported) => return None,
+            Ok(nia_const_eval::ConstValue::Array(values)) if !values.is_empty() => values
                 .iter()
                 .map(|value| match value {
                     nia_const_eval::ConstValue::Int(value)
@@ -1788,19 +1789,19 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn const_int_arg(&mut self, expr: &Expr, context: &str) -> Option<i128> {
-        let value = self
-            .with_const_context(|this| {
-                let expr =
-                    this.lower_const_expr(expr)
-                        .map_err(|err| nia_const_eval::ConstError {
-                            span: err.span,
-                            message: err.message,
-                        })?;
-                this.evaluate_const_expr(&expr)
-            })
-            .ok();
+        let value = self.with_const_context(|this| {
+            let expr = this
+                .lower_const_expr(expr)
+                .map_err(|err| nia_const_eval::ConstError {
+                    span: err.span,
+                    message: err.message,
+                })?;
+            this.evaluate_const_expr(&expr)
+        });
         match value {
-            Some(nia_const_eval::ConstValue::Int(value)) => value.as_i128(),
+            Ok(nia_const_eval::ConstValue::Int(value)) => value.as_i128(),
+            // Already reported; this use adds nothing.
+            Err(ConstEvalError::Reported) => None,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,

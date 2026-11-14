@@ -322,6 +322,9 @@ pub struct CheckedModule {
     pub global_type_issues: std::sync::Arc<
         std::collections::HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
     >,
+    /// Constant initializers body checking rejected. Their uses lower to
+    /// error expressions, and what evaluating them found is not reported.
+    pub body_check_rejections: std::sync::Arc<nia_const_check::BodyCheckRejections>,
     /// Provider demands discovered by this module.
     pub provider_demands: std::sync::Arc<std::collections::HashSet<ProviderDemand>>,
     /// Reachable global definitions for executable generation.

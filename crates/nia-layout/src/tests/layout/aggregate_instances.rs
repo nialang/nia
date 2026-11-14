@@ -33,7 +33,13 @@ fun main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
         signatures: &signatures,
         root_types: &root_types,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })
@@ -166,7 +172,13 @@ fun main(a: StructHolder[i32], b: UnionHolder[i32]) {}
         signatures: &signatures,
         root_types: &roots,
         normalized: &HashMap::new(),
-        array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+        array_lengths: &|id| {
+            const_eval
+                .array_lengths
+                .get(&id)
+                .copied()
+                .map(crate::ArrayLengthValue::Known)
+        },
         target: TargetDataLayout::LP64,
         program: ProgramLayoutContext::default(),
     })

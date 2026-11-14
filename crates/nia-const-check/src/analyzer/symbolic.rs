@@ -33,7 +33,7 @@ pub fn classify_symbolic_const_expr(
 ) -> nia_ice::IceResult<Result<Option<ConstGenericArg>, Vec<Diagnostic>>> {
     let mut analyzer = Analyzer::for_typed_query(input);
     let value = analyzer.symbolic_const_expr_with_expected(expr, expected);
-    let diagnostics = std::mem::take(&mut analyzer.diagnostics);
+    let diagnostics = std::mem::take(&mut analyzer.diagnostics).into_vec();
     analyzer.finish(value.map_err(|SymbolicReported| diagnostics))
 }
 

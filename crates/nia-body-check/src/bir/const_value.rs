@@ -679,13 +679,14 @@ impl<'a> BodyChecker<'a> {
         nia_body_ir::PromotedAllocationId::new(self.defs.module_id, span)
     }
 
-    /// Whether a use of the constant `key` failed and was reported: its
-    /// initializer failed to evaluate, or checking the use itself failed, as
-    /// for an associated constant reached through a generic target written
-    /// without arguments. The use lowers to an error expression without
-    /// another diagnostic.
+    /// Whether a use of the constant `key` failed and was reported: checking
+    /// its initializer reported an error, its initializer failed to
+    /// evaluate, or checking the use itself failed, as for an associated
+    /// constant reached through a generic target written without arguments.
+    /// The use lowers to an error expression without another diagnostic.
     pub(crate) fn const_use_failed(&mut self, expr: &Expr, key: nia_const_check::ConstKey) -> bool {
-        self.const_key_failed(key)
+        self.body_check_rejections.initializers.contains(&key)
+            || self.const_key_failed(key)
             || self
                 .expr_ty(expr)
                 .is_some_and(|ty| self.is_error_recovery_ty(ty))

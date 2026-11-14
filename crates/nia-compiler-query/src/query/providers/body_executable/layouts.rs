@@ -31,7 +31,9 @@ pub(super) fn rooted_layouts_for_checked_module(
     db: &QueryDb<CompilerContext>,
     module: &CheckedModule,
     program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>>>,
-    program_array_lengths_override: Option<&dyn Fn(nia_ids::GlobalConstExprId) -> Option<u64>>,
+    program_array_lengths_override: Option<
+        &dyn Fn(nia_ids::GlobalConstExprId) -> Option<nia_layout::ArrayLengthValue>,
+    >,
 ) -> QueryResult<ModuleLayouts> {
     // Type-only modules were laid out from signature facts and have no body
     // semantic facts that could refine their roots.
@@ -56,10 +58,9 @@ pub(super) fn rooted_layouts_for_checked_module(
             )
         },
     )?;
-    let array_lengths = &module.const_eval.array_lengths;
     let symbols = db.context().symbols();
     let query_failure = RefCell::new(None);
-    let local_array_lengths = |id| array_lengths.get(&id).copied();
+    let local_array_lengths = |id| module.const_eval.array_length(&id);
     let layout_query = |module_id| {
         program_layouts_override
             .and_then(|program_layouts| program_layouts(module_id))
@@ -87,7 +88,7 @@ pub(super) fn rooted_layouts_for_checked_module(
             .and_then(|array_lengths| array_lengths(id.clone()))
             .or_else(|| {
                 capture_query_failure(&query_failure, db.get(ConstArrayLengthsQuery(id.module_id)))
-                    .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+                    .and_then(|array_lengths| array_lengths.length(&id))
             })
     };
     let layouts = nia_layout::compute_layouts_for_roots_with_program_context(

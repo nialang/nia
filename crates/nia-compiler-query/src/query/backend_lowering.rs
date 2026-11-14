@@ -158,7 +158,7 @@ impl BackendAssociatedConstEvaluator {
                             failed: Arc::clone(&checked.const_eval.failed),
                             typed_values: Arc::clone(&checked.const_eval.typed_values),
                             provider_demands: Arc::clone(&checked.const_eval.provider_demands),
-                            diagnostics: Vec::new(),
+                            diagnostics: Default::default(),
                         }),
                         visible_extensions: Arc::clone(&visible_extensions.methods),
                         source_path: checked.path.clone(),

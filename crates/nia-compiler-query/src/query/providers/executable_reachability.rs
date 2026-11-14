@@ -1250,14 +1250,14 @@ fn executable_check_in_session(
         || {
             codegen_modules
                 .iter()
-                .map(|module| (module.id, module.const_eval.array_lengths.clone()))
+                .map(|module| (module.id, Arc::clone(&module.const_eval)))
                 .collect::<HashMap<_, _>>()
         },
     );
     let executable_program_array_lengths = |id: nia_ids::GlobalConstExprId| {
         codegen_array_lengths
             .get(&id.module_id)
-            .and_then(|array_lengths| array_lengths.get(&id).copied())
+            .and_then(|const_eval| const_eval.array_length(&id))
             .or_else(|| {
                 caches
                     .array_lengths
@@ -1266,7 +1266,7 @@ fn executable_check_in_session(
                         module_id: id.module_id,
                         uses_body_facts: false,
                     })
-                    .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+                    .and_then(|array_lengths| array_lengths.length(&id))
             })
     };
     let codegen_modules = time_provider(
@@ -2013,6 +2013,7 @@ fn final_executable_checked_modules(
                             ir: state.body_ir,
                             facts: state.semantic_facts,
                             global_type_issues: state.global_type_issues,
+                            body_check_rejections: state.body_check_rejections,
                             checked_functions: state.checked_functions,
                             diagnostic_owners: state.diagnostic_owners,
                             diagnostics: state.diagnostics,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
+use crate::aggregates::ConstEvalError;
 use crate::literals::{
     decode_byte_char_literal, decode_byte_string_literal, decode_char_literal,
     decode_string_literal, numeric_literal_body, parse_int_literal,
@@ -247,10 +248,10 @@ impl<'a> BodyChecker<'a> {
                 op: nia_ast::UnaryOp::Neg,
                 ..
             }
-            | ExprKind::Binary { .. } => self
-                .eval_static_const_int_expr(expr)
-                .map(StaticInit::Int)
-                .unwrap_or_else(|err| {
+            | ExprKind::Binary { .. } => match self.eval_static_const_int_expr(expr) {
+                Ok(value) => StaticInit::Int(value),
+                Err(ConstEvalError::Reported) => StaticInit::Zero,
+                Err(ConstEvalError::Error(err)) => {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         expr.span,
@@ -260,7 +261,8 @@ impl<'a> BodyChecker<'a> {
                         ),
                     ));
                     StaticInit::Zero
-                }),
+                }
+            },
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
                 expr: inner,
@@ -395,18 +397,12 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn eval_static_const_int_expr(
-        &mut self,
-        expr: &Expr,
-    ) -> Result<IntConst, nia_const_eval::ConstError> {
+    fn eval_static_const_int_expr(&mut self, expr: &Expr) -> Result<IntConst, ConstEvalError> {
         let expr = self.eval_static_const_expr(expr)?;
         self.evaluate_const_int_expr(&expr)
     }
 
-    fn eval_static_const_array_len_expr(
-        &mut self,
-        expr: &Expr,
-    ) -> Result<u64, nia_const_eval::ConstError> {
+    fn eval_static_const_array_len_expr(&mut self, expr: &Expr) -> Result<u64, ConstEvalError> {
         let expr = self.eval_static_const_expr(expr)?;
         self.evaluate_const_array_len_expr(&expr)
     }
@@ -578,7 +574,8 @@ impl<'a> BodyChecker<'a> {
     fn lower_static_place_index(&mut self, expr: &Expr) -> u64 {
         match self.eval_static_const_array_len_expr(expr) {
             Ok(value) => value,
-            Err(error) => {
+            Err(ConstEvalError::Reported) => 0,
+            Err(ConstEvalError::Error(error)) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     codes::TYPE_CHECK,
                     expr.span,

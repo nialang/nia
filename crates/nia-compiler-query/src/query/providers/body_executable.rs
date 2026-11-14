@@ -179,11 +179,57 @@ impl BodyCheckConstInputs {
             enum_values: self.enum_values.values,
             typed_enum_values: self.enum_values.typed_values,
             array_lengths: self.array_lengths.values,
+            failed_const_exprs: self.array_lengths.failed,
             symbolic_const_exprs: self.array_lengths.symbolic,
             provider_demands: self.typed_facts.provider_demands,
             diagnostics: self.typed_facts.diagnostics,
         }
     }
+}
+
+/// A module's const diagnostics to report, given what its body checking
+/// `rejected`.
+fn reported_const_diagnostics(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    diagnostics: &nia_const_check::ConstDiagnostics,
+    rejected: &nia_const_check::BodyCheckRejections,
+) -> QueryResult<nia_diagnostic::DiagnosticBundle> {
+    let reported = const_diagnostics_to_report(db, module_id, diagnostics, rejected)?;
+    Ok(db.context().diagnostic_store.bundle(reported)?)
+}
+
+/// A module's const diagnostics given what its body checking `rejected`.
+///
+/// What executing a function of another module found is decided by that
+/// module's `const fun` check, which this module's report may not include:
+/// when it rejected the function, its errors are reported here in place of
+/// the consequences, located in their file, so a program reporting both
+/// modules reports them once. Only modules whose functions found something
+/// are consulted.
+fn const_diagnostics_to_report(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    diagnostics: &nia_const_check::ConstDiagnostics,
+    rejected: &nia_const_check::BodyCheckRejections,
+) -> QueryResult<Vec<Diagnostic>> {
+    let mut rejections = rejected.clone();
+    let mut verdicts = Vec::new();
+    for other in diagnostics.function_modules() {
+        if other == module_id {
+            continue;
+        }
+        let other_check = db.get(ConstQuery(other))?;
+        for (function, errors) in other_check.rejected_const_functions.iter() {
+            if diagnostics.found_in_function(*function) {
+                rejections.functions.insert(*function);
+                verdicts.extend(errors.iter().cloned());
+            }
+        }
+    }
+    let mut reported: Vec<_> = diagnostics.reported(&rejections).cloned().collect();
+    reported.extend(verdicts);
+    Ok(reported)
 }
 
 fn merge_provider_demands(
@@ -744,7 +790,7 @@ fn const_inputs_for_body_check(
         module_id,
         || nia_const_check::compute_module_const_array_lengths(const_input),
     )?;
-    array_lengths.diagnostics.extend(module.diagnostics.clone());
+    array_lengths.diagnostics.append_from(&module.diagnostics);
     let enum_values = time_module_provider(
         db,
         "executable_body_check.const_eval.enum_values",
@@ -1090,6 +1136,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 failed: &const_eval.failed,
                 typed_values: &const_eval.typed_values,
                 array_lengths: &const_eval.array_lengths,
+                failed_const_exprs: &const_eval.failed_const_exprs,
                 symbolic_const_exprs: &const_eval.symbolic_const_exprs,
             },
             const_module,
@@ -1514,7 +1561,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                     |input, module| {
                         let mut array_lengths =
                             nia_const_check::compute_module_const_array_lengths(input)?;
-                        array_lengths.diagnostics.extend(module.diagnostics.clone());
+                        array_lengths.diagnostics.append_from(&module.diagnostics);
                         Ok(array_lengths)
                     },
                 );
@@ -1566,7 +1613,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                             input,
                             Arc::unwrap_or_clone(Arc::clone(&array_lengths)),
                         )?;
-                        enum_values.diagnostics.extend(module.diagnostics.clone());
+                        enum_values.diagnostics.append_from(&module.diagnostics);
                         Ok(enum_values)
                     },
                 );
@@ -1582,7 +1629,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                             Arc::unwrap_or_clone(array_lengths),
                             enum_values,
                         )?;
-                        values.diagnostics.extend(module.diagnostics.clone());
+                        values.diagnostics.append_from(&module.diagnostics);
                         Ok(values)
                     },
                 );
@@ -1919,7 +1966,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                             |input, module| {
                                 let mut array_lengths =
                                     nia_const_check::compute_module_const_array_lengths(input)?;
-                                array_lengths.diagnostics.extend(module.diagnostics.clone());
+                                array_lengths.diagnostics.append_from(&module.diagnostics);
                                 Ok(array_lengths)
                             },
                         )
@@ -1937,7 +1984,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                             |input, module| {
                                 let mut array_lengths =
                                     nia_const_check::compute_module_const_array_lengths(input)?;
-                                array_lengths.diagnostics.extend(module.diagnostics.clone());
+                                array_lengths.diagnostics.append_from(&module.diagnostics);
                                 Ok(array_lengths)
                             },
                         )
@@ -2030,7 +2077,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                                 |input, module| {
                                     let mut array_lengths =
                                         nia_const_check::compute_module_const_array_lengths(input)?;
-                                    array_lengths.diagnostics.extend(module.diagnostics.clone());
+                                    array_lengths.diagnostics.append_from(&module.diagnostics);
                                     Ok(array_lengths)
                                 },
                             )
@@ -2053,10 +2100,9 @@ pub(super) fn executable_layouts_for_reachable_items(
         };
         let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
             if id.module_id == module_id {
-                return local_array_lengths.values.get(&id).copied();
+                return local_array_lengths.length(&id);
             }
-            signature_tables(id.module_id)
-                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+            signature_tables(id.module_id).and_then(|array_lengths| array_lengths.length(&id))
         };
         let layouts = time_module_provider(db, "executable_layouts.compute", module_id, || {
             let symbols = db.context().symbols();
@@ -2252,6 +2298,7 @@ fn checked_module_with_body_and_flow_check(
         semantic_uses: db.get(SemanticUseTableQuery(module_id))?,
         semantic_facts: Arc::clone(&body_check.semantic.facts),
         global_type_issues: Arc::new(body_check.semantic.global_type_issues.clone()),
+        body_check_rejections: Arc::new(body_check.semantic.body_check_rejections.clone()),
         provider_demands,
         executable_reachable_globals: None,
         executable_reachable_structs: None,
@@ -2269,7 +2316,12 @@ fn checked_module_with_body_and_flow_check(
             (*db.get(ConstructorCheckQuery(module_id))?).clone(),
         ],
         item_diagnostics: item_signatures.diagnostics.clone(),
-        const_diagnostics: const_eval.diagnostics.clone(),
+        const_diagnostics: reported_const_diagnostics(
+            db,
+            module_id,
+            &const_eval.diagnostics,
+            &const_eval.with_declaration_rejections(&body_check.semantic.body_check_rejections),
+        )?,
         static_diagnostics: static_check.diagnostics.clone(),
         layout_diagnostics: query_layouts
             .as_ref()
@@ -2310,9 +2362,18 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
             // `const fn` annotation is a declaration-wide promise. Preserve
             // that distinction: validate every declaration without adding it
             // to executable reachability or materializing its Body IR.
-            let mut diagnostics = std::mem::take(&mut const_eval.diagnostics);
-            if module_has_const_declarations(db, module_id)? {
-                let declaration_check = body_check_const_declarations(db, module_id)?;
+            let const_diagnostics = std::mem::take(&mut const_eval.diagnostics);
+            let declaration_check = module_has_const_declarations(db, module_id)?
+                .then(|| body_check_const_declarations(db, module_id))
+                .transpose()?;
+            // Bodies the declaration-wide check rejected are rejected too.
+            let mut rejections = body_check.body_check_rejections.clone();
+            if let Some(declaration_check) = &declaration_check {
+                rejections.extend(&declaration_check.body_check_rejections);
+            }
+            let mut diagnostics =
+                const_diagnostics_to_report(db, module_id, &const_diagnostics, &rejections)?;
+            if let Some(declaration_check) = declaration_check {
                 for diagnostic in declaration_check.diagnostics.iter() {
                     if !diagnostics.contains(diagnostic)
                         && !body_check.diagnostics.contains(diagnostic)
@@ -2331,10 +2392,13 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         }
         None => {
             let const_eval = db.get(ConstQuery(module_id))?;
-            (
-                Arc::clone(&const_eval.semantic),
-                const_eval.diagnostics.clone(),
-            )
+            let diagnostics = reported_const_diagnostics(
+                db,
+                module_id,
+                &const_eval.diagnostics,
+                &const_eval.with_declaration_rejections(&body_check.body_check_rejections),
+            )?;
+            (Arc::clone(&const_eval.semantic), diagnostics)
         }
     };
     let provider_demands =
@@ -2367,6 +2431,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         semantic_uses: body_inputs.semantic_uses,
         semantic_facts: body_check.facts,
         global_type_issues: Arc::new(body_check.global_type_issues.clone()),
+        body_check_rejections: Arc::new(body_check.body_check_rejections.clone()),
         provider_demands,
         executable_reachable_globals: None,
         executable_reachable_structs: None,
@@ -2421,15 +2486,13 @@ pub(super) fn executable_signature_checked_module(
         Some(program_signatures),
         |input, module| {
             let mut array_lengths = nia_const_check::compute_module_const_array_lengths(input)?;
-            array_lengths.diagnostics.extend(module.diagnostics.clone());
+            array_lengths.diagnostics.append_from(&module.diagnostics);
             let mut enum_values =
                 nia_const_check::compute_module_const_enum_values(input, array_lengths.clone())?;
-            enum_values.diagnostics.extend(module.diagnostics.clone());
+            enum_values.diagnostics.append_from(&module.diagnostics);
             Ok((array_lengths, enum_values))
         },
     )?;
-    let mut const_diagnostics = array_lengths.diagnostics.clone();
-    const_diagnostics.extend(enum_values.diagnostics.clone());
     let mut const_eval = ConstCheck {
         values: Arc::new(HashMap::new()),
         symbolic_locals: Arc::new(HashMap::new()),
@@ -2438,14 +2501,20 @@ pub(super) fn executable_signature_checked_module(
         enum_values: enum_values.values,
         typed_enum_values: enum_values.typed_values,
         array_lengths: array_lengths.values,
+        failed_const_exprs: array_lengths.failed,
         symbolic_const_exprs: array_lengths.symbolic,
         provider_demands: enum_values.provider_demands,
-        diagnostics: const_diagnostics,
+        // The enum phase continues from the array-length phase's diagnostics.
+        diagnostics: enum_values.diagnostics,
     };
-    let const_diagnostics = db
-        .context()
-        .diagnostic_store
-        .bundle(std::mem::take(&mut const_eval.diagnostics))?;
+    // No initializer of a type-only module is body checked, so none is
+    // rejected.
+    let const_diagnostics = reported_const_diagnostics(
+        db,
+        module_id,
+        &std::mem::take(&mut const_eval.diagnostics),
+        &nia_const_check::BodyCheckRejections::default(),
+    )?;
     let provider_demands = Arc::clone(&const_eval.provider_demands);
     Ok(CheckedModule {
         id: module_id,
@@ -2475,6 +2544,7 @@ pub(super) fn executable_signature_checked_module(
         semantic_uses: Arc::new(nia_sema_ir::SemanticUseTable::default()),
         semantic_facts: Arc::new(nia_sema_ir::SemanticFacts::default()),
         global_type_issues: Arc::new(HashMap::new()),
+        body_check_rejections: Arc::default(),
         provider_demands,
         executable_reachable_globals: Some(HashSet::new()),
         executable_reachable_structs: None,
@@ -2587,7 +2657,9 @@ pub(super) fn filter_checked_module_for_codegen(
     reachable_functions: &HashSet<GlobalDefId>,
     reachable_globals: &HashSet<GlobalDefId>,
     program_layouts_override: Option<&dyn Fn(ModuleId) -> Option<Arc<nia_layout::Layouts>>>,
-    program_array_lengths_override: Option<&dyn Fn(nia_ids::GlobalConstExprId) -> Option<u64>>,
+    program_array_lengths_override: Option<
+        &dyn Fn(nia_ids::GlobalConstExprId) -> Option<nia_layout::ArrayLengthValue>,
+    >,
 ) -> QueryResult<CheckedModule> {
     Arc::make_mut(&mut module.body_ir)
         .function_bodies

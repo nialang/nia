@@ -43,13 +43,23 @@ pub struct ConstCheck {
     pub typed_enum_values: Arc<HashMap<DefId, TypedConstValue>>,
     /// Array lengths required by lowered types.
     pub array_lengths: Arc<HashMap<GlobalConstExprId, u64>>,
+    /// Const expressions written in types whose evaluation failed; each
+    /// failure was reported at its root.
+    pub failed_const_exprs: Arc<HashSet<GlobalConstExprId>>,
     /// Terms of the generic const expressions written in types, for
     /// check-time type normalization.
     pub symbolic_const_exprs: Arc<HashMap<GlobalConstExprId, nia_ty::ConstGenericArg>>,
     /// Cross-module semantic facts required to complete const analysis.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics accumulated by all phases.
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostics: ConstDiagnostics,
+}
+
+impl ConstCheck {
+    /// What const analysis found for the array length `id`, for layout.
+    pub fn array_length(&self, id: &GlobalConstExprId) -> Option<nia_layout::ArrayLengthValue> {
+        array_length_value(&self.array_lengths, &self.failed_const_exprs, id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -57,6 +67,9 @@ pub struct ConstCheck {
 pub struct ConstArrayLengths {
     /// Computed array lengths keyed by resolved expression identity.
     pub values: Arc<HashMap<GlobalConstExprId, u64>>,
+    /// Const expressions written in types whose evaluation failed; each
+    /// failure was reported at its root.
+    pub failed: Arc<HashSet<GlobalConstExprId>>,
     /// Const expressions written in types that depend on generic parameters,
     /// array lengths and nominal const arguments alike, as the terms each
     /// instance evaluates.
@@ -64,7 +77,7 @@ pub struct ConstArrayLengths {
     /// Cross-module semantic facts required by this phase.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted while computing lengths.
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostics: ConstDiagnostics,
 }
 
 impl ConstArrayLengths {
@@ -73,6 +86,28 @@ impl ConstArrayLengths {
     /// generic parameters.
     pub fn resolve(&self, id: &GlobalConstExprId) -> Option<nia_ty::ConstGenericValue> {
         resolve_type_const_expr(&self.values, &self.symbolic, id)
+    }
+
+    /// What const analysis found for the array length `id`, for layout.
+    pub fn length(&self, id: &GlobalConstExprId) -> Option<nia_layout::ArrayLengthValue> {
+        array_length_value(&self.values, &self.failed, id)
+    }
+}
+
+/// What const analysis found for an array length written as a const
+/// expression, from the tables it publishes. Every phase that computes
+/// layouts reads lengths through this, so a length whose failure was
+/// reported is never reported again as unevaluated.
+pub fn array_length_value(
+    values: &HashMap<GlobalConstExprId, u64>,
+    failed: &HashSet<GlobalConstExprId>,
+    id: &GlobalConstExprId,
+) -> Option<nia_layout::ArrayLengthValue> {
+    match values.get(id) {
+        Some(value) => Some(nia_layout::ArrayLengthValue::Known(*value)),
+        None => failed
+            .contains(id)
+            .then_some(nia_layout::ArrayLengthValue::Failed),
     }
 }
 
@@ -99,8 +134,8 @@ pub struct ConstEnumValues {
     pub typed_values: Arc<HashMap<DefId, TypedConstValue>>,
     /// Cross-module semantic facts required through this phase.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
-    /// Diagnostics emitted while evaluating discriminants.
-    pub diagnostics: Vec<Diagnostic>,
+    /// Diagnostics emitted by this and earlier phases.
+    pub diagnostics: ConstDiagnostics,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -116,8 +151,8 @@ pub struct ConstValues {
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
     /// Cross-module semantic facts required through this phase.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
-    /// Diagnostics emitted while evaluating initializers.
-    pub diagnostics: Vec<Diagnostic>,
+    /// Diagnostics emitted by this and earlier phases.
+    pub diagnostics: ConstDiagnostics,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -127,8 +162,227 @@ pub struct ConstTypedFacts {
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
     /// Cross-module semantic facts required through this phase.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
-    /// Diagnostics emitted while deriving runtime type facts.
-    pub diagnostics: Vec<Diagnostic>,
+    /// Diagnostics emitted by this and earlier phases.
+    pub diagnostics: ConstDiagnostics,
+}
+
+/// Diagnostics of const analysis in the order found, each filed under what
+/// it was found checking.
+///
+/// Body checking owns the static rules of every initializer and every
+/// function body it checks, and const analysis runs before it. When body
+/// checking rejects an initializer, const analysis checking that initializer
+/// statically only reports the same error again; what evaluating it finds,
+/// such as a division by zero, is independent and still reported. When body
+/// checking rejects a function body, executing it has no meaning, so
+/// nothing found executing it is reported. A caller with body checking's
+/// verdict reports [`ConstDiagnostics::reported`]. Every phase carries the
+/// filing, so no diagnostic is lost or reported against the verdict.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ConstDiagnostics {
+    entries: Vec<(Filing, Diagnostic)>,
+}
+
+/// Where a const analysis diagnostic belongs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Filing {
+    /// Not yet filed: found outside any initializer, or by an initializer
+    /// check still in progress.
+    Open,
+    /// Found statically checking this initializer.
+    Initializer(ConstKey),
+    /// Found evaluating an initializer.
+    Evaluation,
+    /// Found executing this function's body.
+    Function(GlobalDefId),
+}
+
+/// What a static const error belongs to: an initializer or a function body
+/// that body checking also checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DiagnosticOwner {
+    Initializer(ConstKey),
+    Function(GlobalDefId),
+}
+
+/// The initializers and function bodies body checking rejected: it
+/// reported their static errors.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BodyCheckRejections {
+    /// Constant initializers whose checking reported an error.
+    pub initializers: HashSet<ConstKey>,
+    /// Functions whose body checking reported an error.
+    pub functions: HashSet<GlobalDefId>,
+}
+
+impl BodyCheckRejections {
+    /// Adds the rejections of another body check.
+    pub fn extend(&mut self, other: &Self) {
+        self.initializers.extend(other.initializers.iter().copied());
+        self.functions.extend(other.functions.iter().copied());
+    }
+}
+
+impl ConstDiagnostics {
+    /// Adds a diagnostic, filed by the initializer check in progress if any.
+    pub fn push(&mut self, diagnostic: Diagnostic) {
+        self.entries.push((Filing::Open, diagnostic));
+    }
+
+    /// Adds a diagnostic found executing `function`'s body.
+    pub(crate) fn push_for_function(&mut self, diagnostic: Diagnostic, function: GlobalDefId) {
+        self.entries.push((Filing::Function(function), diagnostic));
+    }
+
+    /// Adds a static error of `owner`, found lowering it.
+    pub(crate) fn push_owned(&mut self, diagnostic: Diagnostic, owner: DiagnosticOwner) {
+        let filing = match owner {
+            DiagnosticOwner::Initializer(key) => Filing::Initializer(key),
+            DiagnosticOwner::Function(function) => Filing::Function(function),
+        };
+        self.entries.push((filing, diagnostic));
+    }
+
+    /// Adds `other`'s diagnostics, keeping their filing.
+    pub fn append_from(&mut self, other: &Self) {
+        self.entries.extend(other.entries.iter().cloned());
+    }
+
+    /// Number of diagnostics.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Whether there are no diagnostics.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Every diagnostic, whatever body checking's verdict. For callers
+    /// without that verdict, such as tests of const analysis alone.
+    pub fn iter(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.entries.iter().map(|(_, diagnostic)| diagnostic)
+    }
+
+    /// The diagnostics to report given what body checking `rejected`.
+    pub fn reported<'a>(
+        &'a self,
+        rejected: &'a BodyCheckRejections,
+    ) -> impl Iterator<Item = &'a Diagnostic> + 'a {
+        self.entries
+            .iter()
+            .filter(|(filing, _)| match filing {
+                Filing::Initializer(key) => !rejected.initializers.contains(key),
+                Filing::Function(function) => !rejected.functions.contains(function),
+                Filing::Open | Filing::Evaluation => true,
+            })
+            .map(|(_, diagnostic)| diagnostic)
+    }
+
+    /// The modules defining a function whose execution found a diagnostic.
+    /// Their body checks' verdicts decide whether those are reported.
+    pub fn function_modules(&self) -> HashSet<ModuleId> {
+        self.entries
+            .iter()
+            .filter_map(|(filing, _)| match filing {
+                Filing::Function(function) => Some(function.module_id),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Whether executing `function`'s body found a diagnostic.
+    pub fn found_in_function(&self, function: GlobalDefId) -> bool {
+        self.entries
+            .iter()
+            .any(|(filing, _)| *filing == Filing::Function(function))
+    }
+
+    /// Files the open diagnostics from `start` on as found executing
+    /// `function`'s body.
+    pub(crate) fn file_function(&mut self, start: usize, function: GlobalDefId) {
+        self.file_open(start, Filing::Function(function));
+    }
+
+    /// Files the open diagnostics from `start` on as found statically
+    /// checking `key`'s initializer.
+    pub(crate) fn file_static(&mut self, start: usize, key: ConstKey) {
+        self.file_open(start, Filing::Initializer(key));
+    }
+
+    /// Files the open diagnostics from `start` on as found evaluating an
+    /// initializer.
+    pub(crate) fn file_evaluation(&mut self, start: usize) {
+        self.file_open(start, Filing::Evaluation);
+    }
+
+    /// Files the open diagnostics from `start` on; those a nested
+    /// initializer check filed keep their filing.
+    fn file_open(&mut self, start: usize, filing: Filing) {
+        // A probe may have discarded diagnostics below `start`.
+        let start = start.min(self.entries.len());
+        for (entry, _) in &mut self.entries[start..] {
+            if *entry == Filing::Open {
+                *entry = filing;
+            }
+        }
+    }
+
+    /// Gives the diagnostics from `start` on that name no source file the
+    /// file `path`, where they were found.
+    pub(crate) fn locate_unlocated_since(&mut self, start: usize, path: &str) {
+        let start = start.min(self.entries.len());
+        for (_, diagnostic) in &mut self.entries[start..] {
+            if diagnostic.source_path.is_none() {
+                diagnostic.source_path = Some(path.to_owned());
+            }
+        }
+    }
+
+    /// Whether an error was found from `start` on.
+    pub(crate) fn has_errors_since(&self, start: usize) -> bool {
+        self.entries[start..]
+            .iter()
+            .any(|(_, diagnostic)| diagnostic.severity() == nia_diagnostic::Severity::Error)
+    }
+
+    pub(crate) fn truncate(&mut self, len: usize) {
+        self.entries.truncate(len);
+    }
+
+    pub(crate) fn split_off(&mut self, at: usize) -> Self {
+        Self {
+            entries: self.entries.split_off(at),
+        }
+    }
+
+    pub(crate) fn append(&mut self, mut other: Self) {
+        self.entries.append(&mut other.entries);
+    }
+
+    /// Every diagnostic, as [`ConstDiagnostics::iter`] gives them.
+    pub fn into_vec(self) -> Vec<Diagnostic> {
+        self.entries
+            .into_iter()
+            .map(|(_, diagnostic)| diagnostic)
+            .collect()
+    }
+}
+
+impl Extend<Diagnostic> for ConstDiagnostics {
+    fn extend<I: IntoIterator<Item = Diagnostic>>(&mut self, diagnostics: I) {
+        self.entries.extend(
+            diagnostics
+                .into_iter()
+                .map(|diagnostic| (Filing::Open, diagnostic)),
+        );
+    }
+}
+
+impl<'a> Extend<&'a Diagnostic> for ConstDiagnostics {
+    fn extend<I: IntoIterator<Item = &'a Diagnostic>>(&mut self, diagnostics: I) {
+        self.extend(diagnostics.into_iter().cloned());
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -266,8 +520,9 @@ pub struct ConstInput<'a> {
 pub struct ConstModuleLowering {
     /// Lowered resolved const module.
     pub module: Arc<ResolvedConstModule>,
-    /// Diagnostics emitted during lowering.
-    pub diagnostics: Vec<Diagnostic>,
+    /// Diagnostics emitted during lowering, each lowering error filed under
+    /// the initializer or function it belongs to.
+    pub diagnostics: ConstDiagnostics,
 }
 
 #[derive(Clone, Copy)]

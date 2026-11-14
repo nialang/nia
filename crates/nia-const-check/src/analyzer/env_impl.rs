@@ -39,6 +39,7 @@ impl ConstCommonEnv for Analyzer<'_> {
     fn begin_const_eval(&mut self) {
         if !self.const_eval_budget.is_active() {
             self.const_error_origin = None;
+            self.const_error_function = None;
         }
         self.const_eval_budget.begin_session();
     }
@@ -48,6 +49,7 @@ impl ConstCommonEnv for Analyzer<'_> {
             self.const_error_origin = self
                 .current_execution_source_path()
                 .map(|path| (error.clone(), path));
+            self.const_error_function = self.current_execution_function_id();
         }
     }
 
@@ -409,6 +411,7 @@ impl ConstCommonEnv for Analyzer<'_> {
         self.const_eval_budget.enter_call(span)?;
         self.call_locals.push(ConstCallFrame {
             is_execution_frame: true,
+            diagnostic_start: self.diagnostics.len(),
             ..ConstCallFrame::default()
         });
         self.resolved_expr_facts
@@ -420,7 +423,25 @@ impl ConstCommonEnv for Analyzer<'_> {
         // Function locals and their expression-type cache have identical
         // lifetimes. Pop both before releasing the budget depth so an
         // imbalance fails close to the frame operation that caused it.
-        self.call_locals.pop();
+        if let Some(frame) = self.call_locals.pop() {
+            // What executing the body found belongs to the function, and is
+            // located in the file that defines it.
+            if let Some(module_id) = frame.module_id
+                && module_id != self.input.defs.module_id
+                && let Some(path) = self
+                    .input
+                    .program
+                    .source_path
+                    .and_then(|source_path| source_path(module_id))
+            {
+                self.diagnostics
+                    .locate_unlocated_since(frame.diagnostic_start, path.as_str());
+            }
+            if let Some(function_id) = frame.function_id {
+                self.diagnostics
+                    .file_function(frame.diagnostic_start, function_id);
+            }
+        }
         self.resolved_expr_facts.pop();
         self.const_eval_budget.leave_call();
     }
@@ -705,8 +726,9 @@ impl ResolvedConstEnv for Analyzer<'_> {
         &mut self,
         binding: &ResolvedConstBinding,
     ) -> Result<(), ConstError> {
+        let start = self.diagnostics.len();
         let _ = self.resolved_const_binding_type(binding);
-        Ok(())
+        self.prepared(start, binding.value().span())
     }
 
     fn prepare_resolved_pattern_binding(
@@ -716,8 +738,9 @@ impl ResolvedConstEnv for Analyzer<'_> {
         let expected = binding
             .explicit_type()
             .map(|ty| self.substitute_ty_generics(ty));
+        let start = self.diagnostics.len();
         let _ = self.resolved_const_expr_type(binding.value(), expected);
-        Ok(())
+        self.prepared(start, binding.value().span())
     }
 
     fn prepare_resolved_function_result(
@@ -737,8 +760,9 @@ impl ResolvedConstEnv for Analyzer<'_> {
         let expected = self
             .active_execution_frames()
             .find_map(|frame| frame.return_type);
+        let start = self.diagnostics.len();
         let _ = self.resolved_const_expr_type(expr, expected);
-        Ok(())
+        self.prepared(start, expr.span())
     }
 
     fn prepare_resolved_call_arguments(
@@ -755,17 +779,19 @@ impl ResolvedConstEnv for Analyzer<'_> {
             .resolved_expr_facts
             .last()
             .and_then(|facts| facts.types.get(&span).copied());
+        let start = self.diagnostics.len();
         let _ =
             self.resolved_const_call_expr_runtime_type(span, callee, generic_args, args, expected);
-        Ok(())
+        self.prepared(start, span)
     }
 
     fn prepare_resolved_assignment(
         &mut self,
         assign: &nia_const_ir::ResolvedConstAssign,
     ) -> Result<(), ConstError> {
+        let start = self.diagnostics.len();
         self.check_resolved_const_assignment(assign.rhs().span(), assign);
-        Ok(())
+        self.prepared(start, assign.rhs().span())
     }
 
     fn prepare_resolved_try(
@@ -773,10 +799,11 @@ impl ResolvedConstEnv for Analyzer<'_> {
         span: Span,
         expr: &ResolvedConstExpr,
     ) -> Result<(), ConstError> {
+        let start = self.diagnostics.len();
         if let Some(inner_ty) = self.resolved_const_arg_runtime_type(expr, None) {
             self.prepare_resolved_const_try_error_conversion(span, inner_ty);
         }
-        Ok(())
+        self.prepared(start, span)
     }
 
     fn convert_resolved_try_error(
@@ -1731,7 +1758,8 @@ impl Analyzer<'_> {
         let defs = self.global_defs(module_id)?;
         let signatures = self.signatures_for_module(module_id)?;
         let normalization = self.type_normalization_for_module(module_id)?;
-        let array_length = |id| array_lengths.get(&id).copied();
+        let array_length =
+            |id| crate::array_length_value(&array_lengths, &self.failed_const_exprs, &id);
         let layout_query = |module_id| self.compute_program_layout(module_id, &array_lengths);
         let program_struct = |def_id| {
             self.struct_signature_for(def_id)

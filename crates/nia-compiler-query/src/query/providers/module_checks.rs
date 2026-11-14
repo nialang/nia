@@ -68,10 +68,10 @@ fn with_module_layout_input<T>(
         capture_query_failure(&query_failure, db.get(SignatureLayoutsQuery(module_id)))
             .map(|layouts| Arc::clone(&layouts.semantic))
     };
-    let local_array_lengths = |id| array_lengths.values.get(&id).copied();
+    let local_array_lengths = |id| array_lengths.length(&id);
     let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
         capture_query_failure(&query_failure, db.get(ConstArrayLengthsQuery(id.module_id)))
-            .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+            .and_then(|array_lengths| array_lengths.length(&id))
     };
     let type_signatures = |def_id: GlobalDefId| {
         capture_query_failure(

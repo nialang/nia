@@ -486,6 +486,21 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(super) fn check_local_binding(&mut self, stmt: &Stmt, binding: &BindingStmt) {
+        let diagnostics_start = self.diagnostics.len();
+        self.check_local_binding_inner(stmt, binding);
+        if binding.is_const()
+            && self.reported_errors_since(diagnostics_start)
+            && let Some(local_id) = self
+                .single_pattern_binding_key(&binding.pattern)
+                .and_then(|key| self.semantic_uses.node_local_def(key))
+        {
+            self.body_check_rejections
+                .initializers
+                .insert(nia_const_check::ConstKey::Local(local_id));
+        }
+    }
+
+    fn check_local_binding_inner(&mut self, stmt: &Stmt, binding: &BindingStmt) {
         let span = stmt.span;
         if binding.is_const() && binding.value.is_none() {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -515,23 +530,19 @@ impl<'a> BodyChecker<'a> {
                 // nested local type from that single input contract.
                 let explicit_input = self.ty_for_type(ty);
                 let value_ty = if binding.is_const() {
-                    self.with_const_context(|this| {
-                        this.check_expr_with_expected(value, Some(explicit_input))
-                    })
+                    self.check_typed_const_initializer(value, explicit_input)
                 } else {
-                    self.check_expr_with_expected(value, Some(explicit_input))
-                };
-                if binding.is_const() && self.is_const_only_ty(value_ty) {
-                    // The initializer is validated by nia-const-check and has no runtime value.
-                } else if self.is_const_only_ty(value_ty) {
-                    self.reject_runtime_const_only_value(value.span, "binding initializer");
-                    if let Some(binding_key) = binding_key {
-                        self.record_error_local_binding(binding_key);
+                    let value_ty = self.check_expr_with_expected(value, Some(explicit_input));
+                    if self.is_const_only_ty(value_ty) {
+                        self.reject_runtime_const_only_value(value.span, "binding initializer");
+                        if let Some(binding_key) = binding_key {
+                            self.record_error_local_binding(binding_key);
+                        }
+                        return;
                     }
-                    return;
-                } else {
                     self.expect_expr_type(value, explicit_input, value_ty, "binding initializer");
-                }
+                    value_ty
+                };
                 let input_ty = self
                     .materialize_inferred_array_type(explicit_input, value_ty)
                     .unwrap_or(explicit_input);
@@ -546,18 +557,12 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             (None, Some(value)) => {
-                let value_ty = if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
-                    if binding.is_const() {
-                        self.with_const_context(|this| this.infer_array_literal_expr(value))
-                    } else {
-                        self.infer_array_literal_expr(value)
-                    }
+                let value_ty = if binding.is_const() {
+                    self.check_untyped_const_initializer(value)
+                } else if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
+                    self.infer_array_literal_expr(value)
                 } else {
-                    if binding.is_const() {
-                        self.with_const_context(|this| this.check_expr(value))
-                    } else {
-                        self.check_expr(value)
-                    }
+                    self.check_expr(value)
                 };
                 if !binding.is_const() && self.is_const_only_ty(value_ty) {
                     self.reject_runtime_const_only_value(value.span, "binding initializer");

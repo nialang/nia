@@ -161,7 +161,13 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
         )?;
         let input = self.input;
         self.remove_generic_nominal_layouts(layouts);
-        let array_lengths = |id: GlobalConstExprId| input.array_length(&id);
+        // Lowering runs only on a program whose checks passed, so every
+        // length it reads was evaluated.
+        let array_lengths = |id: GlobalConstExprId| {
+            input
+                .array_length(&id)
+                .map(nia_layout::ArrayLengthValue::Known)
+        };
         let program = ProgramLayoutContext {
             const_argument: input
                 .const_computation

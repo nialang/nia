@@ -8,7 +8,7 @@ pub(super) fn const_enum_values_from_check(
         values: const_eval.enum_values.clone(),
         typed_values: const_eval.typed_enum_values.clone(),
         provider_demands: const_eval.provider_demands.clone(),
-        diagnostics: Vec::new(),
+        diagnostics: Default::default(),
     }
 }
 

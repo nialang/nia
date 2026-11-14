@@ -878,15 +878,17 @@ fun main() i32 { width as i32 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("trait bound not satisfied for const function call")),
+            .contains("trait bound not satisfied: i32: Marker")),
         "{:?}",
         program.diagnostics
     );
     assert!(
         program.diagnostics.iter().any(|diagnostic| {
-            let summary = &diagnostic.diagnostic.summary;
-            summary.contains("const function call")
-                && summary.contains("visible implementation of `Marker` for `i32`")
+            diagnostic
+                .diagnostic
+                .notes
+                .iter()
+                .any(|note| note.contains("visible implementation of `Marker` for `i32`"))
         }),
         "{:?}",
         program.diagnostics
@@ -916,10 +918,9 @@ fun main() i32 { width as i32 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| {
             let summary = &diagnostic.diagnostic.summary;
-            summary.contains("const function call")
-                && summary.contains("Source::Item")
-                && summary.contains("`bool`")
-                && summary.contains("requires `i32`")
+            summary.contains(
+                "associated type binding not satisfied: Source::Item expected i32, got bool",
+            )
         }),
         "{:?}",
         program.diagnostics
@@ -983,7 +984,7 @@ where T: Marker {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("trait bound not satisfied for const function call")),
+            .contains("trait bound not satisfied: i32: Marker")),
         "{:?}",
         program.diagnostics
     );

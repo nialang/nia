@@ -220,13 +220,25 @@ pub struct Layouts {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// What const analysis found for an array length written as a const
+/// expression.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArrayLengthValue {
+    /// The evaluated length.
+    Known(u64),
+    /// Evaluating it failed, and the failure was reported at its root; a
+    /// type using it has no layout, and nothing more is reported.
+    Failed,
+}
+
 /// Supplies evaluated values for array lengths backed by const expressions.
 ///
 /// The global expression identity prevents equal local indices in different
 /// modules from sharing a value accidentally.
 pub trait ArrayLengthValues {
-    /// Returns the non-negative array length computed for `id`.
-    fn array_len(&self, id: GlobalConstExprId) -> Option<u64>;
+    /// What const analysis found for `id`, or `None` when it never
+    /// evaluated it.
+    fn array_len(&self, id: GlobalConstExprId) -> Option<ArrayLengthValue>;
 }
 
 /// Array-length provider used when no const evaluation product is available.
@@ -234,16 +246,16 @@ pub trait ArrayLengthValues {
 pub struct NoArrayLengthValues;
 
 impl ArrayLengthValues for NoArrayLengthValues {
-    fn array_len(&self, _id: GlobalConstExprId) -> Option<u64> {
+    fn array_len(&self, _id: GlobalConstExprId) -> Option<ArrayLengthValue> {
         None
     }
 }
 
 impl<F> ArrayLengthValues for F
 where
-    F: Fn(GlobalConstExprId) -> Option<u64>,
+    F: Fn(GlobalConstExprId) -> Option<ArrayLengthValue>,
 {
-    fn array_len(&self, id: GlobalConstExprId) -> Option<u64> {
+    fn array_len(&self, id: GlobalConstExprId) -> Option<ArrayLengthValue> {
         self(id)
     }
 }
@@ -418,7 +430,7 @@ pub struct ProgramLayoutContext<'a> {
     /// Lazy lookup of layouts owned by another module.
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Arc<Layouts>>>,
     /// Lazy lookup of evaluated global const-expression lengths.
-    pub array_lengths: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
+    pub array_lengths: Option<&'a dyn Fn(GlobalConstExprId) -> Option<ArrayLengthValue>>,
     /// Eager imported struct signatures.
     pub structs: Option<&'a HashMap<GlobalDefId, ProgramStructSignature>>,
     /// Eager imported union signatures.
@@ -1168,6 +1180,11 @@ impl<'a> LayoutComputer<'a> {
                     self.program
                         .array_lengths
                         .and_then(|array_lengths| array_lengths(id))
+                };
+                let value = match value {
+                    Some(ArrayLengthValue::Known(value)) => Some(value),
+                    Some(ArrayLengthValue::Failed) => return None,
+                    None => None,
                 };
                 let Some(value) = value else {
                     self.diagnostics.push(

@@ -234,7 +234,7 @@ fun main() f64 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("out of range for F32")),
+            .any(|diagnostic| diagnostic.summary.contains("out of range for f32")),
         "{:?}",
         checked.diagnostics
     );
@@ -257,7 +257,7 @@ fun main() f64 {
     let float_diagnostic = checked
         .diagnostics
         .iter()
-        .find(|diagnostic| diagnostic.summary.contains("out of range for F32"))
+        .find(|diagnostic| diagnostic.summary.contains("out of range for f32"))
         .expect("float range diagnostic");
     assert!(
         float_diagnostic
@@ -576,7 +576,7 @@ fun main() usize {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("out of range for F32")),
+            .any(|diagnostic| diagnostic.summary.contains("out of range for f32")),
         "{:?}",
         checked.diagnostics
     );

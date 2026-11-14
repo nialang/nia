@@ -12,6 +12,9 @@ pub struct BodyCheck {
     pub facts: Arc<SemanticFacts>,
     /// Global type inference issues produced while checking initializers.
     pub global_type_issues: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
+    /// Constant initializers whose checking reported an error. Body checking
+    /// owns their typing; evaluating them only observes that error again.
+    pub body_check_rejections: nia_const_check::BodyCheckRejections,
     /// Complete executable references from static initializers by global identity.
     pub static_init_refs: HashMap<GlobalDefId, nia_function_ir::FunctionBodyRefs>,
     /// Function identities checked by this product.
@@ -48,6 +51,8 @@ pub struct PrecheckedBodyCheck {
     pub facts: SemanticFacts,
     /// Source-level issues from global type inference.
     pub global_type_issues: HashMap<GlobalDefId, nia_item_signatures::ProgramGlobalTypeIssue>,
+    /// Constant initializers previously rejected.
+    pub body_check_rejections: nia_const_check::BodyCheckRejections,
     /// Previously checked function identities.
     pub checked_functions: HashSet<GlobalDefId>,
     /// Diagnostic ownership for retained diagnostics.

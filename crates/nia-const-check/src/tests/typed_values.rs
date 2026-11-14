@@ -2127,18 +2127,20 @@ extend Store : Slot {
 const fun inspect[T, N: usize, M: usize](
     value: &Slot[Item = Pair[[u8; N], Box[[u8; M]]]],
     marker: T,
-) [u8; N] {
+) usize {
     let _ = (value, marker);
-    [0u8, 0u8, 0u8, 0u8]
+    0
 }
 
-const fun run() [u8; 4] {
+// The result type does not mention `N`, so only the mismatched binding
+// could determine it; a committed prefix would infer `N` and report `M`.
+const fun run() usize {
     let store = Store {};
     let value: &Slot[Item = Pair[[u8; 4], Other[bool]]] = &store;
     inspect(value, 1i32)
 }
 
-const RESULT: [u8; 4] = run();
+const RESULT: usize = run();
 "#,
     );
 

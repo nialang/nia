@@ -184,7 +184,13 @@ count: i64,
             signatures: &signatures,
             root_types: &root_types,
             normalized: &HashMap::new(),
-            array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+            array_lengths: &|id| {
+                const_eval
+                    .array_lengths
+                    .get(&id)
+                    .copied()
+                    .map(crate::ArrayLengthValue::Known)
+            },
             target: TargetDataLayout::for_target(
                 nia_target::TargetConfig::parse(target).expect("maintained target"),
             ),

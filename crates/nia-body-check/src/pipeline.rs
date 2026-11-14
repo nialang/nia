@@ -80,12 +80,14 @@ impl<'a> BodyChecker<'a> {
             ir,
             facts,
             global_type_issues,
+            body_check_rejections,
             checked_functions,
             diagnostic_owners,
             diagnostics,
         } = prechecked;
         self.global_inits = ir.global_inits;
         self.global_type_issues = global_type_issues;
+        self.body_check_rejections = body_check_rejections;
         self.checked_functions = checked_functions;
         self.diagnostic_owners = diagnostic_owners;
         self.diagnostics = diagnostics;
@@ -495,6 +497,9 @@ impl<'a> BodyChecker<'a> {
     ///
     /// The type fact participates in the same module-level inference pass as
     /// globals, while constant evaluation remains a separate semantic phase.
+    /// Its initializer is typed like a local constant's, so the two cannot
+    /// disagree: body checking owns the typing rules of every constant
+    /// initializer, and const evaluation reports only what evaluation finds.
     pub(super) fn check_const_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
         let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Const)
         else {
@@ -516,33 +521,31 @@ impl<'a> BodyChecker<'a> {
             ));
             return;
         };
+        let diagnostics_start = self.diagnostics.len();
         let const_ty = match binding.ty.as_ref() {
             Some(ty) => {
                 let explicit = self.ty_for_type(ty);
-                let value_ty = self
-                    .const_initializer_runtime_type(value, Some(explicit))
-                    .unwrap_or_else(|| {
-                        self.with_const_context(|this| {
-                            this.check_expr_with_expected(value, Some(explicit))
-                        })
-                    });
-                if !self.is_const_only_ty(value_ty) && !self.types_match(explicit, value_ty) {
-                    self.expect_expr_type(value, explicit, value_ty, "const initializer");
-                }
+                let value_ty = self.check_typed_const_initializer(value, explicit);
                 self.materialize_inferred_array_type(explicit, value_ty)
                     .unwrap_or(explicit)
             }
-            None => {
-                if let Some(ty) = self.const_initializer_runtime_type(value, None) {
-                    ty
-                } else if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
-                    self.with_const_context(|this| this.infer_array_literal_expr(value))
-                } else {
-                    self.with_const_context(|this| this.check_expr(value))
-                }
-            }
+            None => self.check_untyped_const_initializer(value),
         };
+        if self.reported_errors_since(diagnostics_start) {
+            self.body_check_rejections
+                .initializers
+                .insert(nia_const_check::ConstKey::Global(
+                    self.global_def_id(def_id),
+                ));
+        }
         self.const_types.insert(def_id, const_ty);
+    }
+
+    /// Whether an error was reported since `start`.
+    pub(super) fn reported_errors_since(&self, start: usize) -> bool {
+        self.diagnostics[start..]
+            .iter()
+            .any(|diagnostic| diagnostic.severity() == nia_diagnostic::Severity::Error)
     }
 
     pub(super) fn check_reachable_const_binding(
@@ -562,21 +565,32 @@ impl<'a> BodyChecker<'a> {
         self.check_const_binding(item_span, binding);
     }
 
-    pub(super) fn const_initializer_runtime_type(
+    /// Types a constant initializer against its declared type. Global and
+    /// local constants share this, so their initializers follow one set of
+    /// rules, reported in one wording.
+    pub(super) fn check_typed_const_initializer(
         &mut self,
         value: &Expr,
-        expected: Option<InternedTyId>,
-    ) -> Option<InternedTyId> {
+        explicit: InternedTyId,
+    ) -> InternedTyId {
+        let value_ty =
+            self.with_const_context(|this| this.check_expr_with_expected(value, Some(explicit)));
+        // A const-only value, such as a string literal, has no runtime
+        // representation to convert; const evaluation validates it.
+        if !self.is_const_only_ty(value_ty) {
+            self.expect_expr_type(value, explicit, value_ty, "const initializer");
+        }
+        value_ty
+    }
+
+    /// Types the initializer of a constant without a declared type, global
+    /// or local alike.
+    pub(super) fn check_untyped_const_initializer(&mut self, value: &Expr) -> InternedTyId {
         self.with_const_context(|this| {
-            let const_expr = this.lower_const_expr(value).ok()?;
-            let ty = this.const_expr_type_for_ir_with_expected(&const_expr, expected)?;
-            match ty {
-                nia_const_check::ConstValueType::Runtime(ty) => expected
-                    .and_then(|expected| {
-                        this.adapt_expr_to_expected_type(value, expected, ty, true, true)
-                    })
-                    .or(Some(ty)),
-                _ => None,
+            if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
+                this.infer_array_literal_expr(value)
+            } else {
+                this.check_expr(value)
             }
         })
     }
@@ -743,6 +757,11 @@ impl<'a> BodyChecker<'a> {
         if diagnostic_start != diagnostic_end {
             self.diagnostic_owners.resize(diagnostic_end, None);
             self.diagnostic_owners[diagnostic_start..diagnostic_end].fill(Some(global_def_id));
+        }
+        // Executing a body that does not check has no meaning; what const
+        // evaluation found executing it is not reported.
+        if self.reported_errors_since(diagnostic_start) {
+            self.body_check_rejections.functions.insert(global_def_id);
         }
     }
 

@@ -213,7 +213,7 @@ const n: usize = width();
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("expected array type")),
+            .contains("type mismatch in assignment: expected [char; 5], got bool")),
         "{:?}",
         program.diagnostics
     );
@@ -242,7 +242,7 @@ const n: usize = width();
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("primitive type bool")),
+            .contains("type mismatch in assignment: expected bool, got usize")),
         "{:?}",
         program.diagnostics
     );

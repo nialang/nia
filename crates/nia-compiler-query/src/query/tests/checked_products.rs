@@ -91,7 +91,14 @@ fn checked_module_reuses_cached_semantic_product_handles() {
         &body_check.semantic.provider_demands
     ));
     assert_eq!(checked.body_diagnostics, body_check.diagnostics);
-    assert_eq!(checked.const_diagnostics, const_eval.diagnostics);
+    assert_eq!(
+        resolve_diagnostic_bundle(&checked.const_diagnostics).to_vec(),
+        const_eval
+            .diagnostics
+            .reported(&checked.body_check_rejections)
+            .cloned()
+            .collect::<Vec<_>>()
+    );
     assert!(Arc::ptr_eq(&checked.const_eval, &const_eval.semantic));
     assert!(Arc::ptr_eq(
         &const_eval.semantic.values,

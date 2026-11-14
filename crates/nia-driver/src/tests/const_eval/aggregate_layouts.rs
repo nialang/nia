@@ -655,7 +655,7 @@ fun main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("cannot infer const generic type argument `T`")),
+            .contains("cannot infer generic parameter `T`")),
         "{:?}",
         program.diagnostics
     );

@@ -121,16 +121,17 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
             signatures: &signatures,
             root_types: &root_types,
             normalized: &normalization.normalized,
-            array_lengths: &|id| const_eval.array_lengths.get(&id).copied(),
+            array_lengths: &|id| const_eval.array_length(&id),
             target: nia_layout::TargetDataLayout::LP64,
             program: nia_layout::ProgramLayoutContext::default(),
         })
         .expect("compute backend-lower pipeline test layouts");
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
+        failed: const_eval.failed_const_exprs.clone(),
         symbolic: const_eval.symbolic_const_exprs.clone(),
         provider_demands: const_eval.provider_demands.clone(),
-        diagnostics: Vec::new(),
+        diagnostics: Default::default(),
     };
     let const_values = nia_const_check::ConstValues {
         values: const_eval.values.clone(),
@@ -138,12 +139,12 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         failed: const_eval.failed.clone(),
         typed_values: const_eval.typed_values.clone(),
         provider_demands: const_eval.provider_demands.clone(),
-        diagnostics: Vec::new(),
+        diagnostics: Default::default(),
     };
     let const_typed_facts = nia_const_check::ConstTypedFacts {
         typed_values: const_eval.typed_values.clone(),
         provider_demands: const_eval.provider_demands.clone(),
-        diagnostics: Vec::new(),
+        diagnostics: Default::default(),
     };
     let body_const = nia_body_check::BodyConst::from_phases(
         &const_values,
@@ -255,9 +256,10 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     mutate_const(&mut const_eval, &type_lowering);
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
+        failed: const_eval.failed_const_exprs.clone(),
         symbolic: const_eval.symbolic_const_exprs.clone(),
         provider_demands: const_eval.provider_demands.clone(),
-        diagnostics: Vec::new(),
+        diagnostics: Default::default(),
     };
     let program_const = HashMap::from([(module_id, const_array_lengths.values.as_ref())]);
     let const_enum_values = const_enum_values_from_check(&const_eval);

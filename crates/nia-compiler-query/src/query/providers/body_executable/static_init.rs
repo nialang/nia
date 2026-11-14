@@ -63,6 +63,7 @@ pub(in crate::query) fn provide_executable_static_init(
                 },
                 facts: semantic_facts,
                 global_type_issues: module.global_type_issues.as_ref().clone(),
+                body_check_rejections: module.body_check_rejections.as_ref().clone(),
                 checked_functions: HashSet::new(),
                 diagnostic_owners: Vec::new(),
                 diagnostics: Vec::new(),

@@ -153,7 +153,29 @@ pub(super) fn store_module_layouts(
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ModuleConstCheck {
     pub(super) semantic: Arc<ConstCheck>,
-    pub(super) diagnostics: nia_diagnostic::DiagnosticBundle,
+    /// Kept apart from the semantic value, filed by initializer: which are
+    /// reported depends on body checking's verdict.
+    pub(super) diagnostics: Arc<nia_const_check::ConstDiagnostics>,
+    /// The `const fun` bodies the declaration-wide body check rejected, each
+    /// with its errors located in this module's file. Another module whose
+    /// const analysis executed one reports these instead of what executing
+    /// it found.
+    pub(super) rejected_const_functions: Arc<HashMap<GlobalDefId, Vec<nia_diagnostic::Diagnostic>>>,
+}
+
+impl ModuleConstCheck {
+    /// `rejected` and the `const fun` bodies the declaration-wide check
+    /// rejected, which a body check of reachable code alone does not see.
+    pub(super) fn with_declaration_rejections(
+        &self,
+        rejected: &nia_const_check::BodyCheckRejections,
+    ) -> nia_const_check::BodyCheckRejections {
+        let mut rejections = rejected.clone();
+        rejections
+            .functions
+            .extend(self.rejected_const_functions.keys().copied());
+        rejections
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
