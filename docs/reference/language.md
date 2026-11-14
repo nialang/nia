@@ -196,9 +196,18 @@ from context and defaults to `f64`.
 For a built-in binary arithmetic, bitwise, comparison, or equality operator
 whose operands share a numeric type, a typed operand supplies the type of an
 unsuffixed literal on either side, and of arithmetic over unsuffixed literals:
-with `n: u8`, `n + (1 + 2)` is `u8` arithmetic. A suffix is never overridden by
-the other operand. The count of a shift is typed independently and does not
-influence the type of the shifted value.
+with `n: u8`, `n + (1 + 2)` is `u8` arithmetic. An `if` or `match` whose every
+result is such a literal or arithmetic takes the type the same way, so
+`n - (if c { 1 } else { 0 })` is `u8` arithmetic too. A suffix is never
+overridden by the other operand. The count of a shift is typed independently
+and does not influence the type of the shifted value.
+
+The branches of an `if` and the arms of a `match` have one type: the type the
+context expects, or else the type of the first branch that has a type of its
+own. A branch whose type can only come from its context, such as an unsuffixed
+literal, takes that type wherever it is, so `if c { 1usize } else { 0 }` and
+`if c { 0 } else { 1usize }` are both `usize`. A branch that does not return,
+such as one that ends in `return`, adds no type.
 
 An expected optional or error-union type passes its payload type to the
 constructed value: in a function returning `?usize`, `return ?0;` makes `0` a

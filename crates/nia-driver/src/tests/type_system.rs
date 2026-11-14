@@ -2023,3 +2023,62 @@ fun main() i32 {
     let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program.diagnostics);
 }
+
+/// The branches of an `if` or `match` share one type. A branch whose type can
+/// only come from its context, such as an unsuffixed literal, takes it from
+/// the other branches wherever it is, and the whole expression takes it from
+/// an operator's other operand as a lone literal does.
+#[test]
+fn branches_take_their_shared_type_in_any_order() {
+    let root = temp_dir("branches_take_their_shared_type_in_any_order");
+    let path = root.join("main.nia");
+    write(
+        &path,
+        r#"
+fun ifFirst(c: bool) usize { let x = if c { 1usize } else { 0 }; x }
+fun ifLast(c: bool) usize { let x = if c { 0 } else { 1usize }; x }
+fun ifChain(c: bool, d: bool) usize { let x = if c { 1usize } else if d { 2 } else { 0 }; x }
+fun matchFirst(c: bool) u8 { let x = match c { true => 0, false => 1u8 }; x }
+fun operand(c: bool, n: usize) usize { n - (if c { 1 } else { 0 }) }
+fun operandLeft(c: bool, n: u8) u8 { (if c { 1 } else { 2 }) + n }
+fun compared(c: bool, n: u8) bool { n == (match c { true => 1, false => 2 }) }
+fun float(c: bool, f: f32) f32 { f * (if c { 1.5 } else { 2.0 }) }
+fun diverges(c: bool) i64 { let z = if c { return 3; } else { 4i64 }; z }
+fun main() i32 { 0 }
+"#,
+    );
+    let program = check_program(path.to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+/// A branch still has to fit the type the others give: a literal out of its
+/// range and a typed branch of another type are both reported.
+#[test]
+fn branches_report_what_does_not_fit_the_shared_type() {
+    let root = temp_dir("branches_report_what_does_not_fit_the_shared_type");
+    let path = root.join("main.nia");
+    write(
+        &path,
+        r#"
+fun typed(c: bool) u8 { if c { 1u8 } else { 1u16 } }
+fun range(c: bool, n: u8) u8 { n + (if c { 300 } else { 1 }) }
+fun kinds(c: bool) usize { let y = if c { 0 } else { true }; 0 }
+fun main() i32 { 0 }
+"#,
+    );
+    let program = check_program(path.to_string_lossy().into_owned());
+    let mut summaries = program
+        .diagnostics
+        .iter()
+        .map(|d| d.diagnostic.summary.clone())
+        .collect::<Vec<_>>();
+    summaries.sort();
+    assert_eq!(
+        summaries,
+        [
+            "integer literal 300 is out of range for u8 in if branches",
+            "type mismatch in if branches: expected bool, got i32",
+            "type mismatch in if branches: expected u8, got u16",
+        ]
+    );
+}

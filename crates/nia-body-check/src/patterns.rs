@@ -52,8 +52,9 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let target_ty = self.check_expr(&matched.target);
         let mut matrix = Vec::new();
-        let mut result_ty = expected;
 
+        // Patterns first: their types and coverage depend on no arm's body,
+        // and the bodies are typed together below.
         for arm in &matched.arms {
             if arm.patterns.len() > 1 && arm.patterns.iter().any(nia_ast::Pattern::contains_binding)
             {
@@ -106,13 +107,13 @@ impl<'a> BodyChecker<'a> {
                     )),
                 }
             }
-            let arm_ty = self.check_match_arm_body(&arm.body, result_ty);
-            if let Some(expected) = result_ty {
-                self.expect_match_arm_type(&arm.body, expected, arm_ty);
-            } else if !self.is_never(arm_ty) {
-                result_ty = Some(arm_ty);
-            }
         }
+        let bodies = matched
+            .arms
+            .iter()
+            .map(|arm| crate::branches::Branch::Arm(&arm.body))
+            .collect::<Vec<_>>();
+        let result_ty = self.check_branches(&bodies, expected, "match arms");
 
         self.check_pattern_matrix_exhaustive(matched.target.span, target_ty, &matrix);
         result_ty.unwrap_or_else(|| self.unit())
@@ -125,7 +126,6 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let target_ty = self.check_expr(&if_pattern.target);
         let mut coverage = PatternCoverage::default();
-        let mut result_ty = expected;
         let reported = self.diagnostics.len();
         self.check_pattern(
             &if_pattern.pattern,
@@ -134,19 +134,17 @@ impl<'a> BodyChecker<'a> {
             "if pattern",
         );
         self.relocate_call_result_mismatches(&if_pattern.target, reported);
-        let then_ty = self.check_block_with_expected(&if_pattern.then_branch, result_ty);
-        if let Some(expected) = result_ty {
-            self.expect_block_tail_type(
-                &if_pattern.then_branch,
-                expected,
-                then_ty,
-                "if pattern branches",
-            );
-        } else if !self.is_never(then_ty) {
-            result_ty = Some(then_ty);
-        }
-
         let Some(else_branch) = &if_pattern.else_branch else {
+            let then_ty = self.check_block_with_expected(&if_pattern.then_branch, expected);
+            if let Some(expected) = expected {
+                self.expect_block_tail_type(
+                    &if_pattern.then_branch,
+                    expected,
+                    then_ty,
+                    "if pattern branches",
+                );
+            }
+            let result_ty = expected.or((!self.is_never(then_ty)).then_some(then_ty));
             if self.pattern_coverage_covers_type(target_ty, &coverage) {
                 return result_ty.unwrap_or_else(|| self.unit());
             }
@@ -159,18 +157,12 @@ impl<'a> BodyChecker<'a> {
             }
             return self.unit();
         };
-        let else_ty = self.check_expr_with_expected(else_branch, result_ty);
-        if let Some(expected) = result_ty {
-            self.expect_expr_or_block_tail_type(
-                else_branch,
-                expected,
-                else_ty,
-                "if pattern branches",
-            );
-            expected
-        } else {
-            else_ty
-        }
+        let branches = [
+            crate::branches::Branch::Block(&if_pattern.then_branch),
+            crate::branches::Branch::Expr(else_branch),
+        ];
+        self.check_branches(&branches, expected, "if pattern branches")
+            .unwrap_or_else(|| self.never())
     }
 
     fn check_pattern(
@@ -1290,7 +1282,7 @@ impl<'a> BodyChecker<'a> {
         )
     }
 
-    fn check_match_arm_body(
+    pub(crate) fn check_match_arm_body(
         &mut self,
         body: &nia_ast::MatchArmBody,
         expected: Option<InternedTyId>,
@@ -1312,24 +1304,25 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn expect_match_arm_type(
+    pub(crate) fn expect_match_arm_type(
         &mut self,
         body: &nia_ast::MatchArmBody,
         expected: InternedTyId,
         actual: InternedTyId,
+        context: &str,
     ) {
         if self.is_never(actual) {
             return;
         }
         match body {
             nia_ast::MatchArmBody::Expr(expr) => {
-                self.expect_expr_type(expr, expected, actual, "match arms");
+                self.expect_expr_type(expr, expected, actual, context);
             }
             nia_ast::MatchArmBody::Block(block) => {
-                self.expect_block_tail_type(block, expected, actual, "match arms");
+                self.expect_block_tail_type(block, expected, actual, context);
             }
             nia_ast::MatchArmBody::Stmt(stmt) => {
-                self.expect_type(stmt.span, expected, actual, "match arms");
+                self.expect_type(stmt.span, expected, actual, context);
             }
         }
     }

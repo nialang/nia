@@ -1585,43 +1585,12 @@ impl<'a> BodyChecker<'a> {
             return self.unit();
         };
 
-        if let Some(expected) = expected {
-            let then_ty = self.check_block_with_expected(then_branch, Some(expected));
-            self.expect_block_tail_type(then_branch, expected, then_ty, "if branches");
-            let else_ty = self.check_expr_with_expected(else_branch, Some(expected));
-            self.expect_expr_or_block_tail_type(else_branch, expected, else_ty, "if branches");
-            return expected;
-        }
-
-        if self.block_tail_is_numeric_literal(then_branch)
-            && !self.is_numeric_literal_expr(else_branch)
-        {
-            let else_ty = self.check_expr(else_branch);
-            if self.is_never(else_ty) {
-                let then_ty = self.check_block(then_branch);
-                return self.block_tail_materialized_type(then_branch, then_ty);
-            }
-            let then_ty = self.check_block_with_expected(then_branch, Some(else_ty));
-            self.expect_block_tail_type(then_branch, else_ty, then_ty, "if branches");
-            return if self.is_never(then_ty) {
-                else_ty
-            } else {
-                self.block_tail_materialized_type(then_branch, then_ty)
-            };
-        }
-
-        let then_ty = self.check_block(then_branch);
-        if self.is_never(then_ty) {
-            let else_ty = self.check_expr(else_branch);
-            return if self.is_never(else_ty) {
-                then_ty
-            } else {
-                self.expr_ty(else_branch).unwrap_or(else_ty)
-            };
-        }
-        let else_ty = self.check_expr_with_expected(else_branch, Some(then_ty));
-        self.expect_expr_type(else_branch, then_ty, else_ty, "if branches");
-        then_ty
+        let branches = [
+            crate::branches::Branch::Block(then_branch),
+            crate::branches::Branch::Expr(else_branch),
+        ];
+        self.check_branches(&branches, expected, "if branches")
+            .unwrap_or_else(|| self.never())
     }
 
     fn check_if_pattern_chain_expr(
@@ -1647,19 +1616,17 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
-        let mut result_ty = expected;
-        let then_ty = self.check_block_with_expected(&chain.then_branch, result_ty);
-        if let Some(expected) = result_ty {
-            self.expect_block_tail_type(
-                &chain.then_branch,
-                expected,
-                then_ty,
-                "if pattern chain branches",
-            );
-        } else if !self.is_never(then_ty) {
-            result_ty = Some(then_ty);
-        }
         let Some(else_branch) = &chain.else_branch else {
+            let then_ty = self.check_block_with_expected(&chain.then_branch, expected);
+            if let Some(expected) = expected {
+                self.expect_block_tail_type(
+                    &chain.then_branch,
+                    expected,
+                    then_ty,
+                    "if pattern chain branches",
+                );
+            }
+            let result_ty = expected.or((!self.is_never(then_ty)).then_some(then_ty));
             if exhaustive {
                 return result_ty.unwrap_or_else(|| self.unit());
             }
@@ -1679,18 +1646,12 @@ impl<'a> BodyChecker<'a> {
             }
             return self.unit();
         };
-        if let Some(expected) = result_ty {
-            let else_ty = self.check_expr_with_expected(else_branch, result_ty);
-            self.expect_expr_or_block_tail_type(
-                else_branch,
-                expected,
-                else_ty,
-                "if pattern chain branches",
-            );
-            expected
-        } else {
-            self.check_expr(else_branch)
-        }
+        let branches = [
+            crate::branches::Branch::Block(&chain.then_branch),
+            crate::branches::Branch::Expr(else_branch),
+        ];
+        self.check_branches(&branches, expected, "if pattern chain branches")
+            .unwrap_or_else(|| self.never())
     }
 
     pub(crate) fn expect_block_tail_type(
@@ -1719,25 +1680,6 @@ impl<'a> BodyChecker<'a> {
         } else {
             self.expect_expr_type(expr, expected, actual, context);
         }
-    }
-
-    fn block_tail_materialized_type(
-        &mut self,
-        block: &nia_ast::Block,
-        fallback: InternedTyId,
-    ) -> InternedTyId {
-        block
-            .tail
-            .as_deref()
-            .and_then(|tail| self.expr_ty(tail))
-            .unwrap_or(fallback)
-    }
-
-    fn block_tail_is_numeric_literal(&self, block: &nia_ast::Block) -> bool {
-        block
-            .tail
-            .as_deref()
-            .is_some_and(|tail| self.is_numeric_literal_expr(tail))
     }
 
     pub(crate) fn index_lhs_expected_from_index_expected(
@@ -1938,7 +1880,7 @@ impl<'a> BodyChecker<'a> {
         }
 
         let mut prechecked_rhs = None;
-        if self.is_untyped_numeric_literal_expr(lhs) && !self.is_untyped_numeric_literal_expr(rhs) {
+        if self.is_context_typed(lhs) && !self.is_context_typed(rhs) {
             let rhs_actual = self.check_expr(rhs);
             let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
             if self.is_numeric(rhs_ty) && self.can_expected_type_drive_builtin_operator(rhs_ty, op)
@@ -1972,7 +1914,7 @@ impl<'a> BodyChecker<'a> {
         }
         let lhs_ty = self.expr_ty(lhs).unwrap_or(lhs_actual);
         let rhs_expected = if self.is_numeric_literal_expr(rhs)
-            || self.is_untyped_literal_arithmetic(rhs)
+            || self.is_context_typed(rhs)
             || (matches!(op, BinaryOp::Eq | BinaryOp::Ne)
                 && matches!(rhs.kind, ExprKind::OmittedMember { .. }))
         {
@@ -2143,32 +2085,6 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn is_untyped_numeric_literal_expr(&self, expr: &Expr) -> bool {
         self.is_numeric_literal_expr(expr) && !self.numeric_literal_has_suffix(expr)
-    }
-
-    /// Whether an operand's type can only come from context: arithmetic over
-    /// unsuffixed literals, as in `(1 + 2)`. It takes the other operand's
-    /// type as a single unsuffixed literal does, so `n + (1 + 2)` with a
-    /// `usize` `n` is `usize` arithmetic.
-    fn is_untyped_literal_arithmetic(&self, expr: &Expr) -> bool {
-        match &expr.kind {
-            ExprKind::Binary { op, lhs, rhs } => {
-                matches!(
-                    op,
-                    BinaryOp::Add
-                        | BinaryOp::Sub
-                        | BinaryOp::Mul
-                        | BinaryOp::Div
-                        | BinaryOp::Rem
-                        | BinaryOp::BitAnd
-                        | BinaryOp::BitOr
-                        | BinaryOp::BitXor
-                ) && [lhs, rhs].into_iter().all(|operand| {
-                    self.is_untyped_numeric_literal_expr(operand)
-                        || self.is_untyped_literal_arithmetic(operand)
-                })
-            }
-            _ => false,
-        }
     }
 
     fn check_cast(&mut self, span: Span, source: InternedTyId, target: InternedTyId) {

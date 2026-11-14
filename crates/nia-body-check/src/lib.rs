@@ -42,6 +42,7 @@ use std::{
 
 mod aggregates;
 mod bir;
+mod branches;
 mod callable_views;
 mod calls;
 mod expr;
