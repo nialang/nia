@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::ReceiverAccess;
 use crate::calls::args::CallTarget;
 use nia_symbol::ToSymbolId;
 
@@ -2174,6 +2175,14 @@ impl<'a> BodyChecker<'a> {
         complete
     }
 
+    fn reject_readonly_receiver(&mut self, receiver: &Expr) {
+        self.diagnostics.push(Diagnostic::user_error_at(
+            codes::TYPE_CHECK,
+            receiver.span,
+            "receiver cannot be matched through read-only `&T`",
+        ));
+    }
+
     pub(in crate::calls::methods) fn check_receiver_match(
         &mut self,
         receiver: &Expr,
@@ -2181,15 +2190,16 @@ impl<'a> BodyChecker<'a> {
         receiver_kind: ReceiverKind,
     ) {
         if receiver_kind == ReceiverKind::Ref {
-            let base = self.receiver_base_type(actual_receiver_ty);
-            if base.as_ref().is_some_and(|base| base.has_readonly_pointer) {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    codes::TYPE_CHECK,
-                    receiver.span,
-                    "receiver cannot be matched through read-only `&T`",
-                ));
-            } else if !base.as_ref().is_some_and(|base| base.from_pointer) {
-                self.check_reference_target(receiver, "receiver", false);
+            // A nominal value reached through pointers is read-only if any of
+            // them is; the receiver value's own kind decides the rest.
+            let nominal_readonly = self
+                .receiver_base_type(actual_receiver_ty)
+                .is_some_and(|base| base.has_readonly_pointer);
+            match self.receiver_access(actual_receiver_ty) {
+                _ if nominal_readonly => self.reject_readonly_receiver(receiver),
+                ReceiverAccess::ReadOnlyPointer => self.reject_readonly_receiver(receiver),
+                ReceiverAccess::WritablePointer => {}
+                ReceiverAccess::Place => self.check_reference_target(receiver, "receiver", false),
             }
         }
     }

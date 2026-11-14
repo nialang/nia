@@ -2082,3 +2082,51 @@ fun main() i32 { 0 }
         ]
     );
 }
+
+/// A `&mut self` method writes through a writable slice or pointer held in a
+/// `let` local, which needs no writable place of its own; through a
+/// read-only one it reports exactly that.
+#[test]
+fn writable_views_in_let_locals_are_mutable_receivers() {
+    let root = temp_dir("writable_views_in_let_locals_are_mutable_receivers");
+    let path = root.join("main.nia");
+    write(
+        &path,
+        r#"
+using std::slice;
+struct Box { value: u8 }
+extend Box { fun bump(&mut self) () { self.value += 1; } }
+fun slices(buffer: &mut [u8], input: &[u8]) usize { let s = buffer; s.copyFrom(input) }
+fun pointers(b: &mut Box) () { let p = b; p.bump(); }
+fun main() i32 { 0 }
+"#,
+    );
+    let program = check_program(path.to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+
+    let path = root.join("readonly.nia");
+    write(
+        &path,
+        r#"
+struct Box { value: u8 }
+extend Box { fun bump(&mut self) () { self.value += 1; } }
+fun readonly(b: &Box) () { b.bump(); }
+fun value() () { let b = Box { value: 1 }; b.bump(); }
+fun main() i32 { 0 }
+"#,
+    );
+    let program = check_program(path.to_string_lossy().into_owned());
+    let mut summaries = program
+        .diagnostics
+        .iter()
+        .map(|d| d.diagnostic.summary.clone())
+        .collect::<Vec<_>>();
+    summaries.sort();
+    assert_eq!(
+        summaries,
+        [
+            "receiver cannot be matched through read-only `&T`",
+            "receiver is not assignable: local is let",
+        ]
+    );
+}

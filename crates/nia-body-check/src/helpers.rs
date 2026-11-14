@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::{BodyChecker, ReceiverBase};
+use crate::{BodyChecker, ReceiverAccess, ReceiverBase};
 use nia_ast::GenericParamKind;
 use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId, ReceiverKind};
@@ -126,6 +126,26 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn receiver_base_type(&self, ty: InternedTyId) -> Option<ReceiverBase> {
         self.receiver_base_type_inner(ty, false, false)
+    }
+
+    /// How a receiver value of type `ty` reaches its storage: whether it is
+    /// itself a pointer to it, and whether that pointer is read-only. A
+    /// pointer, a slice, and a trait object each carry their storage's
+    /// address, so a `&mut self` method writes through them and needs no
+    /// writable place for the value itself; any other value is the storage.
+    pub(crate) fn receiver_access(&self, ty: InternedTyId) -> ReceiverAccess {
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::Pointer { is_readonly, .. })
+            | Some(TyKind::Slice { is_readonly, .. })
+            | Some(TyKind::TraitObject { is_readonly, .. }) => {
+                if *is_readonly {
+                    ReceiverAccess::ReadOnlyPointer
+                } else {
+                    ReceiverAccess::WritablePointer
+                }
+            }
+            _ => ReceiverAccess::Place,
+        }
     }
 
     pub(crate) fn receiver_ty_for_target(

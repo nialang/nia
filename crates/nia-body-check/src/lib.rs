@@ -346,6 +346,17 @@ struct ReceiverBase {
     has_readonly_pointer: bool,
 }
 
+/// How a method receiver value reaches the storage the method works on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReceiverAccess {
+    /// The value is the storage.
+    Place,
+    /// The value is a writable pointer, slice, or trait object to it.
+    WritablePointer,
+    /// The value is a read-only pointer, slice, or trait object to it.
+    ReadOnlyPointer,
+}
+
 #[derive(Debug, Clone)]
 struct CallableExtensionMethod {
     target_ty: InternedTyId,

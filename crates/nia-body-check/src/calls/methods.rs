@@ -693,14 +693,31 @@ impl<'a> BodyChecker<'a> {
         let auto_addressed = self
             .coerce_auto_address(call.receiver, receiver_expected_ty, call.actual_receiver_ty)
             .is_some();
-        if self
-            .coerce_method_receiver_to_trait_object(
-                call.receiver,
-                receiver_expected_ty,
-                call.actual_receiver_ty,
-                receiver_kind,
-            )
-            .is_none()
+        // A `&mut self` method on a value reached through a read-only pointer
+        // has the right receiver type: what fails is writing through it, which
+        // `check_receiver_match` reports as such.
+        let readonly_pointee = match self
+            .interner
+            .get(self.normalization.normalize(call.actual_receiver_ty))
+        {
+            Some(TyKind::Pointer {
+                is_readonly: true,
+                elem,
+            }) => Some(*elem),
+            _ => None,
+        };
+        let readonly_pointer_to_target = receiver_kind == ReceiverKind::Ref
+            && readonly_pointee
+                .is_some_and(|elem| self.types_match(elem, receiver_expr_expected_ty));
+        if !readonly_pointer_to_target
+            && self
+                .coerce_method_receiver_to_trait_object(
+                    call.receiver,
+                    receiver_expected_ty,
+                    call.actual_receiver_ty,
+                    receiver_kind,
+                )
+                .is_none()
             && !auto_addressed
         {
             self.expect_expr_type(
