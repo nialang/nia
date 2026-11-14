@@ -7,8 +7,6 @@ using root::os::windows::bindings::{
     pageReadWrite,
     VirtualAlloc,
     VirtualFree,
-    GetSystemInfo,
-    SystemInfo,
 };
 using root::os::windows::types::{
     Errno,
@@ -19,22 +17,14 @@ using root::os::windows::error::{
 
 pub struct MappedPages { ptr: &mut u8, releasePtr: &mut u8, releaseSize: usize }
 
+// Windows uses 4 KiB pages on every architecture it supports, x86_64 and
+// AArch64 alike, so the size is a constant as on the other platforms. Asking
+// `GetSystemInfo` instead costs a call into the system on every use, and
+// allocators ask on every request.
+const nativePageSize: usize = 4096;
+
 pub fun pageSize() usize {
-    let mut info: SystemInfo = .{
-        processorArchitecture: 0,
-        reserved: 0,
-        pageSize: 0,
-        minimumApplicationAddress: 0,
-        maximumApplicationAddress: 0,
-        activeProcessorMask: 0,
-        numberOfProcessors: 0,
-        processorType: 0,
-        allocationGranularity: 0,
-        processorLevel: 0,
-        processorRevision: 0,
-    };
-    GetSystemInfo(&mut info);
-    if info.pageSize == 0 { 4096 } else { info.pageSize as usize }
+    nativePageSize
 }
 
 pub fun pageAlignedLen(len: usize) Errno!usize {
