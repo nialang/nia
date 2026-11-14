@@ -1855,7 +1855,9 @@ lengths, repeat counts, range-pattern endpoints, const generic arguments, and
 calls made from those contexts. It uses the same types and values as runtime
 code: nominal structs, arrays, tuples, enums, and unions, with
 target-dependent sizes taken from the [ABI](abi.md). Reads of uninitialized
-storage and invalid representations are diagnosed.
+storage and invalid representations are diagnosed. Calls made during constant
+evaluation nest at most 256 deep; deeper recursion is an error, on every
+compiler host.
 
 `const fun` marks a function callable during constant evaluation; it is also an
 ordinary runtime function. A constant context may call `const fun`s but not

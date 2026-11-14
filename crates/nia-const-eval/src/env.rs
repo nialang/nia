@@ -44,11 +44,9 @@ pub struct ConstError {
 /// Default total interpreter-step limit per outer evaluation session.
 pub const DEFAULT_CONST_EVAL_STEP_LIMIT: usize = 1_000_000;
 /// Default nested const-function call-depth limit.
-/// This is a logical work limit. Evaluator entry points grow the physical
-/// stack separately so dispatch and typing frames cannot bypass this guard.
-#[cfg(windows)]
-pub const DEFAULT_CONST_EVAL_CALL_DEPTH_LIMIT: usize = 128;
-#[cfg(not(windows))]
+/// This is a logical work limit and the same on every host: whether a
+/// program compiles never depends on the machine compiling it. Each level of
+/// evaluation grows the physical stack as needed ([`crate::ensure_const_stack`]).
 pub const DEFAULT_CONST_EVAL_CALL_DEPTH_LIMIT: usize = 256;
 
 #[derive(Debug, Clone)]

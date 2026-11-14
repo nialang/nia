@@ -1538,7 +1538,7 @@ fun main() i32 { 0 }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    let call_depth_limit = if cfg!(windows) { 128 } else { 256 };
+    let call_depth_limit = 256;
     assert!(
         program
             .diagnostics

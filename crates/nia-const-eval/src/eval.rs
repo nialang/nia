@@ -57,16 +57,29 @@ where
     // Always close the session before returning the caller's result; this is
     // what permits the same environment to service the next query.
     env.begin_const_eval();
-    // Logical call depth is bounded by the environment. Reserve physical stack
-    // independently: generic dispatch and typing add variable-size Rust frames,
-    // and the CLI's Windows main stack can run out before the logical limit.
-    // Nested entries stay on the same thread, preserving query and scope state.
-    let result = stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || evaluate(env));
+    let result = evaluate(env);
     if let Err(error) = &result {
         env.observe_const_error(error);
     }
     env.end_const_eval();
     result
+}
+
+/// Stack that must remain before one more level of const evaluation or
+/// typing recurses. One level, an expression and the calls it makes before
+/// the next check, is at most a few tens of KiB even in debug builds.
+const CONST_STACK_RED_ZONE: usize = 256 * 1024;
+/// Stack allocated when the red zone is reached.
+const CONST_STACK_SEGMENT: usize = 4 * 1024 * 1024;
+
+/// Runs one level of a recursive const evaluation or typing walk with enough
+/// stack. Logical call depth is bounded by the evaluation budget; this keeps
+/// the physical stack from running out first, on any thread and for any shape
+/// of recursion. Every recursive entry point of the interpreter and of const
+/// typing calls this, so no frame chain between two checks exceeds the red
+/// zone. Growth stays on the same thread, preserving query and scope state.
+pub fn ensure_const_stack<T>(f: impl FnOnce() -> T) -> T {
+    stacker::maybe_grow(CONST_STACK_RED_ZONE, CONST_STACK_SEGMENT, f)
 }
 
 macro_rules! eval_value_or_return_flow {
@@ -235,6 +248,13 @@ fn omitted_variant_value(
 }
 
 fn eval_resolved_const_expr_flow(
+    expr: &ResolvedConstExpr,
+    env: &mut impl ResolvedConstEnv,
+) -> Result<ConstEvalFlow, ConstError> {
+    ensure_const_stack(|| eval_resolved_const_expr_flow_inner(expr, env))
+}
+
+fn eval_resolved_const_expr_flow_inner(
     expr: &ResolvedConstExpr,
     env: &mut impl ResolvedConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
@@ -592,6 +612,13 @@ fn eval_resolved_const_expr_flow(
 }
 
 fn eval_const_expr_flow(
+    expr: &EarlyConstExpr,
+    env: &mut impl EarlyConstEnv,
+) -> Result<ConstEvalFlow, ConstError> {
+    ensure_const_stack(|| eval_const_expr_flow_inner(expr, env))
+}
+
+fn eval_const_expr_flow_inner(
     expr: &EarlyConstExpr,
     env: &mut impl EarlyConstEnv,
 ) -> Result<ConstEvalFlow, ConstError> {
