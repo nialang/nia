@@ -14,17 +14,18 @@ use llvm_sys::core::{
     LLVMBuildFDiv, LLVMBuildFMul, LLVMBuildFNeg, LLVMBuildFPCast, LLVMBuildFPToSI, LLVMBuildFPToUI,
     LLVMBuildFRem, LLVMBuildFSub, LLVMBuildFence, LLVMBuildGEP2, LLVMBuildICmp,
     LLVMBuildInsertElement, LLVMBuildInsertValue, LLVMBuildIntToPtr, LLVMBuildLShr, LLVMBuildLoad2,
-    LLVMBuildMemCpy, LLVMBuildMemMove, LLVMBuildMemSet, LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot,
-    LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast, LLVMBuildPtrToInt, LLVMBuildRet,
-    LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt, LLVMBuildSIToFP, LLVMBuildSRem,
-    LLVMBuildSelect, LLVMBuildShl, LLVMBuildShuffleVector, LLVMBuildStore, LLVMBuildStructGEP2,
-    LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem,
-    LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition, LLVMConstInt,
-    LLVMCountStructElementTypes, LLVMDisposeBuilder, LLVMGetArrayLength2, LLVMGetElementType,
-    LLVMGetInsertBlock, LLVMGetIntTypeWidth, LLVMGetPointerAddressSpace, LLVMGetTypeContext,
-    LLVMGetTypeKind, LLVMGetVectorSize, LLVMInt1TypeInContext, LLVMIsAConstantInt,
-    LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMSetCurrentDebugLocation2,
-    LLVMSetOperand, LLVMStructGetTypeAtIndex, LLVMTypeOf,
+    LLVMBuildMemCpy, LLVMBuildMemMove, LLVMBuildMemSet, LLVMBuildMul, LLVMBuildNUWAdd,
+    LLVMBuildNUWSub, LLVMBuildNeg, LLVMBuildNot, LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast,
+    LLVMBuildPtrToInt, LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt,
+    LLVMBuildSIToFP, LLVMBuildSRem, LLVMBuildSelect, LLVMBuildShl, LLVMBuildShuffleVector,
+    LLVMBuildStore, LLVMBuildStructGEP2, LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc,
+    LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem, LLVMBuildUnreachable, LLVMBuildXor,
+    LLVMBuildZExt, LLVMClearInsertionPosition, LLVMConstInt, LLVMCountStructElementTypes,
+    LLVMDisposeBuilder, LLVMGetArrayLength2, LLVMGetElementType, LLVMGetInsertBlock,
+    LLVMGetIntTypeWidth, LLVMGetPointerAddressSpace, LLVMGetTypeContext, LLVMGetTypeKind,
+    LLVMGetVectorSize, LLVMInt1TypeInContext, LLVMIsAConstantInt, LLVMPositionBuilderAtEnd,
+    LLVMPositionBuilderBefore, LLVMSetCurrentDebugLocation2, LLVMSetOperand,
+    LLVMStructGetTypeAtIndex, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use std::marker::PhantomData;
@@ -587,6 +588,26 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
         build_int_bin(self.raw, LLVMBuildSub, lhs, rhs, name)
+    }
+
+    /// Adds two scalar integers known not to wrap as unsigned values.
+    pub fn build_int_nuw_add(
+        &self,
+        lhs: IntValue<'ctx>,
+        rhs: IntValue<'ctx>,
+        name: &str,
+    ) -> LlvmResult<IntValue<'ctx>> {
+        build_int_bin(self.raw, LLVMBuildNUWAdd, lhs, rhs, name)
+    }
+
+    /// Subtracts two scalar integers known not to wrap as unsigned values.
+    pub fn build_int_nuw_sub(
+        &self,
+        lhs: IntValue<'ctx>,
+        rhs: IntValue<'ctx>,
+        name: &str,
+    ) -> LlvmResult<IntValue<'ctx>> {
+        build_int_bin(self.raw, LLVMBuildNUWSub, lhs, rhs, name)
     }
 
     /// Multiplies two scalar integers.

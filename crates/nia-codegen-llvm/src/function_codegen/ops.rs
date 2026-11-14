@@ -1014,6 +1014,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             TrapCause::Mul => BinaryOp::Mul,
             _ => BinaryOp::Sub,
         };
+        if !is_signed && vector_lanes.is_none() && matches!(op, BinaryOp::Add | BinaryOp::Sub) {
+            return self.emit_checked_unsigned_add_or_sub(span, operand_ty, lhs, rhs, op, cause);
+        }
         let intrinsic_name = match (op, is_signed) {
             (BinaryOp::Add, true) => "llvm.sadd.with.overflow",
             (BinaryOp::Add, false) => "llvm.uadd.with.overflow",
@@ -1082,6 +1085,85 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.emit_trap(span, check)?;
         self.builder.position_at_end(continue_block);
         Ok(value)
+    }
+
+    /// `lhs + rhs` or `lhs - rhs` on scalar unsigned integers, trapping on
+    /// overflow. The check is a comparison of the operands and the result an
+    /// operation flagged not to wrap, rather than an overflow intrinsic: LLVM
+    /// proves comparisons from the conditions that dominate them and reasons
+    /// about non-wrapping induction steps, so a check that cannot fail, such
+    /// as `len - i` after `i < len`, is removed, while an overflow intrinsic
+    /// keeps its check. Code generation folds the comparison and the operation
+    /// back into one flag-setting instruction.
+    fn emit_checked_unsigned_add_or_sub(
+        &mut self,
+        span: Span,
+        operand_ty: InternedTyId,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        op: BinaryOp,
+        cause: TrapCause,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let lhs_int = lhs.into_int_value()?;
+        let rhs_int = rhs.into_int_value()?;
+        let overflow = match op {
+            // `lhs - rhs` wraps exactly when `lhs < rhs`.
+            BinaryOp::Sub => self
+                .builder
+                .build_int_compare(IntPredicate::ULT, lhs_int, rhs_int, "arith.overflow")
+                .map_err(|_| self.error(span, "failed to compare subtraction operands"))?,
+            // `lhs + rhs` wraps exactly when `lhs > MAX - rhs`, and
+            // `MAX - rhs` is `!rhs`.
+            _ => {
+                let headroom = self
+                    .builder
+                    .build_not(rhs_int, "arith.headroom")
+                    .map_err(|_| self.error(span, "failed to compute addition headroom"))?;
+                self.builder
+                    .build_int_compare(IntPredicate::UGT, lhs_int, headroom, "arith.overflow")
+                    .map_err(|_| self.error(span, "failed to compare addition operands"))?
+            }
+        };
+        // Computed beside the comparison, so code generation can fold the two
+        // into one flag-setting instruction. On the trap path the value is
+        // never used, and a wrapped `nuw` result is only poison there.
+        let value = match op {
+            BinaryOp::Sub => self
+                .builder
+                .build_int_nuw_sub(lhs_int, rhs_int, "arith.value")
+                .map_err(|_| self.error(span, "failed to build checked subtraction"))?,
+            _ => self
+                .builder
+                .build_int_nuw_add(lhs_int, rhs_int, "arith.value")
+                .map_err(|_| self.error(span, "failed to build checked addition"))?,
+        };
+        let trap_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "arith.trap")?;
+        let continue_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "arith.continue")?;
+        self.builder
+            .build_conditional_branch(overflow, trap_block, continue_block)
+            .map_err(|_| self.error(span, "failed to branch on integer overflow"))?;
+        self.builder.position_at_end(trap_block);
+        let check = TrapCheck::operation(
+            cause,
+            operand_ty,
+            TrapOperand {
+                value: lhs,
+                signed: false,
+            },
+            TrapOperand {
+                value: rhs,
+                signed: false,
+            },
+        );
+        self.emit_trap(span, check)?;
+        self.builder.position_at_end(continue_block);
+        Ok(value.into())
     }
 
     fn reduce_vector_mask_any(

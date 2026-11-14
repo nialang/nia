@@ -854,13 +854,21 @@ fun main() i32 {
         .collect::<String>();
     for intrinsic in [
         "llvm.sadd.with.overflow.i8",
-        "llvm.uadd.with.overflow.i8",
         "llvm.ssub.with.overflow.i8",
-        "llvm.usub.with.overflow.i8",
         "llvm.smul.with.overflow.i8",
         "llvm.umul.with.overflow.i8",
     ] {
         assert!(ir.contains(intrinsic), "missing {intrinsic}:\n{ir}");
+    }
+    // Unsigned addition and subtraction check by comparing their operands,
+    // which LLVM can prove from dominating conditions, and compute a result
+    // flagged not to wrap; an overflow intrinsic would keep checks that
+    // cannot fail.
+    for intrinsic in ["llvm.uadd.with.overflow.i8", "llvm.usub.with.overflow.i8"] {
+        assert!(!ir.contains(intrinsic), "unexpected {intrinsic}:\n{ir}");
+    }
+    for form in ["icmp ult i8", "sub nuw i8", "icmp ugt i8", "add nuw i8"] {
+        assert!(ir.contains(form), "missing `{form}`:\n{ir}");
     }
     assert!(
         ir.contains("arith.trap") && ir.contains("call void @llvm.trap()"),
