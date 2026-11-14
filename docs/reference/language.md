@@ -1298,6 +1298,10 @@ A bare identifier always introduces a binding, whatever its spelling. To match
 against a named constant or variant, use a qualified path (`Color::Red`), the
 contextual form (`.Red`), or parentheses (`(limit)`).
 
+A value pattern with an operator is written in parentheses, `(LIMIT + 1)`.
+There are no alternative patterns: `1 | 2` is an error rather than the value
+`3`; write one arm per value, or a range.
+
 Struct patterns name the type. Field `x` is shorthand for `x: x`; `field: _`
 ignores one field. Fields may appear in any order. All fields must be listed
 unless the pattern ends with `..`, which may appear once, last. `..` exists only

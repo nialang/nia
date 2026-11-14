@@ -167,6 +167,10 @@ fn atom(p: &mut Parser<'_>, stops: &[TokenKind], context: Context) -> Option<Par
         expr_stops.push(TokenKind::Bang);
     }
     let expr = exprs::expr_until_tokens(p, &expr_stops)?;
+    // Inside parentheses, `(a + 1)`, an operator is a value written
+    // deliberately; only a bare operator is ambiguous with alternatives.
+    // A tuple element is parenthesized by its tuple.
+    let parenthesized = stops.contains(&TokenKind::RParen);
     let closed_range = expr
         .shape
         .contains(Shape::RANGE_START.with(Shape::RANGE_END));
@@ -174,6 +178,16 @@ fn atom(p: &mut Parser<'_>, stops: &[TokenKind], context: Context) -> Option<Par
         p.error_at(
             expr.span,
             "open-ended match range patterns are not supported; use `_` for the default arm",
+        );
+    }
+    // An operator in a value pattern is written in parentheses,
+    // `(LIMIT + 1)`. Without this, `1 | 2` would be the single value `3`,
+    // not two alternatives, which Nia does not have.
+    if expr.class == SyntaxKind::BinaryExpr && !parenthesized {
+        p.error_at(
+            expr.span,
+            "a value pattern with an operator is written in parentheses, as in `(a + 1)`; \
+             there are no alternative patterns, so write each value as its own arm",
         );
     }
     let kind = if expr.class == SyntaxKind::RangeExpr && closed_range {

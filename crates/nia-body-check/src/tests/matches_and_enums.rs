@@ -1151,7 +1151,7 @@ fn infers_match_pattern_numeric_literals_from_target_type() {
 fun classify(value: usize) i32 {
     match value {
         0 => return 0,
-        1 + 1 => return 2,
+        (1 + 1) => return 2,
         _ => return 3,
     }
     4
