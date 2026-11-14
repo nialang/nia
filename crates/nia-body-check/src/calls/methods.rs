@@ -1196,8 +1196,10 @@ impl<'a> BodyChecker<'a> {
             _ => return None,
         };
         let self_ty = self.normalization.normalize(receiver_ty);
-        let TyKind::Slice { is_readonly, elem } = self.interner.get(self_ty).cloned()? else {
-            return None;
+        let Some(TyKind::Slice { is_readonly, elem }) = self.interner.get(self_ty).cloned() else {
+            return mutable
+                .then(|| self.reject_unwritable_slice_pointer_receiver(call))
+                .flatten();
         };
         if mutable && is_readonly {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -1246,6 +1248,44 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::BuiltinMethod { method, self_ty },
         );
         Some(output)
+    }
+
+    /// `ptrMut` on a receiver the slice rule accepts, such as an array, that
+    /// could not become a writable slice: the method exists, and the receiver
+    /// is not writable. Reports why, as taking its writable address would.
+    fn reject_unwritable_slice_pointer_receiver(
+        &mut self,
+        call: &MethodCall<'_>,
+    ) -> Option<InternedTyId> {
+        let actual = self.normalization.normalize(call.actual_receiver_ty);
+        let receiver_kind = self.interner.get(actual)?.clone();
+        let pointer_element = match &receiver_kind {
+            TyKind::Pointer { elem, .. } => self
+                .interner
+                .get(self.normalization.normalize(*elem))
+                .cloned(),
+            _ => None,
+        };
+        // Accepted as a read-only slice, so only writability failed.
+        nia_sema::slice_method_receiver_element(&receiver_kind, pointer_element.as_ref(), true)?;
+        let start = self.diagnostics.len();
+        self.check_reference_target_with_ty(
+            call.receiver,
+            "receiver of slice method `ptrMut`",
+            false,
+            Some(actual),
+        );
+        if self.diagnostics.len() == start {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                codes::TYPE_CHECK,
+                call.receiver.span,
+                "slice method `ptrMut` requires a writable place",
+            ));
+        }
+        for arg in call.args {
+            self.check_expr(arg);
+        }
+        Some(self.error())
     }
 
     fn dynamic_trait_object_receiver_ty(
