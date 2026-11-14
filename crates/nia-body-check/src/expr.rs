@@ -1972,6 +1972,7 @@ impl<'a> BodyChecker<'a> {
         }
         let lhs_ty = self.expr_ty(lhs).unwrap_or(lhs_actual);
         let rhs_expected = if self.is_numeric_literal_expr(rhs)
+            || self.is_untyped_literal_arithmetic(rhs)
             || (matches!(op, BinaryOp::Eq | BinaryOp::Ne)
                 && matches!(rhs.kind, ExprKind::OmittedMember { .. }))
         {
@@ -2142,6 +2143,32 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn is_untyped_numeric_literal_expr(&self, expr: &Expr) -> bool {
         self.is_numeric_literal_expr(expr) && !self.numeric_literal_has_suffix(expr)
+    }
+
+    /// Whether an operand's type can only come from context: arithmetic over
+    /// unsuffixed literals, as in `(1 + 2)`. It takes the other operand's
+    /// type as a single unsuffixed literal does, so `n + (1 + 2)` with a
+    /// `usize` `n` is `usize` arithmetic.
+    fn is_untyped_literal_arithmetic(&self, expr: &Expr) -> bool {
+        match &expr.kind {
+            ExprKind::Binary { op, lhs, rhs } => {
+                matches!(
+                    op,
+                    BinaryOp::Add
+                        | BinaryOp::Sub
+                        | BinaryOp::Mul
+                        | BinaryOp::Div
+                        | BinaryOp::Rem
+                        | BinaryOp::BitAnd
+                        | BinaryOp::BitOr
+                        | BinaryOp::BitXor
+                ) && [lhs, rhs].into_iter().all(|operand| {
+                    self.is_untyped_numeric_literal_expr(operand)
+                        || self.is_untyped_literal_arithmetic(operand)
+                })
+            }
+            _ => false,
+        }
     }
 
     fn check_cast(&mut self, span: Span, source: InternedTyId, target: InternedTyId) {

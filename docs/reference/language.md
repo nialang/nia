@@ -195,9 +195,10 @@ from context and defaults to `f64`.
 
 For a built-in binary arithmetic, bitwise, comparison, or equality operator
 whose operands share a numeric type, a typed operand supplies the type of an
-unsuffixed literal on either side. A suffix is never overridden by the other
-operand. The count of a shift is typed independently and does not influence the
-type of the shifted value.
+unsuffixed literal on either side, and of arithmetic over unsuffixed literals:
+with `n: u8`, `n + (1 + 2)` is `u8` arithmetic. A suffix is never overridden by
+the other operand. The count of a shift is typed independently and does not
+influence the type of the shifted value.
 
 An expected optional or error-union type passes its payload type to the
 constructed value: in a function returning `?usize`, `return ?0;` makes `0` a
