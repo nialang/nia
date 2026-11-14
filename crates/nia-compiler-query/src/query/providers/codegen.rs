@@ -199,17 +199,12 @@ pub(super) fn monomorphization_for_checked_modules(
                     .push(arg.clone());
             }
         }
-        for (id, len) in module.const_eval.symbolic_array_lengths.iter() {
-            if let Some(owner) = const_module.module.const_expr_owners.get(id)
-                && let Some(value) = nia_ty::const_generic_value_from_array_len(len)
-            {
+        for (id, arg) in module.const_eval.symbolic_const_exprs.iter() {
+            if let Some(owner) = const_module.module.const_expr_owners.get(id) {
                 const_obligations
                     .entry(*owner)
                     .or_default()
-                    .push(nia_ty::ConstGenericArg {
-                        ty: usize_ty,
-                        value,
-                    });
+                    .push(arg.clone());
             }
         }
         for (owner, facts) in &module.semantic_facts.function_facts {

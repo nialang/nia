@@ -453,7 +453,14 @@ impl Analyzer<'_> {
         expr: &ResolvedConstExpr,
         target: InternedTyId,
     ) -> Option<ConstValueType> {
-        let source = self.resolved_const_arg_runtime_type(expr, None)?;
+        // The operand of a cast has no expected type: an unsuffixed literal
+        // takes its default type, as at runtime (`-1 as u8`).
+        let source = match self.resolved_const_arg_runtime_type(expr, None) {
+            Some(source) => source,
+            None => self
+                .resolved_const_expr_with_numeric_defaults(expr)?
+                .runtime()?,
+        };
         let target = self.type_for_module_or_none(target, self.current_execution_module_id())?;
         self.const_runtime_cast_is_supported(source, target)
             .then_some(ConstValueType::Runtime(target))

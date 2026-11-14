@@ -43,35 +43,24 @@ impl ConstExprEvaluation {
     }
 }
 
-/// Converts an evaluated scalar using its checked runtime type and target.
+/// Converts an evaluated scalar to the value of a const of type `ty`, which
+/// must be a primitive. The value must be representable in that type: this is
+/// [`ConstGenericValue::from_int`], never a cast.
 pub fn scalar_const_generic_value(
     value: ConstValue,
     ty: InternedTyId,
     store: &nia_ty::TypeStore,
     pointer_width: u32,
 ) -> Result<ConstGenericValue, String> {
-    match (store.get(ty), value) {
-        (Some(TyKind::Primitive(PrimitiveTy::Bool)), ConstValue::Bool(value)) => {
-            Ok(ConstGenericValue::Bool(value))
-        }
-        (Some(TyKind::Primitive(PrimitiveTy::Char)), ConstValue::Int(value)) => value
-            .bits()
-            .try_into()
-            .ok()
-            .and_then(char::from_u32)
-            .map(ConstGenericValue::Char)
-            .ok_or_else(|| "const character is not a Unicode scalar".into()),
-        (Some(TyKind::Primitive(primitive)), ConstValue::Int(value))
-            if primitive.is_integer() && value.fits_primitive_int(*primitive, pointer_width) =>
-        {
-            Ok(ConstGenericValue::Int(
-                value
-                    .cast_to_primitive_int(*primitive, pointer_width)
-                    .expect("validated primitive integer"),
-            ))
-        }
-        _ => Err("const computation result does not match its declared scalar type".into()),
+    let Some(TyKind::Primitive(primitive)) = store.get(ty) else {
+        return Err("const value does not have a scalar type".into());
+    };
+    match value {
+        ConstValue::Int(value) => ConstGenericValue::from_int(*primitive, value, pointer_width),
+        ConstValue::Bool(value) => ConstGenericValue::from_bool(*primitive, value),
+        _ => Err(nia_ty::ConstScalarError::KindMismatch(*primitive)),
     }
+    .map_err(|error| error.to_string())
 }
 
 /// Evaluates a checked, substituted const term with ordinary const semantics.
@@ -137,14 +126,21 @@ impl Analyzer<'_> {
                     .cloned();
                 match resolved {
                     Some(value) if value != *arg => self.eval_const_generic_arg(span, &value),
-                    _ => Err(ConstError {
-                        span,
-                        message: "const computation requires a concrete generic argument".into(),
-                    }),
+                    _ => {
+                        self.open_reads += 1;
+                        Err(ConstError {
+                            span,
+                            message: "const computation requires a concrete generic argument"
+                                .into(),
+                        })
+                    }
                 }
             }
             ConstGenericValue::Layout { builtin, ty } => {
                 let ty = self.substitute_ty_generics(*ty);
+                if self.type_contains_generic(ty) {
+                    self.open_reads += 1;
+                }
                 self.resolve_layout_builtin_for_ty(span, *builtin, ty)
             }
             ConstGenericValue::ConstExpr(id) => self
@@ -259,6 +255,11 @@ impl Analyzer<'_> {
                         }
                         result
                     }
+                    // Reached only when this operand is selected.
+                    C::Fail(message) => Err(ConstError {
+                        span: computation.span,
+                        message: message.to_string(),
+                    }),
                     kind => {
                         let kind = match kind {
                             C::Unary { op, operand: arg } => ResolvedConstExprKind::Unary {
@@ -304,7 +305,51 @@ impl Analyzer<'_> {
                                 lhs: operand(array),
                                 index: operand(index),
                             },
-                            C::Call { .. } => unreachable!(),
+                            C::Match { scrutinee, arms } => {
+                                let span = computation.span;
+                                let arms = arms
+                                    .iter()
+                                    .map(|arm| {
+                                        let patterns = arm
+                                            .patterns
+                                            .iter()
+                                            .map(|pattern| match pattern {
+                                                nia_ty::ConstPattern::Wildcard => {
+                                                    ResolvedConstPattern::wildcard(span)
+                                                }
+                                                nia_ty::ConstPattern::Value(value) => {
+                                                    ResolvedConstPattern::expr(*operand(value))
+                                                }
+                                                nia_ty::ConstPattern::Range {
+                                                    start,
+                                                    end,
+                                                    inclusive,
+                                                } => ResolvedConstPattern::range(
+                                                    *operand(start),
+                                                    *operand(end),
+                                                    *inclusive,
+                                                    span,
+                                                ),
+                                            })
+                                            .collect();
+                                        nia_const_ir::ResolvedConstMatchArm::new(
+                                            span,
+                                            patterns,
+                                            nia_const_ir::ResolvedConstMatchArmBody::expr(
+                                                *operand(&arm.value),
+                                            ),
+                                        )
+                                    })
+                                    .collect();
+                                ResolvedConstExprKind::Match(Box::new(
+                                    nia_const_ir::ResolvedConstMatch::new(
+                                        span,
+                                        *operand(scrutinee),
+                                        arms,
+                                    ),
+                                ))
+                            }
+                            C::Call { .. } | C::Fail(_) => unreachable!("handled above"),
                         };
                         let expr = ResolvedConstExpr::from_parts(computation.span, kind);
                         if let Some(types) = self.resolved_expr_facts.last_mut() {

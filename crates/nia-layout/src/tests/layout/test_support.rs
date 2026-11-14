@@ -51,6 +51,7 @@ fn compute_test_const(
         normalization: &nia_const_check::TypeNormalization {
             normalized: HashMap::new(),
             diagnostics: Vec::new(),
+            aliases: Default::default(),
         },
         target: &target,
         source_path: &source_path,

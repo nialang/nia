@@ -31,6 +31,7 @@ fn obligation_explanations_distinguish_missing_hidden_and_ambiguous_impls() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let goal = TraitGoal {
@@ -248,6 +249,7 @@ fn static_callable_bounds_accept_function_items_and_reject_function_pointers() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -310,6 +312,7 @@ fn structural_equivalence_resolves_const_expression_array_lengths() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -394,6 +397,7 @@ fn sized_lookup_matches_layout_array_const_expressions_semantically() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -493,6 +497,7 @@ fn sized_lookup_matches_layout_nominal_const_expressions_semantically() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -545,6 +550,7 @@ fn enum_classification_reads_new_types_from_canonical_store() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let mut local_enums = HashMap::new();
     local_enums.insert(
@@ -645,6 +651,7 @@ fn user_impl_infers_const_generic_from_layout_builtin_array_length() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let context = TraitSolverContext {
@@ -732,6 +739,7 @@ fn user_impl_infers_type_generic_from_layout_builtin_array_operand() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let context = TraitSolverContext {
@@ -809,6 +817,7 @@ fn sized_lookup_matches_layout_nominal_const_arguments_semantically() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -871,6 +880,7 @@ fn sized_lookup_matches_layout_tuple_elements_structurally() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -910,6 +920,7 @@ fn body_synthesized_tuples_are_sized_without_a_tuple_layout_root() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let context = TraitSolverContext {
         type_store: &type_store,
@@ -963,6 +974,7 @@ fn failed_array_element_match_does_not_publish_const_length_inference() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -1012,6 +1024,7 @@ fn failed_tuple_match_does_not_publish_earlier_type_inference() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -1118,6 +1131,7 @@ fn trait_object_impl_matching_backtracks_without_reusing_bindings() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let context = TraitSolverContext {
@@ -1182,6 +1196,7 @@ fn callable_pointees_are_unsized_while_callable_views_are_sized() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -1238,6 +1253,7 @@ fn builtin_traits_reject_const_arguments() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -1306,6 +1322,7 @@ fn concrete_closure_states_are_sized_when_their_captures_are_sized() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -1397,6 +1414,7 @@ fn user_impl_substitutes_const_argument_types_before_matching() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let context = TraitSolverContext {
@@ -1494,6 +1512,7 @@ fn associated_type_substitutes_const_arguments_inferred_from_impl_target() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let context = TraitSolverContext {
@@ -1639,6 +1658,7 @@ fn impl_where_predicate_substitutes_const_arguments_from_target() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let context = TraitSolverContext {
@@ -1725,6 +1745,7 @@ fn concrete_trait_const_argument_is_more_specific_than_a_parameter() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let context = TraitSolverContext {
@@ -1799,6 +1820,7 @@ fn repeated_type_parameter_across_impl_header_is_more_specific() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let context = TraitSolverContext {
@@ -1895,6 +1917,7 @@ fn repeated_const_parameter_across_impl_header_is_more_specific() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let context = TraitSolverContext {
@@ -1990,6 +2013,7 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let context = TraitSolverContext {
@@ -2093,6 +2117,7 @@ fn cyclic_where_goal_guard_uses_semantic_const_identity() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let trait_impls = vec![impl_signature];
@@ -2157,6 +2182,7 @@ fn associated_projection_guard_uses_semantic_goal_identity() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let trait_impls = Vec::new();
@@ -2229,6 +2255,7 @@ fn projection_equivalence_guard_uses_semantic_pair_identity() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -2298,6 +2325,7 @@ fn array_layout_builtin_equivalence_recurses_through_operand_types() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let local_enums = HashMap::new();
     let trait_impls = Vec::new();
@@ -2381,6 +2409,7 @@ fn projection_equivalence_recurses_through_tuple_elements() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let trait_impls = Vec::new();
     let local_enums = HashMap::new();
@@ -2478,6 +2507,7 @@ fn sized_queries_only_the_nominal_owner_and_preserves_instance_identity() {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let enums = HashMap::new();
     let context = TraitSolverContext {

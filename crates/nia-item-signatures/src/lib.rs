@@ -103,16 +103,32 @@ impl ItemSignatures {
     /// signature, or `None` when the definition has no signature payload.
     pub fn type_roots_for_definition(&self, def_id: DefId) -> Option<Vec<InternedTyId>> {
         let mut roots = Vec::new();
+        if !self.collect_definition_type_roots(def_id, &mut roots) {
+            return None;
+        }
+        roots.sort_unstable();
+        roots.dedup();
+        Some(roots)
+    }
+
+    /// Appends the roots of one definition's signature and reports whether it
+    /// has one. The types of its const parameters are roots like any other:
+    /// `struct H[M: Len]` must normalize `Len`, or later phases see the alias
+    /// as the type of every `M` argument.
+    fn collect_definition_type_roots(&self, def_id: DefId, roots: &mut Vec<InternedTyId>) -> bool {
         if let Some(signature) = self.functions.get(&def_id) {
-            collect_function_type_roots(signature, &mut roots);
+            collect_function_type_roots(signature, roots);
         } else if let Some(signature) = self.structs.get(&def_id) {
-            collect_where_type_roots(&signature.where_predicates, &mut roots);
+            collect_generic_param_type_roots(&signature.generic_params, roots);
+            collect_where_type_roots(&signature.where_predicates, roots);
             roots.extend(signature.fields.iter().map(|field| field.ty));
         } else if let Some(signature) = self.unions.get(&def_id) {
-            collect_where_type_roots(&signature.where_predicates, &mut roots);
+            collect_generic_param_type_roots(&signature.generic_params, roots);
+            collect_where_type_roots(&signature.where_predicates, roots);
             roots.extend(signature.fields.iter().map(|field| field.ty));
         } else if let Some(signature) = self.traits.get(&def_id) {
-            collect_where_type_roots(&signature.where_predicates, &mut roots);
+            collect_generic_param_type_roots(&signature.generic_params, roots);
+            collect_where_type_roots(&signature.where_predicates, roots);
             for supertrait in &signature.supertraits {
                 roots.push(supertrait.ty);
                 roots.extend(
@@ -124,9 +140,10 @@ impl ItemSignatures {
             }
             roots.extend(signature.associated_values.iter().map(|value| value.ty));
             for method in &signature.methods {
-                collect_function_type_roots(&method.signature, &mut roots);
+                collect_function_type_roots(&method.signature, roots);
             }
         } else if let Some(signature) = self.enums.get(&def_id) {
+            collect_generic_param_type_roots(&signature.generic_params, roots);
             roots.push(signature.backing_type);
             for variant in &signature.variants {
                 match &variant.payload {
@@ -140,92 +157,61 @@ impl ItemSignatures {
                 }
             }
         } else if let Some(signature) = self.type_aliases.get(&def_id) {
+            collect_generic_param_type_roots(&signature.generic_params, roots);
             roots.push(signature.target);
         } else if let Some(signature) = self.globals.get(&def_id) {
             roots.extend(signature.explicit_type);
-        } else {
-            let signature = self.consts.get(&def_id)?;
+        } else if let Some(signature) = self.consts.get(&def_id) {
             roots.extend(signature.explicit_type);
+        } else {
+            return false;
         }
-        roots.sort_unstable();
-        roots.dedup();
-        Some(roots)
+        true
     }
 
-    /// Returns deduplicated type-store roots referenced by this product.
+    /// Returns deduplicated type-store roots referenced by this product: the
+    /// roots of every definition, and of extension blocks, which have no
+    /// definition of their own.
     pub fn type_roots(&self) -> Vec<InternedTyId> {
         let mut roots = Vec::new();
-        for signature in self.functions.values() {
-            collect_function_type_roots(signature, &mut roots);
-        }
-        for signature in self.structs.values() {
-            collect_where_type_roots(&signature.where_predicates, &mut roots);
-            roots.extend(signature.fields.iter().map(|field| field.ty));
-        }
-        for signature in self.unions.values() {
-            collect_where_type_roots(&signature.where_predicates, &mut roots);
-            roots.extend(signature.fields.iter().map(|field| field.ty));
-        }
-        for signature in self.traits.values() {
-            collect_where_type_roots(&signature.where_predicates, &mut roots);
-            for supertrait in &signature.supertraits {
-                roots.push(supertrait.ty);
-                roots.extend(
-                    supertrait
-                        .associated_type_bindings
-                        .iter()
-                        .map(|binding| binding.ty),
-                );
-            }
-            roots.extend(signature.associated_values.iter().map(|value| value.ty));
-            for method in &signature.methods {
-                collect_function_type_roots(&method.signature, &mut roots);
-            }
+        let definitions = self
+            .functions
+            .keys()
+            .chain(self.structs.keys())
+            .chain(self.unions.keys())
+            .chain(self.traits.keys())
+            .chain(self.enums.keys())
+            .chain(self.type_aliases.keys())
+            .chain(self.globals.keys())
+            .chain(self.consts.keys());
+        for def_id in definitions {
+            self.collect_definition_type_roots(*def_id, &mut roots);
         }
         for signature in &self.trait_impls {
+            collect_generic_param_type_roots(&signature.generic_params, &mut roots);
             roots.push(signature.target_ty);
             roots.extend(signature.trait_ty);
             collect_where_type_roots(&signature.where_predicates, &mut roots);
             roots.extend(signature.associated_types.iter().map(|binding| binding.ty));
         }
-        for signature in self.enums.values() {
-            roots.push(signature.backing_type);
-            for variant in &signature.variants {
-                match &variant.payload {
-                    EnumVariantPayloadSignature::Unit => {}
-                    EnumVariantPayloadSignature::Tuple(fields) => {
-                        roots.extend(fields.iter().copied());
-                    }
-                    EnumVariantPayloadSignature::Named(fields) => {
-                        roots.extend(fields.iter().map(|field| field.ty));
-                    }
-                }
-            }
-        }
-        roots.extend(self.type_aliases.values().map(|signature| signature.target));
-        roots.extend(
-            self.globals
-                .values()
-                .filter_map(|signature| signature.explicit_type),
-        );
-        roots.extend(
-            self.consts
-                .values()
-                .filter_map(|signature| signature.explicit_type),
-        );
         roots.sort_unstable();
         roots.dedup();
         roots
     }
 }
 
-fn collect_function_type_roots(signature: &FunctionSignature, roots: &mut Vec<InternedTyId>) {
-    roots.extend(signature.generic_params.iter().filter_map(|param| {
-        let GenericParamSignatureKind::Const { ty } = param.kind else {
-            return None;
-        };
-        Some(ty)
+fn collect_generic_param_type_roots(
+    params: &[GenericParamSignature],
+    roots: &mut Vec<InternedTyId>,
+) {
+    roots.extend(params.iter().filter_map(|param| match param.kind {
+        GenericParamSignatureKind::Const { ty } => Some(ty),
+        GenericParamSignatureKind::Type => None,
     }));
+}
+
+fn collect_function_type_roots(signature: &FunctionSignature, roots: &mut Vec<InternedTyId>) {
+    collect_generic_param_type_roots(&signature.generic_params, roots);
     collect_where_type_roots(&signature.where_predicates, roots);
     roots.extend(signature.params.iter().map(|param| param.ty));
     roots.push(signature.return_type);

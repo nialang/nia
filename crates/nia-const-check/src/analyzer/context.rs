@@ -1549,23 +1549,36 @@ impl Analyzer<'_> {
         ty: InternedTyId,
     ) -> HashMap<GlobalConstExprId, u64> {
         let mut array_lengths = self.array_lengths.clone();
-        let mut needed = HashSet::new();
+        let mut needed = TypeConstSites::new();
         self.collect_array_len_const_exprs_in_ty(ty, &mut needed);
-        for id in needed {
+        for (id, site) in needed {
             if array_lengths.contains_key(&id) {
                 continue;
             }
-            if let Some(value) = self.eval_array_len_const_expr_id(&id) {
+            if let Some(value) = self.eval_type_const_site(&id, site) {
                 array_lengths.insert(id, value);
             }
         }
         array_lengths
     }
 
+    /// Analyzes one const expression written in a type with its declared
+    /// type; a closed length is returned as its value.
+    pub(super) fn eval_type_const_site(
+        &mut self,
+        id: &GlobalConstExprId,
+        site: TypeConstSite,
+    ) -> Option<u64> {
+        match site {
+            TypeConstSite::Length => self.eval_array_len_const_expr_id(id),
+            TypeConstSite::Argument(ty) => self.eval_type_const_expr_id(id, ty),
+        }
+    }
+
     pub(super) fn collect_array_len_const_exprs_in_ty(
         &self,
         ty: InternedTyId,
-        out: &mut HashSet<GlobalConstExprId>,
+        out: &mut TypeConstSites,
     ) {
         self.collect_array_len_const_exprs_in_ty_inner(ty, out, &mut HashSet::new());
     }
@@ -1573,7 +1586,7 @@ impl Analyzer<'_> {
     pub(super) fn collect_array_len_const_exprs_in_ty_inner(
         &self,
         ty: InternedTyId,
-        out: &mut HashSet<GlobalConstExprId>,
+        out: &mut TypeConstSites,
         seen: &mut HashSet<InternedTyId>,
     ) {
         if !seen.insert(ty) {
@@ -1594,13 +1607,13 @@ impl Analyzer<'_> {
     fn collect_array_len_const_exprs_in_kind(
         &self,
         kind: Option<TyKind>,
-        out: &mut HashSet<GlobalConstExprId>,
+        out: &mut TypeConstSites,
         seen: &mut HashSet<InternedTyId>,
     ) {
         match kind {
             Some(TyKind::Array { len, elem }) => {
                 if let ArrayLenTy::ConstExpr(id) = len {
-                    out.insert(id);
+                    out.insert(id, TypeConstSite::Length);
                 }
                 self.collect_array_len_const_exprs_in_ty_inner(elem, out, seen);
             }
@@ -1631,7 +1644,7 @@ impl Analyzer<'_> {
                         self.collect_array_len_const_exprs_in_ty_inner(ty, out, seen);
                     }
                     for arg in owner.const_args {
-                        self.collect_array_len_const_exprs_in_const_arg(&arg, out, seen);
+                        self.collect_const_arg_sites(&arg, out, seen);
                     }
                 }
                 for ty in captures.into_iter().chain(params).chain([return_type]) {
@@ -1681,7 +1694,7 @@ impl Analyzer<'_> {
                     self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
                 }
                 for arg in const_args {
-                    self.collect_array_len_const_exprs_in_const_arg(&arg, out, seen);
+                    self.collect_const_arg_sites(&arg, out, seen);
                 }
                 for param in params {
                     self.collect_array_len_const_exprs_in_ty_inner(param, out, seen);
@@ -1697,7 +1710,7 @@ impl Analyzer<'_> {
                     self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
                 }
                 for arg in const_args {
-                    self.collect_array_len_const_exprs_in_const_arg(&arg, out, seen);
+                    self.collect_const_arg_sites(&arg, out, seen);
                 }
                 let Some(signatures) = self.signatures_for_module(def_id.module_id) else {
                     return;
@@ -1734,14 +1747,14 @@ impl Analyzer<'_> {
                     self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
                 }
                 for arg in trait_const_args {
-                    self.collect_array_len_const_exprs_in_const_arg(&arg, out, seen);
+                    self.collect_const_arg_sites(&arg, out, seen);
                 }
                 for binding in associated_type_bindings {
                     for arg in &binding.trait_args {
                         self.collect_array_len_const_exprs_in_ty_inner(*arg, out, seen);
                     }
                     for arg in &binding.trait_const_args {
-                        self.collect_array_len_const_exprs_in_const_arg(arg, out, seen);
+                        self.collect_const_arg_sites(arg, out, seen);
                     }
                     self.collect_array_len_const_exprs_in_ty_inner(binding.ty, out, seen);
                 }
@@ -1757,7 +1770,7 @@ impl Analyzer<'_> {
                     self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
                 }
                 for arg in trait_const_args {
-                    self.collect_array_len_const_exprs_in_const_arg(&arg, out, seen);
+                    self.collect_const_arg_sites(&arg, out, seen);
                 }
             }
             Some(
@@ -1775,16 +1788,23 @@ impl Analyzer<'_> {
         }
     }
 
-    fn collect_array_len_const_exprs_in_const_arg(
+    pub(super) fn collect_const_arg_sites(
         &self,
         arg: &nia_ty::ConstGenericArg,
-        out: &mut HashSet<GlobalConstExprId>,
+        out: &mut TypeConstSites,
         seen: &mut HashSet<InternedTyId>,
     ) {
-        if self.const_generic_arg_type_is_array_len(arg.ty)
-            && let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value
-        {
-            out.insert(id.clone());
+        // Every const argument written as an expression is a site, whatever
+        // its type: `H[K + 1]` with `M: isize` is a term as `[u8; N + 1]` is.
+        if let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value {
+            out.insert(
+                id.clone(),
+                if self.const_generic_arg_type_is_array_len(arg.ty) {
+                    TypeConstSite::Length
+                } else {
+                    TypeConstSite::Argument(arg.ty)
+                },
+            );
         }
         // A layout const argument carries the queried operand type in its
         // value.  Traverse both handles so const expressions nested inside
@@ -1962,9 +1982,12 @@ mod tests {
                 })
                 .expect("closure type");
             let analyzer = Analyzer::new(input);
-            let mut dependencies = HashSet::new();
+            let mut dependencies = TypeConstSites::new();
             analyzer.collect_array_len_const_exprs_in_ty(closure, &mut dependencies);
-            assert_eq!(dependencies, ids.into_iter().collect());
+            assert_eq!(
+                dependencies.into_keys().collect::<HashSet<_>>(),
+                ids.into_iter().collect()
+            );
         });
     }
 
@@ -2039,3 +2062,14 @@ mod tests {
         assert_eq!(type_kind_or_error(&store, missing), TyKind::Error);
     }
 }
+
+/// How a const expression written in a type is used: as an array length,
+/// which is a `usize`, or as a const argument of the given declared type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TypeConstSite {
+    Length,
+    Argument(InternedTyId),
+}
+
+/// The const expressions written in types, by site.
+pub(super) type TypeConstSites = HashMap<GlobalConstExprId, TypeConstSite>;

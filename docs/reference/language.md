@@ -526,6 +526,17 @@ contexts, using the artifact target's integer widths. Boolean `and`/`or` and
 execution error. Instantiation validates these values without type checking the
 body again. Executable arithmetic follows the ordinary overflow rules.
 
+A computation consists of operators, casts, `if`, `match` on a scalar value
+with literal, path and range patterns, array literals and indexing, and
+`const fun` calls; other code goes into a `const fun`. `match` executes only
+the selected arm, and `std::builtin::error` or `trap` in an unselected branch
+is never reached. Each operand has the type its context gives it, and a
+literal that does not fit that type is an error rather than wrapping. A
+closed operand is its value, so `N + (1 + 2)` and `N + 3` are the same
+computation. A type alias whose target computes a length binds the
+computation to the alias's arguments: with `type Bytes[Q: usize] = [u8; Q +
+1];`, `Bytes[3]` is `[u8; 4]`.
+
 An array value is not a slice or a pointer. Where a pointer or slice is
 expected, its address is taken implicitly as described under
 [Pointers](#pointers). `arr[i]` indexes an array; it is a place when `arr` is
@@ -1981,8 +1992,9 @@ struct Buffer[N: usize] {
 
 A parameter written `Name` is a type parameter. A parameter written
 `Name: Type` is a const parameter, a compile-time value of that type usable in
-types and expressions; array lengths use `usize` const parameters. Generic
-parameters exist only at compile time.
+types and expressions; array lengths use `usize` const parameters. A const
+parameter's type is an integer type, `bool`, or `char`, possibly through a type
+alias. Generic parameters exist only at compile time.
 
 Within a function body, a const parameter is a lexical value binding and
 shadows a same-named module constant in bare reads, array lengths, and explicit

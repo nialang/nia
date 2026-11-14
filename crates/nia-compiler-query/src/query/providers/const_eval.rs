@@ -47,6 +47,36 @@ pub(in crate::query) fn evaluate_const_argument_capturing_failure(
     }
 }
 
+/// Resolves the const expressions written in a declaration type to their
+/// values or terms, whichever module wrote them; layout resolves declaration
+/// types with this before substituting their generic arguments. A site's
+/// identity names its module, whose const analysis owns the site; `lengths`
+/// gives that analysis the way the caller's mode reads it, so a type-only
+/// module is never checked in full for this.
+pub(in crate::query) fn resolve_declaration_const_sites(
+    db: &QueryDb<CompilerContext>,
+    failure: &RefCell<Option<QueryError>>,
+    module_id: ModuleId,
+    ty: nia_ids::InternedTyId,
+    lengths: &dyn Fn(ModuleId) -> Option<Arc<nia_const_check::ConstArrayLengths>>,
+) -> nia_ids::InternedTyId {
+    let resolver = |id: &nia_ids::GlobalConstExprId| {
+        lengths(id.module_id).and_then(|lengths| lengths.resolve(id))
+    };
+    let unresolved = nia_type_normalize::TypeNormalization {
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+        aliases: HashMap::new(),
+    };
+    match unresolved.resolve_array_lengths(module_id, &db.context().type_store, &[ty], &resolver) {
+        Ok(resolved) => resolved.normalize(ty),
+        Err(error) => {
+            *failure.borrow_mut() = Some(error.into());
+            ty
+        }
+    }
+}
+
 /// Backend inputs can cross module-finalization worker boundaries. Keep their
 /// query failure channel synchronized with the rest of the input contract.
 pub(in crate::query) fn evaluate_const_argument_for_backend(

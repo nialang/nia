@@ -959,17 +959,30 @@ impl ResolvedConstEnv for Analyzer<'_> {
                     message: "resolved const expression can only use const bindings".to_string(),
                 })
             }
-            ConstNameResolution::GenericParam(name) => self
-                .active_execution_frames()
-                .find_map(|frame| frame.const_substitutions.get(&name))
-                .and_then(const_value_from_const_generic_arg)
-                .ok_or_else(|| ConstError {
-                    span,
-                    message: format!(
-                        "failed to evaluate const generic parameter `{}`",
-                        self.symbol_name(name)
-                    ),
-                }),
+            ConstNameResolution::GenericParam(name) => {
+                // A substitution may itself be a layout query or computation
+                // that is closed in this frame; evaluate it like any argument.
+                let substitution = self
+                    .active_execution_frames()
+                    .find_map(|frame| frame.const_substitutions.get(&name))
+                    .cloned();
+                match substitution {
+                    Some(arg) if !arg.contains_generic(|ty| self.type_contains_generic(ty)) => {
+                        self.eval_const_generic_arg(span, &arg)
+                    }
+                    _ => {
+                        self.open_reads += 1;
+                        Err(ConstError {
+                            span,
+                            message: format!(
+                                "const generic parameter `{}` has no value before its generic \
+                                 body is instantiated",
+                                self.symbol_name(name)
+                            ),
+                        })
+                    }
+                }
+            }
             ConstNameResolution::BuiltinAssociatedValue(value) => {
                 let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
                 let Some(value) = kind.value(primitive, self.input.target.pointer_width()) else {
@@ -983,11 +996,18 @@ impl ResolvedConstEnv for Analyzer<'_> {
             }
             ConstNameResolution::AssociatedConstProjection(projection) => {
                 match self.resolve_associated_const_projection(&projection) {
-                    Some(nia_trait_solve::AssociatedConstResolution::Const(arg)) => {
-                        const_value_from_const_generic_arg(&arg).ok_or_else(|| ConstError {
+                    Some(nia_trait_solve::AssociatedConstResolution::Const(arg))
+                        if !arg.contains_generic(|ty| self.type_contains_generic(ty)) =>
+                    {
+                        self.eval_const_generic_arg(span, &arg)
+                    }
+                    Some(nia_trait_solve::AssociatedConstResolution::Const(_)) => {
+                        self.open_reads += 1;
+                        Err(ConstError {
                             span,
                             message: format!(
-                                "failed to evaluate associated const value `{}`",
+                                "associated const `{}` has no value before its generic body \
+                                 is instantiated",
                                 self.symbol_name(projection.name)
                             ),
                         })
@@ -1027,6 +1047,9 @@ impl ResolvedConstEnv for Analyzer<'_> {
                 ),
             });
         };
+        if self.type_contains_generic(ty_id) {
+            self.open_reads += 1;
+        }
         self.resolve_layout_builtin_for_ty(span, builtin, ty_id)
     }
 
@@ -1803,21 +1826,6 @@ impl Analyzer<'_> {
         output.value = self.normalize_typed_const_value(output.value, &return_ty);
         self.validate_typed_value(span, &output.value, &return_ty);
         Ok(output)
-    }
-}
-
-fn const_value_from_const_generic_arg(arg: &nia_ty::ConstGenericArg) -> Option<ConstValue> {
-    match arg.value {
-        nia_ty::ConstGenericValue::Int(value) => Some(ConstValue::Int(value)),
-        nia_ty::ConstGenericValue::Bool(value) => Some(ConstValue::Bool(value)),
-        nia_ty::ConstGenericValue::Char(value) => Some(ConstValue::Int(
-            nia_ty::IntConst::unsigned(value as u32 as u128),
-        )),
-        // These still depend on a parameter or on evaluation the caller owns.
-        nia_ty::ConstGenericValue::GenericParam(_)
-        | nia_ty::ConstGenericValue::Computation(_)
-        | nia_ty::ConstGenericValue::ConstExpr(_)
-        | nia_ty::ConstGenericValue::Layout { .. } => None,
     }
 }
 

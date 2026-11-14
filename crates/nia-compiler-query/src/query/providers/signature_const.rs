@@ -559,12 +559,13 @@ pub(super) fn signature_layouts_for_types(
                 .as_ref()
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
-        let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
+        // Another module's const tables, from its type signatures.
+        let const_tables = |other: ModuleId| {
             capture_query_failure(
                 &query_failure,
                 with_type_signature_const_input(
                     db,
-                    id.module_id,
+                    other,
                     non_function_signatures_override,
                     |input, module| {
                         let mut array_lengths =
@@ -574,7 +575,11 @@ pub(super) fn signature_layouts_for_types(
                     },
                 ),
             )
-            .and_then(|array_lengths| array_lengths.values.get(&id).copied())
+            .map(Arc::new)
+        };
+        let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
+            const_tables(id.module_id)
+                .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
         let symbols = db.context().symbols();
         let active_item_tree = db.get(SignatureItemTreeQuery(
@@ -610,14 +615,9 @@ pub(super) fn signature_layouts_for_types(
             &db.context().type_store,
             &normalization_roots,
             &|id| {
-                array_lengths.as_ref().and_then(|lengths| {
-                    lengths
-                        .values
-                        .get(id)
-                        .copied()
-                        .map(nia_ty::ArrayLenTy::ConstValue)
-                        .or_else(|| lengths.symbolic.get(id).cloned())
-                })
+                array_lengths
+                    .as_ref()
+                    .and_then(|lengths| lengths.resolve(id))
             },
         )?;
         let layouts = nia_layout::compute_layouts_for_roots_with_program_context(
@@ -643,6 +643,15 @@ pub(super) fn signature_layouts_for_types(
                     union: Some(&program_union),
                     enum_: Some(&program_enum),
                     type_alias: Some(&program_type_alias),
+                    resolve_const_sites: Some(&|ty| {
+                        const_eval::resolve_declaration_const_sites(
+                            db,
+                            &query_failure,
+                            module_id,
+                            ty,
+                            &const_tables,
+                        )
+                    }),
                     ..Default::default()
                 },
             },

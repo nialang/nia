@@ -43,8 +43,9 @@ pub struct ConstCheck {
     pub typed_enum_values: Arc<HashMap<DefId, TypedConstValue>>,
     /// Array lengths required by lowered types.
     pub array_lengths: Arc<HashMap<GlobalConstExprId, u64>>,
-    /// Generic array lengths retained for check-time type normalization.
-    pub symbolic_array_lengths: Arc<HashMap<GlobalConstExprId, nia_ty::ArrayLenTy>>,
+    /// Terms of the generic const expressions written in types, for
+    /// check-time type normalization.
+    pub symbolic_const_exprs: Arc<HashMap<GlobalConstExprId, nia_ty::ConstGenericArg>>,
     /// Cross-module semantic facts required to complete const analysis.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics accumulated by all phases.
@@ -56,12 +57,37 @@ pub struct ConstCheck {
 pub struct ConstArrayLengths {
     /// Computed array lengths keyed by resolved expression identity.
     pub values: Arc<HashMap<GlobalConstExprId, u64>>,
-    /// Lengths that are known symbolically and become concrete per instance.
-    pub symbolic: Arc<HashMap<GlobalConstExprId, nia_ty::ArrayLenTy>>,
+    /// Const expressions written in types that depend on generic parameters,
+    /// array lengths and nominal const arguments alike, as the terms each
+    /// instance evaluates.
+    pub symbolic: Arc<HashMap<GlobalConstExprId, nia_ty::ConstGenericArg>>,
     /// Cross-module semantic facts required by this phase.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted while computing lengths.
     pub diagnostics: Vec<Diagnostic>,
+}
+
+impl ConstArrayLengths {
+    /// The value of a const expression written in a type, for type
+    /// normalization: a closed length, or the term of one that depends on
+    /// generic parameters.
+    pub fn resolve(&self, id: &GlobalConstExprId) -> Option<nia_ty::ConstGenericValue> {
+        resolve_type_const_expr(&self.values, &self.symbolic, id)
+    }
+}
+
+/// The value of a const expression written in a type, from the two tables
+/// const analysis publishes. Every phase that normalizes types reads sites
+/// through this.
+pub fn resolve_type_const_expr(
+    values: &HashMap<GlobalConstExprId, u64>,
+    symbolic: &HashMap<GlobalConstExprId, nia_ty::ConstGenericArg>,
+    id: &GlobalConstExprId,
+) -> Option<nia_ty::ConstGenericValue> {
+    values
+        .get(id)
+        .map(|value| nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned((*value).into())))
+        .or_else(|| symbolic.get(id).map(|arg| arg.value.clone()))
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

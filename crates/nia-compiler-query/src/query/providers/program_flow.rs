@@ -102,9 +102,9 @@ fn deferred_const_instance_diagnostics(
             .any(|arg| matches!(arg.value, nia_ty::ConstGenericValue::Computation(_)))
             || module
                 .const_eval
-                .symbolic_array_lengths
+                .symbolic_const_exprs
                 .values()
-                .any(|len| matches!(len, nia_ty::ArrayLenTy::Computation(_)))
+                .any(|arg| matches!(arg.value, nia_ty::ConstGenericValue::Computation(_)))
             || module
                 .semantic_facts
                 .iter_node_array_repeat_counts()

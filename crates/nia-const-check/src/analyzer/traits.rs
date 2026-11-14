@@ -238,7 +238,7 @@ impl Analyzer<'_> {
             &assumptions,
             &trait_impls,
         );
-        let mut required_lengths = HashSet::new();
+        let mut required_lengths = context::TypeConstSites::new();
         for requirement in requirements {
             self.collect_array_len_const_exprs_in_ty(requirement.ty, &mut required_lengths);
         }
@@ -707,7 +707,7 @@ impl Analyzer<'_> {
         assumptions: &[TraitGoal],
         trait_impls: &[ProgramTraitImplSignature],
     ) -> HashMap<GlobalConstExprId, u64> {
-        let mut needed = HashSet::new();
+        let mut needed = context::TypeConstSites::new();
         self.collect_array_len_const_exprs_in_ty(self_ty, &mut needed);
         for ty in trait_args {
             self.collect_array_len_const_exprs_in_ty(*ty, &mut needed);
@@ -756,11 +756,11 @@ impl Analyzer<'_> {
     fn extend_trait_solver_array_lengths(
         &mut self,
         array_lengths: &mut HashMap<GlobalConstExprId, u64>,
-        needed: HashSet<GlobalConstExprId>,
+        needed: context::TypeConstSites,
     ) {
-        for id in needed {
+        for (id, site) in needed {
             if !array_lengths.contains_key(&id)
-                && let Some(value) = self.eval_array_len_const_expr_id(&id)
+                && let Some(value) = self.eval_type_const_site(&id, site)
             {
                 array_lengths.insert(id, value);
             }
@@ -770,17 +770,10 @@ impl Analyzer<'_> {
     fn collect_trait_solver_const_arg_exprs(
         &self,
         args: &[ConstGenericArg],
-        out: &mut HashSet<GlobalConstExprId>,
+        out: &mut context::TypeConstSites,
     ) {
         for arg in args {
-            arg.visit_referenced_types(|ty| self.collect_array_len_const_exprs_in_ty(ty, out));
-            if matches!(
-                self.ty_kind(arg.ty),
-                Some(TyKind::Primitive(PrimitiveTy::Usize))
-            ) && let ConstGenericValue::ConstExpr(id) = &arg.value
-            {
-                out.insert(id.clone());
-            }
+            self.collect_const_arg_sites(arg, out, &mut HashSet::new());
         }
     }
 

@@ -1927,6 +1927,27 @@ impl<'a> Encoder<'a> {
                 }
                 self.len(args.len());
             }
+            C::Match { arms, .. } => {
+                self.tag(8);
+                self.len(arms.len());
+                for arm in arms {
+                    self.len(arm.patterns.len());
+                    for pattern in &arm.patterns {
+                        match pattern {
+                            nia_ty::ConstPattern::Wildcard => self.tag(0),
+                            nia_ty::ConstPattern::Value(_) => self.tag(1),
+                            nia_ty::ConstPattern::Range { inclusive, .. } => {
+                                self.tag(2);
+                                self.bool(*inclusive);
+                            }
+                        }
+                    }
+                }
+            }
+            C::Fail(message) => {
+                self.tag(10);
+                self.builder.write_str(message);
+            }
         }
         let operands = expr.operands();
         self.len(operands.len());

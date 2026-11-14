@@ -1137,11 +1137,54 @@ pub(super) fn provide_type_normalization(
     let item_signatures = item_signatures_semantic(db, module_id)?;
     let mut normalization =
         normalize_types_in_session_store(db, module_id, &type_lowering, &item_signatures)?;
-    let diagnostics = std::mem::take(&mut normalization.diagnostics);
+    let mut diagnostics = std::mem::take(&mut normalization.diagnostics);
+    let items = db.get(FullActiveModuleItemTreeQuery(module_id))?;
+    diagnostics.extend(nia_type_normalize::const_param_type_diagnostics(
+        db.context().type_store(),
+        &normalization,
+        &const_param_types(&items, &type_lowering),
+    ));
     Ok(ModuleTypeNormalization {
         semantic: Arc::new(normalization),
         diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,
     })
+}
+
+/// The span and lowered type of every const parameter the items declare, on
+/// items, extension blocks and methods alike. A module reports the check of
+/// these types with the normalization its checking mode builds: the full
+/// one for a checked module, the type signatures' one for a type-only module.
+fn const_param_types(
+    items: &nia_item_tree::ActiveModuleItemTree,
+    type_lowering: &nia_type_lower::TypeLowering,
+) -> Vec<(nia_span::Span, nia_ids::InternedTyId)> {
+    use nia_ast_walk::Visitor;
+    struct ConstParams<'a> {
+        type_lowering: &'a nia_type_lower::TypeLowering,
+        found: Vec<(nia_span::Span, nia_ids::InternedTyId)>,
+    }
+    impl<'ast> Visitor<'ast> for ConstParams<'_> {
+        fn visit_generic_param(&mut self, generic: &'ast nia_ast::GenericParam) {
+            if let nia_ast::GenericParamKind::Const { ty } = &generic.kind
+                && let Some(lowered) = self.type_lowering.ty_for_site(&ty.node_key.site)
+            {
+                self.found.push((ty.span, lowered));
+            }
+            nia_ast_walk::walk_generic_param(self, generic);
+        }
+    }
+    let mut params = ConstParams {
+        type_lowering,
+        found: Vec::new(),
+    };
+    for item in items.items.iter() {
+        params.visit_item(item);
+    }
+    params
+        .found
+        .sort_unstable_by_key(|(span, _)| (span.start, span.end));
+    params.found.dedup();
+    params.found
 }
 
 pub(super) fn provide_layout_type_normalization(
@@ -1166,7 +1209,17 @@ pub(super) fn provide_signature_type_normalization(
         &type_lowering.semantic,
         &item_signatures.semantic,
     )?;
-    let diagnostics = std::mem::take(&mut normalization.diagnostics);
+    let mut diagnostics = std::mem::take(&mut normalization.diagnostics);
+    // The type signatures declare every generic item, so their product
+    // carries the check for a type-only module.
+    if set == nia_item_tree::SignatureItemSet::Types {
+        let items = db.get(SignatureItemTreeQuery(module_id, set))?;
+        diagnostics.extend(nia_type_normalize::const_param_type_diagnostics(
+            db.context().type_store(),
+            &normalization,
+            &const_param_types(&items, &type_lowering.semantic),
+        ));
+    }
     Ok(SignatureTypeNormalization {
         semantic: Arc::new(normalization),
         diagnostics: db.context().diagnostic_store.bundle(diagnostics)?,

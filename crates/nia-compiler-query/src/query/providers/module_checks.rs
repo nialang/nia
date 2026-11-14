@@ -59,7 +59,7 @@ fn with_module_layout_input<T>(
         module_id,
         &db.context().type_store,
         root_types,
-        &|id| array_lengths.symbolic.get(id).cloned(),
+        &|id| array_lengths.symbolic.get(id).map(|arg| arg.value.clone()),
     )?;
     let target = compiler_target_data_layout(db)?;
     let symbols = db.context().symbols();
@@ -141,6 +141,17 @@ fn with_module_layout_input<T>(
             union: Some(&program_union),
             enum_: Some(&program_enum),
             type_alias: Some(&program_type_alias),
+            resolve_const_sites: Some(&|ty| {
+                const_eval::resolve_declaration_const_sites(
+                    db,
+                    &query_failure,
+                    module_id,
+                    ty,
+                    &|other| {
+                        capture_query_failure(&query_failure, db.get(ConstArrayLengthsQuery(other)))
+                    },
+                )
+            }),
             ..Default::default()
         },
     })?;

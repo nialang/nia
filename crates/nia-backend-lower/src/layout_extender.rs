@@ -148,8 +148,15 @@ impl<'input, 'ctx> BackendLayoutExtender<'input, 'ctx> {
             &|id| {
                 self.input
                     .array_length(id)
-                    .map(nia_ty::ArrayLenTy::ConstValue)
-                    .or_else(|| self.input.program.symbolic_array_length(id))
+                    .map(|value| {
+                        nia_ty::ConstGenericValue::Int(nia_ty::IntConst::unsigned(value.into()))
+                    })
+                    .or_else(|| {
+                        self.input
+                            .program
+                            .symbolic_const_expr(id)
+                            .map(|arg| arg.value)
+                    })
             },
         )?;
         let input = self.input;

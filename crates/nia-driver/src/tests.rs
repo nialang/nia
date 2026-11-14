@@ -8,6 +8,7 @@ mod common;
 mod const_eval;
 mod const_generics;
 mod const_regressions;
+mod const_values;
 mod generic_enums;
 mod import_recovery;
 mod imports;

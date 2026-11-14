@@ -435,6 +435,11 @@ pub struct ProgramLayoutContext<'a> {
     pub enum_: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramEnumSignature>>,
     /// Lazy imported type-alias lookup.
     pub type_alias: Option<&'a dyn Fn(GlobalDefId) -> Option<ProgramTypeAliasSignature>>,
+    /// Resolves the const expressions written in a declaration's type, of
+    /// any module, to their values or terms. A declaration type is resolved
+    /// before its generic arguments are substituted: a source site alone has
+    /// no binders, and substituting into it would lose them.
+    pub resolve_const_sites: Option<&'a dyn Fn(InternedTyId) -> InternedTyId>,
 }
 
 /// Semantic evaluation service. User failures retain all originating diagnostics;
@@ -753,8 +758,14 @@ impl<'a> LayoutComputer<'a> {
     ) -> InternedTyId {
         // Declaration normalization must precede substitution for enum payloads
         // and aliases as well as struct/union fields. Source const sites carry
-        // no generic environment until they become residual computations.
+        // no generic environment until they become residual computations; a
+        // declaration of another module is not in this module's normalization,
+        // so its sites are resolved through the program.
         let ty = self.normalize_ty(ty);
+        let ty = match self.program.resolve_const_sites {
+            Some(resolve) => resolve(ty),
+            None => ty,
+        };
         match nia_ty::substitute_ty(
             self.type_context.store,
             &self.type_context.append,

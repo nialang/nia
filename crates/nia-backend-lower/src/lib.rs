@@ -476,8 +476,10 @@ pub trait BackendProgramFacts: Sync {
     fn symbol_package_identities(&self) -> &HashMap<ModuleId, String>;
     /// Returns evaluated array lengths owned by `module_id`.
     fn const_array_lengths(&self, module_id: ModuleId) -> Option<&HashMap<GlobalConstExprId, u64>>;
-    /// Returns lengths that become concrete only after generic substitution.
-    fn symbolic_array_length(&self, _id: &GlobalConstExprId) -> Option<nia_ty::ArrayLenTy> {
+    /// Returns the term of a const expression written in a type that depends
+    /// on generic parameters, an array length or a nominal const argument; it
+    /// becomes a value only after generic substitution.
+    fn symbolic_const_expr(&self, _id: &GlobalConstExprId) -> Option<nia_ty::ConstGenericArg> {
         None
     }
     /// Returns an evaluated source const value when its initializer is

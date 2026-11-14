@@ -184,7 +184,7 @@ impl<'a> BodyChecker<'a> {
                         self.record_array_repeat_count(count, len.clone());
                         Some(len)
                     }
-                    Err(err) => {
+                    Err(RepeatCountError::Invalid(err)) => {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             codes::TYPE_CHECK,
                             err.span,
@@ -193,6 +193,10 @@ impl<'a> BodyChecker<'a> {
                                 err.message
                             ),
                         ));
+                        None
+                    }
+                    Err(RepeatCountError::NotATerm(diagnostics)) => {
+                        self.diagnostics.extend(diagnostics);
                         None
                     }
                 }
@@ -204,8 +208,8 @@ impl<'a> BodyChecker<'a> {
             (expected, None) => expected,
             (expected, Some(actual)) => {
                 if !self.array_lengths_equivalent(&expected, &actual) {
-                    let expected_name = self.array_len_name(&expected);
-                    let actual_name = self.array_len_name(&actual);
+                    let expected_name = self.quoted_array_len_name(&expected);
+                    let actual_name = self.quoted_array_len_name(&actual);
                     self.diagnostics.push(Diagnostic::user_error_at(
                         codes::TYPE_CHECK,
                         span,
@@ -1637,43 +1641,57 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    /// The length a repeat count denotes, by the classification type
-    /// lowering gives an array type's length ([`nia_type_lower::classify_array_len_expr`]):
-    /// a const parameter in scope, a layout query of a type, or a value that
-    /// constant evaluation computes. A count that depends on a generic
-    /// parameter stays symbolic; each instance folds it to a value.
+    /// The length a repeat count denotes: a value that constant evaluation
+    /// computes, or, in a generic body, a symbolic length each instance folds
+    /// ([`Self::symbolic_const_expr`]).
     pub(crate) fn array_repeat_count_len(
         &mut self,
         count: &Expr,
-    ) -> Result<ArrayLenTy, ConstError> {
+    ) -> Result<ArrayLenTy, RepeatCountError> {
         let expected = self.primitive(nia_ty::PrimitiveTy::Usize);
         let actual =
             self.with_const_context(|this| this.check_expr_with_expected(count, Some(expected)));
         if !self.types_match(expected, actual) {
-            return Err(ConstError {
+            return Err(RepeatCountError::Invalid(ConstError {
                 span: count.span,
                 message: "array repeat count must have type `usize`".to_string(),
-            });
+            }));
         }
-        if let Some(arg) = self.symbolic_const_expr(count, Some(expected))
-            && let Some(len) = nia_ty::array_len_from_const_arg(&arg)
-        {
-            return Ok(len);
+        match self.symbolic_const_expr(count, Some(expected)) {
+            Ok(Some(arg)) => {
+                if let Some(len) = nia_ty::array_len_from_const_arg(&arg) {
+                    return Ok(len);
+                }
+            }
+            Ok(None) => {}
+            Err(diagnostics) => return Err(RepeatCountError::NotATerm(diagnostics)),
         }
-        let count = self.lower_const_expr(count).map_err(|err| ConstError {
-            span: err.span,
-            message: err.message,
-        })?;
+        let count = self
+            .lower_const_expr(count)
+            .map_err(|err| ConstError {
+                span: err.span,
+                message: err.message,
+            })
+            .map_err(RepeatCountError::Invalid)?;
         self.evaluate_const_array_len_expr(&count)
             .map(ArrayLenTy::ConstValue)
+            .map_err(RepeatCountError::Invalid)
     }
 
+    /// Classifies a const expression for a generic body
+    /// ([`nia_const_check::classify_symbolic_const_expr`]): `Ok(Some)` is its
+    /// term, `Ok(None)` means it is closed and evaluates normally, and `Err`
+    /// holds the diagnostics of one that depends on an instance but has no
+    /// term form. The caller that owns the expression reports them; an
+    /// inference probe of the same expression does not.
     pub(crate) fn symbolic_const_expr(
         &mut self,
         expr: &Expr,
         expected: Option<InternedTyId>,
-    ) -> Option<nia_ty::ConstGenericArg> {
-        let expr = self.lower_const_expr(expr).ok()?;
+    ) -> Result<Option<nia_ty::ConstGenericArg>, Vec<Diagnostic>> {
+        let Ok(expr) = self.lower_const_expr(expr) else {
+            return Ok(None);
+        };
         let result = self.with_typed_const_query(|input| {
             nia_const_check::classify_symbolic_const_expr(input, &expr, expected)
         });
@@ -1681,7 +1699,7 @@ impl<'a> BodyChecker<'a> {
             Ok(value) => value,
             Err(error) => {
                 self.record_internal(error);
-                None
+                Err(Vec::new())
             }
         }
     }
@@ -1926,19 +1944,30 @@ fn array_literal_elem_requires_expected(elem: &Expr) -> bool {
     }
 }
 
+/// Why a repeat count has no length.
+pub(crate) enum RepeatCountError {
+    /// The count is not a valid constant.
+    Invalid(ConstError),
+    /// The count depends on a generic instance but is not a const
+    /// computation; the diagnostics say why.
+    NotATerm(Vec<Diagnostic>),
+}
+
 /// The length an array literal writes: its element count, or its repeat
 /// count resolved symbolically.
 pub(crate) fn explicit_array_literal_len(
     checker: &mut BodyChecker<'_>,
     span: Span,
     elems: &nia_ast::ArrayElements,
-) -> Result<ArrayLenTy, ConstError> {
+) -> Result<ArrayLenTy, RepeatCountError> {
     match elems {
         nia_ast::ArrayElements::List(elems) => u64::try_from(elems.len())
             .map(ArrayLenTy::ConstValue)
-            .map_err(|_| ConstError {
-                span,
-                message: "array literal length exceeds the semantic limit".to_string(),
+            .map_err(|_| {
+                RepeatCountError::Invalid(ConstError {
+                    span,
+                    message: "array literal length exceeds the semantic limit".to_string(),
+                })
             }),
         nia_ast::ArrayElements::Repeat { count, .. } => checker.array_repeat_count_len(count),
     }

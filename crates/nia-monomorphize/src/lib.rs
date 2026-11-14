@@ -1042,47 +1042,57 @@ impl MonoCollector<'_> {
 
     /// Canonicalizes closed scalar identities before they become instance keys.
     /// Layout queries and evaluated const expressions denote values, so their
-    /// signedness must follow the declared primitive type rather than whichever
-    /// evaluator path produced the value. This keeps `4`, `3 + 1`, and
-    /// `size[u32]()` on one linkage identity.
-    fn canonicalize_const_arg(&self, mut arg: ConstGenericArg) -> ConstGenericArg {
+    /// form must follow the declared primitive type rather than whichever
+    /// evaluator path produced the value. The type itself is normalized, so an
+    /// alias such as `type Len = usize` is the same carrier as `usize`. This
+    /// keeps `4`, `3 + 1`, and `size[u32]()` on one linkage identity.
+    fn canonicalize_const_arg(&mut self, mut arg: ConstGenericArg) -> ConstGenericArg {
         let pointer_width = self
             .layouts_by_module
             .values()
             .next()
             .map_or(64, |layouts| layouts.target.pointer_size as u32 * 8);
+        arg.ty = self.normalized_carrier(arg.ty);
         let Some(TyKind::Primitive(primitive)) = self.type_store.get(arg.ty) else {
             return arg;
         };
-        match arg.value.clone() {
-            ConstGenericValue::Int(value) if primitive.is_integer() => {
-                if let Some(value) = value.cast_to_primitive_int(*primitive, pointer_width) {
-                    arg.value = ConstGenericValue::Int(value);
-                }
-            }
-            ConstGenericValue::ConstExpr(id) => {
-                if let Some(value) = self
-                    .const_by_module
-                    .get(&id.module_id)
-                    .and_then(|check| check.array_lengths.get(&id))
-                {
-                    arg.value = ConstGenericValue::Int(nia_ty::IntConst::unsigned((*value).into()));
-                }
-            }
-            ConstGenericValue::Layout { builtin, ty } => {
-                if let Some(layout) = self
-                    .layouts_by_module
-                    .values()
-                    .find_map(|layouts| layouts.types.get(&ty))
-                {
-                    arg.value = ConstGenericValue::Int(nia_ty::IntConst::unsigned(
+        let primitive = *primitive;
+        let folded = match arg.value.clone() {
+            ConstGenericValue::ConstExpr(id) => self
+                .const_by_module
+                .get(&id.module_id)
+                .and_then(|check| check.array_lengths.get(&id))
+                .map(|value| ConstGenericValue::Int(nia_ty::IntConst::unsigned((*value).into()))),
+            ConstGenericValue::Layout { builtin, ty } => self
+                .layouts_by_module
+                .values()
+                .find_map(|layouts| layouts.types.get(&ty))
+                .map(|layout| {
+                    ConstGenericValue::Int(nia_ty::IntConst::unsigned(
                         layout.builtin_value(builtin).into(),
-                    ));
-                }
+                    ))
+                }),
+            value => Some(value),
+        };
+        if let Some(value) = folded {
+            match value.canonical_for(primitive, pointer_width) {
+                Ok(value) => arg.value = value,
+                Err(error) => self.record_internal_error(Ice::new(format!(
+                    "checked const argument is not a value of its type: {error}"
+                ))),
             }
-            _ => {}
         }
         arg
+    }
+
+    /// The normalized form of a const argument's type. Type identities are
+    /// program-wide, and the module that lowered the type normalized it as a
+    /// signature root.
+    fn normalized_carrier(&self, ty: InternedTyId) -> InternedTyId {
+        self.normalizations_by_module
+            .values()
+            .find_map(|normalization| normalization.normalized.get(&ty).copied())
+            .unwrap_or(ty)
     }
 
     fn evaluate_closed_const_arg(&mut self, arg: ConstGenericArg) -> ConstGenericArg {

@@ -319,7 +319,13 @@ pub fn substitute_ty(
 /// but substitution is a persistence/codegen boundary and must remain safe on
 /// malformed or stale inputs too.
 pub fn array_len_from_const_arg(arg: &ConstGenericArg) -> Option<ArrayLenTy> {
-    match &arg.value {
+    array_len_from_const_value(&arg.value)
+}
+
+/// The array length a `usize` const value denotes; see
+/// [`array_len_from_const_arg`].
+pub fn array_len_from_const_value(value: &ConstGenericValue) -> Option<ArrayLenTy> {
+    match value {
         ConstGenericValue::Int(value) => {
             let value = if value.is_signed() {
                 u128::try_from(value.as_i128()?).ok()?

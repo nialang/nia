@@ -392,56 +392,49 @@ impl Analyzer<'_> {
         module_id: ModuleId,
     ) -> Result<nia_ty::ConstGenericValue, ConstError> {
         let expected_ty = self.type_for_module(expr.span(), expected_ty, module_id)?;
-        if let Some(arg) = self.symbolic_const_expr_with_expected(expr, Some(expected_ty)) {
-            if self.const_function_types_match(arg.ty, expected_ty) {
+        match self.symbolic_const_expr_with_expected(expr, Some(expected_ty)) {
+            Ok(Some(arg)) if self.const_function_types_match(arg.ty, expected_ty) => {
                 return Ok(arg.value);
             }
-            return Err(ConstError {
-                span: expr.span(),
-                message: "const generic argument does not match parameter type".into(),
-            });
+            Ok(Some(_)) => {
+                return Err(ConstError {
+                    span: expr.span(),
+                    message: "const generic argument does not match parameter type".into(),
+                });
+            }
+            Ok(None) => {}
+            // The reason is reported; the caller must not report it again.
+            Err(symbolic::SymbolicReported) => {
+                self.read_failed_const = true;
+                return Err(ConstError {
+                    span: expr.span(),
+                    message: "const generic argument is not a const computation".into(),
+                });
+            }
         }
         let expected = self.type_context(module_id).get(expected_ty).cloned();
         // Establish the argument's own contextual operand types before its
         // execution. Metadata lookup must not re-infer the enclosing call.
         self.resolved_const_arg_runtime_type(expr, Some(expected_ty));
         let value = nia_const_eval::eval_resolved_const_expr(expr, self)?;
-        match (expected, value) {
-            (Some(TyKind::Primitive(PrimitiveTy::Bool)), ConstValue::Bool(value)) => {
-                Ok(nia_ty::ConstGenericValue::Bool(value))
-            }
-            (Some(TyKind::Primitive(PrimitiveTy::Char)), ConstValue::Int(value)) => {
-                let scalar = u32::try_from(value.bits()).ok().and_then(char::from_u32);
-                scalar
-                    .map(nia_ty::ConstGenericValue::Char)
-                    .ok_or_else(|| ConstError {
-                        span: expr.span(),
-                        message: "const generic character argument is not a valid Unicode scalar"
-                            .to_string(),
-                    })
-            }
-            (Some(TyKind::Primitive(primitive)), ConstValue::Int(value))
-                if primitive_integer_layout(primitive, self.input.target.pointer_width())
-                    .is_some() =>
-            {
-                if !value.fits_primitive_int(primitive, self.input.target.pointer_width()) {
-                    return Err(ConstError {
-                        span: expr.span(),
-                        message:
-                            "const generic integer argument is out of range for parameter type"
-                                .to_string(),
-                    });
-                }
-                let value = value
-                    .cast_to_primitive_int(primitive, self.input.target.pointer_width())
-                    .expect("validated primitive integer width");
-                Ok(nia_ty::ConstGenericValue::Int(value))
-            }
-            _ => Err(ConstError {
+        let Some(TyKind::Primitive(primitive)) = expected else {
+            return Err(ConstError {
                 span: expr.span(),
                 message: "const generic argument does not match parameter type".to_string(),
-            }),
+            });
+        };
+        let pointer_width = self.input.target.pointer_width();
+        match value {
+            ConstValue::Int(value) => {
+                nia_ty::ConstGenericValue::from_int(primitive, value, pointer_width)
+            }
+            ConstValue::Bool(value) => nia_ty::ConstGenericValue::from_bool(primitive, value),
+            _ => Err(nia_ty::ConstScalarError::KindMismatch(primitive)),
         }
+        .map_err(|error| ConstError {
+            span: expr.span(),
+            message: error.to_string(),
+        })
     }
 
     pub(super) fn const_expected_param_type(
@@ -654,7 +647,9 @@ impl Analyzer<'_> {
         expr: &ResolvedConstExpr,
         expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
-        let inferred = self.resolved_const_expr_type_inner(expr, expected);
+        let inferred = nia_const_eval::ensure_const_stack(|| {
+            self.resolved_const_expr_type_inner(expr, expected)
+        });
         if let Some(ConstValueType::Runtime(ty)) = inferred
             && let Some(types) = self.resolved_expr_facts.last_mut()
         {
@@ -821,6 +816,8 @@ impl Analyzer<'_> {
                 .or_else(|| self.const_name_resolution_type(resolution.clone()))
                 .or_else(|| {
                     self.symbolic_const_expr(expr)
+                        .ok()
+                        .flatten()
                         .map(|arg| ConstValueType::Runtime(arg.ty))
                 }),
             ResolvedConstExprKind::OmittedVariant(_) => {
@@ -1881,6 +1878,20 @@ impl Analyzer<'_> {
     }
 
     pub(super) fn eval_array_len_const_expr_id(&mut self, id: &GlobalConstExprId) -> Option<u64> {
+        let expected = self.current_runtime_primitive_type(PrimitiveTy::Usize);
+        self.eval_type_const_expr_id(id, expected)
+    }
+
+    /// Analyzes a const expression written in a type: an array length, or a
+    /// const argument of a nominal type, whose declared type is `expected`.
+    /// One that depends on generic parameters is published as its term
+    /// ([`Self::symbolic_const_exprs`]), so substitution keeps its binders;
+    /// a closed `usize` one is published as its value.
+    pub(super) fn eval_type_const_expr_id(
+        &mut self,
+        id: &GlobalConstExprId,
+        expected: InternedTyId,
+    ) -> Option<u64> {
         let expr = if id.module_id == self.input.defs.module_id {
             self.input.module.const_exprs().get(id)?.clone()
         } else {
@@ -1889,12 +1900,23 @@ impl Analyzer<'_> {
                 .get(id)?
                 .clone()
         };
+        let is_length = matches!(
+            self.ty_kind(expected),
+            Some(TyKind::Primitive(PrimitiveTy::Usize))
+        );
         let value = self.with_execution_module(id.module_id, |this| {
-            let expected = this.current_runtime_primitive_type(PrimitiveTy::Usize);
-            if let Some(arg) = this.symbolic_const_expr_with_expected(&expr, Some(expected))
-                && let Some(len) = nia_ty::array_len_from_const_arg(&arg)
-            {
-                this.symbolic_array_lengths.insert(id.clone(), len);
+            match this.symbolic_const_expr_with_expected(&expr, Some(expected)) {
+                Ok(Some(arg)) => {
+                    this.symbolic_const_exprs.insert(id.clone(), arg);
+                    return None;
+                }
+                Ok(None) => {}
+                // Reported where the expression is written.
+                Err(symbolic::SymbolicReported) => return None,
+            }
+            // A closed const argument of another type is evaluated where it
+            // is compared; only lengths have a value table.
+            if !is_length {
                 return None;
             }
             this.eval_resolved_array_len_expr(&expr)
@@ -2290,7 +2312,7 @@ impl Analyzer<'_> {
         expected: Option<InternedTyId>,
     ) -> Option<ConstValueType> {
         self.check_resolved_const_bool_condition(cond)?;
-        let defer_bounds = self.symbolic_const_expr(cond).is_some();
+        let defer_bounds = matches!(self.symbolic_const_expr(cond), Ok(Some(_)));
         if defer_bounds {
             self.defer_const_bounds += 1;
         }

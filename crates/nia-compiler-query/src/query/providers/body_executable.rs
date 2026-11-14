@@ -39,16 +39,16 @@ fn checked_type_normalization(
     module_id: ModuleId,
     lowered: &nia_type_lower::TypeLowering,
     normalization: &Arc<TypeNormalization>,
-    symbolic_array_lengths: &HashMap<nia_ids::GlobalConstExprId, nia_ty::ArrayLenTy>,
+    symbolic_const_exprs: &HashMap<nia_ids::GlobalConstExprId, nia_ty::ConstGenericArg>,
 ) -> QueryResult<Arc<TypeNormalization>> {
-    if symbolic_array_lengths.is_empty() {
+    if symbolic_const_exprs.is_empty() {
         return Ok(Arc::clone(normalization));
     }
     let resolved = normalization.resolve_array_lengths(
         module_id,
         &db.context().type_store,
         &lowered.explicit_type_roots(),
-        &|id| symbolic_array_lengths.get(id).cloned(),
+        &|id| symbolic_const_exprs.get(id).map(|arg| arg.value.clone()),
     )?;
     Ok(Arc::new(resolved))
 }
@@ -179,7 +179,7 @@ impl BodyCheckConstInputs {
             enum_values: self.enum_values.values,
             typed_enum_values: self.enum_values.typed_values,
             array_lengths: self.array_lengths.values,
-            symbolic_array_lengths: self.array_lengths.symbolic,
+            symbolic_const_exprs: self.array_lengths.symbolic,
             provider_demands: self.typed_facts.provider_demands,
             diagnostics: self.typed_facts.diagnostics,
         }
@@ -1090,7 +1090,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                 failed: &const_eval.failed,
                 typed_values: &const_eval.typed_values,
                 array_lengths: &const_eval.array_lengths,
-                symbolic_array_lengths: &const_eval.symbolic_array_lengths,
+                symbolic_const_exprs: &const_eval.symbolic_const_exprs,
             },
             const_module,
         )
@@ -1634,6 +1634,16 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     };
     let target = db.get(CompilerTargetQuery)?;
     let cpu_features = *db.get(CompilerCpuFeaturesQuery)?;
+    // Body checking runs after const analysis, so it reads types with their
+    // const expressions resolved: an alias whose target computes a length is
+    // expanded with that computation bound to the alias's arguments.
+    let body_normalization = checked_type_normalization(
+        db,
+        module_id,
+        &lowered,
+        &normalization.semantic,
+        body_const.symbolic_const_exprs,
+    )?;
     let run_body_check =
         |inputs: &BodyCheckResolutionInputs,
          body_const: nia_body_check::BodyConst<'_>,
@@ -1659,7 +1669,7 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
                         &signatures,
                     ),
                     const_signatures: &signatures,
-                    normalization: &normalization.semantic,
+                    normalization: &body_normalization,
                     seed,
                     target: target.as_ref(),
                     cpu_features,
@@ -1993,16 +2003,20 @@ pub(super) fn executable_layouts_for_reachable_items(
             module_id,
             &db.context().type_store,
             &roots.types,
-            &|id| local_array_lengths.symbolic.get(id).cloned(),
+            &|id| {
+                local_array_lengths
+                    .symbolic
+                    .get(id)
+                    .map(|arg| arg.value.clone())
+            },
         )?;
         let target = time_provider(db.context().timings(), "executable_layouts.target", || {
             compiler_target_data_layout(db)
         })?;
-        let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
-            if id.module_id == module_id {
-                return local_array_lengths.values.get(&id).copied();
-            }
-            if !signature_array_lengths.borrow().contains_key(&id.module_id)
+        // Another module's const tables, from its type signatures: an
+        // executable never checks a module in full to lay out its types.
+        let signature_tables = |other: ModuleId| {
+            if !signature_array_lengths.borrow().contains_key(&other)
                 && let Some(array_lengths) = capture_query_failure(
                     &query_failure,
                     time_provider(
@@ -2011,7 +2025,7 @@ pub(super) fn executable_layouts_for_reachable_items(
                         || {
                             with_type_signature_const_input(
                                 db,
-                                id.module_id,
+                                other,
                                 non_function_signatures_override,
                                 |input, module| {
                                     let mut array_lengths =
@@ -2026,11 +2040,22 @@ pub(super) fn executable_layouts_for_reachable_items(
             {
                 signature_array_lengths
                     .borrow_mut()
-                    .insert(id.module_id, array_lengths);
+                    .insert(other, Arc::new(array_lengths));
             }
-            signature_array_lengths
-                .borrow()
-                .get(&id.module_id)
+            signature_array_lengths.borrow().get(&other).cloned()
+        };
+        let const_tables = |other: ModuleId| {
+            if other == module_id {
+                Some(Arc::new(local_array_lengths.clone()))
+            } else {
+                signature_tables(other)
+            }
+        };
+        let executable_array_lengths = |id: nia_ids::GlobalConstExprId| {
+            if id.module_id == module_id {
+                return local_array_lengths.values.get(&id).copied();
+            }
+            signature_tables(id.module_id)
                 .and_then(|array_lengths| array_lengths.values.get(&id).copied())
         };
         let layouts = time_module_provider(db, "executable_layouts.compute", module_id, || {
@@ -2058,6 +2083,15 @@ pub(super) fn executable_layouts_for_reachable_items(
                         union: Some(&program_union),
                         enum_: Some(&program_enum),
                         type_alias: Some(&program_type_alias),
+                        resolve_const_sites: Some(&|ty| {
+                            const_eval::resolve_declaration_const_sites(
+                                db,
+                                &query_failure,
+                                module_id,
+                                ty,
+                                &const_tables,
+                            )
+                        }),
                         ..Default::default()
                     },
                 },
@@ -2182,7 +2216,7 @@ fn checked_module_with_body_and_flow_check(
         module_id,
         &type_lowering.semantic,
         &type_normalization.semantic,
-        &const_eval.semantic.symbolic_array_lengths,
+        &const_eval.semantic.symbolic_const_exprs,
     )?;
     let static_check = db.get(StaticCheckQuery(module_id))?;
     let abi_check = db.get(AbiCheckQuery(module_id))?;
@@ -2310,7 +2344,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         module_id,
         &type_lowering.semantic,
         &type_normalization.semantic,
-        &const_eval.symbolic_array_lengths,
+        &const_eval.symbolic_const_exprs,
     )?;
     Ok(CheckedModule {
         id: module_id,
@@ -2404,7 +2438,7 @@ pub(super) fn executable_signature_checked_module(
         enum_values: enum_values.values,
         typed_enum_values: enum_values.typed_values,
         array_lengths: array_lengths.values,
-        symbolic_array_lengths: array_lengths.symbolic,
+        symbolic_const_exprs: array_lengths.symbolic,
         provider_demands: enum_values.provider_demands,
         diagnostics: const_diagnostics,
     };

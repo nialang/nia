@@ -128,7 +128,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         .expect("compute backend-lower pipeline test layouts");
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
-        symbolic: const_eval.symbolic_array_lengths.clone(),
+        symbolic: const_eval.symbolic_const_exprs.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };
@@ -255,7 +255,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
     mutate_const(&mut const_eval, &type_lowering);
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
-        symbolic: const_eval.symbolic_array_lengths.clone(),
+        symbolic: const_eval.symbolic_const_exprs.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };

@@ -523,11 +523,11 @@ impl BackendLoweringInputs {
 }
 
 impl nia_backend_lower::BackendProgramFacts for BackendLoweringInputs {
-    fn symbolic_array_length(&self, id: &GlobalConstExprId) -> Option<nia_ty::ArrayLenTy> {
+    fn symbolic_const_expr(&self, id: &GlobalConstExprId) -> Option<nia_ty::ConstGenericArg> {
         let index = *self.module_indices.get(&id.module_id)?;
         self.checked_modules[index]
             .const_eval
-            .symbolic_array_lengths
+            .symbolic_const_exprs
             .get(id)
             .cloned()
     }

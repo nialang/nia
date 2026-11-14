@@ -8,7 +8,7 @@ use nia_item_signatures::{FunctionSignature, GenericParamSignature, GenericParam
 use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap};
-use nia_ty::{ConstComputation, ConstGenericArg, ConstGenericValue, IntConst, PrimitiveTy, TyKind};
+use nia_ty::{ConstGenericArg, ConstGenericValue, PrimitiveTy, TyKind};
 
 /// Type and const parameter bindings for one generic signature.
 ///
@@ -136,32 +136,159 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn const_generic_value_name(&self, value: &ConstGenericValue) -> String {
         match value {
-            ConstGenericValue::GenericParam(name) => self.symbol_name(*name),
-            ConstGenericValue::Computation(computation) => {
-                self.const_computation_source(computation).map_or_else(
-                    || "an unevaluated const expression".into(),
-                    |source| format!("`{source}`"),
-                )
-            }
+            ConstGenericValue::Computation(_) => format!("`{}`", self.const_term_text(value, None)),
             ConstGenericValue::ConstExpr(id) => self
                 .const_expr_source(id.module_id, &id.const_expr_id)
                 .map_or_else(
                     || "an unevaluated constant expression".to_string(),
                     |source| format!("`{source}`"),
                 ),
-            ConstGenericValue::Int(value) => value
-                .as_i128()
-                .map_or_else(|| value.bits().to_string(), |value| value.to_string()),
-            ConstGenericValue::Bool(value) => value.to_string(),
             ConstGenericValue::Char(value) => format!("`{value}`"),
-            ConstGenericValue::Layout { builtin, ty } => {
-                format!("@{}[{}]()", builtin.name(), self.ty_name(*ty))
-            }
+            _ => self.const_term_text(value, None),
         }
     }
 
-    fn const_computation_source(&self, computation: &ConstComputation) -> Option<String> {
-        self.source_expression(computation.module_id, computation.span)
+    /// A typed const argument written as Nia source, as in a type name.
+    pub(crate) fn const_arg_name(&self, arg: &ConstGenericArg) -> String {
+        match &arg.value {
+            ConstGenericValue::Char(_) => self.const_generic_value_name(&arg.value),
+            value => self.const_term_text(value, Some(arg.ty)),
+        }
+    }
+
+    /// The source spelling of a const expression written in a type.
+    pub(crate) fn const_expr_site_text(&self, id: &nia_ids::GlobalConstExprId) -> Option<String> {
+        self.const_expr_source(id.module_id, &id.const_expr_id)
+    }
+
+    /// A const value written as Nia source, from its structure; `ty` is the
+    /// type of the term holding it, which a cast renders as its target. A
+    /// computation is rendered from its operands, never from the source it
+    /// was written as: after substitution `Q + 1` is `3 + 1`, while its span
+    /// still holds the declaration's `Q + 1`.
+    fn const_term_text(&self, value: &ConstGenericValue, ty: Option<InternedTyId>) -> String {
+        use nia_ty::ConstComputationKind as C;
+        let term = match value {
+            ConstGenericValue::Computation(term) => term,
+            ConstGenericValue::GenericParam(name) => return self.symbol_name(*name),
+            ConstGenericValue::Int(value) => {
+                return value
+                    .as_i128()
+                    .map_or_else(|| value.bits().to_string(), |value| value.to_string());
+            }
+            ConstGenericValue::Bool(value) => return value.to_string(),
+            ConstGenericValue::Char(value) => return format!("{value:?}"),
+            ConstGenericValue::Layout { builtin, ty } => {
+                return format!("@{}[{}]()", builtin.name(), self.ty_name(*ty));
+            }
+            ConstGenericValue::ConstExpr(id) => {
+                return self
+                    .const_expr_source(id.module_id, &id.const_expr_id)
+                    .unwrap_or_else(|| "_".to_string());
+            }
+        };
+        let text = |arg: &ConstGenericArg| self.const_term_text(&arg.value, Some(arg.ty));
+        // An operand that is itself an operation is parenthesized, so the
+        // rendering keeps the term's structure whatever the precedence.
+        let operand = |arg: &ConstGenericArg| match &arg.value {
+            ConstGenericValue::Computation(inner)
+                if !matches!(
+                    inner.kind,
+                    C::Call { .. } | C::Index { .. } | C::ArrayList(_) | C::ArrayRepeat { .. }
+                ) =>
+            {
+                format!("({})", text(arg))
+            }
+            _ => text(arg),
+        };
+        let list = |args: &mut dyn Iterator<Item = &ConstGenericArg>| {
+            args.map(&text).collect::<Vec<_>>().join(", ")
+        };
+        match &term.kind {
+            C::Unary { op, operand: arg } => match op {
+                nia_ty::ConstUnaryOp::Neg => format!("-{}", operand(arg)),
+                nia_ty::ConstUnaryOp::Not => format!("not {}", operand(arg)),
+                nia_ty::ConstUnaryOp::BitNot => format!("~{}", operand(arg)),
+                nia_ty::ConstUnaryOp::RefReadOnly => format!("&{}", operand(arg)),
+                nia_ty::ConstUnaryOp::Ref => format!("&mut {}", operand(arg)),
+                nia_ty::ConstUnaryOp::Deref => format!("{}.*", operand(arg)),
+            },
+            C::Binary { op, lhs, rhs } => {
+                format!("{} {} {}", operand(lhs), binary_op_text(*op), operand(rhs))
+            }
+            C::Cast(arg) => format!(
+                "{} as {}",
+                operand(arg),
+                ty.map_or_else(|| "_".to_string(), |ty| self.ty_name(ty))
+            ),
+            C::If {
+                condition,
+                then_value,
+                else_value,
+            } => format!(
+                "if {} {{ {} }} else {{ {} }}",
+                text(condition),
+                text(then_value),
+                text(else_value)
+            ),
+            C::ArrayList(values) => format!("[{}]", list(&mut values.iter())),
+            C::ArrayRepeat { value, count } => format!("[{}; {}]", text(value), text(count)),
+            C::Index { array, index } => format!("{}[{}]", operand(array), text(index)),
+            C::Call {
+                function,
+                const_args,
+                args,
+                ..
+            } => {
+                let name = self
+                    .defs_for_module(function.module_id)
+                    .and_then(|defs| {
+                        defs.as_ref()
+                            .defs
+                            .get(function.def_id)
+                            .map(|def| self.symbol_name(def.name))
+                    })
+                    .unwrap_or_else(|| "_".to_string());
+                let generic = if const_args.is_empty() {
+                    String::new()
+                } else {
+                    format!("[{}]", list(&mut const_args.iter().map(|(_, arg)| arg)))
+                };
+                format!("{name}{generic}({})", list(&mut args.iter()))
+            }
+            C::Match { scrutinee, arms } => {
+                let arms = arms
+                    .iter()
+                    .map(|arm| {
+                        let patterns = arm
+                            .patterns
+                            .iter()
+                            .map(|pattern| match pattern {
+                                nia_ty::ConstPattern::Wildcard => "_".to_string(),
+                                nia_ty::ConstPattern::Value(value) => text(value),
+                                nia_ty::ConstPattern::Range {
+                                    start,
+                                    end,
+                                    inclusive,
+                                } => format!(
+                                    "{}{}{}",
+                                    text(start),
+                                    if *inclusive { "..=" } else { ".." },
+                                    text(end)
+                                ),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" | ");
+                        format!("{patterns} => {}", text(&arm.value))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("match {} {{ {arms} }}", text(scrutinee))
+            }
+            C::Fail(_) => self
+                .source_expression(term.module_id, term.span)
+                .unwrap_or_else(|| "_".to_string()),
+        }
     }
 
     fn const_expr_source(&self, module_id: ModuleId, id: &ConstExprId) -> Option<String> {
@@ -422,7 +549,11 @@ impl<'a> BodyChecker<'a> {
             match &param.kind {
                 GenericParamSignatureKind::Type => {
                     if let Some(ty) = &arg.ty {
+                        // A substitution is a semantic type, so a length it
+                        // writes, such as `[u8; N + 1]`, is its term; the
+                        // spelling is kept for diagnostics elsewhere.
                         let ty = self.lower_required_bracket_type(ty, arg);
+                        let ty = self.normalization.normalize(ty);
                         lowered.type_args.push(ty);
                         lowered.substitutions.types.insert(param.name, ty);
                     } else {
@@ -472,15 +603,7 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<ConstGenericValue> {
         if let Some(expr) = &arg.expr {
             let value = self.eval_const_generic_expr(expr, expected_ty)?;
-            if !self.const_generic_value_matches_type(&value, expected_ty) {
-                return None;
-            }
-            return match value {
-                ConstGenericValue::Int(value) => self
-                    .cast_const_generic_int(expected_ty, value)
-                    .map(ConstGenericValue::Int),
-                value => Some(value),
-            };
+            return self.const_generic_value_for_type(value, expected_ty);
         }
         None
     }
@@ -527,12 +650,19 @@ impl<'a> BodyChecker<'a> {
             if this.is_error_recovery_ty(actual) {
                 return None;
             }
-            if let Some(arg) = this.symbolic_const_expr(expr, Some(expected_ty)) {
-                if !this.types_match(expected_ty, arg.ty) {
-                    this.expect_expr_type(expr, expected_ty, arg.ty, "const generic argument");
+            match this.symbolic_const_expr(expr, Some(expected_ty)) {
+                Ok(Some(arg)) => {
+                    if !this.types_match(expected_ty, arg.ty) {
+                        this.expect_expr_type(expr, expected_ty, arg.ty, "const generic argument");
+                        return None;
+                    }
+                    return Some(arg.value);
+                }
+                Ok(None) => {}
+                Err(diagnostics) => {
+                    this.diagnostics.extend(diagnostics);
                     return None;
                 }
-                return Some(arg.value);
             }
             let const_expr = match this.lower_const_expr(expr) {
                 Ok(expr) => expr,
@@ -566,76 +696,61 @@ impl<'a> BodyChecker<'a> {
         value: nia_const_check::ConstValue,
         expected_ty: InternedTyId,
     ) -> Option<ConstGenericValue> {
-        match value {
+        let primitive = self.const_generic_primitive(expected_ty)?;
+        let converted = match value {
             nia_const_check::ConstValue::Int(value) => {
-                if self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Char) {
-                    let scalar = u32::try_from(value.bits()).ok()?;
-                    return char::from_u32(scalar).map(ConstGenericValue::Char);
-                }
-                if !self.const_generic_type_accepts_int(expected_ty, value) {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        span,
-                        "const generic integer argument is out of range for parameter type",
-                    ));
-                    return None;
-                }
-                self.cast_const_generic_int(expected_ty, value)
-                    .map(ConstGenericValue::Int)
+                ConstGenericValue::from_int(primitive, value, self.target.pointer_width())
             }
-            nia_const_check::ConstValue::Bool(value)
-                if self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Bool) =>
-            {
-                Some(ConstGenericValue::Bool(value))
+            nia_const_check::ConstValue::Bool(value) => {
+                ConstGenericValue::from_bool(primitive, value)
             }
-            _ => None,
+            _ => return None,
+        };
+        match converted {
+            Ok(value) => Some(value),
+            Err(nia_ty::ConstScalarError::KindMismatch(_)) => None,
+            Err(error) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    span,
+                    error.to_string(),
+                ));
+                None
+            }
         }
     }
 
-    fn const_generic_value_matches_type(
+    /// The canonical value of a const argument for a parameter of type
+    /// `expected_ty`, or `None` when the value is of another kind. An integer
+    /// takes the parameter type's canonical form ([`ConstGenericValue::from_int`]);
+    /// a symbolic value keeps its form.
+    fn const_generic_value_for_type(
         &mut self,
-        value: &ConstGenericValue,
+        value: ConstGenericValue,
         expected_ty: InternedTyId,
-    ) -> bool {
+    ) -> Option<ConstGenericValue> {
+        let primitive = self.const_generic_primitive(expected_ty)?;
         match value {
             ConstGenericValue::GenericParam(_)
             | ConstGenericValue::ConstExpr(_)
-            | ConstGenericValue::Computation(_) => true,
+            | ConstGenericValue::Computation(_) => Some(value),
             // A size or alignment is a `usize`.
-            ConstGenericValue::Layout { .. } => {
-                self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Usize)
-            }
-            ConstGenericValue::Int(value) => {
-                self.const_generic_type_accepts_int(expected_ty, *value)
-            }
-            ConstGenericValue::Bool(_) => {
-                self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Bool)
-            }
-            ConstGenericValue::Char(_) => {
-                self.const_generic_type_is_primitive(expected_ty, PrimitiveTy::Char)
-            }
+            ConstGenericValue::Layout { .. } => (primitive == PrimitiveTy::Usize).then_some(value),
+            ConstGenericValue::Int(_) => value
+                .canonical_for(primitive, self.target.pointer_width())
+                .ok(),
+            ConstGenericValue::Bool(_) => (primitive == PrimitiveTy::Bool).then_some(value),
+            ConstGenericValue::Char(_) => (primitive == PrimitiveTy::Char).then_some(value),
         }
     }
 
-    fn const_generic_type_accepts_int(&mut self, ty: InternedTyId, value: IntConst) -> bool {
+    /// The primitive type of a const parameter, through aliases.
+    fn const_generic_primitive(&mut self, ty: InternedTyId) -> Option<PrimitiveTy> {
         let ty = self.normalization.normalize(ty);
-        let Some(TyKind::Primitive(primitive)) = self.interner.get(ty).cloned() else {
-            return false;
-        };
-        value.fits_primitive_int(primitive, self.target.pointer_width())
-    }
-
-    fn cast_const_generic_int(&mut self, ty: InternedTyId, value: IntConst) -> Option<IntConst> {
-        let ty = self.normalization.normalize(ty);
-        let TyKind::Primitive(primitive) = self.interner.get(ty)? else {
-            return None;
-        };
-        value.cast_to_primitive_int(*primitive, self.target.pointer_width())
-    }
-
-    fn const_generic_type_is_primitive(&mut self, ty: InternedTyId, expected: PrimitiveTy) -> bool {
-        let ty = self.normalization.normalize(ty);
-        matches!(self.interner.get(ty), Some(TyKind::Primitive(primitive)) if *primitive == expected)
+        match self.interner.get(ty) {
+            Some(TyKind::Primitive(primitive)) => Some(*primitive),
+            _ => None,
+        }
     }
 
     pub(crate) fn complete_instance_args_for_generics(
@@ -897,5 +1012,30 @@ impl<'a> BodyChecker<'a> {
                 .map(|method| method.effective_generics.clone())
         })
         .unwrap_or_default()
+    }
+}
+
+/// An operator as written in Nia source.
+fn binary_op_text(op: nia_ty::ConstBinaryOp) -> &'static str {
+    use nia_ty::ConstBinaryOp as Op;
+    match op {
+        Op::Mul => "*",
+        Op::Div => "/",
+        Op::Rem => "%",
+        Op::Add => "+",
+        Op::Sub => "-",
+        Op::Shl => "<<",
+        Op::Shr => ">>",
+        Op::Lt => "<",
+        Op::Le => "<=",
+        Op::Gt => ">",
+        Op::Ge => ">=",
+        Op::Eq => "==",
+        Op::Ne => "!=",
+        Op::BitAnd => "&",
+        Op::BitXor => "^",
+        Op::BitOr => "|",
+        Op::And => "and",
+        Op::Or => "or",
     }
 }

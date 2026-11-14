@@ -90,6 +90,91 @@ pub enum ConstComputationKind {
         /// Ordinary typed arguments, including a method receiver if present.
         args: Vec<ConstGenericArg>,
     },
+    /// A `match` on a scalar: the first arm with a pattern that accepts the
+    /// scrutinee is executed, and no other arm is.
+    Match {
+        /// Matched value.
+        scrutinee: ConstGenericArg,
+        /// Arms in source order.
+        arms: Vec<ConstMatchArm>,
+    },
+    /// A closed operand whose evaluation fails, such as
+    /// `std::builtin::error(message)` or `std::builtin::trap()`. The failure
+    /// is its error message, and happens only if the operand is executed: an
+    /// unselected branch never reports it.
+    Fail(Arc<str>),
+}
+
+/// One arm of a scalar [`ConstComputationKind::Match`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConstMatchArm {
+    /// Alternatives; the arm is selected when any accepts the scrutinee.
+    pub patterns: Vec<ConstPattern>,
+    /// The arm's value.
+    pub value: ConstGenericArg,
+}
+
+/// A pattern of a scalar [`ConstComputationKind::Match`]. A binding pattern
+/// has no form of its own: the arm's value refers to the scrutinee instead.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ConstPattern {
+    /// Accepts any value.
+    Wildcard,
+    /// Accepts a value equal to this one.
+    Value(ConstGenericArg),
+    /// Accepts a value in this range.
+    Range {
+        /// Lower bound, included.
+        start: ConstGenericArg,
+        /// Upper bound.
+        end: ConstGenericArg,
+        /// Whether `end` is included.
+        inclusive: bool,
+    },
+}
+
+impl ConstPattern {
+    fn operands(&self) -> Vec<&ConstGenericArg> {
+        match self {
+            Self::Wildcard => Vec::new(),
+            Self::Value(value) => vec![value],
+            Self::Range { start, end, .. } => vec![start, end],
+        }
+    }
+
+    fn same_shape(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Wildcard, Self::Wildcard) | (Self::Value(_), Self::Value(_)) => true,
+            (
+                Self::Range {
+                    inclusive: left, ..
+                },
+                Self::Range {
+                    inclusive: right, ..
+                },
+            ) => left == right,
+            _ => false,
+        }
+    }
+
+    fn try_map<E>(
+        &self,
+        operand: &mut impl FnMut(&ConstGenericArg) -> Result<ConstGenericArg, E>,
+    ) -> Result<Self, E> {
+        Ok(match self {
+            Self::Wildcard => Self::Wildcard,
+            Self::Value(value) => Self::Value(operand(value)?),
+            Self::Range {
+                start,
+                end,
+                inclusive,
+            } => Self::Range {
+                start: operand(start)?,
+                end: operand(end)?,
+                inclusive: *inclusive,
+            },
+        })
+    }
 }
 
 impl ConstComputation {
@@ -132,6 +217,25 @@ impl ConstComputation {
                         .all(|((ln, l), (rn, r))| ln == rn && same_type(*l, *r))
                     && lc.iter().zip(rc).all(|((ln, _), (rn, _))| ln == rn)
             }
+            (
+                C::Match {
+                    arms: left_arms, ..
+                },
+                C::Match {
+                    arms: right_arms, ..
+                },
+            ) => {
+                left_arms.len() == right_arms.len()
+                    && left_arms.iter().zip(right_arms).all(|(left, right)| {
+                        left.patterns.len() == right.patterns.len()
+                            && left
+                                .patterns
+                                .iter()
+                                .zip(&right.patterns)
+                                .all(|(left, right)| left.same_shape(right))
+                    })
+            }
+            (C::Fail(left), C::Fail(right)) => left == right,
             _ => false,
         };
         same_operation
@@ -213,6 +317,15 @@ impl ConstComputation {
             ConstComputationKind::Call {
                 const_args, args, ..
             } => const_args.iter().map(|(_, arg)| arg).chain(args).collect(),
+            ConstComputationKind::Match { scrutinee, arms } => std::iter::once(scrutinee)
+                .chain(arms.iter().flat_map(|arm| {
+                    arm.patterns
+                        .iter()
+                        .flat_map(ConstPattern::operands)
+                        .chain(std::iter::once(&arm.value))
+                }))
+                .collect(),
+            ConstComputationKind::Fail(_) => Vec::new(),
         }
     }
 
@@ -270,8 +383,25 @@ impl ConstComputation {
                     .iter()
                     .map(|(name, arg)| Ok((*name, operand(arg)?)))
                     .collect::<Result<_, E>>()?,
-                args: args.iter().map(operand).collect::<Result<_, E>>()?,
+                args: args.iter().map(&mut operand).collect::<Result<_, E>>()?,
             },
+            ConstComputationKind::Match { scrutinee, arms } => ConstComputationKind::Match {
+                scrutinee: operand(scrutinee)?,
+                arms: arms
+                    .iter()
+                    .map(|arm| {
+                        Ok(ConstMatchArm {
+                            patterns: arm
+                                .patterns
+                                .iter()
+                                .map(|pattern| pattern.try_map(&mut operand))
+                                .collect::<Result<_, E>>()?,
+                            value: operand(&arm.value)?,
+                        })
+                    })
+                    .collect::<Result<_, E>>()?,
+            },
+            ConstComputationKind::Fail(message) => ConstComputationKind::Fail(message.clone()),
         };
         Ok(Arc::new(Self {
             module_id: self.module_id,

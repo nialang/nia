@@ -52,6 +52,7 @@ pub fn lower_module_const(input: ConstModuleInput<'_>) -> nia_ice::IceResult<Con
         normalization: RefCell::new(crate::TypeNormalization {
             normalized: HashMap::new(),
             diagnostics: Vec::new(),
+            aliases: Default::default(),
         }),
         internal_error: RefCell::new(None),
     };

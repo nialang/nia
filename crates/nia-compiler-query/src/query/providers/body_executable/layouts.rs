@@ -48,7 +48,13 @@ pub(super) fn rooted_layouts_for_checked_module(
         module.id,
         &db.context().type_store,
         &roots.types,
-        &|id| module.const_eval.symbolic_array_lengths.get(id).cloned(),
+        &|id| {
+            nia_const_check::resolve_type_const_expr(
+                &module.const_eval.array_lengths,
+                &module.const_eval.symbolic_const_exprs,
+                id,
+            )
+        },
     )?;
     let array_lengths = &module.const_eval.array_lengths;
     let symbols = db.context().symbols();
@@ -105,6 +111,20 @@ pub(super) fn rooted_layouts_for_checked_module(
                 layouts: Some(&layout_query),
                 array_lengths: Some(&program_array_lengths),
                 enum_: Some(&enum_query),
+                resolve_const_sites: Some(&|ty| {
+                    super::const_eval::resolve_declaration_const_sites(
+                        db,
+                        &query_failure,
+                        module.id,
+                        ty,
+                        &|other| {
+                            capture_query_failure(
+                                &query_failure,
+                                db.get(ConstArrayLengthsQuery(other)),
+                            )
+                        },
+                    )
+                }),
                 ..Default::default()
             },
         },

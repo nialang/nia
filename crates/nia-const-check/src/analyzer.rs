@@ -300,7 +300,7 @@ pub fn compute_module_const_array_lengths(
     analyzer.finish(())?;
     Ok(ConstArrayLengths {
         values: Arc::new(analyzer.array_lengths),
-        symbolic: Arc::new(analyzer.symbolic_array_lengths),
+        symbolic: Arc::new(analyzer.symbolic_const_exprs),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
     })
@@ -394,7 +394,7 @@ pub fn check_module_const_with_all_phases(
         enum_values: enum_values.values,
         typed_enum_values: enum_values.typed_values,
         array_lengths: array_lengths.values,
-        symbolic_array_lengths: array_lengths.symbolic,
+        symbolic_const_exprs: array_lengths.symbolic,
         provider_demands: typed_facts.provider_demands,
         diagnostics: typed_facts.diagnostics,
     }
@@ -519,9 +519,23 @@ pub(crate) struct Analyzer<'a> {
     input: ConstInput<'a>,
     values: HashMap<ConstKey, ConstValue>,
     symbolic_locals: HashMap<LocalId, ConstGenericArg>,
-    symbolic_local_cache: HashMap<(ModuleId, LocalId), ConstGenericArg>,
+    /// Classification of each local const read by a use, per module.
+    symbolic_local_cache: HashMap<(ModuleId, LocalId), symbolic::SymbolicResult>,
     active_symbolic_locals: HashSet<(ModuleId, LocalId)>,
-    symbolic_array_lengths: HashMap<GlobalConstExprId, ArrayLenTy>,
+    /// Reads of a value only a generic instance has: an unsubstituted const
+    /// parameter or a layout query of an open type. Term construction uses
+    /// the count to tell an expression that depends on an instance from a
+    /// closed one that failed.
+    open_reads: usize,
+    /// Pattern bindings of the `match` terms being built: a binding names
+    /// the scrutinee's term.
+    term_bindings: Vec<(LocalId, ConstGenericArg)>,
+    /// For each constant being evaluated, innermost last, where its
+    /// diagnostics begin.
+    evaluation_roots: Vec<usize>,
+    /// Terms of the const expressions written in types that depend on generic
+    /// parameters, keyed by site: array lengths and nominal const arguments.
+    symbolic_const_exprs: HashMap<GlobalConstExprId, ConstGenericArg>,
     typed_values: HashMap<ConstKey, TypedConstValue>,
     external_typed_values: Option<&'a HashMap<ConstKey, TypedConstValue>>,
     call_locals: Vec<ConstCallFrame>,
@@ -657,7 +671,10 @@ impl Analyzer<'_> {
             symbolic_locals: HashMap::new(),
             symbolic_local_cache: HashMap::new(),
             active_symbolic_locals: HashSet::new(),
-            symbolic_array_lengths: HashMap::new(),
+            open_reads: 0,
+            term_bindings: Vec::new(),
+            evaluation_roots: Vec::new(),
+            symbolic_const_exprs: HashMap::new(),
             typed_values: HashMap::new(),
             external_typed_values: None,
             call_locals: Vec::new(),
@@ -707,7 +724,10 @@ impl Analyzer<'_> {
             symbolic_locals: HashMap::new(),
             symbolic_local_cache: HashMap::new(),
             active_symbolic_locals: HashSet::new(),
-            symbolic_array_lengths: HashMap::new(),
+            open_reads: 0,
+            term_bindings: Vec::new(),
+            evaluation_roots: Vec::new(),
+            symbolic_const_exprs: HashMap::new(),
             typed_values: HashMap::new(),
             external_typed_values: Some(input.typed_values),
             call_locals: input
@@ -778,7 +798,7 @@ impl Analyzer<'_> {
     }
 
     fn analyze_array_lengths(&mut self) {
-        let mut needed = HashSet::new();
+        let mut needed = context::TypeConstSites::new();
         let mut seen = HashSet::new();
         let lowered_types = self
             .input
@@ -790,8 +810,8 @@ impl Analyzer<'_> {
         for ty in lowered_types {
             self.collect_array_len_const_exprs_in_ty_inner(ty, &mut needed, &mut seen);
         }
-        for id in needed {
-            self.eval_array_len_const_expr_id(&id);
+        for (id, site) in needed {
+            self.eval_type_const_site(&id, site);
         }
     }
 
@@ -828,8 +848,16 @@ impl Analyzer<'_> {
             .copied()
             .collect::<Vec<_>>();
         for local_id in local_initializers {
-            if self.symbolic_local_const(local_id).is_some() {
-                continue;
+            // A symbolic initializer is a value of each instance. One that
+            // cannot be a term is reported here and fails like any other
+            // initializer, so its uses add nothing.
+            match self.classify_local_initializer(local_id) {
+                Ok(Some(_)) => continue,
+                Err(symbolic::SymbolicReported) => {
+                    self.failed.insert(ConstKey::Local(local_id));
+                    continue;
+                }
+                Ok(None) => {}
             }
             let span = self
                 .input
@@ -945,6 +973,7 @@ impl Analyzer<'_> {
         }
         let outer_read_failed_const = std::mem::replace(&mut self.read_failed_const, false);
         let diagnostic_start = self.diagnostics.len();
+        self.evaluation_roots.push(diagnostic_start);
         let module_id = self.key_module_id(key);
         let mut type_mismatch = false;
         let result = self.initializer_for_key(key).and_then(|expr| {
@@ -1012,6 +1041,7 @@ impl Analyzer<'_> {
                 .iter()
                 .any(|diagnostic| diagnostic.severity() == nia_diagnostic::Severity::Error)
         });
+        self.evaluation_roots.pop();
         let result =
             result.and_then(|value| self.insert_typed_key_value(key, value, type_mismatch));
         if result.is_none() {
@@ -1113,6 +1143,17 @@ impl Analyzer<'_> {
     }
 
     fn validate_typed_value(&mut self, span: Span, value: &ConstValue, ty: &ConstValueType) {
+        // A value only violates its type after the construct that produced it
+        // was reported, such as an out-of-range literal. The constant fails
+        // through that report; validating again at each boundary the value
+        // crosses would report one root cause many times.
+        if self.evaluation_roots.last().is_some_and(|start| {
+            self.diagnostics[*start..]
+                .iter()
+                .any(|diagnostic| diagnostic.severity() == nia_diagnostic::Severity::Error)
+        }) {
+            return;
+        }
         match ty {
             ConstValueType::Runtime(ty) => self.validate_runtime_typed_value(span, value, *ty),
             ConstValueType::Array { elem, .. } => {

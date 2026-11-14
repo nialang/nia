@@ -1288,6 +1288,27 @@ where
                 ));
             }
         }
+        C::Match { arms, .. } => {
+            parts.push(format!("match_{}", arms.len()));
+            for arm in arms {
+                let shapes = arm
+                    .patterns
+                    .iter()
+                    .map(|pattern| match pattern {
+                        nia_ty::ConstPattern::Wildcard => "w",
+                        nia_ty::ConstPattern::Value(_) => "v",
+                        nia_ty::ConstPattern::Range {
+                            inclusive: true, ..
+                        } => "ri",
+                        nia_ty::ConstPattern::Range {
+                            inclusive: false, ..
+                        } => "re",
+                    })
+                    .collect::<String>();
+                parts.push(format!("arm_{shapes}"));
+            }
+        }
+        C::Fail(message) => parts.push(format!("fail_{:016x}", stable_hash(message))),
     }
     for arg in expr.operands() {
         parts.push(mangle_const_generic_arg(

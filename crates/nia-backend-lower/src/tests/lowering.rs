@@ -227,7 +227,7 @@ pub fun main() i32 {
     let program_signatures = EmptyBodyProgramSignatures::new();
     let const_array_lengths = nia_const_check::ConstArrayLengths {
         values: const_eval.array_lengths.clone(),
-        symbolic: const_eval.symbolic_array_lengths.clone(),
+        symbolic: const_eval.symbolic_const_exprs.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Vec::new(),
     };

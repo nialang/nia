@@ -517,16 +517,22 @@ impl<'a> ModuleLowerer<'a> {
                 Err(error) => self.type_context.record_internal(error),
             }
         }
-        // Folded expressions, layout results, and literal arguments use the
-        // declared carrier's signedness at every instance-collection boundary.
-        if let nia_ty::ConstGenericValue::Int(value) = arg.value
-            && let Some(TyKind::Primitive(primitive)) = self.ty_kind(arg.ty)
-            && let Some(value) = value.cast_to_primitive_int(
-                *primitive,
-                self.input.layouts.target.pointer_size as u32 * 8,
-            )
+        // Folded expressions, layout results, and literal arguments take the
+        // declared carrier's canonical form at every instance-collection
+        // boundary, so `4`, `2 + 2` and `size[u32]()` name one instance.
+        if let nia_ty::ConstGenericValue::Int(_) = arg.value
+            && let Some(TyKind::Primitive(primitive)) = self.ty_kind(arg.ty).cloned()
         {
-            arg.value = nia_ty::ConstGenericValue::Int(value);
+            match arg
+                .value
+                .clone()
+                .canonical_for(primitive, self.input.layouts.target.pointer_size as u32 * 8)
+            {
+                Ok(value) => arg.value = value,
+                Err(error) => self.type_context.record_internal(nia_ice::Ice::new(format!(
+                    "checked const argument is not a value of its type: {error}"
+                ))),
+            }
         }
         arg
     }
@@ -537,6 +543,24 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
         active_projections: &mut Vec<ProjectionInstantiationKey>,
     ) -> nia_ty::ConstGenericArg {
+        // A const expression written in a type that depends on generic
+        // parameters becomes its term before substitution, as an array
+        // length does in `instantiate_array_len`; the site alone has no
+        // binders.
+        let symbolic;
+        let arg = match &arg.value {
+            nia_ty::ConstGenericValue::ConstExpr(id)
+                if self.input.array_length(id).is_none()
+                    && let Some(term) = self.input.program.symbolic_const_expr(id) =>
+            {
+                symbolic = nia_ty::ConstGenericArg {
+                    ty: arg.ty,
+                    value: term.value,
+                };
+                &symbolic
+            }
+            _ => arg,
+        };
         let this = std::cell::RefCell::new((self, active_projections));
         let substituted: Result<nia_ty::ConstGenericArg, std::convert::Infallible> =
             nia_ty::substitute_const_generic_arg(
@@ -1772,7 +1796,12 @@ impl<'a> ModuleLowerer<'a> {
                 .unwrap_or(nia_ty::ArrayLenTy::GenericParam(name)),
             nia_ty::ArrayLenTy::ConstExpr(id) => match self.input.array_length(&id) {
                 Some(value) => nia_ty::ArrayLenTy::ConstValue(value),
-                None => match self.input.program.symbolic_array_length(&id) {
+                None => match self
+                    .input
+                    .program
+                    .symbolic_const_expr(&id)
+                    .and_then(|arg| nia_ty::array_len_from_const_arg(&arg))
+                {
                     Some(len) => self.instantiate_array_len(len, substitutions),
                     None => nia_ty::ArrayLenTy::ConstExpr(id),
                 },

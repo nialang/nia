@@ -403,6 +403,7 @@ fn pipeline_with_options_and_trait_impls(
         normalization: &nia_type_normalize::TypeNormalization {
             normalized: std::collections::HashMap::new(),
             diagnostics: Vec::new(),
+            aliases: Default::default(),
         },
         target: &target,
         source_path: &source_path,

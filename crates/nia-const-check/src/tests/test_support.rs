@@ -135,6 +135,7 @@ fn check_source_for_target_with_input(
         normalization: &nia_type_normalize::TypeNormalization {
             normalized: HashMap::new(),
             diagnostics: Vec::new(),
+            aliases: Default::default(),
         },
         target: &target,
         source_path: &source_path,

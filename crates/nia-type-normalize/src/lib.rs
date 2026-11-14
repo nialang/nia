@@ -12,12 +12,12 @@ use nia_ids::{DefId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{ItemSignatures, TypeAliasSignature, generic_argument_substitutions};
 use nia_span::Span;
 use nia_symbol::SymbolMap;
-use nia_ty::{
-    ArrayLenTy, ConstGenericArg, TyKind, TypeStore, TypeStoreAppend,
-    const_generic_value_from_array_len,
-};
+use nia_ty::{ArrayLenTy, ConstGenericArg, TyKind, TypeStore, TypeStoreAppend};
 
-type ArrayLengthResolver<'a> = dyn Fn(&nia_ids::GlobalConstExprId) -> Option<ArrayLenTy> + 'a;
+/// The value of a const expression written in a type: a closed length, or the
+/// term of one that depends on generic parameters.
+type ConstExprResolver<'a> =
+    dyn Fn(&nia_ids::GlobalConstExprId) -> Option<nia_ty::ConstGenericValue> + 'a;
 
 #[derive(Debug, Clone, PartialEq)]
 /// Normalized type identities and diagnostics for one module.
@@ -26,6 +26,12 @@ pub struct TypeNormalization {
     pub normalized: HashMap<InternedTyId, InternedTyId>,
     /// Diagnostics such as recursive type-alias cycles.
     pub diagnostics: Vec<Diagnostic>,
+    /// The signature of every alias this normalization expanded. Resolving
+    /// const expressions ([`TypeNormalization::resolve_array_lengths`])
+    /// expands them again: a const expression in an alias target is a
+    /// source site until then, and substituting into it would lose the
+    /// alias's parameters.
+    pub aliases: HashMap<GlobalDefId, TypeAliasSignature>,
 }
 
 /// Inputs required to normalize a set of interned types.
@@ -44,6 +50,43 @@ pub struct TypeNormalizationInput<'a> {
     pub external_alias: Option<&'a dyn Fn(GlobalDefId) -> Option<TypeAliasSignature>>,
 }
 
+/// Diagnoses const parameters whose declared type cannot hold a const value.
+///
+/// A const argument is an integer, a `bool`, or a `char`
+/// ([`nia_ty::ConstGenericValue`]), so that is what a const parameter's type
+/// must normalize to; `type Len = usize` is accepted through its alias. Each
+/// entry is the span of a parameter's type and its lowered type. An error
+/// type was reported where it was lowered.
+pub fn const_param_type_diagnostics(
+    type_store: &TypeStore,
+    normalization: &TypeNormalization,
+    params: &[(Span, InternedTyId)],
+) -> Vec<Diagnostic> {
+    params
+        .iter()
+        .filter(
+            |(_, ty)| match type_store.get(normalization.normalize(*ty)) {
+                Some(TyKind::Error) => false,
+                Some(TyKind::Primitive(primitive)) => {
+                    !(primitive.is_integer()
+                        || matches!(
+                            primitive,
+                            nia_ty::PrimitiveTy::Bool | nia_ty::PrimitiveTy::Char
+                        ))
+                }
+                _ => true,
+            },
+        )
+        .map(|(span, _)| {
+            Diagnostic::user_error_at(
+                codes::TYPE_NORMALIZATION,
+                *span,
+                "a const parameter must have an integer type, `bool`, or `char`",
+            )
+        })
+        .collect()
+}
+
 /// Normalizes the explicit input type set and all nested components.
 pub fn normalize_module_types(
     input: TypeNormalizationInput<'_>,
@@ -54,7 +97,8 @@ pub fn normalize_module_types(
         interner: input.type_store.append_for_module(input.module_id),
         aliases: &input.signatures.type_aliases,
         external_alias: input.external_alias,
-        prior: None,
+        known_aliases: None,
+        expanded_aliases: HashMap::new(),
         array_length: None,
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
@@ -72,6 +116,7 @@ pub fn normalize_module_types(
     Ok(TypeNormalization {
         normalized: normalizer.normalized,
         diagnostics: normalizer.diagnostics,
+        aliases: normalizer.expanded_aliases,
     })
 }
 
@@ -81,14 +126,27 @@ struct TypeNormalizer<'a, 'store> {
     interner: TypeStoreAppend,
     aliases: &'a HashMap<DefId, TypeAliasSignature>,
     external_alias: Option<&'a dyn Fn(GlobalDefId) -> Option<TypeAliasSignature>>,
-    prior: Option<&'a TypeNormalization>,
-    array_length: Option<&'a ArrayLengthResolver<'a>>,
+    /// Aliases an earlier normalization expanded, for a resolving pass that
+    /// has no signatures of its own.
+    known_aliases: Option<&'a HashMap<GlobalDefId, TypeAliasSignature>>,
+    expanded_aliases: HashMap<GlobalDefId, TypeAliasSignature>,
+    array_length: Option<&'a ConstExprResolver<'a>>,
     normalized: HashMap<InternedTyId, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
     internal_error: Option<nia_ice::Ice>,
 }
 
 impl<'a> TypeNormalizer<'a, '_> {
+    fn alias_signature(&self, def_id: GlobalDefId) -> Option<TypeAliasSignature> {
+        if let Some(alias) = self.known_aliases.and_then(|aliases| aliases.get(&def_id)) {
+            return Some(alias.clone());
+        }
+        if def_id.module_id == self.module_id {
+            self.aliases.get(&def_id.def_id).cloned()
+        } else {
+            self.external_alias.and_then(|resolve| resolve(def_id))
+        }
+    }
     fn intern(&mut self, kind: TyKind) -> InternedTyId {
         match self.interner.intern(kind) {
             Ok(ty) => ty,
@@ -124,14 +182,6 @@ impl<'a> TypeNormalizer<'a, '_> {
     fn normalize_ty(&mut self, ty_id: InternedTyId, stack: &mut Vec<GlobalDefId>) -> InternedTyId {
         if let Some(normalized) = self.normalized.get(&ty_id).copied() {
             return normalized;
-        }
-        if let Some(prior) = self.prior {
-            let expanded = prior.normalize(ty_id);
-            if expanded != ty_id {
-                let normalized = self.normalize_ty(expanded, stack);
-                self.normalized.insert(ty_id, normalized);
-                return normalized;
-            }
         }
         let normalized = match self.type_store.get(ty_id).cloned() {
             Some(TyKind::Opaque | TyKind::BuiltinType(_) | TyKind::SelfParam) => ty_id,
@@ -310,11 +360,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                     .into_iter()
                     .map(|arg| self.normalize_const_arg(arg, stack))
                     .collect::<Vec<_>>();
-                let alias = if def_id.module_id == self.module_id {
-                    self.aliases.get(&def_id.def_id).cloned()
-                } else {
-                    self.external_alias.and_then(|resolve| resolve(def_id))
-                };
+                let alias = self.alias_signature(def_id);
                 if let Some(alias) = alias {
                     self.normalize_alias(def_id, &alias, &args, &const_args, stack)
                 } else {
@@ -475,12 +521,18 @@ impl<'a> TypeNormalizer<'a, '_> {
             ));
             return self.intern(TyKind::Error);
         };
-        // `TyKind::Nominal` stores type and const arguments separately. Use the
-        // canonical type substituter after rebuilding both maps from declaration
-        // kinds, then normalize the concrete graph without re-pairing arguments.
-        let target =
-            self.substitute_alias_target(alias.target, &substitutions, &const_substitutions);
+        self.expanded_aliases
+            .entry(alias_id)
+            .or_insert_with(|| alias.clone());
+        // Normalize the target in the alias's own scope before substituting,
+        // as layout does for declaration fields: once const expressions are
+        // resolved, a site such as `[u8; Q + 1]` is a term that keeps `Q`
+        // as an operand, and substitution binds it. `TyKind::Nominal` stores
+        // type and const arguments separately; the canonical substituter
+        // receives both maps rebuilt from declaration kinds.
         stack.push(alias_id);
+        let target = self.normalize_ty(alias.target, stack);
+        let target = self.substitute_alias_target(target, &substitutions, &const_substitutions);
         let normalized = self.normalize_ty_with_substitutions(target, &SymbolMap::default(), stack);
         stack.pop();
         normalized
@@ -690,11 +742,7 @@ impl<'a> TypeNormalizer<'a, '_> {
                         self.normalize_const_arg_with_substitutions(arg, substitutions, stack)
                     })
                     .collect::<Vec<_>>();
-                let alias = if def_id.module_id == self.module_id {
-                    self.aliases.get(&def_id.def_id).cloned()
-                } else {
-                    self.external_alias.and_then(|resolve| resolve(def_id))
-                };
+                let alias = self.alias_signature(def_id);
                 if let Some(alias) = alias {
                     self.normalize_alias(def_id, &alias, &args, &const_args, stack)
                 } else {
@@ -892,19 +940,24 @@ impl<'a> TypeNormalizer<'a, '_> {
 
     fn resolve_const_arg_value(&self, mut arg: ConstGenericArg) -> ConstGenericArg {
         if let nia_ty::ConstGenericValue::ConstExpr(id) = &arg.value
-            && let Some(length) = self.array_length.and_then(|resolve| resolve(id))
-            && let Some(value) = const_generic_value_from_array_len(&length)
+            && let Some(value) = self.array_length.and_then(|resolve| resolve(id))
         {
             arg.value = value;
         }
         arg
     }
 
+    /// The array length a const expression site resolves to, if any.
+    fn resolve_array_len(&self, len: &ArrayLenTy) -> Option<ArrayLenTy> {
+        let ArrayLenTy::ConstExpr(id) = len else {
+            return None;
+        };
+        let resolved = nia_ty::array_len_from_const_value(&self.array_length?(id)?)?;
+        (resolved != *len).then_some(resolved)
+    }
+
     fn normalize_array_len(&mut self, len: ArrayLenTy, stack: &mut Vec<GlobalDefId>) -> ArrayLenTy {
-        if let ArrayLenTy::ConstExpr(id) = &len
-            && let Some(resolved) = self.array_length.and_then(|resolve| resolve(id))
-            && resolved != len
-        {
+        if let Some(resolved) = self.resolve_array_len(&len) {
             return self.normalize_array_len(resolved, stack);
         }
         match len {
@@ -934,10 +987,7 @@ impl<'a> TypeNormalizer<'a, '_> {
         substitutions: &SymbolMap<InternedTyId>,
         stack: &mut Vec<GlobalDefId>,
     ) -> ArrayLenTy {
-        if let ArrayLenTy::ConstExpr(id) = &len
-            && let Some(resolved) = self.array_length.and_then(|resolve| resolve(id))
-            && resolved != len
-        {
+        if let Some(resolved) = self.resolve_array_len(&len) {
             return self.normalize_array_len_with_substitutions(resolved, substitutions, stack);
         }
         match len {
@@ -961,24 +1011,29 @@ impl<'a> TypeNormalizer<'a, '_> {
 }
 
 impl TypeNormalization {
-    /// Refines alias-normalized types with array-length facts from const analysis.
-    /// This is a later phase: alias normalization must not depend on const queries,
-    /// whose inputs already include the alias-normalized types.
+    /// Normalizes again with the values of the const expressions written in
+    /// types ([`ConstExprResolver`]), from const analysis. This is a later
+    /// phase: alias normalization must not depend on const queries, whose
+    /// inputs already include the alias-normalized types. Aliases are
+    /// expanded again, from the signatures this normalization recorded, so a
+    /// const expression in an alias target is resolved before the alias's
+    /// arguments are substituted into it.
     pub fn resolve_array_lengths(
         &self,
         module_id: ModuleId,
         type_store: &TypeStore,
         roots: &[InternedTyId],
-        array_length: &dyn Fn(&nia_ids::GlobalConstExprId) -> Option<ArrayLenTy>,
+        array_length: &ConstExprResolver<'_>,
     ) -> nia_ice::IceResult<Self> {
-        let aliases = HashMap::new();
+        let no_local_aliases = HashMap::new();
         let mut normalizer = TypeNormalizer {
             module_id,
             type_store,
             interner: type_store.append_for_module(module_id),
-            aliases: &aliases,
+            aliases: &no_local_aliases,
             external_alias: None,
-            prior: Some(self),
+            known_aliases: Some(&self.aliases),
+            expanded_aliases: HashMap::new(),
             array_length: Some(array_length),
             normalized: HashMap::new(),
             diagnostics: Vec::new(),
@@ -993,6 +1048,7 @@ impl TypeNormalization {
         Ok(Self {
             normalized: normalizer.normalized,
             diagnostics: self.diagnostics.clone(),
+            aliases: self.aliases.clone(),
         })
     }
 
@@ -1636,7 +1692,9 @@ fun take(xs: [u8; 2 + 3]) () {}
         ]);
         let resolved = initial
             .resolve_array_lengths(module_id, &type_store, &[nominal], &|id| {
-                facts.get(id).cloned()
+                facts
+                    .get(id)
+                    .and_then(nia_ty::const_generic_value_from_array_len)
             })
             .expect("resolve symbolic const arguments");
         let Some(TyKind::Nominal { const_args, .. }) = type_store.get(resolved.normalize(nominal))

@@ -53,6 +53,7 @@ fn normalization_for() -> TypeNormalization {
     TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     }
 }
 

@@ -2700,18 +2700,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn ty_for_type(&mut self, ty: &TypeRef) -> InternedTyId {
-        let ty = self
-            .type_lowering
+        self.type_lowering
             .ty_for_key(&ty.node_key)
-            .unwrap_or_else(|| self.error());
-        // Static normalization precedes const analysis. Only run the later
-        // refinement pass when const analysis has open array-length facts to
-        // resolve into these already alias-normalized type roots.
-        if self.const_eval.symbolic_array_lengths.is_empty() {
-            ty
-        } else {
-            self.normalize_aliases_in_type(ty)
-        }
+            .unwrap_or_else(|| self.error())
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
@@ -2930,7 +2921,11 @@ impl<'a> BodyChecker<'a> {
                 };
                 format!("Fun({}){return_part}", params.join(", "))
             }
-            Some(TyKind::Nominal { def_id, args, .. }) => self.nominal_ty_name(*def_id, args),
+            Some(TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            }) => self.nominal_ty_name_with_consts(*def_id, args, const_args),
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 self.builtin_trait_ty_name(*trait_id, args)
             }
@@ -2996,17 +2991,32 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    /// A length in prose: an expression is quoted, a name or number is not.
+    pub(crate) fn quoted_array_len_name(&self, len: &ArrayLenTy) -> String {
+        let name = self.array_len_name(len);
+        match len {
+            ArrayLenTy::Computation(_) | ArrayLenTy::ConstExpr(_)
+                if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') =>
+            {
+                format!("`{name}`")
+            }
+            _ => name,
+        }
+    }
+
     pub(crate) fn array_len_name(&self, len: &ArrayLenTy) -> String {
         match len {
             ArrayLenTy::Infer => "_".to_string(),
-            ArrayLenTy::Computation(expr) => {
-                self.const_generic_value_name(&ConstGenericValue::Computation(expr.clone()))
-            }
+            ArrayLenTy::Computation(expr) => self.const_arg_name(&ConstGenericArg {
+                ty: self.interner.primitive(PrimitiveTy::Usize),
+                value: ConstGenericValue::Computation(expr.clone()),
+            }),
             ArrayLenTy::GenericParam(name) => self.symbol_name(*name),
             ArrayLenTy::ConstValue(value) => value.to_string(),
             ArrayLenTy::ConstExpr(id) => self
                 .array_len_const_expr_value(id.clone())
                 .map(|value| value.to_string())
+                .or_else(|| self.const_expr_site_text(id))
                 .unwrap_or_else(|| "<unevaluated const value>".to_string()),
             ArrayLenTy::Builtin { builtin, ty } => {
                 format!("@{}[{}]()", builtin.name(), self.ty_name(*ty))
@@ -3064,7 +3074,7 @@ impl<'a> BodyChecker<'a> {
         // expression forever. The const classifier already knows how to
         // residualize typed computations, layout queries, and const calls;
         // closed expressions still fall through to ordinary evaluation.
-        if let Some(arg) = checker.symbolic_const_expr(expr, Some(ty)) {
+        if let Ok(Some(arg)) = checker.symbolic_const_expr(expr, Some(ty)) {
             if !checker.types_match(ty, arg.ty) {
                 return None;
             }
@@ -3078,6 +3088,17 @@ impl<'a> BodyChecker<'a> {
         def_id: nia_ids::GlobalDefId,
         args: &[InternedTyId],
     ) -> String {
+        self.nominal_ty_name_with_consts(def_id, args, &[])
+    }
+
+    /// A nominal type's name with its arguments in declaration order, type
+    /// and const alike: `Holder[4]`, `Buffer[i32, N + 1]`.
+    pub(crate) fn nominal_ty_name_with_consts(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+        args: &[InternedTyId],
+        const_args: &[ConstGenericArg],
+    ) -> String {
         let base = self
             .defs_for_module(def_id.module_id)
             .and_then(|defs| {
@@ -3087,16 +3108,65 @@ impl<'a> BodyChecker<'a> {
                     .map(|def| self.symbol_name(def.name))
             })
             .unwrap_or_else(|| "<unknown type>".to_string());
-        if args.is_empty() {
-            base
-        } else {
-            let args = args
-                .iter()
-                .map(|arg| self.ty_name(*arg))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{base}[{args}]")
+        if args.is_empty() && const_args.is_empty() {
+            return base;
         }
+        let mut types = args.iter().map(|arg| self.ty_name(*arg));
+        let mut consts = const_args.iter().map(|arg| self.const_arg_name(arg));
+        let mut rendered = Vec::new();
+        if let Some(params) = self.nominal_generic_params(def_id) {
+            for param in params {
+                let next = match param.kind {
+                    nia_item_signatures::GenericParamSignatureKind::Type => types.next(),
+                    nia_item_signatures::GenericParamSignatureKind::Const { .. } => consts.next(),
+                };
+                rendered.extend(next);
+            }
+        }
+        rendered.extend(types);
+        rendered.extend(consts);
+        format!("{base}[{}]", rendered.join(", "))
+    }
+
+    /// The generic parameters of a struct, union or enum, in declaration order.
+    fn nominal_generic_params(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+    ) -> Option<Vec<nia_item_signatures::GenericParamSignature>> {
+        if def_id.module_id == self.defs.module_id {
+            let local = def_id.def_id;
+            return self
+                .signatures
+                .structs
+                .get(&local)
+                .map(|signature| signature.generic_params.clone())
+                .or_else(|| {
+                    self.signatures
+                        .unions
+                        .get(&local)
+                        .map(|signature| signature.generic_params.clone())
+                })
+                .or_else(|| {
+                    self.signatures
+                        .enums
+                        .get(&local)
+                        .map(|signature| signature.generic_params.clone())
+                });
+        }
+        let scope = &self.program_signature_scope;
+        scope
+            .struct_(def_id)
+            .map(|program| program.signature.generic_params)
+            .or_else(|| {
+                scope
+                    .union(def_id)
+                    .map(|program| program.signature.generic_params)
+            })
+            .or_else(|| {
+                scope
+                    .enum_(def_id)
+                    .map(|program| program.signature.generic_params)
+            })
     }
 
     pub(crate) fn trait_ty_name(&self, trait_id: TraitId, args: &[InternedTyId]) -> String {

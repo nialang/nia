@@ -256,6 +256,7 @@ fun main() i32 {
         normalization: &nia_type_normalize::TypeNormalization {
             normalized: std::collections::HashMap::new(),
             diagnostics: Vec::new(),
+            aliases: Default::default(),
         },
         target: &target,
         source_path: &source_path,
@@ -285,6 +286,7 @@ fun main() i32 {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let layouts = nia_layout::compute_layouts(
         &type_store,
@@ -451,6 +453,7 @@ fun main() i32 {
         normalization: &nia_type_normalize::TypeNormalization {
             normalized: std::collections::HashMap::new(),
             diagnostics: Vec::new(),
+            aliases: Default::default(),
         },
         target: &target,
         source_path: &source_path,
@@ -480,6 +483,7 @@ fun main() i32 {
     let normalization = TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let extensions = visible_extension_methods(
         module_id,

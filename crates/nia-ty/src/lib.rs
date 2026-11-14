@@ -31,11 +31,14 @@ use std::sync::{Arc, OnceLock};
 mod const_expression;
 mod substitution;
 
-pub use const_expression::{ConstBinaryOp, ConstComputation, ConstComputationKind, ConstUnaryOp};
+pub use const_expression::{
+    ConstBinaryOp, ConstComputation, ConstComputationKind, ConstMatchArm, ConstPattern,
+    ConstUnaryOp,
+};
 
 pub use substitution::{
-    array_len_from_const_arg, const_generic_value_from_array_len, substitute_const_generic_arg,
-    substitute_ty,
+    array_len_from_const_arg, array_len_from_const_value, const_generic_value_from_array_len,
+    substitute_const_generic_arg, substitute_ty,
 };
 
 const TYPE_KIND_ARENA_FANOUT: usize = 256;
@@ -867,6 +870,10 @@ impl IntConst {
     }
 
     /// Casts the value to a primitive integer width, preserving low bits.
+    ///
+    /// This is the semantics of an `as` conversion. A value that becomes a
+    /// typed constant, such as a const argument, must instead be
+    /// representable: see [`Self::in_primitive_int`].
     pub fn cast_to_primitive_int(self, primitive: PrimitiveTy, pointer_width: u32) -> Option<Self> {
         let width = primitive.integer_bits(pointer_width)?;
         if !(1..=u128::BITS).contains(&width) {
@@ -886,6 +893,16 @@ impl IntConst {
         } else {
             Some(Self::unsigned(bits))
         }
+    }
+
+    /// The value as a constant of `primitive`, when it is representable: the
+    /// canonical bits and signedness of that type. Unlike a cast it never
+    /// wraps, so `300` is not a `u8` constant.
+    pub fn in_primitive_int(self, primitive: PrimitiveTy, pointer_width: u32) -> Option<Self> {
+        if !primitive.is_integer() || !self.fits_primitive_int(primitive, pointer_width) {
+            return None;
+        }
+        self.cast_to_primitive_int(primitive, pointer_width)
     }
 }
 
@@ -1061,6 +1078,99 @@ pub enum ConstGenericValue {
         /// The queried type.
         ty: InternedTyId,
     },
+}
+
+/// Why a scalar cannot be the value of a const of some primitive type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConstScalarError {
+    /// The integer is not representable in the type: `300` for `u8`.
+    OutOfRange {
+        /// The integer.
+        value: IntConst,
+        /// The type it was given.
+        ty: PrimitiveTy,
+    },
+    /// The integer is not a Unicode scalar value, for `char`.
+    NotUnicodeScalar(IntConst),
+    /// The scalar's kind is not the type's, such as `true` for `usize`.
+    KindMismatch(PrimitiveTy),
+}
+
+impl fmt::Display for ConstScalarError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OutOfRange { value, ty } => write!(
+                formatter,
+                "const integer value {value} is out of range for {}",
+                ty.name()
+            ),
+            Self::NotUnicodeScalar(value) => {
+                write!(
+                    formatter,
+                    "const integer value {value} is not a Unicode scalar"
+                )
+            }
+            Self::KindMismatch(ty) => {
+                write!(formatter, "const value does not have type {}", ty.name())
+            }
+        }
+    }
+}
+
+impl ConstGenericValue {
+    /// The value an integer gives a const of primitive type `ty`: an integer
+    /// type takes its canonical form when representable, and `char` takes a
+    /// Unicode scalar. Every phase that turns an evaluated or folded integer
+    /// into a const argument or a residual operand uses this, so equal values
+    /// of one type have one identity and nothing wraps silently.
+    pub fn from_int(
+        ty: PrimitiveTy,
+        value: IntConst,
+        pointer_width: u32,
+    ) -> Result<Self, ConstScalarError> {
+        if ty == PrimitiveTy::Char {
+            return u32::try_from(
+                value
+                    .as_i128()
+                    .ok_or(ConstScalarError::NotUnicodeScalar(value))?,
+            )
+            .ok()
+            .and_then(char::from_u32)
+            .map(Self::Char)
+            .ok_or(ConstScalarError::NotUnicodeScalar(value));
+        }
+        if !ty.is_integer() {
+            return Err(ConstScalarError::KindMismatch(ty));
+        }
+        value
+            .in_primitive_int(ty, pointer_width)
+            .map(Self::Int)
+            .ok_or(ConstScalarError::OutOfRange { value, ty })
+    }
+
+    /// The value a boolean gives a const of primitive type `ty`.
+    pub fn from_bool(ty: PrimitiveTy, value: bool) -> Result<Self, ConstScalarError> {
+        if ty == PrimitiveTy::Bool {
+            Ok(Self::Bool(value))
+        } else {
+            Err(ConstScalarError::KindMismatch(ty))
+        }
+    }
+
+    /// The canonical closed form of this value for a const of type `ty`.
+    /// An integer is re-derived through [`Self::from_int`], so values that
+    /// different evaluators produced with different signedness agree.
+    /// Symbolic and non-integer values are returned unchanged.
+    pub fn canonical_for(
+        self,
+        ty: PrimitiveTy,
+        pointer_width: u32,
+    ) -> Result<Self, ConstScalarError> {
+        match self {
+            Self::Int(value) => Self::from_int(ty, value, pointer_width),
+            value => Ok(value),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

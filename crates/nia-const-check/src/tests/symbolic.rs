@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use crate::ConstValue;
-use nia_ty::{ArrayLenTy, ConstGenericValue};
+use nia_ty::ConstGenericValue;
 
 #[test]
 fn symbolic_local_aliases_are_facts_before_body_checking() {
@@ -22,13 +22,11 @@ fun flags[N: bool]() bool { const M = N; M }
         fixture.checked.diagnostics
     );
     assert_eq!(fixture.checked.symbolic_locals.len(), 3);
-    assert_eq!(fixture.checked.symbolic_array_lengths.len(), 1);
+    assert_eq!(fixture.checked.symbolic_const_exprs.len(), 1);
     assert!(
-        fixture
-            .checked
-            .symbolic_array_lengths
-            .values()
-            .all(|len| matches!(len, ArrayLenTy::GenericParam(name) if *name == sym("N")))
+        fixture.checked.symbolic_const_exprs.values().all(
+            |arg| matches!(arg.value, ConstGenericValue::GenericParam(name) if name == sym("N"))
+        )
     );
     for (id, arg) in fixture.checked.symbolic_locals.iter() {
         assert_eq!(arg.value, ConstGenericValue::GenericParam(sym("N")));

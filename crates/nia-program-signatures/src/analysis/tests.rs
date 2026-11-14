@@ -537,6 +537,7 @@ fn substitutes_generic_type_inside_array_layout_builtin() {
     let normalization = nia_type_normalize::TypeNormalization {
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
+        aliases: Default::default(),
     };
     let module = ExtensionModuleInput {
         module_id,

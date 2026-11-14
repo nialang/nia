@@ -551,21 +551,14 @@ impl<'a> BodyChecker<'a> {
                     &[ty],
                     &|id| {
                         if id.module_id == self.defs.module_id {
-                            self.const_eval
-                                .array_lengths
-                                .get(id)
-                                .copied()
-                                .map(ArrayLenTy::ConstValue)
-                                .or_else(|| self.const_eval.symbolic_array_lengths.get(id).cloned())
+                            nia_const_check::resolve_type_const_expr(
+                                self.const_eval.array_lengths,
+                                self.const_eval.symbolic_const_exprs,
+                                id,
+                            )
                         } else {
-                            (self.program_const_array_lengths)(id.module_id).and_then(|lengths| {
-                                lengths
-                                    .values
-                                    .get(id)
-                                    .copied()
-                                    .map(ArrayLenTy::ConstValue)
-                                    .or_else(|| lengths.symbolic.get(id).cloned())
-                            })
+                            (self.program_const_array_lengths)(id.module_id)
+                                .and_then(|lengths| lengths.resolve(id))
                         }
                     },
                 ) {
