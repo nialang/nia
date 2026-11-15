@@ -615,14 +615,7 @@ impl TraitSolver<'_> {
                     && matches!(self.kind(self_ty), Some(TyKind::Vector { .. }))
             }
             BuiltinTrait::SimdMask => {
-                goal.trait_args.is_empty()
-                    && matches!(
-                        self.kind(self_ty),
-                        Some(TyKind::Vector {
-                            elem: PrimitiveTy::Bool,
-                            lanes
-                        }) if *lanes <= 64
-                    )
+                goal.trait_args.is_empty() && self.simd_mask_bits(self_ty).is_some()
             }
             BuiltinTrait::IntoError => false,
         }
@@ -727,6 +720,22 @@ impl TraitSolver<'_> {
                     _ => None,
                 }
             }
+            (BuiltinTrait::SimdMask, BuiltinAssociatedType::Bits) => {
+                trait_args.is_empty().then_some(())?;
+                let bits = self.simd_mask_bits(self_ty)?;
+                Some(self.interner.primitive(bits))
+            }
+            _ => None,
+        }
+    }
+
+    /// The integer a bool vector packs into, when it is a `SimdMask`.
+    fn simd_mask_bits(&self, ty: InternedTyId) -> Option<PrimitiveTy> {
+        match self.kind(ty) {
+            Some(TyKind::Vector {
+                elem: PrimitiveTy::Bool,
+                lanes,
+            }) => PrimitiveTy::mask_bits(*lanes),
             _ => None,
         }
     }

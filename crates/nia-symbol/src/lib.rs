@@ -214,6 +214,7 @@ pub mod known {
     known_symbol!(ITER, "Iter");
     known_symbol!(LANE, "Lane");
     known_symbol!(LANES, "Lanes");
+    known_symbol!(BITS, "Bits");
     known_symbol!(FORMAT, "format");
     known_symbol!(SHOW, "show");
     known_symbol!(VALUE, "value");
@@ -384,6 +385,7 @@ pub mod known {
         (ITER, "Iter"),
         (LANE, "Lane"),
         (LANES, "Lanes"),
+        (BITS, "Bits"),
         (FORMAT, "format"),
         (SHOW, "show"),
         (VALUE, "value"),
@@ -682,6 +684,7 @@ impl ToSymbolId for nia_ids::BuiltinAssociatedType {
             Self::Item => known::ITEM,
             Self::Iter => known::ITER,
             Self::Lane => known::LANE,
+            Self::Bits => known::BITS,
         }
     }
 }

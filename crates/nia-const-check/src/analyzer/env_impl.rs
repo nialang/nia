@@ -2186,13 +2186,13 @@ impl Analyzer<'_> {
                         message: "builtin `bitmask` requires a mask vector".to_string(),
                     });
                 };
-                if values.len() > 64 {
+                if values.len() > 128 {
                     return Err(ConstError {
                         span,
-                        message: "builtin `bitmask` supports at most 64 mask lanes".to_string(),
+                        message: "builtin `bitmask` supports at most 128 mask lanes".to_string(),
                     });
                 }
-                let mut mask = 0u64;
+                let mut mask = 0u128;
                 for (index, value) in values.iter().enumerate() {
                     let ConstValue::Bool(value) = value else {
                         return Err(ConstError {
@@ -2201,12 +2201,10 @@ impl Analyzer<'_> {
                         });
                     };
                     if *value {
-                        mask |= 1u64 << index;
+                        mask |= 1u128 << index;
                     }
                 }
-                Ok(Some(ConstValue::Int(nia_ty::IntConst::unsigned(
-                    u128::from(mask),
-                ))))
+                Ok(Some(ConstValue::Int(nia_ty::IntConst::unsigned(mask))))
             }
             BuiltinFunction::Ctz | BuiltinFunction::Clz | BuiltinFunction::Popcount => {
                 let Some(bit_intrinsic) = BitIntrinsic::from_builtin(builtin) else {

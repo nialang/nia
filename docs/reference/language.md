@@ -321,7 +321,7 @@ created and inspected with `splat`, `extract`, `insert`, and `bitmask` from
 ```nia
 using std::builtin;
 
-fun lanes() usize {
+fun lanes() u8 {
     let a: u8x4 = builtin::splat[u8x4](3);
     let b = builtin::insert(a, 1, 7);
     let sum = a + b;

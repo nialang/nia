@@ -349,6 +349,7 @@ fn builtin_associated_type_from_symbol(name: SymbolId) -> Option<BuiltinAssociat
         known::ITEM => Some(BuiltinAssociatedType::Item),
         known::ITER => Some(BuiltinAssociatedType::Iter),
         known::LANE => Some(BuiltinAssociatedType::Lane),
+        known::BITS => Some(BuiltinAssociatedType::Bits),
         _ => None,
     }
 }

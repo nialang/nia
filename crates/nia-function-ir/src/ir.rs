@@ -506,8 +506,10 @@ pub enum FunctionExprKind {
     Atomic(FunctionAtomic),
     /// A value-producing compiler intrinsic; see [`nia_ids::IntrinsicOp`].
     /// The result type is the expression's type: for `LoadUnaligned` the
-    /// loaded type, for `ExtractElement` the lane type, for `Bitmask` `usize`,
-    /// and otherwise the type of the first operand.
+    /// loaded type, for `ExtractElement` the lane type, for `Bitmask` the
+    /// narrowest unsigned integer with a bit per lane (see
+    /// [`nia_ty::PrimitiveTy::mask_bits`]), and otherwise the type of the
+    /// first operand.
     Intrinsic {
         /// The operation.
         op: nia_ids::IntrinsicOp,

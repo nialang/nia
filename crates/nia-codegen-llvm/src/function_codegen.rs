@@ -1077,13 +1077,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 ));
             }
         };
-        let result_ty = self.module.usize_llvm_type(expr.span)?;
-        if lanes > result_ty.bit_width() {
+        let Some(bits) = PrimitiveTy::mask_bits(lanes) else {
             return Err(self.error(
                 expr.span,
-                "std::builtin::bitmask mask exceeds the target usize width",
+                "std::builtin::bitmask mask has more than 128 lanes",
             ));
-        }
+        };
+        let result_ty = self.module.integer_llvm_type(bits, expr.span)?;
         let vector = self.emit_expr(vector)?;
         let packed_ty = self
             .module

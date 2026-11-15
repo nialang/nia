@@ -3112,36 +3112,46 @@ fun invalid() u8 {
     );
 }
 
+/// `bitmask` packs a mask into the narrowest unsigned integer with a bit per
+/// lane, by lane count alone; past 128 lanes there is none.
 #[test]
 fn checks_simd_bitmask_builtin() {
     let checked = pipeline(
         r#"
-fun mask(v: u8x16) usize {
+fun narrow(v: boolx4) u8 { std::builtin::bitmask(v) }
+fun mask(v: u8x16) u16 {
     std::builtin::bitmask(v == std::builtin::splat[u8x16](7u8))
 }
+fun words(v: boolx17) u32 { std::builtin::bitmask(v) }
+fun block(v: boolx64) u64 { std::builtin::bitmask(v) }
+fun wide(v: boolx65) u128 { std::builtin::bitmask(v) }
+fun pointer(v: boolx16) usize { std::builtin::bitmask(v) }
+fun tooWide(v: boolx129) u128 { std::builtin::bitmask(v) }
 
-fun invalid_value(v: u8x16) usize {
+fun invalid_value(v: u8x16) u16 {
     std::builtin::bitmask(v)
 }
 
-fun invalid_type_arg(v: boolx16) usize {
+fun invalid_type_arg(v: boolx16) u16 {
     std::builtin::bitmask[usize](v)
 }
 "#,
     );
 
-    assert!(
-        checked
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.summary.contains("bool SIMD mask vector")),
-        "{:?}",
-        checked.diagnostics
-    );
-    assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .summary
-            .contains("builtin `bitmask` does not take a type argument")),
+    let mut summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.clone())
+        .collect::<Vec<_>>();
+    summaries.sort();
+    assert_eq!(
+        summaries,
+        [
+            "builtin `bitmask` does not take a type argument",
+            "builtin `bitmask` requires a bool SIMD mask vector, got u8x16",
+            "builtin `bitmask` supports at most 128 SIMD mask lanes, got 129",
+            "type mismatch in function body: expected usize, got u16",
+        ],
         "{:?}",
         checked.diagnostics
     );

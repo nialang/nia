@@ -119,21 +119,23 @@ fn validates_aggregate_products_with_structurally_equal_const_args() {
 }
 
 #[test]
-fn emits_bitmask_with_32_bit_usize_result() {
+/// A mask packs into the integer its lane count gives, whatever the pointer
+/// width: sixty-four lanes are a `u64` on a target with 32-bit pointers.
+fn emits_bitmask_of_64_lanes_with_32_bit_pointers() {
     let module_ids = nia_ids::ModuleIdAllocator::new().expect("create module ID allocator");
     let module_id = module_ids.allocate().expect("allocate module ID");
     let type_store = nia_ty::TypeStore::new().expect("create type store");
     let interner = type_store.append_for_module(module_id);
     let bool_ty = interner.test_primitive(PrimitiveTy::Bool);
-    let usize_ty = interner.test_primitive(PrimitiveTy::Usize);
-    let boolx16_ty = interner.test_intern(TyKind::Vector {
+    let u64_ty = interner.test_primitive(PrimitiveTy::U64);
+    let boolx64_ty = interner.test_intern(TyKind::Vector {
         elem: PrimitiveTy::Bool,
-        lanes: 16,
+        lanes: 64,
     });
     let span = Span::default();
     let vector = FunctionExpr {
         span,
-        ty: boolx16_ty,
+        ty: boolx64_ty,
         kind: FunctionExprKind::Intrinsic {
             op: IntrinsicOp::Splat,
             args: vec![FunctionExpr {
@@ -152,7 +154,7 @@ fn emits_bitmask_with_32_bit_usize_result() {
         linkage: BackendLinkage::Nia,
         generics: Vec::new(),
         params: Vec::new(),
-        return_type: usize_ty,
+        return_type: u64_ty,
         is_variadic: false,
         attributes: Vec::new(),
         local_names: Default::default(),
@@ -172,7 +174,7 @@ fn emits_bitmask_with_32_bit_usize_result() {
                 terminator: FunctionTerminator::Tail {
                     value: Some(FunctionExpr {
                         span,
-                        ty: usize_ty,
+                        ty: u64_ty,
                         kind: FunctionExprKind::Intrinsic {
                             op: IntrinsicOp::Bitmask,
                             args: vec![vector],
@@ -182,7 +184,7 @@ fn emits_bitmask_with_32_bit_usize_result() {
                 },
             }],
             entry: FunctionBlockId(0),
-            ty: usize_ty,
+            ty: u64_ty,
         }),
         span,
     };
@@ -212,9 +214,8 @@ fn emits_bitmask_with_32_bit_usize_result() {
     let output = emit_owned_llvm_ir(program, type_store);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("define hidden i32"), "{ir}");
-    assert!(ir.contains("ret i32 65535"), "{ir}");
-    assert!(!ir.contains("ret i64"), "{ir}");
+    assert!(ir.contains("define hidden i64"), "{ir}");
+    assert!(ir.contains("ret i64 -1"), "{ir}");
 }
 
 #[test]

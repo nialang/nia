@@ -272,25 +272,23 @@ impl BackendValidator<'_> {
         span: Span,
     ) {
         self.validate_expr(vector);
-        if !matches!(
-            self.index.ty_kind(result_ty),
-            Some(TyKind::Primitive(PrimitiveTy::Usize))
-        ) {
-            self.invalid_low_level_builtin("SIMD bitmask", span, "result type is not usize");
-        }
         match self.index.ty_kind(vector.ty) {
             Some(TyKind::Vector {
                 elem: PrimitiveTy::Bool,
                 lanes,
-            }) if u64::from(*lanes) <= self.target.pointer_size.saturating_mul(8) => {}
-            Some(TyKind::Vector {
-                elem: PrimitiveTy::Bool,
-                ..
-            }) => self.invalid_low_level_builtin(
-                "SIMD bitmask",
-                span,
-                "mask exceeds the target usize width",
-            ),
+            }) => match PrimitiveTy::mask_bits(*lanes) {
+                Some(bits) if self.index.ty_kind(result_ty) == Some(&TyKind::Primitive(bits)) => {}
+                Some(_) => self.invalid_low_level_builtin(
+                    "SIMD bitmask",
+                    span,
+                    "result type is not the mask's packed integer",
+                ),
+                None => self.invalid_low_level_builtin(
+                    "SIMD bitmask",
+                    span,
+                    "mask has more than 128 lanes",
+                ),
+            },
             _ => {
                 self.invalid_low_level_builtin("SIMD bitmask", span, "operand is not a bool vector")
             }

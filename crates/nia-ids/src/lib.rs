@@ -1046,16 +1046,19 @@ pub enum BuiltinAssociatedType {
     Iter,
     /// SIMD lane type.
     Lane,
+    /// Integer a SIMD mask packs into, one bit per lane.
+    Bits,
 }
 
 impl BuiltinAssociatedType {
     /// All builtin associated types in canonical order.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Output,
         Self::Target,
         Self::Item,
         Self::Iter,
         Self::Lane,
+        Self::Bits,
     ];
 
     /// Parses a canonical associated-type name.
@@ -1066,6 +1069,7 @@ impl BuiltinAssociatedType {
             "Item" => Some(Self::Item),
             "Iter" => Some(Self::Iter),
             "Lane" => Some(Self::Lane),
+            "Bits" => Some(Self::Bits),
             _ => None,
         }
     }
@@ -1078,6 +1082,7 @@ impl BuiltinAssociatedType {
             Self::Item => "Item",
             Self::Iter => "Iter",
             Self::Lane => "Lane",
+            Self::Bits => "Bits",
         }
     }
 }
@@ -1675,6 +1680,8 @@ impl BuiltinTrait {
     pub const ITER_ASSOC_TYPE: &'static str = "Iter";
     /// Canonical name of the SIMD lane associated type.
     pub const LANE_ASSOC_TYPE: &'static str = "Lane";
+    /// Canonical name of the SIMD mask bits associated type.
+    pub const BITS_ASSOC_TYPE: &'static str = "Bits";
     /// Canonical name of the SIMD lane-count associated const.
     pub const LANES_ASSOC_CONST: &'static str = "Lanes";
 
@@ -1712,6 +1719,7 @@ impl BuiltinTrait {
     const TARGET_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Target];
     const ITEM_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Item];
     const LANE_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Lane];
+    const BITS_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Bits];
     const ITERABLE_ASSOC_TYPES: [BuiltinAssociatedType; 2] =
         [BuiltinAssociatedType::Item, BuiltinAssociatedType::Iter];
     const NO_ASSOC_TYPES: [BuiltinAssociatedType; 0] = [];
@@ -1980,7 +1988,7 @@ impl BuiltinTrait {
             Self::SimdMask,
             "SimdMask",
             0,
-            &Self::NO_ASSOC_TYPES,
+            &Self::BITS_ASSOC_TYPES,
             &Self::NO_METHODS,
             &Self::SIMD_MASK_SUPERTRAITS,
         ),

@@ -6,8 +6,12 @@ pub trait Simd {
     const Lanes: usize;
 }
 
+// A bool vector of at most 128 lanes, which packs into `Bits`: the narrowest
+// unsigned integer with a bit for every lane.
 @[builtin("SimdMask")]
-pub trait SimdMask : Simd {}
+pub trait SimdMask : Simd {
+    type Bits;
+}
 
 // Creates a SIMD vector by splatting one lane value.
 @[builtin("splat")]
@@ -24,9 +28,9 @@ where V: Simd;
 pub const fun insert[V](vector: V, index: usize, value: [V as Simd]::Lane) V
 where V: Simd;
 
-// Converts a SIMD bool mask vector into a bitmask.
+// Packs a SIMD bool mask into an integer, lane 0 in the least significant bit.
 @[builtin("bitmask")]
-pub const fun bitmask[V](vector: V) usize
+pub const fun bitmask[V](vector: V) [V as SimdMask]::Bits
 where V: SimdMask;
 
 // Builds a vector from lanes of `first` and `second`, which have the same

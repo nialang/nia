@@ -1424,11 +1424,17 @@ const mask: boolx4 = std::builtin::insert(
     1,
     true,
 );
-const bits: usize = std::builtin::bitmask(mask);
+const bits: u8 = std::builtin::bitmask(mask);
+const wide: u128 = std::builtin::bitmask(std::builtin::insert(
+    std::builtin::splat[boolx128](false),
+    127,
+    true,
+));
 
 fun main() bool {
     lane == 9
         and bits == 2
+        and wide == 1u128 << 127
         and std::builtin::extract(changed, 0) == 3
         and std::builtin::extract(changed, 2) == 9
 }

@@ -278,14 +278,14 @@ where
     }
 
     fn can_be_simd_mask(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.type_store.get(self.normalize(ty)),
-            Some(TyKind::GenericParam(_))
-                | Some(TyKind::Vector {
-                    elem: PrimitiveTy::Bool,
-                    lanes: 0..=64
-                })
-        )
+        match self.type_store.get(self.normalize(ty)) {
+            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::Vector {
+                elem: PrimitiveTy::Bool,
+                lanes,
+            }) => PrimitiveTy::mask_bits(*lanes).is_some(),
+            _ => false,
+        }
     }
 
     fn can_be_pointer(&self, ty: InternedTyId) -> bool {

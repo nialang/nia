@@ -1614,12 +1614,12 @@ pub fun main(init: process::Init) process::ExitCode!() {
 
     let values: u8x16 = std::builtin::insert(std::builtin::insert(std::builtin::insert(std::builtin::splat[u8x16](0u8), 1usize, 7u8), 4usize, 7u8), 15usize, 7u8);
     let mask = std::builtin::bitmask(values == std::builtin::splat[u8x16](7u8));
-    if mask != 0x8012usize {
+    if mask != 0x8012u16 {
         return process::ExitCode(1)!;
     }
 
     let other = std::builtin::bitmask(values == std::builtin::splat[u8x16](0u8));
-    if other != 0x7fedusize {
+    if other != 0x7fedu16 {
         return process::ExitCode(2)!;
     }
 
@@ -1695,7 +1695,7 @@ const compileMask: boolx4 = std::builtin::insert(
 );
 const compileMaskSlot: MaskSlot = MaskSlot { mask: compileMask };
 const compileMaskRaw: u8 = compileMaskSlot.raw;
-const compileMaskBits: usize = std::builtin::bitmask(compileMask);
+const compileMaskBits: u8 = std::builtin::bitmask(compileMask);
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
@@ -2445,7 +2445,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         return process::ExitCode(2)!;
     }
     let mask = std::builtin::bitmask(vec == std::builtin::splat[u8x8](4u8));
-    if mask != 0x08usize {
+    if mask != 0x08u8 {
         return process::ExitCode(3)!;
     }
 

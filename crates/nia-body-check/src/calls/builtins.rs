@@ -828,7 +828,7 @@ impl<'a> BodyChecker<'a> {
             for arg in args {
                 self.check_expr(arg);
             }
-            return self.primitive(PrimitiveTy::Usize);
+            return self.error();
         }
         let vector_ty = self.check_expr(&args[0]);
         match self.interner.get(vector_ty).cloned() {
@@ -837,16 +837,16 @@ impl<'a> BodyChecker<'a> {
                 elem: PrimitiveTy::Bool,
                 lanes,
             }) => {
-                if lanes > self.target.pointer_width() {
-                    self.diagnostics.push(Diagnostic::user_error_at(
-                        codes::TYPE_CHECK,
-                        args[0].span,
-                        format!(
-                            "builtin `bitmask` supports at most {} SIMD mask lanes for this target",
-                            self.target.pointer_width()
-                        ),
-                    ));
+                // The mask packs into the narrowest integer with a bit per
+                // lane, whatever the target's pointer width.
+                if let Some(bits) = PrimitiveTy::mask_bits(lanes) {
+                    return self.primitive(bits);
                 }
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    codes::TYPE_CHECK,
+                    args[0].span,
+                    format!("builtin `bitmask` supports at most 128 SIMD mask lanes, got {lanes}"),
+                ));
             }
             Some(TyKind::Vector { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -870,7 +870,7 @@ impl<'a> BodyChecker<'a> {
             }
             None => {}
         }
-        self.primitive(PrimitiveTy::Usize)
+        self.error()
     }
 
     fn check_load_unaligned_builtin_call(

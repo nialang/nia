@@ -1625,6 +1625,21 @@ impl PrimitiveTy {
         Self::Never,
     ];
 
+    /// The integer `std::builtin::bitmask` packs a mask of `lanes` lanes
+    /// into: the narrowest unsigned integer with a bit for every lane, the
+    /// same on every target. `None` past 128 lanes, which no integer holds;
+    /// such a mask is not `SimdMask`.
+    pub fn mask_bits(lanes: u32) -> Option<Self> {
+        Some(match lanes {
+            0..=8 => Self::U8,
+            9..=16 => Self::U16,
+            17..=32 => Self::U32,
+            33..=64 => Self::U64,
+            65..=128 => Self::U128,
+            _ => return None,
+        })
+    }
+
     /// Parses a source-level primitive type name.
     pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {

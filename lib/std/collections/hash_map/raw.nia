@@ -16,10 +16,11 @@ pub struct ProbeCursor {
     capacity: usize,
 }
 
+// One bit per slot of a group, lowest first.
 pub struct ProbeGroup {
-    matchMask: usize,
-    emptyMask: usize,
-    availableMask: usize,
+    matchMask: u8,
+    emptyMask: u8,
+    availableMask: u8,
 }
 
 extend ProbeGroup {
@@ -124,11 +125,11 @@ pub fun isFull(control: u8) bool {
     (control & 0x80) == 0
 }
 
-pub fun firstSet(mask: usize) usize {
-    root::builtin::ctz[usize](mask)
+pub fun firstSet(mask: u8) usize {
+    root::builtin::ctz[u8](mask) as usize
 }
 
-pub fun clearLowestSet(mask: usize) usize {
+pub fun clearLowestSet(mask: u8) u8 {
     mask & (mask - 1)
 }
 

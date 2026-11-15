@@ -167,7 +167,7 @@ On x86-64, `u8x16` and `i16x8` operands compile to single instructions such as
 | `const fun splat[V](value: Lane) V` | a vector with every lane set to `value` |
 | `const fun extract[V](vector: V, index: usize) Lane` | one lane |
 | `const fun insert[V](vector: V, index: usize, value: Lane) V` | a copy with one lane replaced |
-| `const fun bitmask[V](mask: V) usize` | packs a `boolxN` mask, lane 0 in the least significant bit |
+| `const fun bitmask[V](mask: V) [V as SimdMask]::Bits` | packs a `boolxN` mask, lane 0 in the least significant bit |
 | `const fun shuffle[V, N: usize](first: V, second: V, indices: [usize; N]) Lane x N` | lanes chosen from `first` and `second` |
 | `const fun lookup16(table: u8x16, indices: u8x16) u8x16` | lane `i` is `table[indices[i]]`, or 0 when that index is 16 or more |
 
@@ -175,8 +175,12 @@ On x86-64, `u8x16` and `i16x8` operands compile to single instructions such as
 lane type; these functions do not accept a generic `V`, even one bounded by
 `Simd`. `splat` requires its type argument; `extract` and `insert` infer it
 from the vector. An out-of-range lane index is a compile-time error during
-constant evaluation and traps at runtime before any lane is accessed. `bitmask`
-accepts at most as many lanes as the target pointer has bits.
+constant evaluation and traps at runtime before any lane is accessed.
+
+`bitmask` packs into `Bits`, the narrowest unsigned integer with a bit for
+every lane: `u8` for up to 8 lanes, then `u16`, `u32`, `u64`, and `u128` for
+up to 128. The type follows the lane count alone, so it is the same on every
+target; a mask of more than 128 lanes is not a `SimdMask`.
 
 `shuffle` reads its operands as one sequence of `2L` lanes, where `L` is the
 lane count of `V`: indices below `L` select lanes of `first`, and indices from
@@ -230,7 +234,7 @@ using std::builtin;
 
 fun count_matches(data: u8x16, needle: u8) usize {
     let mask = data == builtin::splat[u8x16](needle);
-    builtin::popcount[usize](builtin::bitmask(mask))
+    builtin::popcount[u16](builtin::bitmask(mask)) as usize
 }
 ```
 

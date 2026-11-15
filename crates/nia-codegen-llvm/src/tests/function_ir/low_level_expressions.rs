@@ -413,6 +413,10 @@ fn validates_low_level_builtin_contracts_before_llvm() {
         elem: PrimitiveTy::Bool,
         lanes: 65,
     });
+    let boolx129_ty = interner.test_intern(TyKind::Vector {
+        elem: PrimitiveTy::Bool,
+        lanes: 129,
+    });
     let span = Span::default();
     let value = |ty| FunctionExpr {
         span,
@@ -463,11 +467,19 @@ fn validates_low_level_builtin_contracts_before_llvm() {
                 args: vec![value(i32x4_ty)],
             },
         ),
+        // Sixty-five lanes pack into `u128`, not `usize`.
         builtin(
             usize_ty,
             FunctionExprKind::Intrinsic {
                 op: IntrinsicOp::Bitmask,
                 args: vec![value(boolx65_ty)],
+            },
+        ),
+        builtin(
+            usize_ty,
+            FunctionExprKind::Intrinsic {
+                op: IntrinsicOp::Bitmask,
+                args: vec![value(boolx129_ty)],
             },
         ),
         builtin(
@@ -612,9 +624,9 @@ fn validates_low_level_builtin_contracts_before_llvm() {
         "SIMD extract has an invalid contract: result type",
         "SIMD insert has an invalid contract: result type",
         "SIMD insert has an invalid contract: inserted value type",
-        "SIMD bitmask has an invalid contract: result type",
+        "SIMD bitmask has an invalid contract: result type is not the mask's packed integer",
         "SIMD bitmask has an invalid contract: operand is not a bool vector",
-        "SIMD bitmask has an invalid contract: mask exceeds the target usize width",
+        "SIMD bitmask has an invalid contract: mask has more than 128 lanes",
         "bit intrinsic has an invalid contract: operand",
         "bit intrinsic has an invalid contract: result type",
         "saturating arithmetic has an invalid contract: result is not an integer or integer vector",

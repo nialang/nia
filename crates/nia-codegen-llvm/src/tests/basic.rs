@@ -456,7 +456,7 @@ fn emits_vector_bitmask_builtin() {
     std::fs::write(
         &main,
         r#"
-fun matching(v: u8x16, tag: u8) usize {
+fun matching(v: u8x16, tag: u8) u16 {
     std::builtin::bitmask(v == std::builtin::splat[u8x16](tag))
 }
 "#,
@@ -477,9 +477,10 @@ fun matching(v: u8x16, tag: u8) usize {
         ir.contains("bitcast <16 x i1>"),
         "expected vector mask bitcast:\n{ir}"
     );
+    // Sixteen lanes pack into a `u16` exactly, with no widening.
     assert!(
-        ir.contains("zext i16"),
-        "expected mask widening to usize:\n{ir}"
+        ir.contains("ret i16") && !ir.contains("zext i16"),
+        "expected the mask returned as its own i16:\n{ir}"
     );
 }
 
