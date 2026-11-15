@@ -281,6 +281,6 @@ fun main() () {}
         diagnostic
             .diagnostic
             .summary
-            .contains("does not match the trait signature")
+            .contains("tracks its caller, but the trait method does not")
     }));
 }

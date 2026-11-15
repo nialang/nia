@@ -276,11 +276,11 @@ fun replaceAllText(
 }
 
 extend String : Eq[String] {
-    fun eq(&self, other: &String) bool {
+    fun eq(self, other: String) bool {
         self.equals(other.text())
     }
 
-    fun ne(&self, other: &String) bool {
+    fun ne(self, other: String) bool {
         not self.equals(other.text())
     }
 }

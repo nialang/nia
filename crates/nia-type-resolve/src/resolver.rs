@@ -1703,40 +1703,6 @@ fn primitive_type_spelling_for_known_symbol(name: &SymbolId) -> Option<Primitive
     PrimitiveTy::from_known_symbol(*name).map(PrimitiveTypeSpelling::Scalar)
 }
 
-fn builtin_trait_for_symbol(name: &SymbolId) -> Option<BuiltinTrait> {
-    Some(match *name {
-        known::ADD_TRAIT => BuiltinTrait::Add,
-        known::SUB_TRAIT => BuiltinTrait::Sub,
-        known::MUL_TRAIT => BuiltinTrait::Mul,
-        known::DIV_TRAIT => BuiltinTrait::Div,
-        known::REM_TRAIT => BuiltinTrait::Rem,
-        known::NEG_TRAIT => BuiltinTrait::Neg,
-        known::NOT_TRAIT => BuiltinTrait::Not,
-        known::BIT_NOT_TRAIT => BuiltinTrait::BitNot,
-        known::BIT_AND_TRAIT => BuiltinTrait::BitAnd,
-        known::BIT_OR_TRAIT => BuiltinTrait::BitOr,
-        known::BIT_XOR_TRAIT => BuiltinTrait::BitXor,
-        known::SHL_TRAIT => BuiltinTrait::Shl,
-        known::SHR_TRAIT => BuiltinTrait::Shr,
-        known::EQ_TRAIT => BuiltinTrait::Eq,
-        known::ORD_TRAIT => BuiltinTrait::Ord,
-        known::SIZED_TRAIT => BuiltinTrait::Sized,
-        known::UNSIZED_TRAIT => BuiltinTrait::Unsized,
-        known::DEREF_TRAIT => BuiltinTrait::Deref,
-        known::DEREF_MUT_TRAIT => BuiltinTrait::DerefMut,
-        known::INDEX_TRAIT => BuiltinTrait::Index,
-        known::INDEX_MUT_TRAIT => BuiltinTrait::IndexMut,
-        known::SLICE_TRAIT => BuiltinTrait::Slice,
-        known::SLICE_MUT_TRAIT => BuiltinTrait::SliceMut,
-        known::ITERABLE_TRAIT => BuiltinTrait::Iterable,
-        known::ITERATOR_TRAIT => BuiltinTrait::Iterator,
-        known::SIMD_TRAIT => BuiltinTrait::Simd,
-        known::SIMD_MASK_TRAIT => BuiltinTrait::SimdMask,
-        known::INTO_ERROR_TRAIT => BuiltinTrait::IntoError,
-        _ => return None,
-    })
-}
-
 fn builtin_trait_for_unqualified_symbol(name: &SymbolId) -> Option<BuiltinTrait> {
-    builtin_trait_for_symbol(name).filter(|trait_id| *trait_id != BuiltinTrait::IntoError)
+    nia_symbol::builtin_trait_named(*name).filter(|trait_id| *trait_id != BuiltinTrait::IntoError)
 }

@@ -367,6 +367,16 @@ pub struct FunctionSignature {
     pub return_span: Span,
 }
 
+impl FunctionSignature {
+    /// Whether the function forwards its caller's source location, as
+    /// `@[trackCaller]` asks.
+    pub fn tracks_caller(&self) -> bool {
+        self.attributes
+            .iter()
+            .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
+    }
+}
+
 /// Declaration-order generic parameter metadata.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParamSignature {

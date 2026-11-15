@@ -28,7 +28,7 @@ use nia_item_tree::{
 use nia_node_id::{NodeMap, NodeSite, NodeStore, VersionedNodeKey};
 use nia_span::Span;
 use nia_symbol::{
-    SymbolId, SymbolText, closest_text_candidate, known, symbol_text_from_optional_resolver,
+    SymbolId, SymbolText, closest_text_candidate, symbol_text_from_optional_resolver,
 };
 use nia_ty::{BuiltinTrait, PrimitiveTy, PrimitiveTypeSpelling};
 

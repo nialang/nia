@@ -388,7 +388,7 @@ pub fun main() usize {
 
 #[test]
 fn const_only_generic_iteration_instances_do_not_enter_backend_plan() {
-    let fixture = LoadedProgramFixture::new(
+    let mut fixture = LoadedProgramFixture::new(
         "main.nia",
         r#"
 struct Pair[T] {
@@ -444,6 +444,24 @@ let values: [u8; compileCount] = [0; compileCount];
 count(Pair[usize] { first: 1, second: 2 })
 + count(Pair[bool] { first: true, second: false })
 + values[0] as usize
+}
+"#,
+    );
+    fixture.add_std_builtin(
+        r#"
+@[builtin("Iterable")]
+pub trait Iterable {
+    type Item;
+    type Iter;
+
+    fun iter(&self) [Self as Iterable]::Iter;
+}
+
+@[builtin("Iterator")]
+pub trait Iterator {
+    type Item;
+
+    fun next(&mut self) ?[Self as Iterator]::Item;
 }
 "#,
     );

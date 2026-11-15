@@ -7,18 +7,14 @@ use nia_defs::{
     WherePredicateSignature,
 };
 use nia_diagnostic::{Diagnostic, DiagnosticBuilder, codes};
-use nia_ids::{
-    BuiltinAssociatedType, BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId,
-    ReceiverKind, TraitImplId,
-};
+use nia_ids::{BuiltinTrait, GlobalDefId, InternedTyId, TraitImplId};
 use nia_item_signatures::{
-    FunctionSignature, GenericParamSignature, GenericParamSignatureKind, ItemSignatures,
-    ProgramConstSignature, ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature,
-    ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
-    ProgramTypeAliasSignature, ProgramUnionSignature, TraitImplSignature, TraitSignature,
-    generic_argument_substitutions,
+    GenericParamSignature, GenericParamSignatureKind, ItemSignatures, ProgramConstSignature,
+    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
+    ProgramTraitImplSignature, ProgramTraitSignature, ProgramTypeAliasSignature,
+    ProgramUnionSignature, TraitImplSignature, TraitSignature, generic_argument_substitutions,
 };
-use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, symbol_text_or_unresolved};
+use nia_symbol::{SymbolId, SymbolMap, symbol_text_or_unresolved};
 use nia_symbol_table::SymbolTable;
 use nia_trait_solve::{
     AssociatedTypeProjectionEq, IntrinsicOverlap, TraitGoal, TraitSolverContext,
@@ -95,6 +91,44 @@ pub struct ExtensionTraitSignatureIndex {
     pub trait_signatures: HashMap<GlobalDefId, ProgramTraitSignature>,
     /// Source names keyed by global trait id.
     pub trait_names: HashMap<GlobalDefId, SymbolId>,
+    /// The std trait that declares each builtin trait.
+    pub builtin_trait_declarations: HashMap<BuiltinTrait, GlobalDefId>,
+}
+
+impl ExtensionTraitSignatureIndex {
+    /// Indexes the program's traits. A builtin trait is declared by the std
+    /// trait that carries its `@[builtin]` marker, as name resolution reads
+    /// it; a marker outside std declares nothing.
+    pub fn new(
+        trait_defs: HashSet<GlobalDefId>,
+        trait_signatures: HashMap<GlobalDefId, ProgramTraitSignature>,
+        trait_names: HashMap<GlobalDefId, SymbolId>,
+        graph: &dyn nia_imports::ModuleGraphLookup,
+    ) -> nia_ice::IceResult<Self> {
+        let std_root = graph.package_root_module(&nia_symbol::known::STD);
+        let mut builtin_trait_declarations = HashMap::new();
+        for (def_id, signature) in &trait_signatures {
+            let Some(builtin) = signature.signature.builtin else {
+                continue;
+            };
+            if std_root.is_none() || graph.current_package_root_module(def_id.module_id) != std_root
+            {
+                continue;
+            }
+            if let Some(previous) = builtin_trait_declarations.insert(builtin, *def_id) {
+                return Err(nia_ice::Ice::new(format!(
+                    "builtin trait `{}` is declared by both {previous:?} and {def_id:?}",
+                    builtin.name()
+                )));
+            }
+        }
+        Ok(Self {
+            trait_defs,
+            trait_signatures,
+            trait_names,
+            builtin_trait_declarations,
+        })
+    }
 }
 
 /// Context shared by extension-method validation routines.
@@ -108,6 +142,8 @@ pub struct ExtensionMethodValidationInput<'a> {
     pub trait_signatures: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
     /// Source names keyed by global trait id.
     pub trait_names: &'a HashMap<GlobalDefId, SymbolId>,
+    /// The std trait that declares each builtin trait.
+    pub builtin_trait_declarations: &'a HashMap<BuiltinTrait, GlobalDefId>,
     /// Resolver for existing implementations of a trait.
     pub trait_impls_for_trait: &'a dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
     /// Symbol table used to render diagnostics.
@@ -321,27 +357,23 @@ pub fn collect_extension_method_diagnostics_for_module(
             }
         }
         match trait_id {
-            Some(TraitId::Source(trait_id)) => {
-                validate_trait_impl(
-                    module,
-                    impl_signature,
-                    target_ty,
-                    trait_id,
-                    input,
-                    &mut diagnostics,
-                )?;
+            Some(trait_id) if overlaps_intrinsic => {
+                report_intrinsic_overlap(impl_signature, trait_id, &mut diagnostics);
             }
-            Some(TraitId::Builtin(trait_id)) => {
-                validate_builtin_trait_impl(
-                    module,
-                    impl_signature,
-                    target_ty,
-                    trait_id,
-                    input.trait_impls_for_trait,
-                    input.symbols,
-                    &mut diagnostics,
-                );
-            }
+            Some(trait_id) => match trait_declaration(input.builtin_trait_declarations, trait_id) {
+                Some(declaration) => {
+                    validate_trait_impl(
+                        module,
+                        impl_signature,
+                        target_ty,
+                        declaration,
+                        trait_id,
+                        input,
+                        &mut diagnostics,
+                    )?;
+                }
+                None => report_undeclared_builtin_trait(impl_signature, trait_id, &mut diagnostics),
+            },
             None => {}
         }
         if let Some(trait_id) = trait_id {
@@ -772,17 +804,6 @@ fn impl_trait_args_for_index(
     }
 }
 
-fn associated_type_ty(
-    impl_signature: &TraitImplSignature,
-    name: SymbolId,
-) -> Option<nia_ids::InternedTyId> {
-    impl_signature
-        .associated_types
-        .iter()
-        .find(|associated_type| associated_type.name == name)
-        .map(|associated_type| associated_type.ty)
-}
-
 #[derive(Clone, Copy)]
 struct TraitSignatureRef<'a> {
     signature: &'a TraitSignature,
@@ -954,21 +975,26 @@ fn supertrait_id(
     }
 }
 
+/// Checks an implementation of `trait_id`, declared by the trait item
+/// `declaration`, against that declaration: its members, their signatures,
+/// and the implementations its supertraits require. A builtin trait is
+/// declared in std like any other, so its implementations are checked here
+/// too.
 fn validate_trait_impl(
     module: &ExtensionModuleInput<'_>,
     impl_signature: &TraitImplSignature,
     target_ty: nia_ids::InternedTyId,
-    trait_id: GlobalDefId,
+    declaration: GlobalDefId,
+    trait_id: TraitId,
     input: ExtensionMethodValidationInput<'_>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> nia_ice::IceResult<bool> {
-    let Some(trait_signature) = trait_signature_ref(input.trait_signatures, trait_id) else {
+    let Some(trait_signature) = trait_signature_ref(input.trait_signatures, declaration) else {
         return Ok(false);
     };
     let start_len = diagnostics.len();
     let (trait_args, trait_const_args) =
-        impl_trait_args_and_consts(module, impl_signature, Some(TraitId::Source(trait_id)))
-            .unwrap_or_default();
+        impl_trait_args_and_consts(module, impl_signature, Some(trait_id)).unwrap_or_default();
     for associated_type in &impl_signature.associated_types {
         if !trait_signature
             .signature
@@ -988,7 +1014,7 @@ fn validate_trait_impl(
                 )
                 .related_in_module(
                     input.graph,
-                    trait_id.module_id,
+                    declaration.module_id,
                     trait_signature.signature.span,
                     "the implementation targets this trait",
                 )
@@ -1018,7 +1044,7 @@ fn validate_trait_impl(
                 )
                 .related_in_module(
                     input.graph,
-                    trait_id.module_id,
+                    declaration.module_id,
                     trait_signature.signature.span,
                     "the implementation targets this trait",
                 )
@@ -1049,7 +1075,7 @@ fn validate_trait_impl(
                 )
                 .related_in_module(
                     input.graph,
-                    trait_id.module_id,
+                    declaration.module_id,
                     required.span,
                     format!("the trait requires `{name}` with this type"),
                 )
@@ -1086,7 +1112,7 @@ fn validate_trait_impl(
                 )
                 .related_in_module(
                     input.graph,
-                    trait_id.module_id,
+                    declaration.module_id,
                     required.span,
                     format!("the trait requires `{name}` with this type"),
                 )
@@ -1115,7 +1141,7 @@ fn validate_trait_impl(
                 )
                 .related_in_module(
                     input.graph,
-                    trait_id.module_id,
+                    declaration.module_id,
                     required.span,
                     format!("the trait requires `{name}` here"),
                 )
@@ -1144,7 +1170,7 @@ fn validate_trait_impl(
                 )
                 .related_in_module(
                     input.graph,
-                    trait_id.module_id,
+                    declaration.module_id,
                     required.span,
                     format!("the trait requires `{name}` here"),
                 )
@@ -1174,7 +1200,7 @@ fn validate_trait_impl(
                 )
                 .related_in_module(
                     input.graph,
-                    trait_id.module_id,
+                    declaration.module_id,
                     trait_signature.signature.span,
                     "the implementation targets this trait",
                 )
@@ -1187,14 +1213,14 @@ fn validate_trait_impl(
     }
     let trait_goal = TraitGoal {
         self_ty: target_ty,
-        trait_id: TraitId::Source(trait_id),
+        trait_id,
         trait_args: trait_args.clone(),
         trait_const_args: trait_const_args.clone(),
     };
     validate_supertrait_impls(
         module,
         impl_signature,
-        trait_id,
+        declaration,
         trait_signature,
         &trait_goal,
         input,
@@ -1220,7 +1246,7 @@ fn validate_trait_impl(
                     )
                     .related_in_module(
                         input.graph,
-                        trait_id.module_id,
+                        declaration.module_id,
                         required.span,
                         format!("the trait requires `{name}` here"),
                     )
@@ -1298,13 +1324,39 @@ fn validate_trait_impl(
                 )
                 .related_in_module(
                     input.graph,
-                    trait_id.module_id,
+                    declaration.module_id,
                     required.span,
                     format!("the trait declares `{name}` here"),
                 )
                 .help(format!(
                     "change method `{name}` to match the trait declaration"
                 ))
+                .finish(),
+            );
+        }
+        // A call through the trait passes the caller's location exactly
+        // when the declaration asks for it, so an implementation cannot
+        // ask on its own.
+        if actual.tracks_caller() && !required.signature.tracks_caller() {
+            let name = symbol_name(input.symbols, required.name);
+            diagnostics.push(
+                Diagnostic::user_error(
+                    codes::NAME_RESOLUTION,
+                    format!(
+                        "implementation of trait method `{name}` tracks its caller, but the trait method does not"
+                    ),
+                )
+                .primary(method.span, format!("`{name}` is marked `@[trackCaller]`"))
+                .related_in_module(
+                    input.graph,
+                    declaration.module_id,
+                    required.span,
+                    format!("the trait declares `{name}` without `@[trackCaller]`"),
+                )
+                .note(
+                    "a trait method's implementations track their caller exactly when its declaration does",
+                )
+                .help("remove `@[trackCaller]` from this implementation")
                 .finish(),
             );
         }
@@ -1319,7 +1371,7 @@ struct TraitAssociatedConstTypeMatch<'a> {
     required_ty: nia_ids::InternedTyId,
     actual_ty: nia_ids::InternedTyId,
     target_ty: nia_ids::InternedTyId,
-    trait_id: GlobalDefId,
+    trait_id: TraitId,
     trait_args: &'a [nia_ids::InternedTyId],
     trait_const_args: &'a [nia_ty::ConstGenericArg],
     impl_signature: &'a TraitImplSignature,
@@ -1374,226 +1426,6 @@ fn trait_associated_const_type_matches(
     ))
 }
 
-fn validate_builtin_trait_impl(
-    module: &ExtensionModuleInput<'_>,
-    impl_signature: &TraitImplSignature,
-    target_ty: nia_ids::InternedTyId,
-    trait_id: BuiltinTrait,
-    trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
-    symbols: &SymbolTable,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> bool {
-    let start_len = diagnostics.len();
-    if builtin_trait_impl_overlaps_intrinsic(module, target_ty, trait_id, impl_signature) {
-        let name = trait_id.name();
-        diagnostics.push(
-            Diagnostic::user_error(
-                codes::NAME_RESOLUTION,
-                format!("implementation of `{name}` overlaps a compiler-proven implementation"),
-            )
-            .primary(
-                impl_signature.span,
-                format!("this `{name}` implementation overlaps an intrinsic implementation"),
-            )
-            .help(format!(
-                "remove this implementation and use the compiler-provided `{name}` behavior"
-            ))
-            .finish(),
-        );
-        return false;
-    }
-    for associated_type in &impl_signature.associated_types {
-        if !trait_id
-            .associated_types()
-            .iter()
-            .any(|expected| expected.symbol_id() == associated_type.name)
-        {
-            let name = symbol_name(symbols, associated_type.name);
-            diagnostics.push(
-                Diagnostic::user_error(
-                    codes::NAME_RESOLUTION,
-                    format!("associated type `{name}` is not a member of implemented trait"),
-                )
-                .primary(
-                    associated_type.span,
-                    format!("associated type `{name}` is not part of this builtin trait"),
-                )
-                .help(format!(
-                    "remove associated type `{name}` from this implementation"
-                ))
-                .finish(),
-            );
-        }
-    }
-    for associated_type_name in trait_id.associated_types().iter().copied() {
-        if !impl_signature
-            .associated_types
-            .iter()
-            .any(|associated_type| associated_type.name == associated_type_name.symbol_id())
-        {
-            let name = associated_type_name.name();
-            diagnostics.push(
-                Diagnostic::user_error(
-                    codes::NAME_RESOLUTION,
-                    format!("missing definition for associated type `{name}`"),
-                )
-                .primary(
-                    impl_signature.span,
-                    format!("this implementation does not define `{name}`"),
-                )
-                .help(format!(
-                    "define associated type `{name}` in this implementation"
-                ))
-                .finish(),
-            );
-        }
-    }
-    validate_builtin_supertrait_impls(
-        module,
-        impl_signature,
-        target_ty,
-        trait_id,
-        trait_impls_for_trait,
-        diagnostics,
-    );
-    let expected_methods = trait_id.required_methods();
-    for method in &impl_signature.methods {
-        if !expected_methods
-            .iter()
-            .any(|expected_method| expected_method.symbol_id() == method.name)
-        {
-            let name = symbol_name(symbols, method.name);
-            diagnostics.push(
-                Diagnostic::user_error(
-                    codes::NAME_RESOLUTION,
-                    format!("method `{name}` is not a member of implemented trait"),
-                )
-                .primary(
-                    method.span,
-                    format!("method `{name}` is not part of this builtin trait"),
-                )
-                .help(format!("remove method `{name}` from this implementation"))
-                .finish(),
-            );
-        }
-    }
-    for expected_method in expected_methods {
-        let matching_methods = impl_signature
-            .methods
-            .iter()
-            .filter(|method| method.name == expected_method.symbol_id())
-            .collect::<Vec<_>>();
-        match matching_methods.as_slice() {
-            [] => {
-                let name = expected_method.name();
-                diagnostics.push(
-                    Diagnostic::user_error(
-                        codes::NAME_RESOLUTION,
-                        format!("missing implementation for trait method `{name}`"),
-                    )
-                    .primary(
-                        impl_signature.span,
-                        format!("this implementation does not define `{name}`"),
-                    )
-                    .help(format!(
-                        "implement builtin trait method `{name}` in this block"
-                    ))
-                    .finish(),
-                )
-            }
-            [method] => {
-                let Some(actual) = module.function_signatures.functions.get(&method.def_id) else {
-                    return false;
-                };
-                if !builtin_trait_method_signature_matches(
-                    module,
-                    impl_signature,
-                    actual,
-                    trait_id,
-                    *expected_method,
-                ) {
-                    let name = expected_method.name();
-                    diagnostics.push(
-                        Diagnostic::user_error(
-                            codes::NAME_RESOLUTION,
-                            format!(
-                                "implementation of trait method `{name}` does not match the trait signature"
-                            ),
-                        )
-                        .primary(
-                            method.span,
-                            format!("method `{name}` has a different signature"),
-                        )
-                        .help(format!("change method `{name}` to match the builtin trait"))
-                        .finish(),
-                    );
-                }
-            }
-            _ => {
-                let name = expected_method.name();
-                diagnostics.push(
-                    Diagnostic::user_error(
-                        codes::NAME_RESOLUTION,
-                        format!("duplicate implementation for trait method `{name}`"),
-                    )
-                    .primary(
-                        impl_signature.span,
-                        format!("this implementation defines `{name}` more than once"),
-                    )
-                    .help(format!("keep only one implementation of `{name}`"))
-                    .finish(),
-                )
-            }
-        }
-    }
-    diagnostics.len() == start_len
-}
-
-fn validate_builtin_supertrait_impls(
-    module: &ExtensionModuleInput<'_>,
-    impl_signature: &TraitImplSignature,
-    target_ty: nia_ids::InternedTyId,
-    trait_id: BuiltinTrait,
-    trait_impls_for_trait: &dyn Fn(TraitId) -> Vec<ProgramTraitImplSignature>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    for supertrait in trait_id.supertraits() {
-        let supertrait_args = if supertrait.preserves_trait_args {
-            builtin_impl_trait_args(module, impl_signature, trait_id).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        let supertrait_id = TraitId::Builtin(supertrait.trait_id);
-        let trait_impls = trait_impls_for_trait(supertrait_id);
-        if !has_matching_trait_impl(
-            module.type_store,
-            target_ty,
-            supertrait_id,
-            &supertrait_args,
-            &[],
-            &trait_impls,
-        ) {
-            let name = supertrait.trait_id.name();
-            diagnostics.push(
-                Diagnostic::user_error(
-                    codes::NAME_RESOLUTION,
-                    format!(
-                        "implementation of trait requires explicit implementation of supertrait `{name}`"
-                    ),
-                )
-                .primary(
-                    impl_signature.span,
-                    format!("this implementation has no `{name}` supertrait witness"),
-                )
-                .help(format!(
-                    "add an implementation of `{name}` for this target type"
-                ))
-                .finish(),
-            );
-        }
-    }
-}
-
 fn builtin_trait_impl_overlaps_intrinsic(
     module: &ExtensionModuleInput<'_>,
     target_ty: nia_ids::InternedTyId,
@@ -1615,155 +1447,70 @@ fn builtin_trait_impl_overlaps_intrinsic(
     .overlaps_builtin_trait(target_ty, trait_id, &trait_args)
 }
 
-fn builtin_trait_method_signature_matches(
-    module: &ExtensionModuleInput<'_>,
-    impl_signature: &TraitImplSignature,
-    actual: &FunctionSignature,
-    trait_id: BuiltinTrait,
-    method: BuiltinTraitMethod,
-) -> bool {
-    if actual.params.len() != method.param_count()
-        || actual.return_type == module.type_store.error()
-    {
-        return false;
-    }
-    match (trait_id, method) {
-        (BuiltinTrait::Deref, BuiltinTraitMethod::Deref)
-        | (BuiltinTrait::DerefMut, BuiltinTraitMethod::DerefMut)
-        | (BuiltinTrait::Index, BuiltinTraitMethod::Index)
-        | (BuiltinTrait::IndexMut, BuiltinTraitMethod::IndexMut) => {
-            builtin_place_trait_method_signature_matches(
-                module,
-                impl_signature,
-                actual,
-                trait_id,
-                method,
-            )
-        }
-        (BuiltinTrait::Slice, BuiltinTraitMethod::Slice)
-        | (BuiltinTrait::SliceMut, BuiltinTraitMethod::SliceMut) => {
-            builtin_slice_trait_method_signature_matches(
-                module,
-                impl_signature,
-                actual,
-                trait_id,
-                method,
-            )
-        }
-        (BuiltinTrait::Iterator, BuiltinTraitMethod::IteratorNext) => {
-            builtin_iterator_method_signature_matches(module, impl_signature, actual)
-        }
-        (BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter) => {
-            builtin_iterable_method_signature_matches(module, impl_signature, actual)
-        }
-        _ => true,
+/// The trait item that declares `trait_id`: the trait itself, or for a
+/// builtin trait the std trait that carries its `@[builtin]` marker.
+fn trait_declaration(
+    builtin_trait_declarations: &HashMap<BuiltinTrait, GlobalDefId>,
+    trait_id: TraitId,
+) -> Option<GlobalDefId> {
+    match trait_id {
+        TraitId::Source(def_id) => Some(def_id),
+        TraitId::Builtin(builtin) => builtin_trait_declarations.get(&builtin).copied(),
     }
 }
 
-fn builtin_place_trait_method_signature_matches(
-    module: &ExtensionModuleInput<'_>,
+/// Reports an implementation of a builtin trait that the program's std does
+/// not declare, so that nothing states what the implementation must provide.
+fn report_undeclared_builtin_trait(
     impl_signature: &TraitImplSignature,
-    actual: &FunctionSignature,
-    trait_id: BuiltinTrait,
-    method: BuiltinTraitMethod,
-) -> bool {
-    let Some(receiver) = actual.params.first().and_then(|param| param.receiver) else {
-        return false;
+    trait_id: TraitId,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let TraitId::Builtin(builtin) = trait_id else {
+        return;
     };
-    let Some(expected_receiver) = method.place_receiver_kind() else {
-        return false;
-    };
-    if receiver != expected_receiver {
-        return false;
-    }
-    let Some(TyKind::Pointer { is_readonly, elem }) = module.type_store.get(actual.return_type)
-    else {
-        return false;
-    };
-    let expected_const = matches!(trait_id, BuiltinTrait::Deref | BuiltinTrait::Index);
-    if *is_readonly != expected_const {
-        return false;
-    }
-    let assoc_name = match trait_id {
-        BuiltinTrait::Deref | BuiltinTrait::DerefMut => BuiltinAssociatedType::Target.symbol_id(),
-        BuiltinTrait::Index | BuiltinTrait::IndexMut => BuiltinAssociatedType::Output.symbol_id(),
-        _ => return false,
-    };
-    let Some(associated_type) = associated_type_ty(impl_signature, assoc_name) else {
-        return false;
-    };
-    types_equivalent(module.type_store, module.lowering, *elem, associated_type)
+    let name = builtin.name();
+    diagnostics.push(
+        Diagnostic::user_error(
+            codes::NAME_RESOLUTION,
+            format!("builtin trait `{name}` has no declaration in std"),
+        )
+        .primary(
+            impl_signature.span,
+            format!("this implements `{name}`, which nothing declares"),
+        )
+        .note(format!(
+            "an implementation of `{name}` is checked against the trait std declares with `@[builtin(\"{name}\")]`"
+        ))
+        .finish(),
+    );
 }
 
-fn builtin_slice_trait_method_signature_matches(
-    module: &ExtensionModuleInput<'_>,
+/// Reports an implementation that repeats one the compiler proves for
+/// primitive and structural types.
+fn report_intrinsic_overlap(
     impl_signature: &TraitImplSignature,
-    actual: &FunctionSignature,
-    trait_id: BuiltinTrait,
-    method: BuiltinTraitMethod,
-) -> bool {
-    let Some(receiver) = actual.params.first().and_then(|param| param.receiver) else {
-        return false;
+    trait_id: TraitId,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let TraitId::Builtin(builtin) = trait_id else {
+        return;
     };
-    if receiver != method.receiver_kind() {
-        return false;
-    }
-    let Some(range_param) = actual.params.get(1) else {
-        return false;
-    };
-    let Some(range_ty) = builtin_impl_trait_args(module, impl_signature, trait_id)
-        .and_then(|args| args.first().copied())
-    else {
-        return false;
-    };
-    if !types_equivalent(module.type_store, module.lowering, range_param.ty, range_ty) {
-        return false;
-    }
-    let Some(output) =
-        associated_type_ty(impl_signature, BuiltinAssociatedType::Output.symbol_id())
-    else {
-        return false;
-    };
-    types_equivalent(
-        module.type_store,
-        module.lowering,
-        actual.return_type,
-        output,
-    )
-}
-
-fn builtin_iterator_method_signature_matches(
-    module: &ExtensionModuleInput<'_>,
-    impl_signature: &TraitImplSignature,
-    actual: &FunctionSignature,
-) -> bool {
-    if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::Ref) {
-        return false;
-    }
-    let Some(item) = associated_type_ty(impl_signature, BuiltinAssociatedType::Item.symbol_id())
-    else {
-        return false;
-    };
-    let actual_return = module.normalization.normalize(actual.return_type);
-    let Some(TyKind::Optional { elem }) = module.type_store.get(actual_return) else {
-        return false;
-    };
-    types_equivalent(module.type_store, module.lowering, *elem, item)
-}
-
-fn builtin_iterable_method_signature_matches(
-    module: &ExtensionModuleInput<'_>,
-    impl_signature: &TraitImplSignature,
-    actual: &FunctionSignature,
-) -> bool {
-    if actual.params.first().and_then(|param| param.receiver) != Some(ReceiverKind::RefReadOnly) {
-        return false;
-    }
-    let Some(iter) = associated_type_ty(impl_signature, BuiltinAssociatedType::Iter.symbol_id())
-    else {
-        return false;
-    };
-    types_equivalent(module.type_store, module.lowering, actual.return_type, iter)
+    let name = builtin.name();
+    diagnostics.push(
+        Diagnostic::user_error(
+            codes::NAME_RESOLUTION,
+            format!("implementation of `{name}` overlaps a compiler-proven implementation"),
+        )
+        .primary(
+            impl_signature.span,
+            format!("this `{name}` implementation overlaps an intrinsic implementation"),
+        )
+        .help(format!(
+            "remove this implementation and use the compiler-provided `{name}` behavior"
+        ))
+        .finish(),
+    );
 }
 
 fn builtin_impl_trait_args(
@@ -1785,7 +1532,7 @@ fn builtin_impl_trait_args(
 fn validate_supertrait_impls(
     module: &ExtensionModuleInput<'_>,
     impl_signature: &TraitImplSignature,
-    trait_id: GlobalDefId,
+    declaration: GlobalDefId,
     trait_signature: TraitSignatureRef<'_>,
     trait_goal: &TraitGoal,
     input: ExtensionMethodValidationInput<'_>,
@@ -1860,7 +1607,7 @@ fn validate_supertrait_impls(
                 )
                 .related_in_module(
                     input.graph,
-                    trait_id.module_id,
+                    declaration.module_id,
                     supertrait.span,
                     format!("the implemented trait requires `{name}` here"),
                 )
@@ -1930,7 +1677,7 @@ fn validate_supertrait_impls(
                 )
                 .related_in_module(
                     input.graph,
-                    trait_id.module_id,
+                    declaration.module_id,
                     supertrait.span,
                     format!("the supertrait binding for `{name}` is declared here"),
                 )
@@ -2155,18 +1902,6 @@ fn trait_method_signature_matches(
     };
     let mut solver =
         context.solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
-    let required_tracks_caller = input.required.attributes.iter().any(|attribute| {
-        matches!(
-            attribute,
-            nia_item_signatures::FunctionAttribute::TrackCaller
-        )
-    });
-    let actual_tracks_caller = input.actual.attributes.iter().any(|attribute| {
-        matches!(
-            attribute,
-            nia_item_signatures::FunctionAttribute::TrackCaller
-        )
-    });
     let required = input.required;
     let actual = input.actual;
     if !trait_method_generic_params_match(
@@ -2191,8 +1926,7 @@ fn trait_method_signature_matches(
                 &required.where_predicates,
                 &actual.where_predicates,
             )?
-            && required.is_variadic == actual.is_variadic
-            && (!actual_tracks_caller || required_tracks_caller),
+            && required.is_variadic == actual.is_variadic,
     )
 }
 

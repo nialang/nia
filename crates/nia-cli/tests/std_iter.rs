@@ -584,15 +584,15 @@ extend Counter : iter::StepBack {
 }
 
 extend Counter : Eq[Counter] {
-    fun eq(&self, other: &Counter) bool { self.value == other.value }
-    fun ne(&self, other: &Counter) bool { self.value != other.value }
+    fun eq(self, other: Counter) bool { self.value == other.value }
+    fun ne(self, other: Counter) bool { self.value != other.value }
 }
 
 extend Counter : Ord[Counter] {
-    fun lt(&self, other: &Counter) bool { self.value < other.value }
-    fun le(&self, other: &Counter) bool { self.value <= other.value }
-    fun gt(&self, other: &Counter) bool { self.value > other.value }
-    fun ge(&self, other: &Counter) bool { self.value >= other.value }
+    fun lt(self, other: Counter) bool { self.value < other.value }
+    fun le(self, other: Counter) bool { self.value <= other.value }
+    fun gt(self, other: Counter) bool { self.value > other.value }
+    fun ge(self, other: Counter) bool { self.value >= other.value }
 }
 
 pub fun main(init: process::Init) process::ExitCode!() {
@@ -706,15 +706,15 @@ extend Stride : iter::StepBack {
 }
 
 extend Stride : Eq[Stride] {
-    fun eq(&self, other: &Stride) bool { self.value == other.value }
-    fun ne(&self, other: &Stride) bool { self.value != other.value }
+    fun eq(self, other: Stride) bool { self.value == other.value }
+    fun ne(self, other: Stride) bool { self.value != other.value }
 }
 
 extend Stride : Ord[Stride] {
-    fun lt(&self, other: &Stride) bool { self.value < other.value }
-    fun le(&self, other: &Stride) bool { self.value <= other.value }
-    fun gt(&self, other: &Stride) bool { self.value > other.value }
-    fun ge(&self, other: &Stride) bool { self.value >= other.value }
+    fun lt(self, other: Stride) bool { self.value < other.value }
+    fun le(self, other: Stride) bool { self.value <= other.value }
+    fun gt(self, other: Stride) bool { self.value > other.value }
+    fun ge(self, other: Stride) bool { self.value >= other.value }
 }
 
 pub fun main(init: process::Init) process::ExitCode!() {

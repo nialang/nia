@@ -25,11 +25,11 @@ struct Token {
 struct Marker {}
 
 extend Token : Eq[Token] {
-    fun eq(&self, other: &Token) bool {
+    fun eq(self, other: Token) bool {
         self.value == other.value
     }
 
-    fun ne(&self, other: &Token) bool {
+    fun ne(self, other: Token) bool {
         self.value != other.value
     }
 }

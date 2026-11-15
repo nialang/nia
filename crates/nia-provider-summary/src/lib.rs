@@ -176,6 +176,28 @@ impl ProviderSummary {
         names
     }
 
+    /// The sorted builtin trait names that providers implement. Such an
+    /// implementation is checked against the builtin trait's std
+    /// declaration, which the module may not import: builtin traits are
+    /// visible by name everywhere. A builtin trait reached through another
+    /// spelling is named through an import, which loads its declaration.
+    pub fn implemented_builtin_trait_names(&self) -> Vec<SymbolId> {
+        let mut names = self
+            .providers
+            .iter()
+            .filter_map(|provider| {
+                provider
+                    .trait_ref
+                    .as_ref()
+                    .and_then(|trait_ref| trait_ref.last_name)
+            })
+            .filter(|name| nia_symbol::builtin_trait_named(*name).is_some())
+            .collect::<Vec<_>>();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     /// Returns sorted trait names implemented by providers.
     pub fn trait_impl_index_names(&self) -> Vec<SymbolId> {
         let mut names = self

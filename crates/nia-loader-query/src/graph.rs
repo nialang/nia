@@ -336,6 +336,19 @@ fn build_module_graph(
         };
         let declarations = fact_memo.module_declarations(&node.path)?;
         mount_module_packages(db, &mut graph, &node, &declarations.semantic.package_roots)?;
+        let builtin_traits = fact_memo
+            .provider_summary(&node.path)?
+            .implemented_builtin_trait_names();
+        if !builtin_traits.is_empty() {
+            if graph.std_package_root().is_none() {
+                mount_module_packages(db, &mut graph, &node, &[nia_symbol::known::STD])?;
+            }
+            record_traversal_diagnostic(
+                add_builtin_declarations(&mut graph, &builtin_traits, &mut fact_memo),
+                &mut fresh_diagnostics,
+                &node.path,
+            )?;
+        }
         ensure_missing_provider_targets(
             &mut graph,
             new_provider_demands,
@@ -1500,6 +1513,32 @@ fn add_declared_module_child_with_processing(
         process_used_paths,
         process_declared_children,
     )?)
+}
+
+/// Loads the std modules that declare `traits`, builtin traits that a
+/// module implements, as `using std::builtin::Trait` would. An
+/// implementation of a builtin trait is checked against its declaration,
+/// and a builtin trait is visible by name in every module, so naming one
+/// loads nothing by itself.
+fn add_builtin_declarations(
+    graph: &mut ModuleGraph,
+    traits: &[SymbolId],
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
+) -> TraversalResult<()> {
+    let Some(std_root) = graph.std_package_root() else {
+        return Ok(());
+    };
+    for name in traits {
+        add_visible_declared_module_path(
+            graph,
+            std_root,
+            std_root,
+            &[nia_symbol::known::BUILTIN, *name],
+            UsedModulePathProcessing::IfSelectedItem,
+            fact_memo,
+        )?;
+    }
+    Ok(())
 }
 
 fn inject_entry_runtime(

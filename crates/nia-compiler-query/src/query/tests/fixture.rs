@@ -151,6 +151,31 @@ impl LoadedProgramFixture {
         module_id
     }
 
+    /// Adds a std package whose `builtin` module holds `source`, for a
+    /// program that implements builtin traits: their implementations are
+    /// checked against the std declarations.
+    pub(super) fn add_std_builtin(&mut self, source: &str) -> ModuleId {
+        let std_root_path = SourcePath::with_identity("std/root.nia", "toolchain:/std/root.nia");
+        let std_root = self
+            .graph
+            .intern_package_root(&nia_symbol::known::STD, std_root_path.clone())
+            .expect("intern std package root");
+        self.modules.push(loaded_module_in(
+            &self.sources,
+            std_root,
+            std_root_path,
+            "pub module builtin;",
+            SourceRevision::INITIAL,
+        ));
+        self.add_child_with_source_path(
+            std_root,
+            "builtin",
+            nia_ids::Visibility::Public,
+            SourcePath::with_identity("std/builtin.nia", "toolchain:/std/builtin.nia"),
+            source,
+        )
+    }
+
     pub(super) fn add_freestanding_runtime(&mut self, source: &str) -> ModuleId {
         let runtime_root_path =
             SourcePath::with_identity("runtime/root.nia", "toolchain:/runtime/root.nia");

@@ -2009,3 +2009,120 @@ fun main() usize { measure[i32]() }
     let generated = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&generated.diagnostics);
 }
+
+fn error_summaries(name: &str, source: &str) -> Vec<String> {
+    let root = temp_dir(name);
+    write(&root.join("main.nia"), source);
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.clone())
+        .collect()
+}
+
+#[test]
+fn builtin_trait_implementations_follow_the_std_declaration() {
+    // `Add` declares `fun add(self, rhs: Rhs) Output`; this method takes a
+    // pointer, and the `IntoError` method returns another type.
+    let summaries = error_summaries(
+        "builtin_trait_implementations_follow_the_std_declaration",
+        r#"
+using std::builtin;
+
+struct C { v: i32 }
+enum A { X }
+enum B { Y }
+
+extend C : Add[C] {
+    type Output = C;
+
+    fun add(self, rhs: &C) C {
+        C { v: self.v + rhs.v }
+    }
+}
+
+extend A : builtin::IntoError[B] {
+    fun intoError(self) i32 {
+        1
+    }
+}
+
+fun main() i32 { 0 }
+"#,
+    );
+    assert!(
+        summaries.contains(
+            &"implementation of trait method `add` does not match the trait signature".to_string()
+        ) && summaries.contains(
+            &"implementation of trait method `intoError` does not match the trait signature"
+                .to_string()
+        ),
+        "{summaries:?}"
+    );
+}
+
+#[test]
+fn builtin_trait_implementation_cannot_add_track_caller() {
+    let summaries = error_summaries(
+        "builtin_trait_implementation_cannot_add_track_caller",
+        r#"
+using std::source;
+
+struct Meters(i32)
+
+extend Meters : Add[Meters] {
+    type Output = Meters;
+
+    @[trackCaller]
+    fun add(self, other: Meters) Meters {
+        _ = source::callerLocation();
+        Meters(self.0 + other.0)
+    }
+}
+
+fun main() i32 {
+    (Meters(1) + Meters(2)).0
+}
+"#,
+    );
+    assert_eq!(
+        summaries,
+        vec![
+            "implementation of trait method `add` tracks its caller, but the trait method does not"
+                .to_string()
+        ]
+    );
+}
+
+#[test]
+fn builtin_marker_outside_std_declares_nothing() {
+    // Only std declares builtin traits, as name resolution reads them, so
+    // the local trait, which agrees with the compiler but not with the std
+    // declaration, neither replaces `Add`'s declaration nor rejects an
+    // implementation that follows the std one.
+    let summaries = error_summaries(
+        "builtin_marker_outside_std_declares_nothing",
+        r#"
+@[builtin("Add")]
+trait Fake {
+    fun add(self, rhs: i32) i32;
+}
+
+struct Meters(i32)
+
+extend Meters : Add[Meters] {
+    type Output = Meters;
+
+    fun add(self, other: Meters) Meters {
+        Meters(self.0 + other.0)
+    }
+}
+
+fun main() i32 {
+    (Meters(1) + Meters(2)).0
+}
+"#,
+    );
+    assert!(summaries.is_empty(), "{summaries:?}");
+}

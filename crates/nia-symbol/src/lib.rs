@@ -688,6 +688,13 @@ impl ToSymbolId for nia_ids::BuiltinTrait {
     }
 }
 
+/// The builtin trait whose canonical name is `name`.
+pub fn builtin_trait_named(name: SymbolId) -> Option<nia_ids::BuiltinTrait> {
+    nia_ids::BuiltinTrait::ALL
+        .into_iter()
+        .find(|trait_id| trait_id.symbol_id() == name)
+}
+
 impl ToSymbolId for nia_ids::BuiltinAssociatedType {
     fn symbol_id(self) -> SymbolId {
         match self {

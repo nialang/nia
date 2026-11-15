@@ -2467,7 +2467,9 @@ The language gives these traits fixed meanings. They are declared in
 `std::builtin`. All except `IntoError` and `Len` are visible by name in every
 module without an import; those two are written `std::builtin::IntoError` and
 `std::builtin::Len`. They are implemented
-with ordinary `extend Type : Trait` blocks. Their method names are fixed.
+with ordinary `extend Type : Trait` blocks, which must match the std
+declaration as any trait implementation matches its trait. Their method names
+are fixed.
 
 Operator traits. Binary operators take both operands by value:
 

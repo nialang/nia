@@ -368,6 +368,7 @@ pub(super) fn provide_extension_provider_validation_facts(
                 trait_defs: &trait_index.trait_defs,
                 trait_signatures: &trait_index.trait_signatures,
                 trait_names: &trait_index.trait_names,
+                builtin_trait_declarations: &trait_index.builtin_trait_declarations,
                 trait_impls_for_trait: &trait_impls_for_trait,
                 symbols: &symbols,
                 graph: &graph,
@@ -515,11 +516,13 @@ pub(super) fn provide_extension_trait_signature_index(
                 )?;
                 pending_modules.extend(extension_signature_type_modules(db, module_id)?);
             }
-            Ok(ExtensionTraitSignatureIndex {
+            let graph = db.get(ModuleGraphQuery)?;
+            Ok(ExtensionTraitSignatureIndex::new(
                 trait_defs,
                 trait_signatures,
                 trait_names,
-            })
+                graph.as_ref(),
+            )?)
         },
     )
 }

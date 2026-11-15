@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ids::{GlobalDefId, InternedTyId, TraitId};
+use nia_ids::{InternedTyId, TraitId};
 use nia_item_signatures::{FunctionSignature, GenericParamSignatureKind, TraitImplSignature};
 use nia_symbol::{SymbolId, SymbolMap, stable_hash};
 use nia_ty::{ArrayLenTy, ConstExprSummary, TyKind, TypeEquivalence, TypeStore, TypeStoreAppend};
@@ -373,7 +373,7 @@ pub(super) struct TraitMethodSubstitution<'a> {
     pub(super) trait_args: &'a [nia_ids::InternedTyId],
     pub(super) trait_const_args: &'a [nia_ty::ConstGenericArg],
     pub(super) self_ty: nia_ids::InternedTyId,
-    pub(super) trait_id: GlobalDefId,
+    pub(super) trait_id: TraitId,
     pub(super) impl_signature: &'a TraitImplSignature,
 }
 
@@ -385,13 +385,13 @@ pub(super) struct ImplMethodSignatureNormalize<'a> {
     pub(super) trait_args: &'a [nia_ids::InternedTyId],
     pub(super) trait_const_args: &'a [nia_ty::ConstGenericArg],
     pub(super) self_ty: nia_ids::InternedTyId,
-    pub(super) trait_id: GlobalDefId,
+    pub(super) trait_id: TraitId,
     pub(super) impl_signature: &'a TraitImplSignature,
 }
 
 #[derive(Clone, Copy)]
 pub(super) struct ProjectionImplContext<'a> {
-    pub(super) trait_id: GlobalDefId,
+    pub(super) trait_id: TraitId,
     pub(super) trait_args: &'a [nia_ids::InternedTyId],
     pub(super) trait_const_args: &'a [nia_ty::ConstGenericArg],
     pub(super) self_ty: nia_ids::InternedTyId,
@@ -1005,7 +1005,7 @@ pub(super) fn substitute_type(
                 })
                 .collect::<nia_ice::IceResult<Vec<_>>>()?;
             if let Some(context) = projection_context
-                && *trait_id == TraitId::Source(context.trait_id)
+                && *trait_id == context.trait_id
                 && projection_context_matches(
                     type_store,
                     self_ty,
