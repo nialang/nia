@@ -34,6 +34,18 @@ struct DynamicTraitInstanceKey {
     trait_const_args: Vec<ConstGenericArg>,
 }
 
+/// The arguments of an extension method call, for generic inference.
+pub(in crate::calls::methods) enum ExtensionCallArgs<'a> {
+    /// The call writes no generic arguments: they are inferred from `args`,
+    /// checked against the uninstantiated `params`.
+    Inferred {
+        args: &'a [Expr],
+        params: &'a [InternedTyId],
+    },
+    /// The call writes the method's generic arguments.
+    Written,
+}
+
 impl<'a> BodyChecker<'a> {
     fn contextual_receiver_probe(&self) -> BodyChecker<'a> {
         let mut probe = self.clone_for_type_compare();
@@ -220,7 +232,7 @@ impl<'a> BodyChecker<'a> {
             call.args,
             &params,
             &mut substitutions,
-            &trait_method.signature.generic_params,
+            &InferableGenerics::of(&trait_method.signature.generic_params),
             &trait_method.signature.where_predicates,
             &mut const_substitutions,
         );
@@ -374,7 +386,7 @@ impl<'a> BodyChecker<'a> {
             call.args,
             &params,
             &mut substitutions,
-            &signature.generic_params,
+            &InferableGenerics::of(&signature.generic_params),
             &signature.where_predicates,
             &mut const_substitutions,
         );
@@ -1749,19 +1761,16 @@ impl<'a> BodyChecker<'a> {
         };
         let mut params = self.method_candidate_param_types(candidate, &signature);
         if call.type_args.is_none() {
-            self.infer_method_generics_from_args(
-                call.args,
-                &params,
-                &mut substitutions,
-                &signature.generic_params,
-                &signature.where_predicates,
-                &mut const_substitutions,
-            );
-            if !self.method_generics_are_complete_with_consts(
+            if !self.infer_extension_method_generics(
                 call.span,
+                candidate,
                 &signature,
-                &substitutions,
-                &const_substitutions,
+                ExtensionCallArgs::Inferred {
+                    args: call.args,
+                    params: &params,
+                },
+                &mut substitutions,
+                &mut const_substitutions,
             ) {
                 return false;
             }
@@ -1778,12 +1787,16 @@ impl<'a> BodyChecker<'a> {
                     )
                 })
                 .collect();
+        } else {
+            self.infer_extension_method_generics(
+                call.span,
+                candidate,
+                &signature,
+                ExtensionCallArgs::Written,
+                &mut substitutions,
+                &mut const_substitutions,
+            );
         }
-        self.infer_method_generics_from_where_predicates(
-            &signature,
-            &candidate.method.where_predicates,
-            &mut substitutions,
-        );
         self.check_where_predicates_hold(
             &signature.where_predicates,
             &substitutions,
@@ -1837,6 +1850,86 @@ impl<'a> BodyChecker<'a> {
             false,
         );
         true
+    }
+
+    /// Infers the generic parameters of a call of an extension method: from
+    /// its arguments when the call writes no generic arguments, then from
+    /// the where predicates of the method and its `extend` block, which can
+    /// determine a parameter no argument mentions. Only then does every
+    /// inferable parameter need a substitution; returns whether it has one,
+    /// reporting each that does not.
+    pub(in crate::calls::methods) fn infer_extension_method_generics(
+        &mut self,
+        span: Span,
+        candidate: &MethodCandidate,
+        signature: &FunctionSignature,
+        args: ExtensionCallArgs<'_>,
+        substitutions: &mut SymbolMap<InternedTyId>,
+        const_substitutions: &mut SymbolMap<ConstGenericArg>,
+    ) -> bool {
+        let inferable = match args {
+            ExtensionCallArgs::Inferred { args, params } => {
+                let inferable = self.extension_method_inferable_generics(candidate, signature);
+                self.profile_stage("body_check.profile.method.infer_args", |this| {
+                    this.infer_method_generics_from_args(
+                        args,
+                        params,
+                        substitutions,
+                        &inferable,
+                        &signature.where_predicates,
+                        const_substitutions,
+                    );
+                });
+                Some(inferable)
+            }
+            ExtensionCallArgs::Written => None,
+        };
+        self.profile_stage("body_check.profile.method.infer_where", |this| {
+            this.infer_method_generics_from_where_predicates(
+                signature,
+                &candidate.method.where_predicates,
+                substitutions,
+            );
+        });
+        inferable.is_none_or(|inferable| {
+            self.inferable_generics_are_complete(
+                span,
+                &inferable,
+                substitutions,
+                const_substitutions,
+            )
+        })
+    }
+
+    /// The generic parameters a call of an extension method infers when it
+    /// writes no generic arguments: those of its `extend` block that the
+    /// receiver's type leaves open, then the method's own.
+    pub(in crate::calls::methods) fn extension_method_inferable_generics(
+        &self,
+        candidate: &MethodCandidate,
+        signature: &FunctionSignature,
+    ) -> InferableGenerics {
+        let mut generics = InferableGenerics::of(&signature.generic_params);
+        let declared_by_method = |name: &SymbolId| {
+            signature
+                .generic_params
+                .iter()
+                .any(|param| param.name == *name)
+        };
+        let method = &candidate.method;
+        for name in &method.effective_generics {
+            if declared_by_method(name) {
+                continue;
+            }
+            if method.effective_const_generics.contains(name) {
+                if !candidate.target_const_substitutions.contains_key(name) {
+                    generics.consts.push(*name);
+                }
+            } else if !candidate.target_substitutions.contains_key(name) {
+                generics.types.push(*name);
+            }
+        }
+        generics
     }
 
     pub(in crate::calls::methods) fn lowered_method_type_args(
@@ -1993,7 +2086,7 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
         params: &[InternedTyId],
         substitutions: &mut SymbolMap<InternedTyId>,
-        generic_params: &[nia_item_signatures::GenericParamSignature],
+        generics: &crate::calls::generic_args::InferableGenerics,
         where_predicates: &[nia_defs::WherePredicateSignature],
         const_substitutions: &mut SymbolMap<nia_ty::ConstGenericArg>,
     ) {
@@ -2057,7 +2150,7 @@ impl<'a> BodyChecker<'a> {
             let expected = self.generic_argument_expected(
                 substituted_param,
                 callable_pattern.filter(|_| matches!(arg.kind, ExprKind::Closure { .. })),
-                generic_params,
+                generics,
                 substitutions,
                 const_substitutions,
             );
@@ -2141,38 +2234,6 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         Some(first)
-    }
-
-    pub(in crate::calls::methods) fn method_generics_are_complete_with_consts(
-        &mut self,
-        span: Span,
-        signature: &FunctionSignature,
-        substitutions: &SymbolMap<InternedTyId>,
-        const_substitutions: &SymbolMap<ConstGenericArg>,
-    ) -> bool {
-        let mut complete = true;
-        for param in &signature.generic_params {
-            let present = match param.kind {
-                nia_item_signatures::GenericParamSignatureKind::Type => {
-                    substitutions.contains_key(&param.name)
-                }
-                nia_item_signatures::GenericParamSignatureKind::Const { .. } => {
-                    const_substitutions.contains_key(&param.name)
-                }
-            };
-            if !present {
-                complete = false;
-                self.report_uninferred_generic(
-                    span,
-                    param.name,
-                    matches!(
-                        param.kind,
-                        nia_item_signatures::GenericParamSignatureKind::Const { .. }
-                    ),
-                );
-            }
-        }
-        complete
     }
 
     fn reject_readonly_receiver(&mut self, receiver: &Expr) {

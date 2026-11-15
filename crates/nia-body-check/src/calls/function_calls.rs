@@ -1133,6 +1133,7 @@ impl<'a> BodyChecker<'a> {
         substitutions: &mut GenericSubstitutions,
     ) {
         let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
+        let generics = crate::calls::generic_args::InferableGenerics::of(&signature.generic_params);
         if let Some(expected) = expected.and_then(|expected| self.generic_call_expected(expected)) {
             let pattern = fixed.map_or(signature.return_type, |fixed| {
                 self.substitute_generics_and_consts(
@@ -1220,7 +1221,7 @@ impl<'a> BodyChecker<'a> {
             let expected = self.generic_argument_expected(
                 Some(substituted_param),
                 callable_pattern.filter(|_| matches!(arg.kind, ExprKind::Closure { .. })),
-                &signature.generic_params,
+                &generics,
                 &substitutions.types,
                 &substitutions.consts,
             );
@@ -1236,7 +1237,7 @@ impl<'a> BodyChecker<'a> {
                     substituted_param,
                     arg.span,
                     elems,
-                    &signature.generic_params,
+                    &generics,
                     &substitutions.types,
                     &substitutions.consts,
                 )
@@ -2759,37 +2760,29 @@ impl<'a> BodyChecker<'a> {
         self.type_is_bound_in_body(ty).then_some(ty)
     }
 
+    /// The type an argument is checked against while the call's generics are
+    /// still being inferred: its parameter type, or the callable pattern a
+    /// closure is checked against, when neither names a parameter of
+    /// `generics` that has no substitution yet. Solved parameters may stand
+    /// for rigid parameters of the caller, which are valid context.
     pub(in crate::calls) fn generic_argument_expected(
         &self,
         substituted_param: Option<InternedTyId>,
         callable_pattern: Option<InternedTyId>,
-        generic_params: &[nia_item_signatures::GenericParamSignature],
+        generics: &crate::calls::generic_args::InferableGenerics,
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<InternedTyId> {
-        // Solved callee parameters may be substituted with rigid caller
-        // parameters. Those remain valid context for every expression form.
-        let unresolved_types = generic_params
-            .iter()
-            .filter_map(|param| {
-                (matches!(param.kind, GenericParamSignatureKind::Type)
-                    && !substitutions.contains_key(&param.name))
-                .then_some(param.name)
-            })
-            .collect::<Vec<_>>();
-        let unresolved_consts = generic_params
-            .iter()
-            .filter_map(|param| {
-                (matches!(param.kind, GenericParamSignatureKind::Const { .. })
-                    && !const_substitutions.contains_key(&param.name))
-                .then_some(param.name)
-            })
-            .collect::<Vec<_>>();
+        let unresolved_type =
+            |name: SymbolId| generics.contains_type(&name) && !substitutions.contains_key(&name);
+        let unresolved_const = |name: SymbolId| {
+            generics.contains_const(&name) && !const_substitutions.contains_key(&name)
+        };
         let complete = |ty| {
             self.type_parameters_are_bound(
                 ty,
-                |name| !unresolved_types.contains(&name),
-                |name| !unresolved_consts.contains(&name),
+                |name| !unresolved_type(name),
+                |name| !unresolved_const(name),
                 self.type_is_bound_in_body(ty),
             )
         };
@@ -2812,7 +2805,7 @@ impl<'a> BodyChecker<'a> {
         param: InternedTyId,
         span: Span,
         elems: &nia_ast::ArrayElements,
-        generic_params: &[nia_item_signatures::GenericParamSignature],
+        generics: &crate::calls::generic_args::InferableGenerics,
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> Option<InternedTyId> {
@@ -2826,7 +2819,7 @@ impl<'a> BodyChecker<'a> {
         let elem = self.generic_argument_expected(
             Some(elem),
             None,
-            generic_params,
+            generics,
             substitutions,
             const_substitutions,
         )?;

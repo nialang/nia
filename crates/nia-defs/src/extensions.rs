@@ -95,9 +95,10 @@ pub struct ExtensionMethod {
     pub def_id: GlobalDefId,
     /// Owning implementation identity.
     pub impl_id: TraitImplId,
-    /// Type generic parameters inherited from the implementation and method.
+    /// Every generic parameter of the implementation, then of the method, in
+    /// declaration order: type and const parameters alike.
     pub effective_generics: Vec<SymbolId>,
-    /// Const generic parameters inherited from the implementation and method.
+    /// The const parameters among `effective_generics`.
     pub effective_const_generics: Vec<SymbolId>,
     /// Extended target type.
     pub target_ty: InternedTyId,
@@ -133,9 +134,10 @@ pub struct VisibleExtensionMethod {
     pub def_id: GlobalDefId,
     /// Owning implementation identity.
     pub impl_id: TraitImplId,
-    /// Effective type generic parameters.
+    /// Every generic parameter of the implementation, then of the method, in
+    /// declaration order: type and const parameters alike.
     pub effective_generics: Vec<SymbolId>,
-    /// Effective const generic parameters.
+    /// The const parameters among `effective_generics`.
     pub effective_const_generics: Vec<SymbolId>,
     /// Implemented trait, or `None` for an inherent extension.
     pub trait_id: Option<TraitId>,

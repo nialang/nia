@@ -21,6 +21,42 @@ pub(crate) struct GenericSubstitutions {
     pub(crate) consts: SymbolMap<ConstGenericArg>,
 }
 
+/// The generic parameters a call infers from its arguments and context:
+/// those no generic argument written at the call gives.
+///
+/// A function's are its own. An extension method's are also those of its
+/// `extend` block that the receiver's type does not determine, as `Target`
+/// in `extend[Value, Source, Target] Source!Value { fun mapError(...) }`.
+/// Only names and kinds matter to inference: a parameter is either given a
+/// substitution or reported as uninferred.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct InferableGenerics {
+    pub(crate) types: Vec<SymbolId>,
+    pub(crate) consts: Vec<SymbolId>,
+}
+
+impl InferableGenerics {
+    /// The parameters of a declaration's generic list.
+    pub(crate) fn of(params: &[GenericParamSignature]) -> Self {
+        let mut generics = Self::default();
+        for param in params {
+            match param.kind {
+                GenericParamSignatureKind::Type => generics.types.push(param.name),
+                GenericParamSignatureKind::Const { .. } => generics.consts.push(param.name),
+            }
+        }
+        generics
+    }
+
+    pub(crate) fn contains_type(&self, name: &SymbolId) -> bool {
+        self.types.contains(name)
+    }
+
+    pub(crate) fn contains_const(&self, name: &SymbolId) -> bool {
+        self.consts.contains(name)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct LoweredGenericArgs {
     pub(crate) type_args: Vec<InternedTyId>,
@@ -50,6 +86,31 @@ impl<'a> BodyChecker<'a> {
     /// carry the actionable context that used to be lost in the one-line
     /// diagnostic. Keeping this constructor shared prevents function and
     /// method calls from drifting into different advice.
+    /// Reports each parameter of `generics` without a substitution, and
+    /// returns whether all have one.
+    pub(crate) fn inferable_generics_are_complete(
+        &mut self,
+        span: Span,
+        generics: &InferableGenerics,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> bool {
+        let mut complete = true;
+        for name in &generics.types {
+            if !substitutions.contains_key(name) {
+                complete = false;
+                self.report_uninferred_generic(span, *name, false);
+            }
+        }
+        for name in &generics.consts {
+            if !const_substitutions.contains_key(name) {
+                complete = false;
+                self.report_uninferred_generic(span, *name, true);
+            }
+        }
+        complete
+    }
+
     pub(crate) fn report_uninferred_generic(&mut self, span: Span, name: SymbolId, is_const: bool) {
         let name = self.symbol_name(name);
         let summary = if is_const {

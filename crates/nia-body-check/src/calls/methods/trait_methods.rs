@@ -104,17 +104,18 @@ impl<'a> BodyChecker<'a> {
             })
             .collect();
         if call.type_args.is_none() {
+            let inferable = InferableGenerics::of(&candidate.signature.generic_params);
             self.infer_method_generics_from_args(
                 call.args,
                 &params,
                 &mut substitutions,
-                &candidate.signature.generic_params,
+                &inferable,
                 &candidate.signature.where_predicates,
                 &mut const_substitutions,
             );
-            if !self.method_generics_are_complete_with_consts(
+            if !self.inferable_generics_are_complete(
                 call.span,
-                &candidate.signature,
+                &inferable,
                 &substitutions,
                 &const_substitutions,
             ) {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use crate::calls::args::CallTarget;
+use crate::calls::generic_args::InferableGenerics;
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_defs::VisibleExtensionMethod;
 use nia_diagnostic::{Diagnostic, codes};
@@ -10,6 +11,7 @@ use nia_sema_ir::{BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, Res
 use nia_span::Span;
 use nia_symbol::{SymbolId, SymbolMap, known};
 use nia_ty::{ArrayLenTy, BuiltinTrait, ConstGenericArg, PrimitiveTy, TyKind};
+use resolution::ExtensionCallArgs;
 
 pub(super) struct MethodCall<'a> {
     pub(super) span: Span,
@@ -783,26 +785,26 @@ impl<'a> BodyChecker<'a> {
                     )
                 })
             });
-        if infer_method_args {
-            self.profile_stage("body_check.profile.method.infer_args", |this| {
-                this.infer_method_generics_from_args(
-                    call.args,
-                    &params,
-                    &mut substitutions,
-                    &signature.generic_params,
-                    &signature.where_predicates,
-                    &mut const_substitutions,
-                );
-            });
-            if !self.method_generics_are_complete_with_consts(
-                call.span,
-                &signature,
-                &substitutions,
-                &const_substitutions,
-            ) {
-                self.check_call_arg_count(call.span, call.args.len(), params.len(), false);
-                return Some(self.error());
+        let args = if infer_method_args {
+            ExtensionCallArgs::Inferred {
+                args: call.args,
+                params: &params,
             }
+        } else {
+            ExtensionCallArgs::Written
+        };
+        if !self.infer_extension_method_generics(
+            call.span,
+            &candidate,
+            &signature,
+            args,
+            &mut substitutions,
+            &mut const_substitutions,
+        ) {
+            self.check_call_arg_count(call.span, call.args.len(), params.len(), false);
+            return Some(self.error());
+        }
+        if infer_method_args {
             params = signature
                 .params
                 .iter()
@@ -817,13 +819,6 @@ impl<'a> BodyChecker<'a> {
                 })
                 .collect();
         }
-        self.profile_stage("body_check.profile.method.infer_where", |this| {
-            this.infer_method_generics_from_where_predicates(
-                &signature,
-                &candidate.method.where_predicates,
-                &mut substitutions,
-            );
-        });
         self.profile_stage("body_check.profile.method.check_where", |this| {
             this.check_where_predicates_hold(
                 &signature.where_predicates,

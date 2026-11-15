@@ -217,30 +217,24 @@ impl<'a> BodyChecker<'a> {
         } else {
             args
         };
-        if method_type_args.is_none() {
-            self.infer_method_generics_from_args(
-                value_args,
-                &params,
-                &mut substitutions,
-                &signature.generic_params,
-                &signature.where_predicates,
-                &mut const_substitutions,
-            );
-            if !self.method_generics_are_complete_with_consts(
-                span,
-                &signature,
-                &substitutions,
-                &const_substitutions,
-            ) {
-                self.check_call_arg_count(span, value_args.len(), params.len(), false);
-                return Some(self.error());
-            }
-        }
-        self.infer_method_generics_from_where_predicates(
+        let inferred_args = match method_type_args {
+            None => ExtensionCallArgs::Inferred {
+                args: value_args,
+                params: &params,
+            },
+            Some(_) => ExtensionCallArgs::Written,
+        };
+        if !self.infer_extension_method_generics(
+            span,
+            &candidate,
             &signature,
-            &candidate.method.where_predicates,
+            inferred_args,
             &mut substitutions,
-        );
+            &mut const_substitutions,
+        ) {
+            self.check_call_arg_count(span, value_args.len(), params.len(), false);
+            return Some(self.error());
+        }
         self.check_where_predicates_hold(
             &signature.where_predicates,
             &substitutions,
@@ -418,17 +412,18 @@ impl<'a> BodyChecker<'a> {
             })
             .collect();
         if method_type_args.is_none() {
+            let inferable = InferableGenerics::of(&candidate.signature.generic_params);
             self.infer_method_generics_from_args(
                 args,
                 &params,
                 &mut substitutions,
-                &candidate.signature.generic_params,
+                &inferable,
                 &candidate.signature.where_predicates,
                 &mut const_substitutions,
             );
-            if !self.method_generics_are_complete_with_consts(
+            if !self.inferable_generics_are_complete(
                 expr.span,
-                &candidate.signature,
+                &inferable,
                 &substitutions,
                 &const_substitutions,
             ) {

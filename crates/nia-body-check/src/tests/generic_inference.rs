@@ -1702,3 +1702,162 @@ fun main() () {
         "{summaries:?}"
     );
 }
+
+// An extension method whose `extend` block has a parameter the receiver does
+// not determine, as `Target` in std's `mapError`: the closure argument's body
+// determines it.
+const MAP_ERROR: &str = r#"
+enum Failure {
+    A,
+}
+
+struct Code(u8)
+
+struct Named {
+    code: u8,
+}
+
+static fallback: Named = Named { code: 9 };
+static table: [Named; 2] = [Named { code: 1 }, Named { code: 2 }];
+
+extend[Value, Source, Target] Source!Value {
+    fun mapErr(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun failing() Failure!i32 {
+    Failure::A!
+}
+
+fun same[T](value: T) T {
+    value
+}
+
+fun pick[T]() T {
+    pick[T]()
+}
+"#;
+
+#[test]
+fn infers_extension_block_generics_from_closure_bodies() {
+    for body in [
+        r"fun f() Code!i32 { let v = failing().mapErr(\e -> Code(1)).?; !v }",
+        r"fun f() Code!i32 { let v = failing().mapErr(\e: Failure -> Code(1)).?; !v }",
+        r"fun f() Named!i32 { let v = failing().mapErr(\e -> fallback).?; !v }",
+        r"fun f() Named!i32 { let v = failing().mapErr(\e -> table[0]).?; !v }",
+        r"fun f() Code!i32 { let v = failing().mapErr(\_ -> Code(2)).?; !v }",
+        r"fun f() Code!i32 { let v = failing().mapErr(\e -> same(Code(4))).?; !v }",
+        r"fun f() i32 { match failing().mapErr(\e: Failure -> Code(3)) { !v => v, _! => 0 } }",
+    ] {
+        let source = format!("{MAP_ERROR}{body}");
+        let checked = pipeline(&source);
+        assert!(
+            checked.diagnostics.is_empty(),
+            "{body}\n{:?}",
+            checked.diagnostics
+        );
+    }
+}
+
+/// A closure body whose own type cannot be inferred reports that, and
+/// nothing about the `extend` block parameter it would have determined.
+#[test]
+fn reports_uninferable_closure_bodies_without_leaking_block_generics() {
+    let source = format!(
+        "{MAP_ERROR}{}",
+        r"fun f() Code!i32 { let v = failing().mapErr(\e -> pick()).?; !v }"
+    );
+    let checked = pipeline(&source);
+    let summaries: Vec<_> = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect();
+    assert_eq!(
+        summaries,
+        ["cannot infer generic parameter `T`"],
+        "{summaries:?}"
+    );
+}
+
+#[test]
+fn reports_extension_block_generics_nothing_determines() {
+    let checked = pipeline(
+        r#"
+struct Holder[T] {
+    value: T,
+}
+
+extend[T, U] Holder[T] {
+    fun make(self) ?U {
+        null
+    }
+}
+
+fun f() i32 {
+    let h: Holder[i32] = .{ value: 1 };
+    let made = h.make();
+    0
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary == "cannot infer generic parameter `U`"),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+/// An `extend` block parameter that only a where predicate determines is
+/// inferred from it before the call requires every parameter.
+#[test]
+fn infers_extension_block_generics_from_where_predicates() {
+    let checked = pipeline(
+        r#"
+trait Convert[Target] {
+    fun convert(self) Target;
+}
+
+struct Source {
+    value: i32,
+}
+
+struct Target {
+    value: i32,
+}
+
+extend Source : Convert[Target] {
+    fun convert(self) Target {
+        Target { value: self.value }
+    }
+}
+
+extend[T, S, To] S!T
+where S: Convert[To]
+{
+    fun castError(self) To!T {
+        match self {
+            !ok => !ok,
+            error! => error.convert()!,
+        }
+    }
+}
+
+fun main() i32 {
+    let value: Source!i32 = Source { value: 1 }!;
+    match value.castError() {
+        !ok => ok,
+        error! => error.value,
+    }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
