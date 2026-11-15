@@ -1835,7 +1835,12 @@ impl<'a> BodyChecker<'a> {
         } else {
             self.check_expr(lhs)
         };
-        if let Some(expected) = lhs_expected {
+        // The expected result is the operand's type only for an operand that
+        // takes its type from context; another operand has its own type, and
+        // the operator's output is checked against the expected result.
+        if let Some(expected) = lhs_expected
+            && self.is_context_typed(lhs)
+        {
             self.expect_expr_type(lhs, expected, lhs_actual, "binary operator");
         }
         let lhs_ty = self.expr_ty(lhs).unwrap_or(lhs_actual);
@@ -1942,7 +1947,12 @@ impl<'a> BodyChecker<'a> {
         } else {
             self.check_expr(lhs)
         };
-        if let Some(expected) = lhs_expected {
+        // The expected result is the operand's type only for an operand that
+        // takes its type from context; another operand has its own type, and
+        // the operator's output is checked against the expected result.
+        if let Some(expected) = lhs_expected
+            && self.is_context_typed(lhs)
+        {
             self.expect_expr_type(lhs, expected, lhs_actual, "binary operator");
         }
         let lhs_ty = self.expr_ty(lhs).unwrap_or(lhs_actual);
