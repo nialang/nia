@@ -125,10 +125,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             Some(TyKind::Array { .. } | TyKind::Slice { .. })
         );
         let end = self.emit_checked_range_end(span, range, base_len, start, checked)?;
-        let len = self
-            .builder
-            .build_int_sub(end, start, "slicelen")
-            .map_err(|_| self.error(span, "failed to compute slice length"))?;
+        // A checked range has `start <= end`, so its length cannot wrap;
+        // saying so lets the optimizer carry the base's bounds into the
+        // slice, where they prove later checks against its length.
+        let len = if checked {
+            self.builder.build_int_nuw_sub(end, start, "slicelen")
+        } else {
+            self.builder.build_int_sub(end, start, "slicelen")
+        }
+        .map_err(|_| self.error(span, "failed to compute slice length"))?;
         let ptr = self.emit_elem_offset_ptr(span, elem_ty, base_ptr, start, "sliceptr")?;
         self.build_slice_value(ptr, len)
     }
@@ -325,11 +330,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             self.emit_bound_check(span, cause, written, base_len, !range.inclusive)?;
             // `start <= end`; for `a..=b`, `start <= b + 1`, which cannot
             // overflow now that `b < len`.
-            let end = self.emit_range_end_from(range, written)?;
+            let end = self.emit_range_end_from(range, written, true)?;
             self.emit_bound_check_reporting(span, order, start, end, written)?;
             return Ok(end);
         }
-        self.emit_range_end_from(range, written)
+        self.emit_range_end_from(range, written, false)
     }
 
     /// Traps unless `start <= end`, reporting `start` against `written`, the
@@ -358,25 +363,28 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(())
     }
 
-    /// The exclusive end for the end `end` the range wrote.
+    /// The exclusive end for the end `end` the range wrote. `below_len` is
+    /// whether `end` was checked to be below the base's length, so that one
+    /// past an inclusive end cannot wrap.
     fn emit_range_end_from(
         &mut self,
         range: &FunctionSliceRange,
         end: IntValue<'ctx>,
+        below_len: bool,
     ) -> Result<IntValue<'ctx>, Diagnostic> {
-        if range.inclusive {
-            self.builder
-                .build_int_add(
-                    end,
-                    self.module
-                        .usize_llvm_type(Span::default())?
-                        .const_int(1, false)?,
-                    "sliceend",
-                )
-                .map_err(|_| self.error(Span::default(), "failed to compute inclusive slice end"))
-        } else {
-            Ok(end)
+        if !range.inclusive {
+            return Ok(end);
         }
+        let one = self
+            .module
+            .usize_llvm_type(Span::default())?
+            .const_int(1, false)?;
+        if below_len {
+            self.builder.build_int_nuw_add(end, one, "sliceend")
+        } else {
+            self.builder.build_int_add(end, one, "sliceend")
+        }
+        .map_err(|_| self.error(Span::default(), "failed to compute inclusive slice end"))
     }
 
     fn emit_usize_value(&mut self, expr: &FunctionExpr) -> Result<IntValue<'ctx>, Diagnostic> {

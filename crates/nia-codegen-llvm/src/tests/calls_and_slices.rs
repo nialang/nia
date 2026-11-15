@@ -485,6 +485,34 @@ fun main() usize {
     );
 }
 
+/// A slice of an array or slice has its bounds checked, which proves its
+/// length cannot wrap, so the length and an inclusive end are computed with
+/// `nuw` and the optimizer can carry the base's bounds into the slice. A
+/// pointer base's range is not checked and claims nothing.
+#[test]
+fn checked_slice_bounds_compute_lengths_without_wrapping() {
+    let root = temp_dir("checked_slice_bounds_compute_lengths_without_wrapping");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fun window(bytes: &[u8], start: usize) &[u8] { &bytes[start..] }
+fun closed(bytes: &[u8], start: usize, last: usize) &[u8] { &bytes[start..=last] }
+fun claimed(bytes: &u8, len: usize) &[u8] { &bytes[1..len] }
+"#,
+    )
+    .expect("write test source");
+
+    let codegen = codegen_program(main.to_string_lossy().into_owned());
+    assert!(codegen.diagnostics.is_empty(), "{:?}", codegen.diagnostics);
+    let output = emit_llvm_ir(&codegen.backend_lowering, &codegen.type_store);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert_eq!(ir.matches("%slicelen = sub nuw i64").count(), 2, "{ir}");
+    assert!(ir.contains("%sliceend = add nuw i64"), "{ir}");
+    assert_eq!(ir.matches("%slicelen = sub i64").count(), 1, "{ir}");
+}
+
 #[test]
 fn emits_ptr_methods_on_slice_parameters() {
     let root = temp_dir("emits_ptr_methods_on_slice_parameters");
