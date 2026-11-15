@@ -570,19 +570,31 @@ pub(super) fn resolve_cached_source_path(
                 .as_str()
                 .rsplit_once('/')
                 .map_or("", |(directory, _)| directory);
+            let display_root = root
+                .display_path()
+                .rsplit_once('/')
+                .map_or("", |(directory, _)| directory);
             let suffix = if logical_root.is_empty() {
                 logical
             } else {
                 logical.strip_prefix(logical_root)?.strip_prefix('/')?
             };
-            let physical = if physical_root.is_empty() {
-                suffix.to_owned()
-            } else {
-                format!("{physical_root}/{suffix}")
+            let below = |directory: &str| {
+                if directory.is_empty() {
+                    suffix.to_owned()
+                } else {
+                    format!("{directory}/{suffix}")
+                }
             };
+            // The module keeps the place under its root that people see, as
+            // when the root's modules were first loaded.
             Some((
                 logical_root.len(),
-                SourcePath::with_identity(physical, logical),
+                SourcePath::with_identity_and_display_path(
+                    below(physical_root),
+                    logical,
+                    below(display_root),
+                ),
             ))
         })
         .max_by_key(|(prefix_len, _)| *prefix_len)
@@ -714,4 +726,36 @@ fn compare_provider_requests(
                 .cmp(right_path.identity().normalized_path()),
             _ => std::cmp::Ordering::Equal,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A module found again through a cached plan is shown where it was when
+    /// first loaded, below its root's displayed directory, so what a build
+    /// emits, such as the file named in a trap report, does not depend on
+    /// whether a cache answered.
+    #[test]
+    fn cached_paths_keep_the_display_path_of_their_root() {
+        let roots = [SourcePath::with_identity_and_display_path(
+            "/moved/app/lib/root.nia",
+            "build-package:root:/lib/root.nia",
+            "lib/root.nia",
+        )];
+        let path = resolve_cached_source_path(
+            &SourceIdentity::new("build-package:root:/lib/parse/deep.nia"),
+            &roots,
+        )
+        .expect("a module below the root");
+        assert_eq!(path.as_str(), "/moved/app/lib/parse/deep.nia");
+        assert_eq!(
+            path.identity_ref().normalized_path(),
+            "build-package:root:/lib/parse/deep.nia"
+        );
+        assert_eq!(path.display_path(), "lib/parse/deep.nia");
+
+        let root = resolve_cached_source_path(&roots[0].identity(), &roots).expect("the root");
+        assert_eq!(root.display_path(), "lib/root.nia");
+    }
 }

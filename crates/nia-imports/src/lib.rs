@@ -1676,32 +1676,7 @@ fn declared_child_source_path_with_layout(
     sibling: bool,
 ) -> SourcePath {
     let child = resolved_module_symbol_text(symbols, child);
-    let physical_parent = parent_path.as_str();
-    let logical_parent = parent_path.identity_ref().normalized_path();
-    let physical = declared_child_path_text(physical_parent, &child, sibling);
-    if physical_parent == logical_parent {
-        return SourcePath::from_normalized_unchecked(physical);
-    }
-    let logical = declared_child_path_text(logical_parent, &child, sibling);
-    SourcePath::with_normalized_identity_unchecked(physical, logical)
-}
-
-fn declared_child_path_text(parent_path: &str, child: &str, sibling: bool) -> String {
-    let base = if sibling {
-        parent_path.rsplit_once('/').map_or("", |(dir, _)| dir)
-    } else {
-        parent_path.strip_suffix(".nia").unwrap_or(parent_path)
-    };
-    let mut path = String::with_capacity(
-        base.len() + usize::from(!base.is_empty()) + child.len() + ".nia".len(),
-    );
-    if !base.is_empty() {
-        path.push_str(base);
-        path.push('/');
-    }
-    path.push_str(child);
-    path.push_str(".nia");
-    path
+    parent_path.derived_child_file(&child, sibling)
 }
 
 #[cfg(test)]
@@ -1927,6 +1902,32 @@ mod tests {
             child.identity_ref().normalized_path(),
             "toolchain:/std/start.nia"
         );
+    }
+
+    /// A child module is shown under its parent's displayed path, never by
+    /// its logical identity, which is no path a person can open.
+    #[test]
+    fn declared_child_paths_keep_the_parent_display_path() {
+        let parent = SourcePath::with_identity_and_display_path(
+            "/work/app/lib/root.nia",
+            "build-package:root:/lib/root.nia",
+            "lib/root.nia",
+        );
+        let child = declared_child_source_path_for(&parent, &ModulePath::root("app"), known::START);
+        assert_eq!(child.as_str(), "/work/app/lib/start.nia");
+        assert_eq!(
+            child.identity_ref().normalized_path(),
+            "build-package:root:/lib/start.nia"
+        );
+        assert_eq!(child.display_path(), "lib/start.nia");
+
+        let nested = declared_child_source_path_for(
+            &child,
+            &ModulePath::root("app").child(known::START),
+            known::MAIN,
+        );
+        assert_eq!(nested.as_str(), "/work/app/lib/start/main.nia");
+        assert_eq!(nested.display_path(), "lib/start/main.nia");
     }
 
     #[test]
