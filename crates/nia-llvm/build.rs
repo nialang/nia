@@ -37,6 +37,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/llvm_lto_bridge.cpp");
     println!("cargo:rerun-if-changed=src/llvm_coff_bridge.cpp");
     println!("cargo:rerun-if-changed=src/llvm_nia_passes.cpp");
+    println!("cargo:rerun-if-changed=src/llvm_thin_backend.cpp");
     println!("cargo:rerun-if-changed=src/llvm_nia.h");
     println!("cargo:rerun-if-env-changed=LLVM_SYS_231_PREFIX");
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_FEATURE");
@@ -51,6 +52,7 @@ fn main() {
         .file("src/llvm_lto_bridge.cpp")
         .file("src/llvm_coff_bridge.cpp")
         .file("src/llvm_nia_passes.cpp")
+        .file("src/llvm_thin_backend.cpp")
         .warnings(false);
 
     // Nia's MSVC build requires the static CRT in Rust, this bridge, and LLVM.

@@ -666,11 +666,12 @@ struct BoundedSumsPass : PassInfoMixin<BoundedSumsPass> {
 // the first run left, and expose facts it could not see, such as a check that
 // a later pass moved below the branch proving it.
 //
-// The pass builders of objects and of ThinLTO and full LTO pre-link bitcode
-// register them. The post-link pipelines are LLVM's own, since LLVM's LTO
-// drivers accept added passes only from plugins loaded from files. LLVM
-// invokes these callbacks at O0 as well, where nothing is optimized, so they
-// add nothing there.
+// Every pass builder of the bridges registers them: those of objects, of
+// ThinLTO and full LTO pre-link bitcode, and of the ThinLTO backend after the
+// thin link, where imported functions are inlined (llvm_thin_backend.cpp).
+// Full LTO's post-link pipeline is LLVM's own, since LLVM's regular LTO driver
+// has no way to add passes in process. LLVM invokes these callbacks at O0 as
+// well, where nothing is optimized, so they add nothing there.
 void niaRegisterPasses(PassBuilder &PB) {
   PB.registerScalarOptimizerLateEPCallback(
       [](FunctionPassManager &FPM, OptimizationLevel Level) {

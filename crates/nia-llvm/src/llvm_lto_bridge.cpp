@@ -87,6 +87,7 @@ struct ThinConfig {
   ByteSlice CacheDirectory;
   ByteSlice CacheMagic;
   uint32_t CacheProtocolEpoch;
+  ByteSlice PipelineIdentity;
 };
 
 struct OwnedBuffer {
@@ -852,7 +853,8 @@ ThinResult *nia_llvm_run_thin_lto(const ThinInput *Inputs, size_t InputCount,
 
   ThreadPoolStrategy Parallelism =
       heavyweight_hardware_concurrency(InputConfig->Parallelism);
-  lto::ThinBackend Inner = lto::createInProcessThinBackend(Parallelism);
+  lto::ThinBackend Inner = niaThinBackend(
+      Parallelism, asStringRef(InputConfig->PipelineIdentity).str());
   Clock::time_point RunStart = Clock::now();
   Clock::time_point BackendStart = RunStart;
   lto::ThinBackendFunction Factory =

@@ -195,6 +195,7 @@ struct FfiThinConfig {
     cache_directory: FfiByteSlice,
     cache_magic: FfiByteSlice,
     cache_protocol_epoch: u32,
+    pipeline_identity: FfiByteSlice,
 }
 
 #[repr(C)]
@@ -350,6 +351,7 @@ pub fn run_thin_lto(
         cache_directory: FfiByteSlice::new(cache_directory.as_bytes()),
         cache_magic: FfiByteSlice::new(cache_format.magic),
         cache_protocol_epoch: cache_format.protocol_epoch,
+        pipeline_identity: FfiByteSlice::new(config.level.identity().as_bytes()),
     };
     let result =
         unsafe { nia_llvm_run_thin_lto(ffi_inputs.as_ptr(), ffi_inputs.len(), &ffi_config) };
@@ -893,6 +895,117 @@ mod tests {
         ));
         let _ = std::fs::remove_file(&root);
         let _ = std::fs::remove_dir_all(outside);
+    }
+
+    // A caller that proves room after a position and a callee in another
+    // module that adds a bounded offset to it by checked additions, which
+    // report an overflow through `overflowed`. Only after the thin link
+    // imports and inlines the callee do the room and the additions meet.
+    const ROOM_CALLER: &str = r#"
+declare i64 @advance(i64, i64)
+
+define i64 @entry(i64 %n, i64 %q, i64 %mask) {
+entry:
+  %inside = icmp ule i64 %q, %n
+  br i1 %inside, label %sized, label %none
+
+sized:
+  %rest = sub nuw i64 %n, %q
+  %short = icmp ult i64 %rest, 17
+  br i1 %short, label %none, label %token
+
+token:
+  %next = call i64 @advance(i64 %q, i64 %mask)
+  ret i64 %next
+
+none:
+  ret i64 0
+}
+"#;
+
+    const ROOM_CALLEE: &str = r#"
+declare void @overflowed() noreturn nounwind
+
+define i64 @advance(i64 %q, i64 %mask) {
+entry:
+  %len = and i64 %mask, 15
+  %len.not = xor i64 %len, -1
+  %wraps = icmp ugt i64 %q, %len.not
+  br i1 %wraps, label %trap, label %first
+
+first:
+  %end = add nuw i64 %q, %len
+  %wraps.2 = icmp ugt i64 %end, -3
+  br i1 %wraps.2, label %trap, label %second
+
+second:
+  %next = add nuw i64 %end, 2
+  ret i64 %next
+
+trap:
+  call void @overflowed()
+  unreachable
+}
+"#;
+
+    /// After the thin link, each module is optimized by a pipeline with
+    /// Nia's passes, so facts of a caller decide checks of an imported
+    /// callee.
+    #[test]
+    fn thin_lto_backend_runs_nia_passes_after_import() {
+        let identity = crate::llvm_api::test_host_identity();
+        let target = TargetMachine::for_identity(&identity, OptimizationLevel::Default)
+            .expect("target machine");
+        let summary = |name: &str, ir: &str| {
+            let context = Context::create().expect("create context");
+            let module = crate::llvm_api::parse_test_ir(&context, name, ir, &target);
+            module.set_identifier(name);
+            emit_thin_lto_bitcode(&module, &target, PipelineLevel::O2).expect("emit summary")
+        };
+        let caller = summary("room-caller", ROOM_CALLER);
+        let callee = summary("room-callee", ROOM_CALLEE);
+        let output = run_thin_lto(
+            &[
+                ThinLtoInput {
+                    name: "room-caller",
+                    bitcode: &caller,
+                },
+                ThinLtoInput {
+                    name: "room-callee",
+                    bitcode: &callee,
+                },
+            ],
+            ThinLtoConfig {
+                target: &identity,
+                level: PipelineLevel::O2,
+                parallelism: 1,
+                preserved_symbols: &["entry", "advance"],
+                backend_cache_directory: None,
+            },
+        )
+        .expect("run ThinLTO");
+        let mentions = |object: &ThinLtoObject, symbol: &[u8]| {
+            object
+                .bytes
+                .windows(symbol.len())
+                .any(|window| window == symbol)
+        };
+        let caller_object = output
+            .objects
+            .iter()
+            .find(|object| mentions(object, b"entry"))
+            .expect("the caller's object");
+        // The callee was inlined into the caller and its checks decided, so
+        // the caller no longer calls either function.
+        assert!(!mentions(caller_object, b"advance"));
+        assert!(!mentions(caller_object, b"overflowed"));
+        // The callee's own object still checks: nothing bounds its offset.
+        let callee_object = output
+            .objects
+            .iter()
+            .find(|object| !mentions(object, b"entry"))
+            .expect("the callee's object");
+        assert!(mentions(callee_object, b"overflowed"));
     }
 
     #[test]
