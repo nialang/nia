@@ -2282,3 +2282,38 @@ fun main() i32 {
         vec!["cannot infer the type `Source` converts into".to_string()]
     );
 }
+
+#[test]
+fn enum_constructor_callable_reports_a_payload_that_does_not_fit() {
+    // The constructor names its enum whatever its payload, so `Target` is
+    // inferred and the mismatch is reported once, at the constructor; a
+    // constructor whose payload is the source error fits.
+    let summaries = error_summaries(
+        "enum_constructor_callable_reports_a_payload_that_does_not_fit",
+        r#"
+using std::result;
+
+enum PointerError { NotFound }
+
+enum ConfigError {
+    Field(&[u8]),
+    Pointer(PointerError),
+}
+
+fun lookup() PointerError!i32 { PointerError::NotFound! }
+
+fun omitted() ConfigError!i32 { !lookup().mapError(.Field).? }
+
+fun qualified() ConfigError!i32 { !lookup().mapError(ConfigError::Field).? }
+
+fun fitting() ConfigError!i32 {
+    let first = lookup().mapError(.Pointer).?;
+    !(first + lookup().mapError(ConfigError::Pointer).?)
+}
+
+fun main() i32 { 0 }
+"#,
+    );
+    let mismatch = "type mismatch in call argument 1: expected &Fun(PointerError) ConfigError, got &fun(&[u8]) ConfigError";
+    assert_eq!(summaries, vec![mismatch.to_string(), mismatch.to_string()]);
+}

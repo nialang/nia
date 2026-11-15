@@ -1649,8 +1649,10 @@ impl FunctionInference {
                         params: param_terms,
                         return_type: return_term,
                     });
-                    if let Some(expected) = expected {
-                        self.unify(checker, callable, expected);
+                    if let Some(expected) = expected
+                        && !self.unify(checker, callable, expected)
+                    {
+                        self.unify_callable_return(checker, expected, return_term);
                     }
                     callable
                 } else if let ExprKind::OmittedMember { name } = &expr.kind
@@ -2424,14 +2426,17 @@ impl FunctionInference {
             else {
                 continue;
             };
-            if params.len() != expected_params.len()
-                || params
+            // Among the module's enums, the payload picks the one meant. An
+            // enum named by context is the one meant whatever the payload,
+            // which the checker then reports against the callable.
+            let payload_fits = params.len() == expected_params.len()
+                && params
                     .iter()
                     .zip(&expected_params)
-                    .any(|(actual, expected)| {
-                        expected.is_some_and(|expected| !checker.types_match(*actual, expected))
-                    })
-            {
+                    .all(|(actual, expected)| {
+                        expected.is_none_or(|expected| checker.types_match(*actual, expected))
+                    });
+            if known_return.is_none() && !payload_fits {
                 continue;
             }
             candidates.push((enum_id, enum_args, enum_const_args, params));
@@ -2441,17 +2446,31 @@ impl FunctionInference {
         };
         let return_ty = checker.enum_ty(*enum_id, enum_args, enum_const_args);
         let return_term = self.known(return_ty);
-        let compatible = params
-            .iter()
-            .zip(expected_params)
-            .all(|(actual, expected)| {
-                expected.is_none_or(|expected| {
-                    let expected = self.known(expected);
-                    let actual = self.known(*actual);
-                    self.unify(checker, expected, actual)
-                })
-            });
-        compatible && self.unify(checker, return_type, return_term)
+        for (actual, expected) in params.iter().zip(expected_params) {
+            if let Some(expected) = expected {
+                let expected = self.known(expected);
+                let actual = self.known(*actual);
+                self.unify(checker, expected, actual);
+            }
+        }
+        self.unify(checker, return_type, return_term)
+    }
+
+    /// Binds the result of the callable `expected` to `return_term` alone.
+    /// A constructor names its enum whatever its payload is, so a payload
+    /// that does not fit the callable leaves the result known and the
+    /// checker reports the payload against the parameters it must accept.
+    fn unify_callable_return(
+        &mut self,
+        checker: &BodyChecker<'_>,
+        expected: InferId,
+        return_term: InferId,
+    ) {
+        if let Some(InferShape::Callable { return_type, .. }) =
+            self.expanded_shape(checker, expected)
+        {
+            self.unify(checker, return_type, return_term);
+        }
     }
 
     /// Follow contextual propagation edges without merging their type terms.
