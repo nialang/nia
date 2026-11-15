@@ -239,8 +239,9 @@ fn emit_exe_std_wyhash_preserves_long_input_after_length_wrap() {
         .collect::<Vec<_>>()
         .join(", ");
     // Compile the actual implementation in a test-local module scope so the
-    // test can seed private state. Only its two package imports are relocated.
+    // test can seed private state. Only its three package imports are relocated.
     let mut source = include_str!("../../../lib/std/hash/wyhash.nia")
+        .replace("using root::builtin;", "using std::builtin;")
         .replace("using root::hash::traits;", "using std::hash as traits;")
         .replace("using root::slice;", "using std::slice;");
     let beyond_u32 = reference(&data[..88], 1u64 << 32);
@@ -281,7 +282,7 @@ pub fun main(init: process::Init) process::ExitCode!() {{
     for left in boundaries {
         for right in boundaries {
             source.push_str(&format!(
-                "    if addWrap64({left}u64, {right}u64) != {}u64 {{ return process::ExitCode(3)!; }}\n",
+                "    if builtin::wrappingAdd({left}u64, {right}u64) != {}u64 {{ return process::ExitCode(3)!; }}\n",
                 left.wrapping_add(right)
             ));
         }

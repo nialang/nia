@@ -1,5 +1,6 @@
 // XXH64 streaming non-cryptographic hash.
 
+using root::builtin;
 using root::hash::traits;
 using root::hash::block_buffer::BlockBuffer;
 
@@ -21,26 +22,10 @@ pub struct XxHash64 {
     buffer: BlockBuffer[32],
 }
 
-fun rotateLeft(value: u64, amount: usize) u64 {
-    (((value as u128) << amount) as u64) | (value >> (64 - amount))
-}
-
-fun addWrap64(left: u64, right: u64) u64 {
-    // XXH64 arithmetic is modulo 2^64. Widening keeps Nia's checked u64
-    // arithmetic from trapping; narrowing selects the low 64 bits.
-    ((left as u128) + (right as u128)) as u64
-}
-
-fun subWrap64(left: u64, right: u64) u64 {
-    // Add the modulus before subtracting so the widened intermediate stays
-    // nonnegative, then reduce to the low 64 bits.
-    ((left as u128) + (1u128 << 64) - (right as u128)) as u64
-}
-
-fun mulWrap64(left: u64, right: u64) u64 {
-    // A product of two u64 values fits in u128; narrowing implements the
-    // modulo-2^64 multiplication used throughout XXH64.
-    ((left as u128) * (right as u128)) as u64
+// `value` rotated left by `amount`, which is between 1 and 63. XXH64's
+// additions and multiplications below are modulo 2^64.
+fun rotateLeft(value: u64, amount: u64) u64 {
+    builtin::truncatingShl(value, amount) | (value >> (64 - amount))
 }
 
 fun read4(bytes: &[u8]) u64 {
@@ -62,20 +47,20 @@ fun read8(bytes: &[u8]) u64 {
 }
 
 fun round(acc: u64, lane: u64) u64 {
-    mulWrap64(rotateLeft(addWrap64(acc, mulWrap64(lane, prime2)), 31), prime1)
+    builtin::wrappingMul(rotateLeft(builtin::wrappingAdd(acc, builtin::wrappingMul(lane, prime2)), 31), prime1)
 }
 
 fun mergeRound(acc: u64, lane: u64) u64 {
     let mixed = round(0, lane);
-    addWrap64(mulWrap64(acc ^ mixed, prime1), prime4)
+    builtin::wrappingAdd(builtin::wrappingMul(acc ^ mixed, prime1), prime4)
 }
 
 fun avalanche(value: u64) u64 {
     let mut result = value;
     result ^= result >> 33;
-    result = mulWrap64(result, prime2);
+    result = builtin::wrappingMul(result, prime2);
     result ^= result >> 29;
-    result = mulWrap64(result, prime3);
+    result = builtin::wrappingMul(result, prime3);
     result ^= result >> 32;
     result
 }
@@ -84,17 +69,17 @@ extend XxHash64 {
     pub fun init(seed: u64) XxHash64 {
         .{
             seed,
-            acc1: addWrap64(addWrap64(seed, prime1), prime2),
-            acc2: addWrap64(seed, prime2),
+            acc1: builtin::wrappingAdd(builtin::wrappingAdd(seed, prime1), prime2),
+            acc2: builtin::wrappingAdd(seed, prime2),
             acc3: seed,
-            acc4: subWrap64(seed, prime1),
+            acc4: builtin::wrappingSub(seed, prime1),
             totalLen: 0,
             buffer: .init(),
         }
     }
 
     pub fun update(&mut self, bytes: &[u8]) () {
-        self.totalLen = addWrap64(self.totalLen, bytes.len() as u64);
+        self.totalLen = builtin::wrappingAdd(self.totalLen, bytes.len() as u64);
         let acc1 = &mut self.acc1;
         let acc2 = &mut self.acc2;
         let acc3 = &mut self.acc3;
@@ -111,9 +96,9 @@ extend XxHash64 {
         let tail = self.buffer.pending();
         let mut result: u64;
         if self.totalLen >= 32 {
-            result = addWrap64(
-                addWrap64(
-                    addWrap64(rotateLeft(self.acc1, 1), rotateLeft(self.acc2, 7)),
+            result = builtin::wrappingAdd(
+                builtin::wrappingAdd(
+                    builtin::wrappingAdd(rotateLeft(self.acc1, 1), rotateLeft(self.acc2, 7)),
                     rotateLeft(self.acc3, 12),
                 ),
                 rotateLeft(self.acc4, 18),
@@ -123,23 +108,23 @@ extend XxHash64 {
             result = mergeRound(result, self.acc3);
             result = mergeRound(result, self.acc4);
         } else {
-            result = addWrap64(self.seed, prime5);
+            result = builtin::wrappingAdd(self.seed, prime5);
         }
-        result = addWrap64(result, self.totalLen);
+        result = builtin::wrappingAdd(result, self.totalLen);
         let mut index: usize = 0;
         while tail.len() - index >= 8 {
             result ^= round(0, read8(&tail[index..]));
-            result = addWrap64(mulWrap64(rotateLeft(result, 27), prime1), prime4);
+            result = builtin::wrappingAdd(builtin::wrappingMul(rotateLeft(result, 27), prime1), prime4);
             index += 8;
         }
         if tail.len() - index >= 4 {
-            result ^= mulWrap64(read4(&tail[index..]), prime1);
-            result = addWrap64(mulWrap64(rotateLeft(result, 23), prime2), prime3);
+            result ^= builtin::wrappingMul(read4(&tail[index..]), prime1);
+            result = builtin::wrappingAdd(builtin::wrappingMul(rotateLeft(result, 23), prime2), prime3);
             index += 4;
         }
         for &byte in &tail[index..] {
-            result ^= mulWrap64(byte as u64, prime5);
-            result = mulWrap64(rotateLeft(result, 11), prime1);
+            result ^= builtin::wrappingMul(byte as u64, prime5);
+            result = builtin::wrappingMul(rotateLeft(result, 11), prime1);
         }
         avalanche(result)
     }

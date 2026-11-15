@@ -5,6 +5,7 @@
 // SHA-256 alone is not a password hashing function or a message authentication
 // code.
 
+using root::builtin;
 using root::slice;
 using root::hash::block_buffer::BlockBuffer;
 
@@ -33,8 +34,9 @@ pub struct Sha256 {
     buffer: BlockBuffer[64],
 }
 
-fun rotateRight(value: u32, amount: usize) u32 {
-    (value >> amount) | ((((value as u64) << (32 - amount)) as u32))
+// `value` rotated right by `amount`, which is between 1 and 31.
+fun rotateRight(value: u32, amount: u32) u32 {
+    (value >> amount) | builtin::truncatingShl(value, 32 - amount)
 }
 
 fun readBig32(bytes: &[u8]) u32 {
@@ -79,10 +81,9 @@ fun smallSigma1(value: u32) u32 {
     rotateRight(value, 17) ^ rotateRight(value, 19) ^ (value >> 10)
 }
 
-fun addWrap32(left: u32, right: u32) u32 {
-    // SHA-256 adds words modulo 2^32. Nia traps on overflow, so widen first
-    // and truncate explicitly to keep the algorithm's required wraparound.
-    ((left as u64) + (right as u64)) as u32
+// SHA-256 adds words modulo 2^32.
+fun add(left: u32, right: u32) u32 {
+    builtin::wrappingAdd(left, right)
 }
 
 fun compress(hashState: &mut [u32], block: &[u8]) () {
@@ -102,40 +103,34 @@ fun compress(hashState: &mut [u32], block: &[u8]) () {
 
     for index in 0usize..64 {
         if index >= 16 {
-            // Four u32 terms fit in u64; truncating publishes the low 32 bits
-            // required by the SHA-256 message schedule.
-            let sum = (smallSigma1(schedule[(index + 14) % 16]) as u64)
-                + (schedule[(index + 9) % 16] as u64)
-                + (smallSigma0(schedule[(index + 1) % 16]) as u64)
-                + (schedule[index % 16] as u64);
-            schedule[index % 16] = sum as u32;
+            schedule[index % 16] = add(
+                add(smallSigma1(schedule[(index + 14) % 16]), schedule[(index + 9) % 16]),
+                add(smallSigma0(schedule[(index + 1) % 16]), schedule[index % 16]),
+            );
         }
-        // The five-word sum also fits in u64. Its low word is the algorithm's
-        // modulo-2^32 result, without relying on trapping u32 arithmetic.
-        let t1 = (h as u64)
-            + (bigSigma1(e) as u64)
-            + (choice(e, f, g) as u64)
-            + (roundConstants[index] as u64)
-            + (schedule[index % 16] as u64);
-        let t2 = (bigSigma0(a) as u64) + (majority(a, b, c) as u64);
+        let t1 = add(
+            add(add(h, bigSigma1(e)), add(choice(e, f, g), roundConstants[index])),
+            schedule[index % 16],
+        );
+        let t2 = add(bigSigma0(a), majority(a, b, c));
         h = g;
         g = f;
         f = e;
-        e = addWrap32(d, t1 as u32);
+        e = add(d, t1);
         d = c;
         c = b;
         b = a;
-        a = addWrap32(t1 as u32, t2 as u32);
+        a = add(t1, t2);
     }
 
-    hashState[0] = addWrap32(hashState[0], a);
-    hashState[1] = addWrap32(hashState[1], b);
-    hashState[2] = addWrap32(hashState[2], c);
-    hashState[3] = addWrap32(hashState[3], d);
-    hashState[4] = addWrap32(hashState[4], e);
-    hashState[5] = addWrap32(hashState[5], f);
-    hashState[6] = addWrap32(hashState[6], g);
-    hashState[7] = addWrap32(hashState[7], h);
+    hashState[0] = add(hashState[0], a);
+    hashState[1] = add(hashState[1], b);
+    hashState[2] = add(hashState[2], c);
+    hashState[3] = add(hashState[3], d);
+    hashState[4] = add(hashState[4], e);
+    hashState[5] = add(hashState[5], f);
+    hashState[6] = add(hashState[6], g);
+    hashState[7] = add(hashState[7], h);
 }
 
 extend Sha256 {
@@ -151,7 +146,7 @@ extend Sha256 {
     }
 
     pub fun update(&mut self, bytes: &[u8]) () {
-        self.totalLen = ((self.totalLen as u128) + (bytes.len() as u128)) as u64;
+        self.totalLen = builtin::wrappingAdd(self.totalLen, bytes.len() as u64);
         let state = &mut self.state;
         self.buffer.update(bytes, \[state] block -> compress(state, block));
     }
@@ -163,7 +158,8 @@ extend Sha256 {
         finalBlocks[tail.len()] = 0x80;
 
         let paddedLen: usize = if tail.len() < 56 { 64 } else { 128 };
-        let lengthBits = ((self.totalLen as u128) << 3) as u64;
+        // The message length in bits, modulo 2^64.
+        let lengthBits = builtin::truncatingShl(self.totalLen, 3);
         writeBig64(&mut finalBlocks[(paddedLen - 8)..paddedLen], lengthBits);
 
         let mut finalState = self.state;

@@ -1,6 +1,7 @@
 // Streaming lengths retain their low 64 bits, independently of pointer width.
 // The length mixed into the digest and the long-input state are separate:
 // wrapping the former must never select the short-input path again.
+using root::builtin;
 using root::hash::traits;
 using root::slice;
 
@@ -49,7 +50,8 @@ extend Wyhash {
         {
             self.longInput = true;
         }
-        self.totalLen = addWrap64(self.totalLen, bytes.len() as u64);
+        // The length is mixed in modulo 2^64.
+        self.totalLen = builtin::wrappingAdd(self.totalLen, bytes.len() as u64);
 
         if bytes.len() <= 48 - self.bufLen {
             _ = (&mut self.buf[self.bufLen..(self.bufLen + bytes.len())]).copyFrom(bytes);
@@ -178,12 +180,6 @@ pub fun wyhash(seed: u64, bytes: &[u8]) u64 {
     let mut hasher = Wyhash::init(seed);
     hasher.update(bytes);
     hasher.finishValue()
-}
-
-fun addWrap64(left: u64, right: u64) u64 {
-    // Finalization mixes a u64 length. Widen before adding because Nia traps
-    // on overflow, then explicitly retain the low 64 bits.
-    ((left as u128) + (right as u128)) as u64
 }
 
 fun mix(a: u64, b: u64) u64 {
