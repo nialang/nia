@@ -2689,6 +2689,10 @@ Trapping at runtime:
 | `std::builtin::extract`, `insert` | the lane index is out of range |
 | `std::builtin::trap()` | always |
 
+Arithmetic that is meant to keep the low bits of a result, as hashes do, uses
+the wrapping and truncating forms in
+[`std::builtin`](builtins.md#wrapping-arithmetic) instead of trapping.
+
 Right shift is arithmetic for signed left operands and logical for unsigned
 ones; the count's type affects neither the result type nor the mode. For
 integer vectors each rule applies per lane, and any failing lane traps the

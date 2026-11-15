@@ -11,3 +11,27 @@ pub const fun saturatingAdd[T](lhs: T, rhs: T) T;
 // is subtracted lane by lane.
 @[builtin("saturatingSub")]
 pub const fun saturatingSub[T](lhs: T, rhs: T) T;
+
+// Adds two integers modulo two to the power of the width of `T`: the low bits
+// of the exact sum, which never traps. `T` is an integer type or an integer
+// vector; a vector is added lane by lane.
+@[builtin("wrappingAdd")]
+pub const fun wrappingAdd[T](lhs: T, rhs: T) T;
+
+// Subtracts `rhs` from `lhs` modulo two to the power of the width of `T`.
+// `T` is an integer type or an integer vector; a vector is subtracted lane by
+// lane.
+@[builtin("wrappingSub")]
+pub const fun wrappingSub[T](lhs: T, rhs: T) T;
+
+// Multiplies two integers modulo two to the power of the width of `T`. `T` is
+// an integer type or an integer vector; a vector is multiplied lane by lane.
+@[builtin("wrappingMul")]
+pub const fun wrappingMul[T](lhs: T, rhs: T) T;
+
+// Shifts `value` left by `count`, discarding the bits shifted out instead of
+// trapping. A count that is negative or not below the width of `T` traps, as
+// for `<<`. `T` is an integer type or an integer vector; a vector is shifted
+// lane by lane, each by its own count.
+@[builtin("truncatingShl")]
+pub const fun truncatingShl[T](value: T, count: T) T;

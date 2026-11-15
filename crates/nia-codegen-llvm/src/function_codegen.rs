@@ -37,6 +37,7 @@ use nia_llvm::{
 };
 use nia_span::Span;
 use nia_ty::{ConstGenericArg, LayoutBuiltin, PrimitiveTy, TyKind};
+use ops::ShiftKind;
 
 pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     module: &'m ModuleCodegen<'ctx, 'a>,
@@ -746,6 +747,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_shuffle(expr, first, second, indices)
             }
             (IntrinsicOp::Lookup16, [table, indices]) => self.emit_lookup16(expr, table, indices),
+            (
+                IntrinsicOp::WrappingAdd | IntrinsicOp::WrappingSub | IntrinsicOp::WrappingMul,
+                [lhs, rhs],
+            ) => self.emit_wrapping(expr, op, lhs, rhs),
+            (IntrinsicOp::TruncatingShl, [value, count]) => {
+                self.emit_truncating_shl(expr, value, count)
+            }
             // Every operation is named so that a new one is a compile error
             // here until it is emitted.
             (
@@ -760,7 +768,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 | IntrinsicOp::SaturatingAdd
                 | IntrinsicOp::SaturatingSub
                 | IntrinsicOp::Shuffle
-                | IntrinsicOp::Lookup16,
+                | IntrinsicOp::Lookup16
+                | IntrinsicOp::WrappingAdd
+                | IntrinsicOp::WrappingSub
+                | IntrinsicOp::WrappingMul
+                | IntrinsicOp::TruncatingShl,
                 _,
             ) => Err(self.error(
                 expr.span,
@@ -928,6 +940,51 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         call.try_as_basic_value()
             .unwrap_basic()
             .map_err(|_| self.error(expr.span, "saturating intrinsic did not produce a value"))
+    }
+
+    /// Emits `wrappingAdd`, `wrappingSub`, or `wrappingMul`: LLVM integer
+    /// arithmetic without `nsw` or `nuw` is modular, for scalars and vectors.
+    fn emit_wrapping(
+        &mut self,
+        expr: &FunctionExpr,
+        op: IntrinsicOp,
+        lhs: &FunctionExpr,
+        rhs: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let lhs = self.emit_expr(lhs)?;
+        let rhs = self.emit_expr(rhs)?;
+        let result = match op {
+            IntrinsicOp::WrappingAdd => self.builder.build_basic_int_add(lhs, rhs, "wrap"),
+            IntrinsicOp::WrappingSub => self.builder.build_basic_int_sub(lhs, rhs, "wrap"),
+            IntrinsicOp::WrappingMul => self.builder.build_basic_int_mul(lhs, rhs, "wrap"),
+            _ => return Err(self.error(expr.span, "intrinsic is not wrapping arithmetic")),
+        };
+        result.map_err(|_| self.error(expr.span, "failed to build wrapping arithmetic"))
+    }
+
+    /// Emits `truncatingShl`: a left shift whose count is checked as for `<<`
+    /// and whose shifted-out bits are discarded.
+    fn emit_truncating_shl(
+        &mut self,
+        expr: &FunctionExpr,
+        value: &FunctionExpr,
+        count: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let is_vector = matches!(self.module.ty_kind(expr.ty), Some(TyKind::Vector { .. }));
+        let lhs = self.emit_expr(value)?;
+        let rhs = self.emit_expr(count)?;
+        if is_vector {
+            self.emit_checked_vector_shift(expr.span, expr.ty, lhs, ShiftKind::TruncatingShl, rhs)
+        } else {
+            self.emit_checked_int_shift(
+                expr.span,
+                expr.ty,
+                lhs,
+                ShiftKind::TruncatingShl,
+                count.ty,
+                rhs,
+            )
+        }
     }
 
     fn emit_splat(

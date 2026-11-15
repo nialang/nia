@@ -35,7 +35,7 @@ using root::builtin::simd;
 using root::builtin::target;
 using root::source;
 
-pub using arith::{saturatingAdd, saturatingSub};
+pub using arith::{saturatingAdd, saturatingSub, truncatingShl, wrappingAdd, wrappingMul, wrappingSub};
 pub using atomic::{
     atomicLoad,
     atomicRmw,

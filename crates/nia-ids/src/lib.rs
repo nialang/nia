@@ -681,6 +681,14 @@ builtin_functions! {
     Shuffle = 30, "shuffle", const_capable: true, intrinsic: Shuffle;
     /// Looks up bytes of a 16-byte table by run-time indices.
     Lookup16 = 31, "lookup16", const_capable: true, intrinsic: Lookup16;
+    /// Adds integers modulo two to the power of their width.
+    WrappingAdd = 32, "wrappingAdd", const_capable: true, intrinsic: WrappingAdd;
+    /// Subtracts integers modulo two to the power of their width.
+    WrappingSub = 33, "wrappingSub", const_capable: true, intrinsic: WrappingSub;
+    /// Multiplies integers modulo two to the power of their width.
+    WrappingMul = 34, "wrappingMul", const_capable: true, intrinsic: WrappingMul;
+    /// Shifts an integer left, discarding the bits shifted out.
+    TruncatingShl = 35, "truncatingShl", const_capable: true, intrinsic: TruncatingShl;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -703,8 +711,8 @@ pub enum IntrinsicOp {
     /// A copy of a vector with one lane replaced. Operands: the vector, the
     /// lane index, the lane value.
     InsertElement,
-    /// A `bool` vector packed into a `usize`, lane 0 in the lowest bit.
-    /// Operands: the mask vector.
+    /// A `bool` vector packed into the narrowest unsigned integer with a bit
+    /// per lane, lane 0 in the lowest bit. Operands: the mask vector.
     Bitmask,
     /// Trailing zero bits. Operands: the integer.
     Ctz,
@@ -727,6 +735,20 @@ pub enum IntrinsicOp {
     /// that index is 16 or more. Operands: the table, the indices, both
     /// `u8x16`.
     Lookup16,
+    /// The sum modulo two to the power of the width, lane by lane for a
+    /// vector. Operands: two integers or integer vectors of the result type.
+    WrappingAdd,
+    /// The difference modulo two to the power of the width, lane by lane for
+    /// a vector. Operands: two integers or integer vectors of the result type.
+    WrappingSub,
+    /// The product modulo two to the power of the width, lane by lane for a
+    /// vector. Operands: two integers or integer vectors of the result type.
+    WrappingMul,
+    /// The value shifted left with the bits shifted out discarded, lane by
+    /// lane for a vector. A count that is negative or not below the width
+    /// traps, as for `<<`. Operands: the value and the count, both of the
+    /// result type.
+    TruncatingShl,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -767,9 +789,14 @@ impl IntrinsicOp {
             | Self::Ctz
             | Self::Clz
             | Self::Popcount => IntrinsicArity::Exactly(1),
-            Self::ExtractElement | Self::SaturatingAdd | Self::SaturatingSub | Self::Lookup16 => {
-                IntrinsicArity::Exactly(2)
-            }
+            Self::ExtractElement
+            | Self::SaturatingAdd
+            | Self::SaturatingSub
+            | Self::WrappingAdd
+            | Self::WrappingSub
+            | Self::WrappingMul
+            | Self::TruncatingShl
+            | Self::Lookup16 => IntrinsicArity::Exactly(2),
             Self::InsertElement => IntrinsicArity::Exactly(3),
             Self::Shuffle => IntrinsicArity::AtLeast(3),
         }
@@ -796,6 +823,10 @@ impl IntrinsicOp {
             Self::SaturatingSub => 10,
             Self::Shuffle => 11,
             Self::Lookup16 => 12,
+            Self::WrappingAdd => 13,
+            Self::WrappingSub => 14,
+            Self::WrappingMul => 15,
+            Self::TruncatingShl => 16,
         }
     }
 
@@ -814,6 +845,10 @@ impl IntrinsicOp {
             Self::SaturatingSub => "saturatingSub",
             Self::Shuffle => "shuffle",
             Self::Lookup16 => "lookup16",
+            Self::WrappingAdd => "wrappingAdd",
+            Self::WrappingSub => "wrappingSub",
+            Self::WrappingMul => "wrappingMul",
+            Self::TruncatingShl => "truncatingShl",
         }
     }
 }

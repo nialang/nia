@@ -95,6 +95,10 @@ fn builtin_function_const_capabilities_are_explicit() {
                 | BuiltinFunction::SaturatingSub
                 | BuiltinFunction::Shuffle
                 | BuiltinFunction::Lookup16
+                | BuiltinFunction::WrappingAdd
+                | BuiltinFunction::WrappingSub
+                | BuiltinFunction::WrappingMul
+                | BuiltinFunction::TruncatingShl
         );
         assert_eq!(builtin.is_const_capable(), expected, "{}", builtin.name());
     }

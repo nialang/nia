@@ -160,6 +160,33 @@ const floor: i8 = std::builtin::saturatingSub(-100i8, 100);  // -128
 On x86-64, `u8x16` and `i16x8` operands compile to single instructions such as
 `paddusb` and `psubsw`; scalars compile to an add and a conditional move.
 
+## Wrapping Arithmetic
+
+| Declaration | Result |
+| --- | --- |
+| `const fun wrappingAdd[T](lhs: T, rhs: T) T` | `lhs + rhs` modulo 2 to the power of the width of `T` |
+| `const fun wrappingSub[T](lhs: T, rhs: T) T` | `lhs - rhs` modulo 2 to the power of the width of `T` |
+| `const fun wrappingMul[T](lhs: T, rhs: T) T` | `lhs * rhs` modulo 2 to the power of the width of `T` |
+| `const fun truncatingShl[T](value: T, count: T) T` | `value << count` without the bits shifted out |
+
+These are the arithmetic of hashes, checksums, and bit masks, where a result
+past the range of `T` is meant to keep its low bits rather than
+[trap](language.md#unchecked-operations-and-traps). `T` and the type argument
+follow the rules of the saturating functions above; a vector is computed lane
+by lane. A signed result is the two's-complement reading of the low bits, so
+`wrappingSub(-128i8, 1)` is `127`.
+
+`truncatingShl` drops only the check that the result fits. Its count has the
+type of `value`, one count per lane for a vector, and a count that is negative
+or not below the width of the lane still traps, as for `<<`.
+
+```nia
+const sum: u8 = std::builtin::wrappingAdd[u8](250, 10);     // 4
+const low: u8 = std::builtin::truncatingShl(0xf1u8, 4);     // 0x10
+```
+
+Each compiles to the single machine instruction of its operation.
+
 ## SIMD
 
 | Declaration | Meaning |

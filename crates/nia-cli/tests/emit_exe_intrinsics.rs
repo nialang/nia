@@ -1928,6 +1928,171 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
 }
 
+/// Wrapping arithmetic and truncating shifts agree between constant
+/// evaluation and generated code, at every optimization level, for unsigned
+/// and signed scalars from 8 to 128 bits and for vectors lane by lane.
+#[test]
+fn emit_exe_wrapping_arithmetic_keeps_the_low_bits() {
+    let root = temp_dir("emit_exe_wrapping_arithmetic_keeps_the_low_bits");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::builtin;
+using std::process;
+
+const constAdd: u8 = builtin::wrappingAdd[u8](250, 10);
+const constSub: i8 = builtin::wrappingSub(-128i8, 1);
+const constMul: u32 = builtin::wrappingMul(0x10000u32, 0x10000);
+const constShl: u8 = builtin::truncatingShl(0xf1u8, 4);
+const constSignedShl: i8 = builtin::truncatingShl(0x41i8, 1);
+const constWide: u128 = builtin::wrappingAdd(340282366920938463463374607431768211455u128, 2);
+const constWideSigned: i128 = builtin::wrappingMul(-170141183460469231731687303715884105728i128, -1);
+const constVector: u8x16 =
+    builtin::wrappingAdd(builtin::splat[u8x16](200u8), builtin::splat[u8x16](100u8));
+
+// The same operations on values the compiler cannot see through.
+@[inlineNever]
+fun hidden[T](value: T) T { value }
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if constAdd != 4 or constSub != 127 or constMul != 0 {
+        return process::ExitCode(1)!;
+    }
+    if constShl != 0x10 or constSignedShl != -126 {
+        return process::ExitCode(2)!;
+    }
+    if constWide != 1 or constWideSigned != -170141183460469231731687303715884105728i128 {
+        return process::ExitCode(3)!;
+    }
+    if builtin::extract(constVector, 15) != 44 {
+        return process::ExitCode(4)!;
+    }
+
+    if builtin::wrappingAdd(hidden[u8](250), 10) != constAdd
+        or builtin::wrappingSub(hidden[i8](-128), 1) != constSub
+        or builtin::wrappingMul(hidden[u32](0x10000), 0x10000) != constMul {
+        return process::ExitCode(5)!;
+    }
+    if builtin::truncatingShl(hidden[u8](0xf1), 4) != constShl
+        or builtin::truncatingShl(hidden[i8](0x41), 1) != constSignedShl {
+        return process::ExitCode(6)!;
+    }
+    if builtin::wrappingAdd(hidden[u128](340282366920938463463374607431768211455), 2) != constWide
+        or builtin::wrappingMul(hidden[i128](-170141183460469231731687303715884105728), -1)
+            != constWideSigned {
+        return process::ExitCode(7)!;
+    }
+    let total: usize = hidden[usize](18446744073709551615);
+    if builtin::wrappingAdd(total, 1) != 0 or builtin::wrappingSub(0usize, hidden[usize](1)) != total {
+        return process::ExitCode(8)!;
+    }
+    // A shift by the widest valid count keeps one bit.
+    if builtin::truncatingShl(hidden[u64](0xffffffffffffffff), 63) != 0x8000000000000000 {
+        return process::ExitCode(9)!;
+    }
+
+    // Vectors, lane by lane, each lane by its own count.
+    let mut bytes: [u8; 16] = [0; 16];
+    let mut counts: [u8; 16] = [0; 16];
+    for i in 0..16 {
+        bytes[i] = (i * 20) as u8;
+        counts[i] = (i % 8) as u8;
+    }
+    let v = hidden[u8x16](builtin::loadUnaligned[u8x16](&bytes[0]));
+    let up = builtin::wrappingAdd(v, builtin::splat[u8x16](100u8));
+    let product = builtin::wrappingMul(v, builtin::splat[u8x16](3u8));
+    let shifted = builtin::truncatingShl(v, builtin::loadUnaligned[u8x16](&counts[0]));
+    if builtin::extract(up, 8) != 4 or builtin::extract(up, 15) != 144 {
+        return process::ExitCode(10)!;
+    }
+    if builtin::extract(product, 15) != 132 {
+        return process::ExitCode(11)!;
+    }
+    // Lane 15 holds 44 (300 wrapped), shifted left by 7; lane 13 holds 4,
+    // shifted left by 5.
+    if builtin::extract(shifted, 15) != 0 or builtin::extract(shifted, 13) != 128 {
+        return process::ExitCode(12)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    for optimization in ["-O0", "-O2"] {
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--exe")
+            .arg(optimization)
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit wrapping arithmetic executable");
+        assert!(
+            output.status.success(),
+            "{optimization} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&exe).status_timeout("run wrapping arithmetic executable");
+        assert_eq!(status.code(), Some(0), "{optimization}");
+    }
+
+    // The count of a truncating shift is checked as for `<<`.
+    for (name, call) in [
+        (
+            "width",
+            "builtin::truncatingShl(hidden[u8](1), hidden[u8](8))",
+        ),
+        (
+            "negative",
+            "builtin::truncatingShl(hidden[i32](1), hidden[i32](-1))",
+        ),
+        (
+            "lane",
+            "builtin::extract(builtin::truncatingShl(builtin::splat[u16x8](1u16), hidden[u16x8](builtin::insert(builtin::splat[u16x8](0u16), 5, 16u16))), 0)",
+        ),
+    ] {
+        let source = root.join(format!("count-{name}.nia"));
+        let program = root.join(format!("count-{name}{}", std::env::consts::EXE_SUFFIX));
+        std::fs::write(
+            &source,
+            format!(
+                r#"
+using std::builtin;
+using std::process;
+
+@[inlineNever]
+fun hidden[T](value: T) T {{ value }}
+
+pub fun main(init: process::Init) process::ExitCode!() {{
+    _ = init;
+    _ = {call};
+    !()
+}}
+"#
+            ),
+        )
+        .expect("write count source");
+        let output = support::nia_command()
+            .arg("emit")
+            .arg("--exe")
+            .arg(&source)
+            .arg("-o")
+            .arg(&program)
+            .output_timeout_for_build("emit truncating shift count executable");
+        assert!(
+            output.status.success(),
+            "{name} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = Command::new(&program).status_timeout("run truncating shift count");
+        assert!(!status.success(), "{name}: an invalid count must trap");
+    }
+}
+
 #[test]
 fn emit_exe_shuffle_selects_lanes_from_both_vectors() {
     let root = temp_dir("emit_exe_shuffle_selects_lanes_from_both_vectors");

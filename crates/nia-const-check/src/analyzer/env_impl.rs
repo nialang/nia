@@ -1256,6 +1256,10 @@ impl ResolvedConstEnv for Analyzer<'_> {
                         | BuiltinFunction::Bitmask
                         | BuiltinFunction::SaturatingAdd
                         | BuiltinFunction::SaturatingSub
+                        | BuiltinFunction::WrappingAdd
+                        | BuiltinFunction::WrappingSub
+                        | BuiltinFunction::WrappingMul
+                        | BuiltinFunction::TruncatingShl
                 )
             }) {
                 let return_ty = ConstValueType::Runtime(return_ty);
@@ -2298,9 +2302,19 @@ impl Analyzer<'_> {
                     .collect::<Result<Vec<_>, _>>()
                     .map(|lanes| Some(ConstValue::Vector(lanes)))
             }
-            BuiltinFunction::SaturatingAdd | BuiltinFunction::SaturatingSub => {
+            BuiltinFunction::SaturatingAdd
+            | BuiltinFunction::SaturatingSub
+            | BuiltinFunction::WrappingAdd
+            | BuiltinFunction::WrappingSub
+            | BuiltinFunction::WrappingMul
+            | BuiltinFunction::TruncatingShl => {
                 let name = builtin.name();
-                let subtract = builtin == BuiltinFunction::SaturatingSub;
+                let Some(op) = LanewiseIntOp::of(builtin) else {
+                    return Err(ConstError {
+                        span,
+                        message: format!("builtin `{name}` is not an integer builtin"),
+                    });
+                };
                 let pointer_width = self.input.target.pointer_width();
                 let [lhs, rhs] = args else {
                     return Err(ConstError {
@@ -2309,16 +2323,10 @@ impl Analyzer<'_> {
                     });
                 };
                 match self.active_ty_kind(return_ty) {
-                    TyKind::Primitive(primitive) => saturating_const_value(
-                        span,
-                        name,
-                        subtract,
-                        primitive,
-                        lhs,
-                        rhs,
-                        pointer_width,
-                    )
-                    .map(Some),
+                    TyKind::Primitive(primitive) => {
+                        lanewise_int_const_value(span, name, op, primitive, lhs, rhs, pointer_width)
+                            .map(Some)
+                    }
                     TyKind::Vector { elem, .. } => {
                         let (ConstValue::Vector(lhs), ConstValue::Vector(rhs)) = (lhs, rhs) else {
                             return Err(ConstError {
@@ -2337,10 +2345,10 @@ impl Analyzer<'_> {
                         lhs.iter()
                             .zip(rhs)
                             .map(|(lhs, rhs)| {
-                                saturating_const_value(
+                                lanewise_int_const_value(
                                     span,
                                     name,
-                                    subtract,
+                                    op,
                                     elem,
                                     lhs,
                                     rhs,
@@ -2565,61 +2573,121 @@ fn eval_bit_intrinsic_const(
     }))
 }
 
-/// Adds or subtracts two integers of `primitive`, clamping the result to its
-/// range. Both operands are in range, so the exact result fits in `i128` or
-/// `u128` before clamping for every width up to 128 bits.
-fn saturating_const_value(
+/// An integer builtin that combines two operands of one integer type, lane by
+/// lane for a vector.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LanewiseIntOp {
+    SaturatingAdd,
+    SaturatingSub,
+    WrappingAdd,
+    WrappingSub,
+    WrappingMul,
+    TruncatingShl,
+}
+
+impl LanewiseIntOp {
+    fn of(builtin: BuiltinFunction) -> Option<Self> {
+        Some(match builtin {
+            BuiltinFunction::SaturatingAdd => Self::SaturatingAdd,
+            BuiltinFunction::SaturatingSub => Self::SaturatingSub,
+            BuiltinFunction::WrappingAdd => Self::WrappingAdd,
+            BuiltinFunction::WrappingSub => Self::WrappingSub,
+            BuiltinFunction::WrappingMul => Self::WrappingMul,
+            BuiltinFunction::TruncatingShl => Self::TruncatingShl,
+            _ => return None,
+        })
+    }
+}
+
+/// Applies `op` to two integers of `primitive`.
+///
+/// Saturating results are exact and then clamped, which fits `i128` or `u128`
+/// for every width up to 128 bits. The others are computed on the canonical
+/// 128-bit two's-complement bits, whose low bits are the low bits of the
+/// result whatever the signedness, and then cast to the width as `as` does.
+fn lanewise_int_const_value(
     span: Span,
     name: &str,
-    subtract: bool,
+    op: LanewiseIntOp,
     primitive: PrimitiveTy,
     lhs: &ConstValue,
     rhs: &ConstValue,
     pointer_width: u32,
 ) -> Result<ConstValue, ConstError> {
-    let error = |message: &str| ConstError {
+    let error = |message: String| ConstError {
         span,
         message: format!("builtin `{name}` {message}"),
     };
     let Some((bits, signed)) =
         primitive_integer_layout(primitive, pointer_width).filter(|_| primitive.is_integer())
     else {
-        return Err(error("requires integer operands"));
+        return Err(error("requires integer operands".to_string()));
     };
     if !(1..=u128::BITS).contains(&bits) {
-        return Err(error("does not support this integer width"));
+        return Err(error("does not support this integer width".to_string()));
     }
     let (ConstValue::Int(lhs), ConstValue::Int(rhs)) = (lhs, rhs) else {
-        return Err(error("requires integer operands"));
+        return Err(error("requires integer operands".to_string()));
     };
-    if signed {
-        let (Some(lhs), Some(rhs)) = (lhs.as_i128(), rhs.as_i128()) else {
-            return Err(error("operand is out of range"));
-        };
-        let (min, max) = if bits == i128::BITS {
-            (i128::MIN, i128::MAX)
-        } else {
-            (-(1_i128 << (bits - 1)), (1_i128 << (bits - 1)) - 1)
-        };
-        let exact = if subtract {
-            lhs.saturating_sub(rhs)
-        } else {
-            lhs.saturating_add(rhs)
-        };
-        Ok(ConstValue::Int(IntConst::from_i128(exact.clamp(min, max))))
-    } else {
-        let max = if bits == u128::BITS {
-            u128::MAX
-        } else {
-            (1_u128 << bits) - 1
-        };
-        let (lhs, rhs) = (lhs.bits() & max, rhs.bits() & max);
-        let exact = if subtract {
-            lhs.saturating_sub(rhs)
-        } else {
-            lhs.saturating_add(rhs)
-        };
-        Ok(ConstValue::Int(IntConst::unsigned(exact.min(max))))
+    let wrapped = |raw: u128| {
+        IntConst::signed_bits(raw)
+            .cast_to_primitive_int(primitive, pointer_width)
+            .map(ConstValue::Int)
+            .ok_or_else(|| error("does not support this integer width".to_string()))
+    };
+    match op {
+        LanewiseIntOp::SaturatingAdd | LanewiseIntOp::SaturatingSub => {
+            let subtract = op == LanewiseIntOp::SaturatingSub;
+            if signed {
+                let (Some(lhs), Some(rhs)) = (lhs.as_i128(), rhs.as_i128()) else {
+                    return Err(error("operand is out of range".to_string()));
+                };
+                let (min, max) = if bits == i128::BITS {
+                    (i128::MIN, i128::MAX)
+                } else {
+                    (-(1_i128 << (bits - 1)), (1_i128 << (bits - 1)) - 1)
+                };
+                let exact = if subtract {
+                    lhs.saturating_sub(rhs)
+                } else {
+                    lhs.saturating_add(rhs)
+                };
+                Ok(ConstValue::Int(IntConst::from_i128(exact.clamp(min, max))))
+            } else {
+                let max = if bits == u128::BITS {
+                    u128::MAX
+                } else {
+                    (1_u128 << bits) - 1
+                };
+                let (lhs, rhs) = (lhs.bits() & max, rhs.bits() & max);
+                let exact = if subtract {
+                    lhs.saturating_sub(rhs)
+                } else {
+                    lhs.saturating_add(rhs)
+                };
+                Ok(ConstValue::Int(IntConst::unsigned(exact.min(max))))
+            }
+        }
+        LanewiseIntOp::WrappingAdd => wrapped(lhs.bits().wrapping_add(rhs.bits())),
+        LanewiseIntOp::WrappingSub => wrapped(lhs.bits().wrapping_sub(rhs.bits())),
+        LanewiseIntOp::WrappingMul => wrapped(lhs.bits().wrapping_mul(rhs.bits())),
+        LanewiseIntOp::TruncatingShl => {
+            // The count follows the rules of `<<`: it is not negative and is
+            // below the width. Only the bits shifted out are not checked.
+            let count = rhs
+                .as_i128()
+                .and_then(|count| u32::try_from(count).ok())
+                .filter(|count| *count < bits)
+                .ok_or_else(|| {
+                    let count = rhs
+                        .as_i128()
+                        .map_or_else(|| rhs.bits().to_string(), |count| count.to_string());
+                    error(format!(
+                        "shift count {count} is out of range for a {bits}-bit integer"
+                    ))
+                })?;
+            wrapped(lhs.bits() << count)
+        }
     }
 }
 

@@ -3192,6 +3192,53 @@ fun missing_type(value: usize) usize {
     );
 }
 
+/// The wrapping builtins take two operands of one integer or integer-vector
+/// type, inferred like the saturating ones, and `truncatingShl` takes its
+/// count in the value's type.
+#[test]
+fn checks_wrapping_builtins() {
+    let checked = pipeline(
+        r#"
+fun scalars(total: usize, count: u8, signed: i64) usize {
+    _ = std::builtin::wrappingSub(count, 1);
+    _ = std::builtin::wrappingMul[u8](250, 10);
+    _ = std::builtin::truncatingShl(signed, 63);
+    _ = std::builtin::truncatingShl(count, count);
+    std::builtin::wrappingAdd(1, total)
+}
+
+fun vectors(lanes: u8x16) u8x16 {
+    std::builtin::truncatingShl(std::builtin::wrappingMul(lanes, lanes), lanes)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let checked = pipeline(
+        r#"
+fun float(value: f64) f64 { std::builtin::wrappingAdd(value, value) }
+fun mask(value: boolx4) boolx4 { std::builtin::truncatingShl(value, value) }
+fun mismatch(value: u64, count: u32) u64 { std::builtin::truncatingShl(value, count) }
+"#,
+    );
+    let mut summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.clone())
+        .collect::<Vec<_>>();
+    summaries.sort();
+    assert_eq!(
+        summaries,
+        [
+            "builtin `truncatingShl` requires an integer or integer vector type, got boolx4",
+            "builtin `wrappingAdd` requires an integer or integer vector type, got f64",
+            "type mismatch in `truncatingShl` operand: expected u64, got u32",
+        ],
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
 #[test]
 fn checks_saturating_builtins() {
     let checked = pipeline(
@@ -3261,7 +3308,7 @@ fun recovery() u8 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.summary.contains("saturating arithmetic operand")),
+            .any(|diagnostic| diagnostic.summary.contains("`saturatingAdd` operand")),
         "{:?}",
         checked.diagnostics
     );

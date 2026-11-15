@@ -13,6 +13,26 @@ use nia_span::Span;
 
 use super::FunctionCodegen;
 
+/// Which shift to emit. A count that is negative or not below the width traps
+/// for each; a left shift whose result does not fit traps for `<<` and drops
+/// the bits shifted out for `truncatingShl`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ShiftKind {
+    Shl,
+    TruncatingShl,
+    Shr,
+}
+
+impl ShiftKind {
+    fn of(op: BinaryOp) -> Self {
+        if op == BinaryOp::Shl {
+            Self::Shl
+        } else {
+            Self::Shr
+        }
+    }
+}
+
 use super::traps::{TrapCause, TrapCheck, TrapOperand};
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
@@ -296,13 +316,33 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             BinaryOp::BitOr => self.builder.build_basic_or(lhs, rhs, "ortmp"),
             BinaryOp::BitXor => self.builder.build_basic_xor(lhs, rhs, "xortmp"),
             BinaryOp::Shl | BinaryOp::Shr if is_vector => {
-                return self.emit_checked_vector_shift(span, operand_ty, lhs, op, rhs);
+                return self.emit_checked_vector_shift(
+                    span,
+                    operand_ty,
+                    lhs,
+                    ShiftKind::of(op),
+                    rhs,
+                );
             }
             BinaryOp::Shl => {
-                return self.emit_checked_int_shift(span, operand_ty, lhs, op, rhs_ty, rhs);
+                return self.emit_checked_int_shift(
+                    span,
+                    operand_ty,
+                    lhs,
+                    ShiftKind::of(op),
+                    rhs_ty,
+                    rhs,
+                );
             }
             BinaryOp::Shr => {
-                return self.emit_checked_int_shift(span, operand_ty, lhs, op, rhs_ty, rhs);
+                return self.emit_checked_int_shift(
+                    span,
+                    operand_ty,
+                    lhs,
+                    ShiftKind::of(op),
+                    rhs_ty,
+                    rhs,
+                );
             }
             BinaryOp::Eq => {
                 return self.emit_integer_compare(
@@ -501,12 +541,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to build integer comparison"))
     }
 
-    fn emit_checked_vector_shift(
+    pub(super) fn emit_checked_vector_shift(
         &mut self,
         span: Span,
         operand_ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
-        op: BinaryOp,
+        shift: ShiftKind,
         rhs: BasicValueEnum<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let Some(nia_ty::TyKind::Vector { elem, lanes }) = self.module.ty_kind(operand_ty) else {
@@ -559,10 +599,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_conditional_branch(invalid, count_trap, operation)
             .map_err(|_| self.error(span, "failed to branch on vector shift count validation"))?;
         self.builder.position_at_end(count_trap);
-        let cause = if op == BinaryOp::Shl {
-            TrapCause::ShlAmount
-        } else {
+        let cause = if shift == ShiftKind::Shr {
             TrapCause::ShrAmount
+        } else {
+            TrapCause::ShlAmount
         };
         self.emit_trap(
             span,
@@ -571,13 +611,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         )?;
         self.builder.position_at_end(operation);
 
-        if op == BinaryOp::Shr {
+        if shift == ShiftKind::Shr {
             let result = if elem.is_signed_integer() {
                 self.builder.build_basic_ashr(lhs, rhs, "shrtmp")
             } else {
                 self.builder.build_basic_lshr(lhs, rhs, "shrtmp")
             };
             return result.map_err(|_| self.error(span, "failed to build checked vector shift"));
+        }
+        if shift == ShiftKind::TruncatingShl {
+            return self
+                .builder
+                .build_basic_shl(lhs, rhs, "shltmp")
+                .map_err(|_| self.error(span, "failed to build truncating vector shift"));
         }
 
         let wide_int_ty = self
@@ -655,12 +701,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(result)
     }
 
-    fn emit_checked_int_shift(
+    pub(super) fn emit_checked_int_shift(
         &mut self,
         span: Span,
         operand_ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
-        op: BinaryOp,
+        shift: ShiftKind,
         rhs_ty: InternedTyId,
         rhs: BasicValueEnum<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -738,10 +784,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             value: lhs.into(),
             signed: lhs_is_signed,
         };
-        let cause = if op == BinaryOp::Shl {
-            TrapCause::ShlAmount
-        } else {
+        let cause = if shift == ShiftKind::Shr {
             TrapCause::ShrAmount
+        } else {
+            TrapCause::ShlAmount
         };
         self.emit_trap(
             span,
@@ -750,13 +796,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder.position_at_end(operation);
 
         let rhs = self.normalize_shift_rhs(span, lhs.into(), rhs.into())?;
-        if op == BinaryOp::Shr {
+        if shift == ShiftKind::Shr {
             let result = if lhs_is_signed {
                 self.builder.build_basic_ashr(lhs.into(), rhs, "shrtmp")
             } else {
                 self.builder.build_basic_lshr(lhs.into(), rhs, "shrtmp")
             };
             return result.map_err(|_| self.error(span, "failed to build checked right shift"));
+        }
+        if shift == ShiftKind::TruncatingShl {
+            return self
+                .builder
+                .build_basic_shl(lhs.into(), rhs, "shltmp")
+                .map_err(|_| self.error(span, "failed to build truncating left shift"));
         }
 
         let wide_ty = self

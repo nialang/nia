@@ -243,15 +243,19 @@ impl<'a> BodyChecker<'a> {
                 self.record_builtin_function_call(call_span, value_node, builtin, result_ty);
                 result_ty.unwrap_or_else(|| self.error())
             }
-            BuiltinFunction::SaturatingAdd | BuiltinFunction::SaturatingSub => self
-                .check_saturating_builtin_call(
-                    call_span,
-                    value_node,
-                    builtin_span,
-                    builtin,
-                    type_args,
-                    args,
-                ),
+            BuiltinFunction::SaturatingAdd
+            | BuiltinFunction::SaturatingSub
+            | BuiltinFunction::WrappingAdd
+            | BuiltinFunction::WrappingSub
+            | BuiltinFunction::WrappingMul
+            | BuiltinFunction::TruncatingShl => self.check_lanewise_integer_builtin_call(
+                call_span,
+                value_node,
+                builtin_span,
+                builtin,
+                type_args,
+                args,
+            ),
             BuiltinFunction::Ctz | BuiltinFunction::Clz | BuiltinFunction::Popcount => self
                 .check_bit_intrinsic_builtin_call(
                     call_span,
@@ -955,14 +959,16 @@ impl<'a> BodyChecker<'a> {
         result_ty
     }
 
-    /// Checks `saturatingAdd` or `saturatingSub`: two operands of one integer
-    /// or integer-vector type, returning that type.
+    /// Checks an integer builtin of two operands: `saturatingAdd`,
+    /// `saturatingSub`, `wrappingAdd`, `wrappingSub`, `wrappingMul`, or
+    /// `truncatingShl`. Both operands have one integer or integer-vector type,
+    /// which is the result type.
     ///
     /// A written type argument gives the type. Otherwise the type is the
     /// first operand's, unless that operand is an untyped numeric literal and
     /// the other is not; then the literal takes the other operand's type, as
     /// it would as an operand of `+`.
-    fn check_saturating_builtin_call(
+    fn check_lanewise_integer_builtin_call(
         &mut self,
         call_span: Span,
         value_node: &Expr,
@@ -1010,7 +1016,7 @@ impl<'a> BodyChecker<'a> {
                 (ty, args[anchor].span, Some(anchor))
             }
         };
-        let result_ty = if self.is_saturating_operand_ty(operand_ty) {
+        let result_ty = if self.is_lanewise_integer_ty(operand_ty) {
             operand_ty
         } else {
             if !self.is_error_recovery_ty(operand_ty) {
@@ -1031,7 +1037,7 @@ impl<'a> BodyChecker<'a> {
                 continue;
             }
             let actual = self.check_expr_with_expected(arg, Some(result_ty));
-            self.expect_expr_type(arg, result_ty, actual, "saturating arithmetic operand");
+            self.expect_expr_type(arg, result_ty, actual, &format!("`{name}` operand"));
         }
         result_ty
     }
@@ -1144,7 +1150,7 @@ impl<'a> BodyChecker<'a> {
         lanes
     }
 
-    fn is_saturating_operand_ty(&self, ty: InternedTyId) -> bool {
+    fn is_lanewise_integer_ty(&self, ty: InternedTyId) -> bool {
         match self.interner.get(ty) {
             Some(TyKind::Primitive(primitive)) => primitive.is_integer(),
             Some(TyKind::Vector { elem, .. }) => elem.is_integer(),

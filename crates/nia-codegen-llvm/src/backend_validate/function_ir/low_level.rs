@@ -29,9 +29,15 @@ impl BackendValidator<'_> {
             (IntrinsicOp::Ctz | IntrinsicOp::Clz | IntrinsicOp::Popcount, [value]) => {
                 self.validate_bit_intrinsic(result_ty, value, span)
             }
-            (IntrinsicOp::SaturatingAdd | IntrinsicOp::SaturatingSub, [lhs, rhs]) => {
-                self.validate_saturating(result_ty, lhs, rhs, span)
-            }
+            (
+                IntrinsicOp::SaturatingAdd
+                | IntrinsicOp::SaturatingSub
+                | IntrinsicOp::WrappingAdd
+                | IntrinsicOp::WrappingSub
+                | IntrinsicOp::WrappingMul
+                | IntrinsicOp::TruncatingShl,
+                [lhs, rhs],
+            ) => self.validate_lanewise_integer(result_ty, lhs, rhs, span),
             (IntrinsicOp::Shuffle, [first, second, indices @ ..]) if !indices.is_empty() => {
                 self.validate_shuffle(result_ty, first, second, indices, span)
             }
@@ -69,7 +75,11 @@ impl BackendValidator<'_> {
                 | IntrinsicOp::SaturatingAdd
                 | IntrinsicOp::SaturatingSub
                 | IntrinsicOp::Shuffle
-                | IntrinsicOp::Lookup16,
+                | IntrinsicOp::Lookup16
+                | IntrinsicOp::WrappingAdd
+                | IntrinsicOp::WrappingSub
+                | IntrinsicOp::WrappingMul
+                | IntrinsicOp::TruncatingShl,
                 _,
             ) => {
                 for arg in args {
@@ -84,7 +94,10 @@ impl BackendValidator<'_> {
         }
     }
 
-    fn validate_saturating(
+    /// An integer builtin of two operands, such as `saturatingAdd` or
+    /// `truncatingShl`: both operands have the result type, an integer or
+    /// integer vector.
+    fn validate_lanewise_integer(
         &mut self,
         result_ty: nia_ids::InternedTyId,
         lhs: &FunctionExpr,
@@ -100,14 +113,14 @@ impl BackendValidator<'_> {
         };
         if !is_integer {
             self.invalid_low_level_builtin(
-                "saturating arithmetic",
+                "integer arithmetic",
                 span,
                 "result is not an integer or integer vector",
             );
         }
         if !self.same_type(result_ty, lhs.ty) || !self.same_type(result_ty, rhs.ty) {
             self.invalid_low_level_builtin(
-                "saturating arithmetic",
+                "integer arithmetic",
                 span,
                 "operand type does not match the result type",
             );
