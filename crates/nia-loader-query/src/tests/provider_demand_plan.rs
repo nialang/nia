@@ -576,7 +576,18 @@ fn persistent_provider_demand_plan_restores_current_symbols_and_full_snapshot() 
                 target_module_segments: Vec::new(),
                 trait_name,
                 trait_package: None,
-                trait_type_argument_names: vec![Some(trait_argument), None],
+                // Both fields of an argument round-trip: a name with the
+                // package that owns it, and an argument with neither.
+                trait_type_arguments: vec![
+                    nia_loader_contract::ProviderTypeArgument {
+                        name: Some(trait_argument),
+                        package: Some(nia_symbol::known::STD),
+                    },
+                    nia_loader_contract::ProviderTypeArgument {
+                        name: None,
+                        package: None,
+                    },
+                ],
             },
         },
         ProviderDemand {

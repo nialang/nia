@@ -36,7 +36,7 @@ use nia_item_signatures::{
     WherePredicateSignature,
 };
 use nia_local_resolve::LocalResolution;
-use nia_provider_summary::{ProviderDemand, ProviderRequest};
+use nia_provider_summary::{ProviderDemand, ProviderRequest, ProviderTypeArgument};
 use nia_sema::{
     ArityCheck, ArrayLiteralLenCheck, FieldSetCheck, NamedField, check_array_literal_len,
     check_exact_arity, check_required_field_set, check_value_field_set,

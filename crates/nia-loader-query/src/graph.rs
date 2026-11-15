@@ -881,27 +881,42 @@ fn apply_trait_demand(
     pending_trait_provider_imports: &mut Vec<nia_imports::ModuleId>,
     fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> QueryResult<()> {
+    let argument_names;
     let (target_type_name, target_module_segments, packages, wanted) = match request {
+        // An implementation can live in the trait's package or in a package
+        // that owns a type of the goal, as the orphan rule allows; all of
+        // them are searched.
         nia_loader_contract::ProviderRequest::TraitImpl {
             target_type_name,
             target_package,
             target_module_segments,
             trait_name,
             trait_package,
-            trait_type_argument_names,
-        } => (
-            *target_type_name,
-            target_module_segments,
-            target_package
+            trait_type_arguments,
+        } => {
+            argument_names = trait_type_arguments
                 .iter()
-                .chain(trait_package)
-                .copied()
-                .collect::<Vec<_>>(),
-            TraitProviderMatch::Trait {
-                trait_name: *trait_name,
-                trait_type_argument_names,
-            },
-        ),
+                .map(|argument| argument.name)
+                .collect::<Vec<_>>();
+            (
+                *target_type_name,
+                target_module_segments,
+                target_package
+                    .iter()
+                    .chain(trait_package)
+                    .copied()
+                    .chain(
+                        trait_type_arguments
+                            .iter()
+                            .filter_map(|argument| argument.package),
+                    )
+                    .collect::<Vec<_>>(),
+                TraitProviderMatch::Trait {
+                    trait_name: *trait_name,
+                    trait_type_argument_names: &argument_names,
+                },
+            )
+        }
         // The trait is unknown until the type checker picks the method, so
         // the receiver's package and std, which owns every builtin trait, are
         // searched for implementations that can supply the method.

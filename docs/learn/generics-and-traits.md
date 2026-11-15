@@ -164,8 +164,12 @@ trait's members: every required method and nothing else. Other methods go in a
 plain `extend Type` block.
 
 Trait methods need no import: `square.area()` works in any module that can
-name the value, without importing `Shape`. To keep this unambiguous, an implementation must live in the package
-that defines the type or in the package that defines the trait.
+name the value, without importing `Shape`. To keep this unambiguous, an
+implementation must live in the package that defines the trait, or in one that
+defines a type in its header, such as the extended type or a trait argument:
+your package can implement `IntoError[YourError]` for another package's error,
+because it defines `YourError`. The reference states the exact
+[rule](../reference/language.md#where-implementations-live).
 
 `trait Child : Parent` declares a supertrait: a `T: Child` bound also provides
 `Parent`'s methods. Each trait is still implemented separately.

@@ -31,6 +31,7 @@ use nia_toolchain::ToolchainIdentityFingerprint;
 pub use frontend_fingerprint::*;
 pub use nia_provider_summary::{
     ProviderDemand, ProviderFactRevision, ProviderFactRevisionTransition, ProviderRequest,
+    ProviderTypeArgument,
 };
 pub use nia_toolchain::RuntimeSpec;
 pub use program_diagnostics::{ProgramDiagnostic, ProgramDiagnosticBundles};

@@ -137,6 +137,7 @@ use orchestration::{time_body_stage, time_body_stage_if_slow};
 pub use products::{BodyCheck, BodyCheckProduct, PrecheckedBodyCheck};
 pub use provider::{
     ProviderDemand, ProviderFactRevision, ProviderFactRevisionTransition, ProviderRequest,
+    ProviderTypeArgument,
 };
 
 #[derive(Clone)]

@@ -23,7 +23,9 @@ use nia_loader_contract::{
     ItemSignatureFingerprint, ProviderDemand, ProviderRequest, SourceContentFingerprint,
     source_content_fingerprint,
 };
-use nia_provider_summary::{Provider, ProviderSummary, ProviderTarget, ProviderTypeRef};
+use nia_provider_summary::{
+    Provider, ProviderSummary, ProviderTarget, ProviderTypeArgument, ProviderTypeRef,
+};
 use nia_query::{FingerprintDomain, QueryFingerprint, QueryFingerprintBuilder};
 use nia_source::{SourceDatabase, SourceIdentity, SourcePath};
 use nia_symbol::{SymbolId, stable_hash};
@@ -1922,7 +1924,7 @@ mod tests {
                 target_module_segments: vec![symbols.intern("types").unwrap()],
                 trait_name: symbols.intern("Show").unwrap(),
                 trait_package: Some(symbols.intern("display").unwrap()),
-                trait_type_argument_names: Vec::new(),
+                trait_type_arguments: Vec::new(),
             },
         }]);
         let identity = ProviderDemandPlanIdentity {

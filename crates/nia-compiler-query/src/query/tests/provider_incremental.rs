@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+/// A trait argument a demand names, from a package the test does not name.
+fn argument(name: Option<SymbolId>) -> crate::ProviderTypeArgument {
+    crate::ProviderTypeArgument {
+        name,
+        package: None,
+    }
+}
+
 fn new_revision() -> crate::ProviderFactRevision {
     crate::ProviderFactRevision::new_store().expect("test provider revision")
 }
@@ -442,7 +450,7 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
             target_type_name: Some(sym("Thing")),
             target_module_segments: Vec::new(),
             trait_name: sym("Display"),
-            trait_type_argument_names: vec![Some(sym("Context")), None],
+            trait_type_arguments: vec![argument(Some(sym("Context"))), argument(None)],
         },
     };
     let first_provider =
@@ -467,7 +475,7 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
                 target_type_name: Some(sym("Thing")),
                 target_module_segments: Vec::new(),
                 trait_name: sym("Display"),
-                trait_type_argument_names: vec![Some(sym("Context")), None],
+                trait_type_arguments: vec![argument(Some(sym("Context"))), argument(None)],
             },
         }],
     );
@@ -482,7 +490,7 @@ fn provider_worklist_fingerprint_is_deterministic_and_order_independent() {
                 target_type_name: Some(sym("Thing")),
                 target_module_segments: Vec::new(),
                 trait_name: sym("Display"),
-                trait_type_argument_names: vec![Some(sym("OtherContext")), None],
+                trait_type_arguments: vec![argument(Some(sym("OtherContext"))), argument(None)],
             },
         }],
     );
@@ -502,7 +510,7 @@ fn provider_demand_fingerprint_includes_type_and_trait_owner_packages() {
             target_type_name: Some(sym("Thing")),
             target_module_segments: Vec::new(),
             trait_name: sym("Display"),
-            trait_type_argument_names: Vec::new(),
+            trait_type_arguments: Vec::new(),
         },
     };
     let original = provider_demand_fingerprint(&demand(Some(sym("types")), Some(sym("traits"))));
@@ -636,7 +644,7 @@ fn provider_worklist_accumulates_until_consumed() {
             target_type_name: None,
             target_module_segments: Vec::new(),
             trait_name: SymbolId::default(),
-            trait_type_argument_names: Vec::new(),
+            trait_type_arguments: Vec::new(),
         },
     };
     let first_revision = next_revision(revision);
@@ -690,7 +698,7 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
             target_type_name: None,
             target_module_segments: Vec::new(),
             trait_name: sym("Stale"),
-            trait_type_argument_names: Vec::new(),
+            trait_type_arguments: Vec::new(),
         },
     };
     let current = crate::ProviderDemand {
@@ -701,7 +709,7 @@ fn provider_worklist_reset_watermark_survives_skipped_revisions() {
             target_type_name: None,
             target_module_segments: Vec::new(),
             trait_name: sym("Current"),
-            trait_type_argument_names: Vec::new(),
+            trait_type_arguments: Vec::new(),
         },
     };
     let fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");

@@ -1209,23 +1209,7 @@ impl Analyzer<'_> {
                 definition.name
             }
         };
-        let target_type_name = match self.ty_kind(self_ty) {
-            Some(TyKind::Primitive(primitive)) => Some(primitive.symbol_id()),
-            Some(TyKind::Nominal { def_id, .. }) => self
-                .global_defs(def_id.module_id)
-                .and_then(|defs| defs.as_ref().defs.get(def_id.def_id).map(|def| def.name)),
-            _ => None,
-        };
-        let target_package = match self.ty_kind(self_ty) {
-            Some(TyKind::Primitive(_)) => Some(nia_symbol::known::STD),
-            Some(TyKind::Nominal { def_id, .. }) => self
-                .input
-                .program
-                .module_path
-                .and_then(|path| path(def_id.module_id))
-                .map(|path| path.package),
-            _ => None,
-        };
+        let target = self.provider_owner_identity(self_ty);
         let trait_package = match trait_id {
             TraitId::Builtin(_) => Some(nia_symbol::known::STD),
             TraitId::Source(def_id) => self
@@ -1235,37 +1219,44 @@ impl Analyzer<'_> {
                 .and_then(|path| path(def_id.module_id))
                 .map(|path| path.package),
         };
-        let target_module_segments = match self.ty_kind(self_ty) {
-            Some(TyKind::Nominal { def_id, .. }) => self
-                .input
-                .program
-                .module_path
-                .and_then(|path| path(def_id.module_id))
-                .map_or_else(Vec::new, |path| path.segments),
-            _ => Vec::new(),
-        };
         self.provider_demands.insert(ProviderDemand {
             source_path,
             request: ProviderRequest::TraitImpl {
-                target_type_name,
-                target_package,
-                target_module_segments,
+                target_type_name: target.name,
+                target_package: target.package,
+                target_module_segments: target.module_segments,
                 trait_name,
                 trait_package,
-                trait_type_argument_names: trait_args
+                trait_type_arguments: trait_args
                     .iter()
-                    .map(|arg| match self.ty_kind(*arg) {
-                        Some(TyKind::Primitive(primitive)) => Some(primitive.symbol_id()),
-                        Some(TyKind::Nominal { def_id, .. }) => {
-                            self.global_defs(def_id.module_id).and_then(|defs| {
-                                defs.as_ref().defs.get(def_id.def_id).map(|def| def.name)
-                            })
+                    .map(|arg| {
+                        let owner = self.provider_owner_identity(*arg);
+                        ProviderTypeArgument {
+                            name: owner.name,
+                            package: owner.package,
                         }
-                        _ => None,
                     })
                     .collect(),
             },
         });
+    }
+
+    /// The owner of a type of a goal, as implementation lookup finds it;
+    /// see [`nia_ty::coherence`].
+    fn provider_owner_identity(&self, ty: InternedTyId) -> nia_ty::coherence::OwnerIdentity {
+        nia_ty::coherence::coherence_owner(|ty| self.ty_kind(ty), ty).identity(
+            |def_id| {
+                self.global_defs(def_id.module_id)
+                    .and_then(|defs| defs.as_ref().defs.get(def_id.def_id).map(|def| def.name))
+            },
+            |module_id| {
+                self.input
+                    .program
+                    .module_path
+                    .and_then(|path| path(module_id))
+                    .map(|path| (path.package, path.segments))
+            },
+        )
     }
 
     pub(super) fn check_resolved_const_assignment(

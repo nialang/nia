@@ -505,17 +505,15 @@ impl<'a> BodyChecker<'a> {
         if self.provider_demand_target_is_error(receiver_ty) {
             return false;
         }
-        let target_type_name = self.provider_target_type_name(receiver_ty);
+        let target = self.provider_owner_identity(receiver_ty);
         self.record_provider_demand(crate::ProviderDemand {
             source_path: self.source_path.clone(),
             request: crate::ProviderRequest::Method {
-                target_type_name,
-                // Structural and primitive receivers get their trait
-                // implementations from std, the builtin traits' package.
-                target_package: self
-                    .provider_target_package(receiver_ty)
-                    .unwrap_or(nia_symbol::known::STD),
-                target_module_segments: self.provider_target_module_segments(receiver_ty),
+                target_type_name: target.name,
+                // Structural receivers get their trait implementations from
+                // std, the builtin traits' package.
+                target_package: target.package.unwrap_or(nia_symbol::known::STD),
+                target_module_segments: target.module_segments,
                 method_name,
             },
         });
@@ -531,7 +529,7 @@ impl<'a> BodyChecker<'a> {
         if self.provider_demand_target_is_error(self_ty) {
             return;
         }
-        let target_type_name = self.provider_target_type_name(self_ty);
+        let target = self.provider_owner_identity(self_ty);
         let trait_name = match trait_id {
             TraitId::Source(def_id) => {
                 let Some(name) = self.definition_name(def_id) else {
@@ -544,14 +542,20 @@ impl<'a> BodyChecker<'a> {
         self.record_provider_demand(crate::ProviderDemand {
             source_path: self.source_path.clone(),
             request: crate::ProviderRequest::TraitImpl {
-                target_type_name,
-                target_package: self.provider_target_package(self_ty),
-                target_module_segments: self.provider_target_module_segments(self_ty),
+                target_type_name: target.name,
+                target_package: target.package,
+                target_module_segments: target.module_segments,
                 trait_name,
                 trait_package: self.provider_trait_package(trait_id),
-                trait_type_argument_names: trait_args
+                trait_type_arguments: trait_args
                     .iter()
-                    .map(|arg| self.provider_target_type_name(*arg))
+                    .map(|arg| {
+                        let owner = self.provider_owner_identity(*arg);
+                        crate::ProviderTypeArgument {
+                            name: owner.name,
+                            package: owner.package,
+                        }
+                    })
                     .collect(),
             },
         });
@@ -566,43 +570,18 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn provider_target_type_name(&self, ty: InternedTyId) -> Option<SymbolId> {
-        match self.interner.get(ty) {
-            Some(TyKind::Primitive(primitive)) => Some(primitive.symbol_id()),
-            Some(TyKind::Nominal { def_id, .. }) => self.definition_name(*def_id),
-            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
-                self.provider_target_type_name(*elem)
-            }
-            _ => None,
-        }
-    }
-
-    fn provider_target_package(&self, ty: InternedTyId) -> Option<nia_symbol::SymbolId> {
-        match self.interner.get(ty) {
-            Some(TyKind::Nominal { def_id, .. }) => self
-                .program
-                .module_path
-                .and_then(|module_path| module_path(def_id.module_id))
-                .map(|path| path.package),
-            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
-                self.provider_target_package(*elem)
-            }
-            _ => None,
-        }
-    }
-
-    fn provider_target_module_segments(&self, ty: InternedTyId) -> Vec<SymbolId> {
-        match self.interner.get(ty) {
-            Some(TyKind::Nominal { def_id, .. }) => self
-                .program
-                .module_path
-                .and_then(|module_path| module_path(def_id.module_id))
-                .map_or_else(Vec::new, |path| path.segments),
-            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::VolatilePointer { elem, .. }) => {
-                self.provider_target_module_segments(*elem)
-            }
-            _ => Vec::new(),
-        }
+    /// The owner of a type of a goal, as implementation lookup finds it;
+    /// see [`nia_ty::coherence`].
+    fn provider_owner_identity(&self, ty: InternedTyId) -> nia_ty::coherence::OwnerIdentity {
+        nia_ty::coherence::coherence_owner(|ty| self.interner.get(ty).cloned(), ty).identity(
+            |def_id| self.definition_name(def_id),
+            |module_id| {
+                self.program
+                    .module_path
+                    .and_then(|module_path| module_path(module_id))
+                    .map(|path| (path.package, path.segments))
+            },
+        )
     }
 
     fn provider_trait_package(&self, trait_id: TraitId) -> Option<nia_symbol::SymbolId> {

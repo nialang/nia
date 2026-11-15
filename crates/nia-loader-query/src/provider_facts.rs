@@ -262,7 +262,7 @@ mod tests {
                 target_module_segments: Vec::new(),
                 trait_name: SymbolId::default(),
                 trait_package: None,
-                trait_type_argument_names: Vec::new(),
+                trait_type_arguments: Vec::new(),
             },
         };
         assert_eq!(
@@ -285,7 +285,7 @@ mod tests {
                         target_module_segments: Vec::new(),
                         trait_name: SymbolId::default(),
                         trait_package: None,
-                        trait_type_argument_names: Vec::new(),
+                        trait_type_arguments: Vec::new(),
                     },
                 }])
             })

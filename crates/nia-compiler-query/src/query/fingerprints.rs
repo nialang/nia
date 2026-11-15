@@ -109,7 +109,7 @@ pub(super) fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> Que
             target_module_segments,
             trait_name,
             trait_package,
-            trait_type_argument_names,
+            trait_type_arguments,
         } => {
             builder.write_u8(1);
             if let Some(target_type_name) = target_type_name {
@@ -135,13 +135,15 @@ pub(super) fn provider_demand_fingerprint(demand: &crate::ProviderDemand) -> Que
             } else {
                 builder.write_u8(0);
             }
-            builder.write_u64(trait_type_argument_names.len() as u64);
-            for argument in trait_type_argument_names {
-                if let Some(argument) = argument {
-                    builder.write_u8(1);
-                    builder.write_u64(argument.raw());
-                } else {
-                    builder.write_u8(0);
+            builder.write_u64(trait_type_arguments.len() as u64);
+            for argument in trait_type_arguments {
+                for symbol in [argument.name, argument.package] {
+                    if let Some(symbol) = symbol {
+                        builder.write_u8(1);
+                        builder.write_u64(symbol.raw());
+                    } else {
+                        builder.write_u8(0);
+                    }
                 }
             }
         }

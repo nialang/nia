@@ -17,6 +17,7 @@ mod demand;
 
 pub use demand::{
     ProviderDemand, ProviderFactRevision, ProviderFactRevisionTransition, ProviderRequest,
+    ProviderTypeArgument,
 };
 
 use nia_ast::{GenericParam, PathSegmentKind, TypeArg, TypeKind, TypeRef};

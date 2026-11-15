@@ -18,7 +18,6 @@ use nia_item_signatures::{
     ProgramTypeAliasSignature, ProgramUnionSignature, TraitImplSignature, TraitSignature,
     generic_argument_substitutions,
 };
-use nia_symbol::known;
 use nia_symbol::{SymbolId, SymbolMap, ToSymbolId, symbol_text_or_unresolved};
 use nia_symbol_table::SymbolTable;
 use nia_trait_solve::{
@@ -30,6 +29,7 @@ use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
 mod facts;
+mod orphan;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -307,6 +307,7 @@ pub fn collect_extension_method_diagnostics_for_module(
                 target_ty,
                 trait_id,
                 input.graph,
+                input.symbols,
                 &mut diagnostics,
             )?;
         }
@@ -363,94 +364,67 @@ fn validate_orphan_rule(
     target_ty: InternedTyId,
     trait_id: Option<TraitId>,
     graph: &dyn nia_imports::ModuleGraphLookup,
+    symbols: &SymbolTable,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> nia_ice::IceResult<()> {
     let Some(trait_id) = trait_id else {
         return Ok(());
     };
-    // Builtin traits are owned by std like any declared trait, so a third
-    // package cannot implement one for a type it does not own: implementation
-    // lookup only ever searches the type's and the trait's packages.
-    let current_package = graph
-        .module_path(module.module_id)
-        .map(|path| path.package)
-        .ok_or_else(|| {
-            nia_ice::Ice::new(format!(
-                "missing module path for extension implementation module {:?}",
-                module.module_id
-            ))
-        })?;
-    let target_package = nominal_target_def_id(module.type_store, target_ty)
-        .map(|def_id| {
-            graph
-                .module_path(def_id.module_id)
-                .map(|path| path.package)
-                .ok_or_else(|| {
-                    nia_ice::Ice::new(format!(
-                        "missing module path for extension target module {:?}",
-                        def_id.module_id
-                    ))
-                })
-        })
-        .transpose()?;
-    let trait_package = match trait_id {
-        TraitId::Source(def_id) => graph
-            .module_path(def_id.module_id)
-            .map(|path| path.package)
-            .ok_or_else(|| {
-                nia_ice::Ice::new(format!(
-                    "missing module path for trait definition module {:?}",
-                    def_id.module_id
-                ))
-            })?,
-        TraitId::Builtin(_) => known::STD,
-    };
-    let allowed = match target_package {
-        Some(target_package) => {
-            current_package == target_package || current_package == trait_package
-        }
-        None => current_package == trait_package,
-    };
-    if allowed {
-        return Ok(());
-    }
-    let message = match target_package {
-        Some(_) => "trait implementation violates the package orphan rule",
-        None => "structural trait implementations must be declared in the trait package",
-    };
-    diagnostics.push(
-        Diagnostic::user_error(codes::NAME_RESOLUTION, message)
+    let package = orphan::module_package(graph, module.module_id)?;
+    let trait_args = impl_trait_args_and_consts(module, impl_signature, Some(trait_id))
+        .map_or_else(Vec::new, |(args, _)| args);
+    let verdict = orphan::orphan_verdict(
+        module.type_store,
+        graph,
+        package,
+        trait_id,
+        target_ty,
+        &trait_args,
+    )?;
+    let diagnostic = match verdict {
+        orphan::OrphanVerdict::Allowed => return Ok(()),
+        orphan::OrphanVerdict::NoLocalType => Diagnostic::user_error(
+            codes::NAME_RESOLUTION,
+            "trait implementation violates the orphan rule",
+        )
+        .primary(
+            impl_signature.span,
+            "this package owns neither the trait nor any type in the implementation header",
+        )
+        .note(
+            "an implementation must be declared in the package of its trait, or of a type in its header: the extended type or a trait argument",
+        )
+        .help(
+            "move the implementation to such a package, or wrap the foreign type in a struct this package defines",
+        ),
+        orphan::OrphanVerdict::Uncovered { param, position } => {
+            let what = match param {
+                Some(name) => format!("type parameter `{}`", symbol_name(symbols, name)),
+                None => "an associated type projection".to_owned(),
+            };
+            let place = if position == 0 {
+                "as the extended type".to_owned()
+            } else {
+                format!("as trait argument {position}")
+            };
+            Diagnostic::user_error(
+                codes::NAME_RESOLUTION,
+                format!("{what} must be covered by a local type"),
+            )
             .primary(
                 impl_signature.span,
-                "the implementation package owns neither the target type nor the trait",
+                format!("{what} appears {place}, before any type this package owns"),
             )
-            .help("move the implementation into the target type's package or the trait's package")
-            .finish(),
-    );
-    Ok(())
-}
-
-fn graph_module_package(
-    graph: &dyn nia_imports::ModuleGraphLookup,
-    module_id: nia_ids::ModuleId,
-    role: &str,
-) -> nia_ice::IceResult<nia_symbol::SymbolId> {
-    graph
-        .module_path(module_id)
-        .map(|path| path.package)
-        .ok_or_else(|| nia_ice::Ice::new(format!("missing module path for {role} {module_id:?}")))
-}
-
-fn trait_definition_package(
-    graph: &dyn nia_imports::ModuleGraphLookup,
-    trait_id: TraitId,
-) -> nia_ice::IceResult<nia_symbol::SymbolId> {
-    match trait_id {
-        TraitId::Source(def_id) => {
-            graph_module_package(graph, def_id.module_id, "trait definition module")
+            .note(
+                "a type that may be any type cannot come before the first local type of the header: another package that owns that type could implement the same goal",
+            )
+            .help(
+                "put a type this package owns earlier in the header, or use the parameter only inside another type, as in `Wrapper[T]`",
+            )
         }
-        TraitId::Builtin(_) => Ok(known::STD),
-    }
+    };
+    diagnostics.push(diagnostic.finish());
+    Ok(())
 }
 
 fn report_duplicate_trait_impl(
@@ -466,24 +440,19 @@ fn report_duplicate_trait_impl(
     if !impl_signature.where_predicates.is_empty() {
         return Ok(());
     }
-    let current_package = graph_module_package(
+    // An implementation the orphan rule rejects has its own report, and
+    // cannot repeat one that is allowed.
+    let trait_args = impl_trait_args_and_consts(module, impl_signature, Some(trait_id))
+        .map_or_else(Vec::new, |(args, _)| args);
+    if orphan::orphan_verdict(
+        module.type_store,
         input.graph,
-        module.module_id,
-        "extension implementation module",
-    )?;
-    let target_package = nominal_target_def_id(module.type_store, target_ty)
-        .map(|def_id| {
-            graph_module_package(input.graph, def_id.module_id, "extension target module")
-        })
-        .transpose()?;
-    let trait_package = trait_definition_package(input.graph, trait_id)?;
-    let current_allowed = match target_package {
-        Some(target_package) => {
-            current_package == target_package || current_package == trait_package
-        }
-        None => current_package == trait_package,
-    };
-    if !current_allowed {
+        orphan::module_package(input.graph, module.module_id)?,
+        trait_id,
+        target_ty,
+        &trait_args,
+    )? != orphan::OrphanVerdict::Allowed
+    {
         return Ok(());
     }
     let duplicate = (input.trait_impls_for_trait)(trait_id)
@@ -496,19 +465,18 @@ fn report_duplicate_trait_impl(
             {
                 return false;
             }
-            let Ok(candidate_package) = graph_module_package(
-                input.graph,
-                candidate.module_id,
-                "trait implementation module",
-            ) else {
-                return false;
-            };
-            let candidate_allowed = match target_package {
-                Some(target_package) => {
-                    candidate_package == target_package || candidate_package == trait_package
-                }
-                None => candidate_package == trait_package,
-            };
+            let candidate_allowed = orphan::module_package(input.graph, candidate.module_id)
+                .and_then(|package| {
+                    orphan::orphan_verdict(
+                        module.type_store,
+                        input.graph,
+                        package,
+                        trait_id,
+                        candidate.target_ty,
+                        &candidate.trait_args,
+                    )
+                })
+                .is_ok_and(|verdict| verdict == orphan::OrphanVerdict::Allowed);
             candidate_allowed
                 && trait_impl_headers_are_equivalent(
                     module.type_store,

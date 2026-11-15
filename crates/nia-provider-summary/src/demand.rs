@@ -80,6 +80,19 @@ impl ProviderFactRevision {
     }
 }
 
+/// A type argument of the trait in a [`ProviderRequest::TraitImpl`] goal.
+///
+/// The orphan rule lets the package that owns a trait argument declare an
+/// implementation, so that package is searched as well.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ProviderTypeArgument {
+    /// The type's nominal or primitive name, when it has one; candidate
+    /// implementations whose argument names another type are skipped.
+    pub name: Option<SymbolId>,
+    /// The package that owns the type for coherence, when one does.
+    pub package: Option<SymbolId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Kind of cross-module provider fact requested during semantic analysis.
 pub enum ProviderRequest {
@@ -113,8 +126,8 @@ pub enum ProviderRequest {
         /// Package that defines the trait. Builtin traits use the language
         /// standard package because their source contract lives in std::builtin.
         trait_package: Option<SymbolId>,
-        /// Nominal identities of the trait's type arguments, when known.
-        trait_type_argument_names: Vec<Option<SymbolId>>,
+        /// The trait's type arguments.
+        trait_type_arguments: Vec<ProviderTypeArgument>,
     },
     /// Module-level semantic facts.
     ModuleSemantic {

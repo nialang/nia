@@ -259,14 +259,17 @@ pub(super) fn encode_provider_demand_plan(
                 ref target_module_segments,
                 trait_name,
                 trait_package,
-                ref trait_type_argument_names,
+                ref trait_type_arguments,
             } => {
                 demand_symbols.extend(target_type_name);
                 demand_symbols.extend(target_package);
                 demand_symbols.extend(target_module_segments.iter().copied());
                 demand_symbols.insert(trait_name);
                 demand_symbols.extend(trait_package);
-                demand_symbols.extend(trait_type_argument_names.iter().flatten().copied());
+                for argument in trait_type_arguments {
+                    demand_symbols.extend(argument.name);
+                    demand_symbols.extend(argument.package);
+                }
             }
             ProviderRequest::ModuleSemantic { .. } | ProviderRequest::ModuleBody { .. } => {}
         }
@@ -303,7 +306,7 @@ pub(super) fn encode_provider_demand_plan(
                 target_module_segments,
                 trait_name,
                 trait_package,
-                trait_type_argument_names,
+                trait_type_arguments,
             } => {
                 payload.push(1);
                 write_optional_symbol(&mut payload, *target_type_name);
@@ -314,9 +317,10 @@ pub(super) fn encode_provider_demand_plan(
                 }
                 payload.extend_from_slice(&trait_name.raw().to_le_bytes());
                 write_optional_symbol(&mut payload, *trait_package);
-                payload.extend_from_slice(&(trait_type_argument_names.len() as u64).to_le_bytes());
-                for argument in trait_type_argument_names {
-                    write_optional_symbol(&mut payload, *argument);
+                payload.extend_from_slice(&(trait_type_arguments.len() as u64).to_le_bytes());
+                for argument in trait_type_arguments {
+                    write_optional_symbol(&mut payload, argument.name);
+                    write_optional_symbol(&mut payload, argument.package);
                 }
             }
             ProviderRequest::ModuleSemantic { module_path } => {
@@ -420,23 +424,29 @@ pub(super) fn decode_provider_demand_plan(encoded: &[u8]) -> Option<DecodedProvi
                 let trait_name = read_symbol(&mut cursor)?;
                 let trait_package = read_optional_symbol(&mut cursor)?;
                 let argument_len = read_len(&mut cursor, MAX_CACHE_SEQUENCE_LEN)?;
-                let mut trait_type_argument_names = Vec::with_capacity(argument_len);
+                let mut trait_type_arguments = Vec::with_capacity(argument_len);
                 for _ in 0..argument_len {
-                    trait_type_argument_names.push(read_optional_symbol(&mut cursor)?);
+                    trait_type_arguments.push(ProviderTypeArgument {
+                        name: read_optional_symbol(&mut cursor)?,
+                        package: read_optional_symbol(&mut cursor)?,
+                    });
                 }
                 demand_symbols.extend(target_type_name);
                 demand_symbols.extend(target_package);
                 demand_symbols.extend(target_module_segments.iter().copied());
                 demand_symbols.insert(trait_name);
                 demand_symbols.extend(trait_package);
-                demand_symbols.extend(trait_type_argument_names.iter().flatten().copied());
+                for argument in &trait_type_arguments {
+                    demand_symbols.extend(argument.name);
+                    demand_symbols.extend(argument.package);
+                }
                 ProviderRequest::TraitImpl {
                     target_type_name,
                     target_package,
                     target_module_segments,
                     trait_name,
                     trait_package,
-                    trait_type_argument_names,
+                    trait_type_arguments,
                 }
             }
             2 => ProviderRequest::ModuleSemantic {
@@ -508,21 +518,7 @@ pub(super) fn remap_provider_demands(
                 resolve_cached_source_path(&demand.source_path.identity(), source_roots)?;
             let request = match demand.request {
                 request @ ProviderRequest::Method { .. } => request,
-                ProviderRequest::TraitImpl {
-                    target_type_name,
-                    trait_name,
-                    trait_type_argument_names,
-                    target_package,
-                    target_module_segments,
-                    trait_package,
-                } => ProviderRequest::TraitImpl {
-                    target_type_name,
-                    target_package,
-                    target_module_segments,
-                    trait_name,
-                    trait_package,
-                    trait_type_argument_names,
-                },
+                request @ ProviderRequest::TraitImpl { .. } => request,
                 ProviderRequest::ModuleSemantic { module_path } => {
                     ProviderRequest::ModuleSemantic {
                         module_path: resolve_cached_source_path(
@@ -663,7 +659,7 @@ fn compare_provider_requests(
                     target_module_segments: left_module_segments,
                     trait_name: left_trait,
                     trait_package: left_trait_package,
-                    trait_type_argument_names: left_arguments,
+                    trait_type_arguments: left_arguments,
                     ..
                 },
                 ProviderRequest::TraitImpl {
@@ -672,7 +668,7 @@ fn compare_provider_requests(
                     target_module_segments: right_module_segments,
                     trait_name: right_trait,
                     trait_package: right_trait_package,
-                    trait_type_argument_names: right_arguments,
+                    trait_type_arguments: right_arguments,
                     ..
                 },
             ) => left_target
@@ -698,12 +694,18 @@ fn compare_provider_requests(
                 .then_with(|| {
                     left_arguments
                         .iter()
-                        .map(|argument| argument.map(SymbolId::raw))
-                        .cmp(
-                            right_arguments
-                                .iter()
-                                .map(|argument| argument.map(SymbolId::raw)),
-                        )
+                        .map(|argument| {
+                            (
+                                argument.name.map(SymbolId::raw),
+                                argument.package.map(SymbolId::raw),
+                            )
+                        })
+                        .cmp(right_arguments.iter().map(|argument| {
+                            (
+                                argument.name.map(SymbolId::raw),
+                                argument.package.map(SymbolId::raw),
+                            )
+                        }))
                 }),
             (
                 ProviderRequest::ModuleSemantic {

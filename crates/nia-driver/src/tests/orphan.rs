@@ -70,7 +70,7 @@ pub fun marker() () {}
             diagnostic
                 .diagnostic
                 .summary
-                .contains("trait implementation violates the package orphan rule")
+                .contains("trait implementation violates the orphan rule")
         }),
         "missing orphan diagnostic: {:?}",
         checked.diagnostics
@@ -133,7 +133,7 @@ pub fun marker() () {}
             diagnostic
                 .diagnostic
                 .summary
-                .contains("trait implementation violates the package orphan rule")
+                .contains("trait implementation violates the orphan rule")
         }),
         "missing orphan diagnostic: {:?}",
         checked.diagnostics
@@ -141,8 +141,8 @@ pub fun marker() () {}
 }
 
 #[test]
-fn structural_trait_impl_must_be_declared_in_the_trait_package() {
-    let root = temp_dir("structural_trait_impl_must_be_declared_in_the_trait_package");
+fn structural_trait_impl_without_a_local_type_is_rejected() {
+    let root = temp_dir("structural_trait_impl_without_a_local_type_is_rejected");
     write(
         &root.join("main.nia"),
         r#"
@@ -195,7 +195,7 @@ extend &[i32] : show::Show {
             diagnostic
                 .diagnostic
                 .summary
-                .contains("structural trait implementations must be declared in the trait package")
+                .contains("trait implementation violates the orphan rule")
         }),
         "missing structural orphan diagnostic: {:?}",
         checked.diagnostics
@@ -304,4 +304,238 @@ fun main() () {}
         "unexpected diagnostics: {:?}",
         checked.diagnostics
     );
+}
+
+/// A main file that loads the implementations of `coherence_packages`.
+const MAIN_USING_IMPLS: &str = r#"
+using extra::impls;
+
+fun main() i32 {
+    impls::marker();
+    0
+}
+"#;
+
+/// Packages for the orphan tests below: `dep` defines types, `traits` a
+/// generic trait, and `extra` a type of its own and an implementation that
+/// uses it as the trait argument.
+fn coherence_packages(root: &std::path::Path, extra_impls: &str) -> ModuleMap {
+    write(&root.join("dep/root.nia"), "pub module types;");
+    write(
+        &root.join("dep/types.nia"),
+        "pub struct Widget { value: i32 }\npub struct Box[T] { value: T }",
+    );
+    write(&root.join("traits/root.nia"), "pub module convert;");
+    write(
+        &root.join("traits/convert.nia"),
+        "pub trait Convert[To] { fun convert(&self) To; }",
+    );
+    write(
+        &root.join("extra/root.nia"),
+        "pub module wrap;\npub module impls;",
+    );
+    write(
+        &root.join("extra/wrap.nia"),
+        "pub struct Wrapper { value: i32 }",
+    );
+    // `marker` lets a test load the implementations' module by using it.
+    write(
+        &root.join("extra/impls.nia"),
+        &format!(
+            "{extra_impls}
+pub fun marker() () {{}}
+"
+        ),
+    );
+    let mut module_map = ModuleMap::new();
+    for package in ["dep", "traits", "extra"] {
+        module_map
+            .insert(
+                package,
+                SourcePath::new(root.join(package).join("root.nia").to_string_lossy()),
+            )
+            .expect("insert package");
+    }
+    module_map
+}
+
+fn orphan_summaries(checked: &nia_compiler_query::CheckedProgramAnalysis) -> Vec<String> {
+    checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.clone())
+        .collect()
+}
+
+/// A package that owns a trait argument may implement a foreign trait for a
+/// foreign type, and a package that never imports the implementation's
+/// module finds it through the argument's package.
+#[test]
+fn trait_argument_owner_may_implement_and_is_searched() {
+    let root = temp_dir("trait_argument_owner_may_implement_and_is_searched");
+    write(
+        &root.join("main.nia"),
+        r#"
+using dep::types;
+using traits::convert;
+using extra::wrap;
+
+fun use[T](value: T) i32
+where T: convert::Convert[wrap::Wrapper]
+{
+    value.convert().value
+}
+
+fun main() i32 {
+    use(types::Widget { value: 3 })
+}
+"#,
+    );
+    let module_map = coherence_packages(
+        &root,
+        r#"
+using dep::types;
+using traits::convert;
+using root::wrap;
+
+extend types::Widget : convert::Convert[wrap::Wrapper] {
+    fun convert(&self) wrap::Wrapper {
+        .{ value: self.value }
+    }
+}
+"#,
+    );
+    let checked = check_program_with_map(root.join("main.nia").to_string_lossy(), module_map);
+    assert!(
+        checked.diagnostics.is_empty(),
+        "{:?}",
+        orphan_summaries(&checked)
+    );
+}
+
+/// A type parameter before the first local type could stand for a type
+/// another package owns, which could then implement the same goal.
+#[test]
+fn uncovered_type_parameter_before_the_local_type_is_rejected() {
+    let root = temp_dir("uncovered_type_parameter_before_the_local_type_is_rejected");
+    write(&root.join("main.nia"), "fun main() i32 { 0 }\n");
+    let module_map = coherence_packages(
+        &root,
+        r#"
+using traits::convert;
+using root::wrap;
+
+extend[T] T : convert::Convert[wrap::Wrapper] {
+    fun convert(&self) wrap::Wrapper {
+        .{ value: 0 }
+    }
+}
+"#,
+    );
+    let main = root.join("main.nia");
+    write(&main, MAIN_USING_IMPLS);
+    let checked = check_program_with_map(main.to_string_lossy(), module_map);
+    let summaries = orphan_summaries(&checked);
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary == "type parameter `T` must be covered by a local type"),
+        "{summaries:?}"
+    );
+}
+
+/// A parameter inside another type is covered, and a pointer to a local
+/// type is local, as Rust's fundamental references are.
+#[test]
+fn covered_parameters_and_pointers_to_local_types_are_allowed() {
+    let root = temp_dir("covered_parameters_and_pointers_to_local_types_are_allowed");
+    let module_map = coherence_packages(
+        &root,
+        r#"
+using dep::types;
+using traits::convert;
+using root::wrap;
+
+extend[T] types::Box[T] : convert::Convert[wrap::Wrapper] {
+    fun convert(&self) wrap::Wrapper {
+        .{ value: 1 }
+    }
+}
+
+extend &wrap::Wrapper : convert::Convert[i32] {
+    fun convert(&self) i32 {
+        self.value
+    }
+}
+"#,
+    );
+    let main = root.join("main.nia");
+    write(&main, MAIN_USING_IMPLS);
+    let checked = check_program_with_map(main.to_string_lossy(), module_map);
+    assert!(
+        checked.diagnostics.is_empty(),
+        "{:?}",
+        orphan_summaries(&checked)
+    );
+}
+
+/// A user's error type absorbs a dependency's error through `IntoError`
+/// declared in the user's package, so `.?` converts it.
+#[test]
+fn user_error_types_absorb_dependency_errors() {
+    let root = temp_dir("user_error_types_absorb_dependency_errors");
+    write(
+        &root.join("dep/root.nia"),
+        "pub enum Error {\n    Bad,\n}\n\npub fun fail() Error!i32 {\n    Error::Bad!\n}\n",
+    );
+    let source = root.join("main.nia");
+    write(
+        &source,
+        r#"
+using std::process;
+
+enum AppError {
+    Dep(dep::Error),
+}
+
+extend dep::Error : std::builtin::IntoError[AppError] {
+    fun intoError(self) AppError {
+        .Dep(self)
+    }
+}
+
+fun run() AppError!i32 {
+    let value = dep::fail().?;
+    !value
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    match run() {
+        AppError::Dep(dep::Error::Bad)! => !(),
+        _ => process::ExitCode(1)!,
+    }
+}
+"#,
+    );
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert(
+            "dep",
+            SourcePath::new(root.join("dep/root.nia").to_string_lossy()),
+        )
+        .expect("insert dependency");
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_module_map(module_map)
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("conversion into a local error must link");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run the conversion");
+    assert_eq!(status.code(), Some(0));
 }

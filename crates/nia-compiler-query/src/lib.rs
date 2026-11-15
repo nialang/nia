@@ -56,7 +56,7 @@ pub use nia_loader_contract::{
     ActiveModuleItemTreeFactKind, LoadedModule, LoadedProgram, LoaderFactProvider,
     ProgramDiagnostic, ProgramDiagnosticBundles, ProviderDemand, ProviderFactRevision,
     ProviderFactRevisionTransition, ProviderFactSnapshot, ProviderGraphUpdate, ProviderRequest,
-    has_error_diagnostics,
+    ProviderTypeArgument, has_error_diagnostics,
 };
 
 pub use nia_loader_contract::{

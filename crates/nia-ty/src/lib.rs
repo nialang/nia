@@ -28,6 +28,7 @@ use parking_lot::Mutex;
 use std::fmt;
 use std::sync::{Arc, OnceLock};
 
+pub mod coherence;
 mod const_expression;
 mod substitution;
 

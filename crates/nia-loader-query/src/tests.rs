@@ -606,9 +606,12 @@ fn load_program_with_trait_provider_demand_for_package_and_module(
                 target_module_segments,
                 trait_name: sym(trait_name),
                 trait_package: Some(nia_symbol::known::STD),
-                trait_type_argument_names: trait_type_argument_names
+                trait_type_arguments: trait_type_argument_names
                     .iter()
-                    .map(|name| name.map(sym))
+                    .map(|name| nia_loader_contract::ProviderTypeArgument {
+                        name: name.map(sym),
+                        package: None,
+                    })
                     .collect(),
             },
         }])

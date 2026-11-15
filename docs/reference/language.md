@@ -2382,6 +2382,42 @@ specialization, but they may not overlap the intrinsic implementations the
 language provides for primitive and structural types, such as equality on
 pointers.
 
+### Where Implementations Live
+
+An implementation `extend[P, ...] T0 : Trait[T1, ..., Tn]` may be declared in
+the package that defines `Trait`, or in a package that owns one of the types
+`T0` to `Tn`: the extended type or a trait argument. A package owns:
+
+- the structs, unions, and enums it defines;
+- `&T` and `&mut T` when it owns `T`, since a pointer owns nothing of its own;
+- a trait object when it defines the trait.
+
+std owns the primitive types. Other structural types, such as slices, arrays,
+tuples, optionals, and error unions, belong to no package. In a package that
+does not define the trait, no type that could be any type, a type parameter or
+a pointer to one, may come before the first type the package owns; inside
+another type, as in `Box[T]` or `[T]`, a parameter is covered and allowed.
+
+```nia ignore
+// In a package that defines `AppError`:
+extend json::Error : IntoError[AppError] { ... }      // allowed: AppError is local
+extend[T] Box[T] : Convert[AppError] { ... }          // allowed: T is covered
+extend[T] T : Convert[AppError] { ... }               // rejected: T comes first
+```
+
+The rule lets an implementation be found without importing it: proving
+`T0: Trait[T1, ..., Tn]` searches the trait's package and the packages that own
+its types, whatever the proving module's `using` declarations are. It also keeps
+packages that do not depend on each other from implementing the same goal:
+another package could own the type an uncovered parameter stands for. An
+executable or test tree is a package of its own for this rule, so it implements
+traits for the types and traits it defines.
+
+Within the packages that may implement a goal, two unconditional
+implementations with the same header are an error; an implementation whose
+header is strictly more specific than another's specializes it, and
+implementations whose `where` clauses differ are chosen by which clause holds.
+
 ### Trait Object Coercion And Dispatch
 
 A pointer to a concrete type converts to a trait object pointer (`&Trait`,
