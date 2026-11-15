@@ -174,6 +174,9 @@ pub enum LocalBindingName {
     Named(SymbolId),
     /// The implicit receiver value.
     SelfValue,
+    /// A parameter written `_`: it holds its argument but binds no name, so
+    /// no expression can refer to it.
+    Unnamed,
 }
 
 impl LocalBindingName {
@@ -186,7 +189,7 @@ impl LocalBindingName {
     pub fn symbol(self) -> Option<SymbolId> {
         match self {
             Self::Named(name) => Some(name),
-            Self::SelfValue => None,
+            Self::SelfValue | Self::Unnamed => None,
         }
     }
 

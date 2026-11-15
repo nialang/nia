@@ -29,7 +29,8 @@ when no use determines it, which the compiler reports:
 error[E0301]: cannot infer closure parameter `x`; add a type annotation or provide a callable context
 ```
 
-There is no return type annotation; the result type comes from the body.
+There is no return type annotation; the result type comes from the body. A
+parameter the body does not use is written `_`, as in `\_, b -> b`.
 
 A closure has one fixed signature. Using the same closure as both
 `Fun(i32) i32` and `Fun(bool) bool` is an error, and the message points at

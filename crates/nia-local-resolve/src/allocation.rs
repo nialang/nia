@@ -66,16 +66,7 @@ impl LocalDefinitionAllocator {
 
     fn allocate_function(&mut self, function: &FunctionItem) {
         for param in &function.params {
-            if param.receiver.is_some() {
-                self.allocate_receiver(param.span, param.node_key.clone());
-            } else if let Some(name) = &param.name {
-                self.allocate_definition(
-                    name,
-                    LocalKind::Param,
-                    param.span,
-                    param.node_key.clone(),
-                );
-            }
+            self.allocate_param(param);
         }
         if let Some(body) = &function.body {
             self.allocate_block(body);
@@ -185,16 +176,7 @@ impl LocalDefinitionAllocator {
                     );
                 }
                 for param in params {
-                    if param.receiver.is_some() {
-                        self.allocate_receiver(param.span, param.node_key.clone());
-                    } else if let Some(name) = &param.name {
-                        self.allocate_definition(
-                            name,
-                            LocalKind::Param,
-                            param.span,
-                            param.node_key.clone(),
-                        );
-                    }
+                    self.allocate_param(param);
                 }
                 self.allocate_expr(body);
             }
@@ -403,6 +385,24 @@ impl LocalDefinitionAllocator {
         node_key: VersionedNodeKey,
     ) {
         self.allocate_local(LocalBindingName::named(*name), kind, span, node_key);
+    }
+
+    // Every parameter has a local, whether it is the receiver, named, or
+    // written `_`, so parameters and their locals correspond one to one.
+    fn allocate_param(&mut self, param: &nia_ast::Param) {
+        let node_key = param.node_key.clone();
+        if param.receiver.is_some() {
+            self.allocate_receiver(param.span, node_key);
+        } else if let Some(name) = &param.name {
+            self.allocate_definition(name, LocalKind::Param, param.span, node_key);
+        } else {
+            self.allocate_local(
+                LocalBindingName::Unnamed,
+                LocalKind::Param,
+                param.span,
+                node_key,
+            );
+        }
     }
 
     fn allocate_receiver(&mut self, span: Span, node_key: VersionedNodeKey) {

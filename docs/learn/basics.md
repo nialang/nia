@@ -48,7 +48,8 @@ _ = 1 + 2;
 This matters most for function results: a call that returns an error union and
 is used as a bare statement is an error, so a failure cannot be lost by
 accident. An unused `let` binding or parameter is allowed; `_ = init;` in the
-first chapter only made the intent explicit.
+first chapter only made the intent explicit. A parameter the function never
+uses can also be written `_: Type`, which says so in the signature.
 
 ## Numbers
 

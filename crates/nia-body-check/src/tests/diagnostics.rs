@@ -280,3 +280,39 @@ fun main() () {
         "a self-referential inferred type must be rejected"
     );
 }
+
+#[test]
+fn accepts_unnamed_parameters() {
+    let checked = pipeline(
+        r#"
+trait Visit {
+    fun visit(&mut self, index: usize, value: i32) i32;
+}
+
+struct Sum {
+    total: i32,
+}
+
+extend Sum : Visit {
+    fun visit(&mut self, _: usize, value: i32) i32 {
+        self.total += value;
+        self.total
+    }
+}
+
+fun third(_: i32, _: i32, value: i32) i32 {
+    value
+}
+
+fun apply(f: &Fun(i32, i32) i32) i32 {
+    f(1, 2)
+}
+
+fun main() i32 {
+    let mut sum = Sum { total: 0 };
+    sum.visit(0, 1) + third(1, 2, 3) + apply(\_, b -> b) + apply(\_, _ -> 0)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}

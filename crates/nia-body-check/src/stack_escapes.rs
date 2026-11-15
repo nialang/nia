@@ -128,6 +128,7 @@ impl BodyChecker<'_> {
                     let name = match local.name {
                         LocalBindingName::Named(symbol) => self.symbol_name(symbol),
                         LocalBindingName::SelfValue => "self".to_owned(),
+                        LocalBindingName::Unnamed => "_".to_owned(),
                     };
                     if local.kind == LocalKind::Param {
                         Storage::Parameter(name)

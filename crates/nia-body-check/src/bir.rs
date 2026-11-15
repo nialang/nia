@@ -41,6 +41,7 @@ impl<'a> BodyChecker<'a> {
         match name {
             LocalBindingName::Named(name) => LocalName::named(name),
             LocalBindingName::SelfValue => LocalName::SelfValue,
+            LocalBindingName::Unnamed => LocalName::Anonymous,
         }
     }
 

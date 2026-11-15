@@ -956,7 +956,8 @@ fn param_list(p: &mut Parser<'_>) -> Option<Parsed> {
 fn parameter_can_start(p: &Parser<'_>) -> bool {
     p.at(TokenKind::Amp)
         || p.at(TokenKind::SelfValue)
-        || (p.at(TokenKind::Ident) && matches!(p.nth_kind(1), Some(TokenKind::Colon)))
+        || ((p.at(TokenKind::Ident) || p.at(TokenKind::Underscore))
+            && matches!(p.nth_kind(1), Some(TokenKind::Colon)))
 }
 
 fn param(p: &mut Parser<'_>) -> Option<Parsed> {
@@ -977,10 +978,11 @@ fn param(p: &mut Parser<'_>) -> Option<Parsed> {
     p.rewind(checkpoint);
     p.node(|p| {
         let start = p.span().start;
-        if !p.at(TokenKind::Amp) {
+        // `_` declares a parameter that binds no name.
+        if p.eat(TokenKind::Underscore).is_none() {
             p.expect_name("expected parameter name")?;
-            p.expect(TokenKind::Colon, "expected `:` after parameter name")?;
         }
+        p.expect(TokenKind::Colon, "expected `:` after parameter name")?;
         let ty = types::param_type(p)?;
         Done::new(SyntaxKind::Param, Span::new(start, ty.span.end))
     })

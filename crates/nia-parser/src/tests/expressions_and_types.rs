@@ -1453,3 +1453,40 @@ fn parses_extern_function_pointer_type_as_a_type_annotation() {
         }
     ));
 }
+
+#[test]
+fn accepts_unnamed_function_and_closure_parameters() {
+    let (module, errors) = parse_module(
+        r#"
+fun ignore(_: i32, kept: u8, _: bool) u8 {
+    let pick = \a, _ -> a;
+    let typed = \_: i32, b: i32 -> b;
+    kept
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let names: Vec<_> = function.params.iter().map(|param| param.name).collect();
+    assert_eq!(names, [None, Some(sym("kept")), None]);
+    assert!(function.params.iter().all(|param| param.ty.is_some()));
+    let statements = &function.body.as_ref().expect("body").stmts;
+    for (statement, expected) in statements
+        .iter()
+        .zip([[Some(sym("a")), None], [None, Some(sym("b"))]])
+    {
+        let StmtKind::Binding(binding) = &statement.kind else {
+            panic!("expected a binding");
+        };
+        let Some(value) = &binding.value else {
+            panic!("expected a binding with a value");
+        };
+        let ExprKind::Closure { params, .. } = &value.kind else {
+            panic!("expected a closure");
+        };
+        let names: Vec<_> = params.iter().map(|param| param.name).collect();
+        assert_eq!(names, expected);
+    }
+}

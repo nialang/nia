@@ -198,21 +198,7 @@ impl<'a> LocalResolver<'a> {
         self.resolve_where_clause(&function.where_clause);
         let self_stack_len = self.self_locals.len();
         for param in &function.params {
-            if let Some(ty) = &param.ty {
-                self.resolve_type(ty);
-            }
-            if param.receiver.is_some() {
-                let local = self.define_receiver(param.span, param.node_key.clone());
-                self.self_locals.push(local);
-            } else if let Some(name) = &param.name {
-                self.define(
-                    name,
-                    LocalKind::Param,
-                    param.span,
-                    param.node_key.clone(),
-                    "duplicate parameter name",
-                );
-            }
+            self.define_param(param, "duplicate parameter name");
         }
         if let Some(return_type) = &function.return_type {
             self.resolve_type(return_type);
@@ -534,21 +520,7 @@ impl<'a> LocalResolver<'a> {
                 }
                 let self_stack_len = self.self_locals.len();
                 for param in params {
-                    if let Some(ty) = &param.ty {
-                        self.resolve_type(ty);
-                    }
-                    if param.receiver.is_some() {
-                        let local = self.define_receiver(param.span, param.node_key.clone());
-                        self.self_locals.push(local);
-                    } else if let Some(name) = &param.name {
-                        self.define(
-                            name,
-                            LocalKind::Param,
-                            param.span,
-                            param.node_key.clone(),
-                            "duplicate closure parameter name",
-                        );
-                    }
+                    self.define_param(param, "duplicate closure parameter name");
                 }
                 self.resolve_expr(body);
                 self.self_locals.truncate(self_stack_len);
@@ -1006,6 +978,33 @@ impl<'a> LocalResolver<'a> {
         let local = ScopedLocal { id, span };
         scope.locals.insert(*name, local);
         Some(local)
+    }
+
+    // Defines the local of a function or closure parameter after resolving its
+    // type. A parameter written `_` has a local, but no name in any scope.
+    fn define_param(&mut self, param: &nia_ast::Param, duplicate_message: &'static str) {
+        if let Some(ty) = &param.ty {
+            self.resolve_type(ty);
+        }
+        if param.receiver.is_some() {
+            let local = self.define_receiver(param.span, param.node_key.clone());
+            self.self_locals.push(local);
+        } else if let Some(name) = &param.name {
+            self.define(
+                name,
+                LocalKind::Param,
+                param.span,
+                param.node_key.clone(),
+                duplicate_message,
+            );
+        } else if let Some(id) = self.local_definition_id(
+            LocalBindingName::Unnamed,
+            LocalKind::Param,
+            param.span,
+            &param.node_key,
+        ) {
+            self.node_local_defs.insert(param.node_key.clone(), id);
+        }
     }
 
     fn define_receiver(&mut self, span: Span, node_key: VersionedNodeKey) -> Option<ScopedLocal> {

@@ -2130,3 +2130,46 @@ fun main() i32 { 0 }
         ]
     );
 }
+
+#[test]
+fn unnamed_parameters_hold_their_arguments() {
+    let root = temp_dir("unnamed_parameters_hold_their_arguments");
+    let source = root.join("main.nia");
+    write(
+        &source,
+        r#"
+using std::process;
+
+fun third(_: i32, _: i32, value: i32) i32 {
+    value
+}
+
+fun pair(f: &Fun(i32, i32) i32) i32 {
+    f(10, 20)
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let constant = \_ -> 7;
+    let second = \_, y -> y;
+    let call = \[constant] x: i32 -> constant(x);
+    if third(1, 2, 3) != 3 or call(1) != 7 or pair(second) != 20 or pair(\_, _ -> 4) != 4 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(source.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("runner.exe"),
+        ))
+        .result
+        .expect("unnamed parameters must link");
+    let status = std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run unnamed parameters");
+    assert_eq!(status.code(), Some(0));
+}

@@ -786,7 +786,9 @@ fun abs(x: i32) i32 {
 }
 ```
 
-Parameters are `name: Type`. The return type follows the parameter list; when
+Parameters are `name: Type`. A parameter written `_: Type` takes its argument
+but binds no name, as an implementation of a trait method does when it needs
+only some of the arguments. The return type follows the parameter list; when
 omitted it is `()`. The body is a [block](#blocks), and its tail expression is
 the return value. `return expr;` returns early, and `return;` returns `()`.
 `const fun` declares a function that can also run during
@@ -1742,7 +1744,8 @@ During constant evaluation, conversion works only when the selected
 ## Closures
 
 A closure is written `\` then an optional capture list, a comma-separated
-parameter list, `->`, and one expression:
+parameter list, `->`, and one expression. A parameter is a name or `_`, with an
+optional type, as in `\value: i32` or `\_, value`:
 
 ```nia
 fun closures() i32 {

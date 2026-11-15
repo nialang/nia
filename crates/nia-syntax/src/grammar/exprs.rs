@@ -1126,7 +1126,8 @@ fn closure_params(p: &mut Parser<'_>) {
     p.node(|p| {
         let start = p.span().start;
         while !p.at(TokenKind::ThinArrow) && !p.at(TokenKind::Eof) {
-            if !p.at(TokenKind::Ident) {
+            // A name, or `_` for a parameter that binds none.
+            if !p.at(TokenKind::Ident) && !p.at(TokenKind::Underscore) {
                 p.expected_here(
                     ParseErrorKind::ExpectedName,
                     "expected closure parameter name",
@@ -1156,7 +1157,7 @@ fn closure_params(p: &mut Parser<'_>) {
                 if p.at(TokenKind::ThinArrow) || p.at(TokenKind::Eof) {
                     break;
                 }
-                let next = p.at(TokenKind::Ident);
+                let next = p.at(TokenKind::Ident) || p.at(TokenKind::Underscore);
                 p.expected_here(
                     ParseErrorKind::Grammar,
                     "expected `,` or `->` after closure parameter",
