@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
-use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
+use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, PathSegmentKind, UnaryOp};
 use nia_defs::{DefId, DefKind, VisibleExtensionAssociatedValue};
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ice::Ice;
@@ -122,11 +122,44 @@ impl<'a> BodyChecker<'a> {
             ExprKind::ByteChar(_) => self.primitive(PrimitiveTy::U8),
             ExprKind::Bool(_) => self.bool(),
             ExprKind::Null => self.check_null_expr(expr.span, expected),
-            ExprKind::Underscore => self.error(),
+            // `_` discards the value assigned to it, so only `_ = expr` uses
+            // it, and that form never checks it as an expression.
+            ExprKind::Underscore => {
+                self.diagnostics.push(
+                    Diagnostic::user_error(codes::TYPE_CHECK, "`_` is not a value")
+                        .primary(expr.span, "`_` cannot be read")
+                        .help("`_` only discards, as in `_ = expr`; give a parameter or binding a name to use it")
+                        .finish(),
+                );
+                self.error()
+            }
             ExprKind::Ident(_) | ExprKind::SelfValue => self
                 .check_function_ref(expr, false, expected)
                 .unwrap_or_else(|| self.ident_type(expr)),
-            ExprKind::PathRoot(_) => self.error(),
+            // A path root names a module; `root::name` is checked as a
+            // qualified path, so a bare root reaching here is used as a value.
+            ExprKind::PathRoot(root) => {
+                let (spelling, module) = match root {
+                    PathSegmentKind::Root => ("root", "the package's root module"),
+                    PathSegmentKind::Super => ("super", "the parent module"),
+                    PathSegmentKind::Name(_) | PathSegmentKind::SelfValue => {
+                        self.record_internal(Ice::new(
+                            "a path root expression holds a segment that is not a root",
+                        ));
+                        return self.error();
+                    }
+                };
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::TYPE_CHECK,
+                        format!("`{spelling}` is not a value"),
+                    )
+                    .primary(expr.span, format!("`{spelling}` names {module}"))
+                    .help("name an item inside it, as in `root::name`")
+                    .finish(),
+                );
+                self.error()
+            }
             ExprKind::TypeTarget { .. } | ExprKind::TraitTarget { .. } => self.error(),
             ExprKind::BracketSuffix { callee, args } => {
                 if matches!(

@@ -1436,6 +1436,10 @@ fun discard() {
 }
 ```
 
+`_` only discards: it is not a value, and reading it is an error. Neither are
+the path roots `root` and `super`, which name modules and begin paths such as
+`root::name`.
+
 Assignment `place = value` and compound assignment
 (`+= -= *= /= %= <<= >>= &= ^= |=`) require a writable place: a `let mut`
 binding, a `static mut`, a field or element of a writable place, or an element

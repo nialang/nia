@@ -282,6 +282,48 @@ fun main() () {
 }
 
 #[test]
+fn rejects_underscore_and_path_roots_as_values() {
+    let checked = pipeline(
+        r#"
+fun ignore(_: i32) i32 {
+    _
+}
+
+fun closure() i32 {
+    let read = \_: i32 -> _;
+    read(1)
+}
+
+fun roots() () {
+    let a = root;
+    let b = super;
+}
+"#,
+    );
+    let summaries: Vec<_> = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| **summary == "`_` is not a value")
+            .count(),
+        2,
+        "{summaries:?}"
+    );
+    assert!(
+        summaries.contains(&"`root` is not a value"),
+        "{summaries:?}"
+    );
+    assert!(
+        summaries.contains(&"`super` is not a value"),
+        "{summaries:?}"
+    );
+}
+
+#[test]
 fn accepts_unnamed_parameters() {
     let checked = pipeline(
         r#"
