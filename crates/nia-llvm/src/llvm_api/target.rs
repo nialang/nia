@@ -405,6 +405,44 @@ pub(crate) fn test_host_identity() -> TargetMachineIdentity {
 }
 
 #[cfg(test)]
+/// Parses textual IR into a module of `context` named `name`, configured for
+/// `target`. Production code builds modules through the builder.
+pub(crate) fn parse_test_ir<'ctx>(
+    context: &'ctx super::Context,
+    name: &str,
+    ir: &str,
+    target: &TargetMachine,
+) -> super::Module<'ctx> {
+    let name = std::ffi::CString::new(name).expect("module name");
+    let buffer = unsafe {
+        llvm_sys::core::LLVMCreateMemoryBufferWithMemoryRangeCopy(
+            ir.as_ptr().cast(),
+            ir.len(),
+            name.as_ptr(),
+        )
+    };
+    let mut raw = std::ptr::null_mut();
+    let mut message = std::ptr::null_mut();
+    let failed = unsafe {
+        llvm_sys::ir_reader::LLVMParseIRInContext2(context.raw, buffer, &mut raw, &mut message)
+    } != 0;
+    unsafe { llvm_sys::core::LLVMDisposeMemoryBuffer(buffer) };
+    let reason = if message.is_null() {
+        String::new()
+    } else {
+        let text = unsafe { std::ffi::CStr::from_ptr(message) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { llvm_sys::core::LLVMDisposeMessage(message) };
+        text
+    };
+    assert!(!failed, "test IR does not parse: {reason}");
+    let module = super::Module::new(raw);
+    target.configure_module(&module).expect("configure module");
+    module
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

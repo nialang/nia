@@ -44,6 +44,8 @@
 #include <utility>
 #include <vector>
 
+#include "llvm_nia.h"
+
 using namespace llvm;
 
 namespace {
@@ -618,6 +620,7 @@ std::string runModulePipeline(LLVMModuleRef RawModule,
   CGSCCAnalysisManager CGAM;
   ModuleAnalysisManager MAM;
   PassBuilder PB(TM);
+  niaRegisterPasses(PB);
   PB.registerModuleAnalyses(MAM);
   PB.registerCGSCCAnalyses(CGAM);
   PB.registerFunctionAnalyses(FAM);
