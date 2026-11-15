@@ -2195,3 +2195,59 @@ pub fun main(init: process::Init) process::ExitCode!() {
     );
     assert_eq!(code, Some(0));
 }
+
+#[test]
+fn error_propagation_passes_its_location_to_the_conversion() {
+    // `intoError` tracks its caller, so a conversion records the `.?` that
+    // propagated the error: in concrete, generic, and constant code.
+    let code = run_exit_code(
+        "error_propagation_passes_its_location_to_the_conversion",
+        r#"
+using std::builtin::IntoError;
+using std::process;
+using std::source::{SourceLocation, callerLocation};
+
+enum Inner { Bad }
+enum Outer { Wrapped(SourceLocation) }
+
+extend Inner : IntoError[Outer] {
+    const fun intoError(self) Outer {
+        _ = self;
+        .Wrapped(callerLocation())
+    }
+}
+
+const fun fail() Inner!u32 { Inner::Bad! }
+
+const fun concrete() Outer!u32 {
+    let value = fail().?;
+    !value
+}
+
+fun generic[E](result: E!u32) Outer!u32
+where E: IntoError[Outer]
+{
+    let value = result.?;
+    !value
+}
+
+const fun line(result: Outer!u32) u32 {
+    match result {
+        !_ => 0,
+        Outer::Wrapped(location)! => location.line,
+    }
+}
+
+const CONCRETE_LINE: u32 = line(concrete());
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    if line(concrete()) != 19 or CONCRETE_LINE != 19 or line(generic(fail())) != 26 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    assert_eq!(code, Some(0));
+}

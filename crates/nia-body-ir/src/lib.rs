@@ -669,6 +669,9 @@ pub struct TypedTryErrorConversion {
     pub target_ty: InternedTyId,
     /// Trait type arguments.
     pub trait_args: Vec<InternedTyId>,
+    /// Location of the propagation, passed to a conversion method that
+    /// tracks its caller.
+    pub location: Option<nia_source::SourceLocation>,
 }
 
 /// Pointer relocation embedded in a union byte image.

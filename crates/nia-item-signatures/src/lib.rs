@@ -377,6 +377,30 @@ impl FunctionSignature {
     }
 }
 
+/// Whether an implementation of `trait_id`'s method `method_name` tracks
+/// its caller. An implementation tracks its caller exactly when the trait
+/// declares the method `@[trackCaller]`: a builtin trait's declaration
+/// agrees with the compiler's descriptor, and `source_trait` reads a source
+/// trait's declaration.
+pub fn implemented_method_tracks_caller(
+    trait_id: nia_ty::TraitId,
+    method_name: SymbolId,
+    source_trait: impl FnOnce(nia_ids::GlobalDefId) -> Option<TraitSignature>,
+) -> bool {
+    match trait_id {
+        nia_ty::TraitId::Builtin(builtin) => builtin.required_methods().iter().any(|method| {
+            nia_symbol::ToSymbolId::symbol_id(*method) == method_name && method.tracks_caller()
+        }),
+        nia_ty::TraitId::Source(def_id) => source_trait(def_id).is_some_and(|signature| {
+            signature
+                .methods
+                .iter()
+                .find(|method| method.name == method_name)
+                .is_some_and(|method| method.signature.tracks_caller())
+        }),
+    }
+}
+
 /// Declaration-order generic parameter metadata.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParamSignature {

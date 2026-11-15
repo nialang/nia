@@ -442,6 +442,10 @@ impl<'a> SignatureCollector<'a> {
             });
             signatures.functions.insert(method_id, signature);
         }
+        let builtin = self.builtin_trait_attribute(&item.attributes);
+        if let Some(builtin) = builtin {
+            self.check_builtin_trait_declaration(builtin, &methods, item.span);
+        }
         signatures.traits.insert(
             def_id,
             TraitSignature {
@@ -461,10 +465,79 @@ impl<'a> SignatureCollector<'a> {
                 associated_types,
                 associated_values,
                 methods,
-                builtin: self.builtin_trait_attribute(&item.attributes),
+                builtin,
                 span: item.span,
             },
         );
+    }
+
+    /// Checks a `@[builtin]` trait declaration against the operations the
+    /// compiler performs with the trait: each method it calls must be
+    /// declared with the parameter count, receiver, and caller tracking the
+    /// compiler uses. Implementations are then checked against this
+    /// declaration alone.
+    fn check_builtin_trait_declaration(
+        &mut self,
+        builtin: BuiltinTrait,
+        methods: &[TraitMethodSignature],
+        span: Span,
+    ) {
+        let trait_name = builtin.name();
+        for required in builtin.required_methods() {
+            let name = required.name();
+            let Some(declared) = methods
+                .iter()
+                .find(|method| method.name == nia_symbol::ToSymbolId::symbol_id(*required))
+            else {
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::ITEM_SIGNATURE,
+                        format!("builtin trait `{trait_name}` must declare method `{name}`"),
+                    )
+                    .primary(span, format!("`{trait_name}` declares no method `{name}`"))
+                    .finish(),
+                );
+                continue;
+            };
+            let signature = &declared.signature;
+            let receiver = signature.params.first().and_then(|param| param.receiver);
+            let mismatch = if signature.params.len() != required.param_count() {
+                let count = required.param_count();
+                let plural = if count == 1 { "" } else { "s" };
+                Some(format!(
+                    "the compiler calls `{name}` with {count} parameter{plural}, including the receiver"
+                ))
+            } else if receiver != Some(required.declared_receiver_kind()) {
+                Some(format!(
+                    "the compiler passes the receiver of `{name}` as `{}`",
+                    receiver_spelling(required.declared_receiver_kind())
+                ))
+            } else if signature.tracks_caller() != required.tracks_caller() {
+                Some(if required.tracks_caller() {
+                    format!(
+                        "the compiler passes the caller's location to `{name}`; declare it `@[trackCaller]`"
+                    )
+                } else {
+                    format!(
+                        "the compiler does not pass a caller location to `{name}`; remove `@[trackCaller]`"
+                    )
+                })
+            } else {
+                None
+            };
+            if let Some(mismatch) = mismatch {
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::ITEM_SIGNATURE,
+                        format!(
+                            "builtin trait `{trait_name}` declares method `{name}` differently from the compiler"
+                        ),
+                    )
+                    .primary(declared.span, mismatch)
+                    .finish(),
+                );
+            }
+        }
     }
 
     fn collect_method(
@@ -1750,5 +1823,13 @@ impl<'a> SignatureCollector<'a> {
 
     fn error(&self) -> InternedTyId {
         self.type_store.error()
+    }
+}
+
+fn receiver_spelling(kind: ReceiverKind) -> &'static str {
+    match kind {
+        ReceiverKind::Value => "self",
+        ReceiverKind::RefReadOnly => "&self",
+        ReceiverKind::Ref => "&mut self",
     }
 }

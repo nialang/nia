@@ -1738,12 +1738,17 @@ fun run() AppError!i32 {
 
 ```nia
 pub trait IntoError[Target] {
+    @[trackCaller]
     const fun intoError(self) Target;
 }
 ```
 
-During constant evaluation, conversion works only when the selected
-`intoError` is a `const fun`.
+`intoError` tracks its caller (see [Caller Location](#caller-location)), so
+inside a conversion `std::callerLocation()` is the location of the `.?` that
+propagated the error, or of an explicit `intoError()` call. A conversion can
+record where an error crossed into `Target`, as `std::test::Error` does for an
+error propagated out of a test. During constant evaluation, conversion works
+only when the selected `intoError` is a `const fun`.
 
 ## Closures
 

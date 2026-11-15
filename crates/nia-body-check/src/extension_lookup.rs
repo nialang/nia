@@ -132,6 +132,20 @@ impl<'a> BodyChecker<'a> {
             .or_else(|| self.extension_methods_by_id.get(&method_id))
     }
 
+    /// The trait method that the extension method `def_id` implements, as
+    /// the trait and the method's name.
+    pub(super) fn implemented_trait_method(
+        &mut self,
+        def_id: GlobalDefId,
+    ) -> Option<(nia_ty::TraitId, SymbolId)> {
+        let implemented = |trait_id: Option<nia_ty::TraitId>, name| trait_id.map(|id| (id, name));
+        if let Some(method) = self.program_extension_methods.method_by_id(def_id) {
+            return implemented(method.trait_id, method.name);
+        }
+        let method = (self.program.extension_method_by_id?)(def_id)?;
+        implemented(method.trait_id, method.name)
+    }
+
     pub(super) fn ensure_extension_method_lookup_for_id(
         &mut self,
         method_id: GlobalDefId,

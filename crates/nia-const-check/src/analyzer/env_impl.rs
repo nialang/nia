@@ -2409,13 +2409,28 @@ impl Analyzer<'_> {
 }
 
 impl Analyzer<'_> {
+    /// Whether `function_id` tracks its caller: declared `@[trackCaller]`,
+    /// or implementing a trait method whose declaration is.
     fn function_tracks_caller(&self, function_id: GlobalDefId) -> bool {
-        self.function_signature(function_id)
-            .is_some_and(|signature| {
-                signature
-                    .attributes
-                    .contains(&FunctionAttribute::TrackCaller)
-            })
+        if self
+            .function_signature(function_id)
+            .is_some_and(|signature| signature.tracks_caller())
+        {
+            return true;
+        }
+        let Some(method) = self.trait_impl_method(function_id) else {
+            return false;
+        };
+        let Some(trait_id) = method.trait_id else {
+            return false;
+        };
+        nia_item_signatures::implemented_method_tracks_caller(trait_id, method.name, |trait_id| {
+            self.signatures_for_module(trait_id.module_id)?
+                .as_ref()
+                .traits
+                .get(&trait_id.def_id)
+                .cloned()
+        })
     }
 
     fn source_location_at(&self, span: Span) -> Result<nia_source::SourceLocation, ConstError> {

@@ -295,12 +295,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let resolved = self.resolved_function_signature(def_id)?;
-        if resolved.signature.attributes.iter().any(|attribute| {
-            matches!(
-                attribute,
-                nia_item_signatures::FunctionAttribute::TrackCaller
-            )
-        }) {
+        if self.function_tracks_caller(def_id) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,

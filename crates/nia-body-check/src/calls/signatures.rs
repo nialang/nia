@@ -45,6 +45,23 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
+    /// Whether `def_id` tracks its caller: declared `@[trackCaller]`, or an
+    /// implementation of a trait method whose declaration is.
+    pub(crate) fn function_tracks_caller(&mut self, def_id: GlobalDefId) -> bool {
+        if self
+            .resolved_function_signature(def_id)
+            .is_some_and(|resolved| resolved.signature.tracks_caller())
+        {
+            return true;
+        }
+        let Some((trait_id, method_name)) = self.implemented_trait_method(def_id) else {
+            return false;
+        };
+        nia_item_signatures::implemented_method_tracks_caller(trait_id, method_name, |trait_id| {
+            self.resolved_trait_signature(trait_id)
+        })
+    }
+
     pub(crate) fn local_function_signature(
         &mut self,
         signature: &FunctionSignature,

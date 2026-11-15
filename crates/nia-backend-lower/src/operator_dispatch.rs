@@ -499,6 +499,9 @@ impl<'a> ModuleLowerer<'a> {
                         } => self.dispatch_builtin_trait_method_call(
                             trait_id, method, self_ty, trait_args, *receiver, args,
                         ),
+                        FunctionCallee::Tracked { callee, location } => {
+                            self.dispatch_tracked_builtin_call(*callee, location, args)
+                        }
                         FunctionCallee::BuiltinMethod {
                             method,
                             self_ty,
@@ -1081,6 +1084,39 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    /// A tracked call: a builtin trait method passes its caller's location
+    /// to the implementation it selects, and an intrinsic takes none. Any
+    /// other tracked callee is already resolved.
+    fn dispatch_tracked_builtin_call(
+        &mut self,
+        callee: FunctionCallee,
+        location: nia_source::SourceLocation,
+        args: Vec<FunctionExpr>,
+    ) -> FunctionExprKind {
+        let FunctionCallee::BuiltinTraitMethodCall {
+            trait_id,
+            method,
+            self_ty,
+            trait_args,
+            receiver,
+        } = callee
+        else {
+            return FunctionExprKind::Call {
+                callee: FunctionCallee::Tracked {
+                    callee: Box::new(callee),
+                    location,
+                },
+                args,
+            };
+        };
+        track_selected_implementation(
+            self.dispatch_builtin_trait_method_call(
+                trait_id, method, self_ty, trait_args, *receiver, args,
+            ),
+            location,
+        )
+    }
+
     fn dispatch_builtin_trait_method_call(
         &mut self,
         trait_id: BuiltinTrait,
@@ -1241,5 +1277,29 @@ fn builtin_method_trait(
         FunctionBuiltinMethod::Iter => {
             Some((BuiltinTrait::Iterable, BuiltinTraitMethod::IterableIter))
         }
+    }
+}
+
+/// The dispatch of a tracked builtin trait method call: the implementation
+/// method it selects receives the caller's location, a call still awaiting
+/// its implementation keeps the location for instantiation, and an
+/// intrinsic operation, which tracks nothing, receives none.
+pub(crate) fn track_selected_implementation(
+    dispatched: FunctionExprKind,
+    location: nia_source::SourceLocation,
+) -> FunctionExprKind {
+    match dispatched {
+        FunctionExprKind::Call {
+            callee:
+                callee @ (FunctionCallee::Method { .. } | FunctionCallee::BuiltinTraitMethodCall { .. }),
+            args,
+        } => FunctionExprKind::Call {
+            callee: FunctionCallee::Tracked {
+                callee: Box::new(callee),
+                location,
+            },
+            args,
+        },
+        intrinsic => intrinsic,
     }
 }

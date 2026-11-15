@@ -6,5 +6,8 @@
 
 @[builtin("IntoError")]
 pub trait IntoError[Target] {
+    // `.?` passes the location of the propagation, so a conversion can
+    // record where an error crossed into `Target`.
+    @[trackCaller]
     const fun intoError(self) Target;
 }

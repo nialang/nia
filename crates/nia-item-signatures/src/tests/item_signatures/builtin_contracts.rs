@@ -169,6 +169,8 @@ fn records_builtin_trait_attributes() {
 @[builtin("Iterator")]
 pub trait Iterator {
 type Item;
+
+fun next(&mut self) ?[Self as Iterator]::Item;
 }
 "#,
     );
@@ -180,6 +182,59 @@ type Item;
         .next()
         .expect("iterator signature");
     assert_eq!(signature.builtin, Some(BuiltinTrait::Iterator));
+}
+
+fn builtin_declaration_summaries(source: &str) -> Vec<String> {
+    signatures(source)
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.clone())
+        .collect()
+}
+
+#[test]
+fn builtin_trait_declarations_agree_with_the_compiler() {
+    // The compiler calls `intoError` with the location of `.?`, by value.
+    let tracked = builtin_declaration_summaries(
+        r#"
+@[builtin("IntoError")]
+pub trait IntoError[Target] {
+    @[trackCaller]
+    const fun intoError(self) Target;
+}
+"#,
+    );
+    assert!(tracked.is_empty(), "{tracked:?}");
+
+    let summaries = builtin_declaration_summaries(
+        r#"
+@[builtin("IntoError")]
+pub trait IntoError[Target] {
+    const fun intoError(self) Target;
+}
+
+@[builtin("Add")]
+pub trait Add[Rhs] {
+    type Output;
+
+    fun add(&self, rhs: Rhs) [Self as Add[Rhs]]::Output;
+}
+
+@[builtin("Neg")]
+pub trait Neg {
+    type Output;
+}
+"#,
+    );
+    assert_eq!(
+        summaries,
+        vec![
+            "builtin trait `IntoError` declares method `intoError` differently from the compiler"
+                .to_string(),
+            "builtin trait `Add` declares method `add` differently from the compiler".to_string(),
+            "builtin trait `Neg` must declare method `neg`".to_string(),
+        ]
+    );
 }
 
 #[test]

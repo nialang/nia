@@ -51,30 +51,20 @@ impl<'a> ModuleLowerer<'a> {
         let Some(implementation) = self.input.program.trait_impls().get(impl_index) else {
             return false;
         };
-        let nia_ty::TraitId::Source(trait_id) = implementation.trait_id else {
-            return false;
-        };
         let Some(method_name) = self.method_symbol_for_def(def_id) else {
             return false;
         };
-        self.input
-            .program
-            .traits()
-            .get(&trait_id)
-            .and_then(|trait_signature| {
-                trait_signature
-                    .signature
-                    .methods
-                    .iter()
-                    .find(|method| method.name == method_name)
-            })
-            .is_some_and(|method| {
-                method
-                    .signature
-                    .attributes
-                    .iter()
-                    .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
-            })
+        nia_item_signatures::implemented_method_tracks_caller(
+            implementation.trait_id,
+            method_name,
+            |trait_id| {
+                self.input
+                    .program
+                    .traits()
+                    .get(&trait_id)
+                    .map(|signature| signature.signature.clone())
+            },
+        )
     }
 
     pub(crate) fn lower_struct(

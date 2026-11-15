@@ -1448,6 +1448,13 @@ impl<'a> BodyChecker<'a> {
                             source_ty: self_ty,
                             target_ty,
                             trait_args,
+                            location: method.tracks_caller().then(|| {
+                                nia_source::SourceLocation::at(
+                                    self.source_path,
+                                    self.source_text,
+                                    expr.span.start,
+                                )
+                            }),
                         }),
                     _ => None,
                 };
@@ -1593,18 +1600,17 @@ impl<'a> BodyChecker<'a> {
                     let receiver_ty = self.receiver_ty_for_target(self_ty, method.receiver_kind());
                     let (receiver, lowered_args) =
                         self.lower_builtin_call_receiver(callee, args, Some(receiver_ty));
+                    let callee = TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall {
+                        trait_id,
+                        method,
+                        self_ty,
+                        trait_args,
+                        receiver: Box::new(self.lower_typed_builtin_trait_method_call_receiver(
+                            &receiver, self_ty, method,
+                        )),
+                    });
                     TypedExprKind::Call {
-                        callee: TypedCallee::BuiltinTraitMethodCall(BuiltinTraitMethodCall {
-                            trait_id,
-                            method,
-                            self_ty,
-                            trait_args,
-                            receiver: Box::new(
-                                self.lower_typed_builtin_trait_method_call_receiver(
-                                    &receiver, self_ty, method,
-                                ),
-                            ),
-                        }),
+                        callee: self.tracked_callee(expr, method.tracks_caller(), callee),
                         args: lowered_args,
                     }
                 } else if let Some(ResolvedCall::BuiltinMethod { method, self_ty }) =

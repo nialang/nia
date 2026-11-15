@@ -471,6 +471,22 @@ impl Analyzer<'_> {
             .map(|_| DefKind::Function)
     }
 
+    /// The extension method `function_id` defines, with the trait it
+    /// implements.
+    pub(super) fn trait_impl_method(
+        &self,
+        function_id: GlobalDefId,
+    ) -> Option<nia_defs::VisibleExtensionMethod> {
+        let visible_extensions = (self.input.program.visible_extensions?)(function_id.module_id)?;
+        visible_extensions.targets().iter().find_map(|target| {
+            target
+                .methods
+                .iter()
+                .find(|method| method.def_id == function_id)
+                .cloned()
+        })
+    }
+
     pub(super) fn extension_method_target_ty(
         &self,
         function_id: GlobalDefId,

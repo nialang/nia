@@ -700,27 +700,35 @@ impl<'a> BodyChecker<'a> {
                 TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))
             }
         };
-        if tracks_caller {
-            TypedCallee::Tracked {
-                callee: Box::new(lowered),
-                location: nia_source::SourceLocation::at(
-                    self.source_path,
-                    self.source_text,
-                    call.span.start,
-                ),
-            }
-        } else {
-            lowered
+        self.tracked_callee(call, tracks_caller, lowered)
+    }
+
+    /// `callee` as `call` calls it: a callee that tracks its caller receives
+    /// the location of the call.
+    pub(super) fn tracked_callee(
+        &self,
+        call: &Expr,
+        tracks_caller: bool,
+        callee: TypedCallee,
+    ) -> TypedCallee {
+        if !tracks_caller {
+            return callee;
+        }
+        TypedCallee::Tracked {
+            callee: Box::new(callee),
+            location: nia_source::SourceLocation::at(
+                self.source_path,
+                self.source_text,
+                call.span.start,
+            ),
         }
     }
 
     fn resolved_call_tracks_caller(&mut self, resolved: &ResolvedCall) -> bool {
-        let attributes = match resolved {
+        match resolved {
             ResolvedCall::Function(def_id)
             | ResolvedCall::FunctionInstance { def_id, .. }
-            | ResolvedCall::Method { def_id, .. } => self
-                .resolved_function_signature(*def_id)
-                .map(|resolved| resolved.signature.attributes),
+            | ResolvedCall::Method { def_id, .. } => self.function_tracks_caller(*def_id),
             ResolvedCall::TraitMethod {
                 trait_id,
                 method_name,
@@ -732,24 +740,17 @@ impl<'a> BodyChecker<'a> {
                 ..
             } => self
                 .trait_method_signature(*trait_id, method_name)
-                .map(|signature| signature.attributes),
+                .is_some_and(|signature| signature.tracks_caller()),
             ResolvedCall::DynamicTraitMethod {
                 trait_id: nia_ty::TraitId::Source(trait_id),
                 method_name,
                 ..
             } => self
                 .trait_method_signature(*trait_id, method_name)
-                .map(|signature| signature.attributes),
-            _ => None,
-        };
-        attributes.is_some_and(|attributes| {
-            attributes.iter().any(|attribute| {
-                matches!(
-                    attribute,
-                    nia_item_signatures::FunctionAttribute::TrackCaller
-                )
-            })
-        })
+                .is_some_and(|signature| signature.tracks_caller()),
+            ResolvedCall::BuiltinTraitMethodCall { method, .. } => method.tracks_caller(),
+            _ => false,
+        }
     }
 
     fn selected_trait_method_implementation(

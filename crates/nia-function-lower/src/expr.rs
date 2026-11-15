@@ -510,17 +510,25 @@ impl FunctionLowerer<'_> {
                     expr: Box::new(value.clone()),
                 },
             };
+            let callee = FunctionCallee::BuiltinTraitMethodCall {
+                trait_id: conversion.trait_id,
+                method: conversion.method,
+                self_ty: conversion.source_ty,
+                trait_args: conversion.trait_args.clone(),
+                receiver: Box::new(receiver),
+            };
+            let callee = match &conversion.location {
+                Some(location) => FunctionCallee::Tracked {
+                    callee: Box::new(callee),
+                    location: location.clone(),
+                },
+                None => callee,
+            };
             FunctionExpr {
                 span: expr.span,
                 ty: conversion.target_ty,
                 kind: FunctionExprKind::Call {
-                    callee: FunctionCallee::BuiltinTraitMethodCall {
-                        trait_id: conversion.trait_id,
-                        method: conversion.method,
-                        self_ty: conversion.source_ty,
-                        trait_args: conversion.trait_args.clone(),
-                        receiver: Box::new(receiver),
-                    },
+                    callee,
                     args: Vec::new(),
                 },
             }

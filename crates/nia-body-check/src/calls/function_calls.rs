@@ -154,11 +154,7 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         }
-        if signature
-            .attributes
-            .iter()
-            .any(|attribute| matches!(attribute, FunctionAttribute::TrackCaller))
-        {
+        if self.function_tracks_caller(item.resolved.def_id) {
             self.diagnostics.push(Diagnostic::user_error_at(
                 codes::TYPE_CHECK,
                 expr.span,

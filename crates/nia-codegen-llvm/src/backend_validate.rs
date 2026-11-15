@@ -794,8 +794,10 @@ pub(super) fn validate_backend_partition_declarations(
             ));
             continue;
         };
+        let start = validator.diagnostics.len();
         validator.validate_definition_owner(owner.id, item.def_id, item.span, "function");
         validator.validate_function(&owner.name, item, false);
+        validator.report_in_definition_source(start, item.def_id);
     }
     for key in &declarations.function_instances {
         let Some(item) = index.function_instance(
@@ -827,7 +829,9 @@ pub(super) fn validate_backend_partition_declarations(
             ));
             continue;
         };
+        let start = validator.diagnostics.len();
         validator.validate_function_instance(&owner.name, item, false);
+        validator.report_in_definition_source(start, key.def_id);
     }
     for &def_id in &declarations.globals {
         let Some(global) = index.global(def_id) else {
@@ -842,8 +846,10 @@ pub(super) fn validate_backend_partition_declarations(
                 .push(missing_declaration_diagnostic("global owner", def_id));
             continue;
         };
+        let start = validator.diagnostics.len();
         validator.validate_definition_owner(owner_id, global.def_id, global.span, "global");
         validator.validate_global(global, false);
+        validator.report_in_definition_source(start, global.def_id);
     }
     for key in &declarations.global_instances {
         let Some(instance) =
@@ -855,7 +861,9 @@ pub(super) fn validate_backend_partition_declarations(
             ));
             continue;
         };
+        let start = validator.diagnostics.len();
         validator.validate_global_instance(instance, false);
+        validator.report_in_definition_source(start, key.def_id);
     }
     for &def_id in &declarations.structs {
         let Some(item) = index.struct_item(def_id) else {
@@ -1112,6 +1120,22 @@ pub(super) struct BackendValidator<'a> {
 }
 
 impl BackendValidator<'_> {
+    /// Reports the diagnostics found since `start` in the source of the
+    /// module defining `def_id`, whose spans they index. A partition holds
+    /// instances of definitions from other modules, so its owner's source
+    /// is not theirs.
+    fn report_in_definition_source(&mut self, start: usize, def_id: GlobalDefId) {
+        let Some(module) = self.index.module(def_id.module_id) else {
+            return;
+        };
+        let path = module.source_identity.normalized_path();
+        for diagnostic in &mut self.diagnostics[start..] {
+            if diagnostic.source_path.is_none() {
+                diagnostic.source_path = Some(path.to_owned());
+            }
+        }
+    }
+
     fn validate_function(&mut self, module_name: &str, function: &BackendFunction, body: bool) {
         self.validate_linkage("function", &function.linkage, function.span);
         self.validate_function_linkage(

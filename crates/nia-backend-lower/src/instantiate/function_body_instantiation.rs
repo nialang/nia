@@ -189,6 +189,39 @@ impl<'a> ModuleLowerer<'a> {
         expr: FunctionExpr,
         substitutions: TypeSubstitutionId,
     ) -> FunctionExpr {
+        // A tracked builtin trait method call is dispatched like an untracked
+        // one; the location then goes to the implementation it selects.
+        let expr = match expr {
+            FunctionExpr {
+                span,
+                ty,
+                kind:
+                    FunctionExprKind::Call {
+                        callee: FunctionCallee::Tracked { callee, location },
+                        args,
+                    },
+            } if matches!(*callee, FunctionCallee::BuiltinTraitMethodCall { .. }) => {
+                let dispatched = self.instantiate_expr(
+                    FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Call {
+                            callee: *callee,
+                            args,
+                        },
+                    },
+                    substitutions,
+                );
+                return FunctionExpr {
+                    kind: crate::operator_dispatch::track_selected_implementation(
+                        dispatched.kind,
+                        location,
+                    ),
+                    ..dispatched
+                };
+            }
+            expr => expr,
+        };
         let span = expr.span;
         let ty = self.instantiate_ty_with_id(expr.ty, substitutions);
         FunctionExpr {

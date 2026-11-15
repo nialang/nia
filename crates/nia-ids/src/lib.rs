@@ -1175,6 +1175,9 @@ pub struct BuiltinTraitMethodDescriptor {
     pub is_value_operator: bool,
     /// Whether the method operates on a writable place.
     pub is_place_method: bool,
+    /// Whether the method receives its caller's source location, as a
+    /// `@[trackCaller]` declaration does.
+    pub tracks_caller: bool,
 }
 
 impl BuiltinTraitMethod {
@@ -1442,7 +1445,8 @@ impl BuiltinTraitMethod {
                 BuiltinTrait::IntoError,
                 1,
                 ReceiverKind::Value,
-            ),
+            )
+            .tracking_caller(),
         ),
     ];
 
@@ -1508,6 +1512,13 @@ impl BuiltinTraitMethod {
         self.descriptor().place_receiver_kind
     }
 
+    /// The receiver the method's std declaration states: its place receiver
+    /// for a place operation, otherwise its ordinary receiver.
+    pub fn declared_receiver_kind(self) -> ReceiverKind {
+        self.place_receiver_kind()
+            .unwrap_or_else(|| self.receiver_kind())
+    }
+
     /// Returns the owning builtin trait identity.
     pub fn trait_id(self) -> BuiltinTrait {
         self.descriptor().trait_id
@@ -1521,6 +1532,12 @@ impl BuiltinTraitMethod {
     /// Reports whether this method operates on a writable place.
     pub fn is_place_method(self) -> bool {
         self.descriptor().is_place_method
+    }
+
+    /// Whether this method receives its caller's source location; its std
+    /// declaration is `@[trackCaller]` exactly when this holds.
+    pub fn tracks_caller(self) -> bool {
+        self.descriptor().tracks_caller
     }
 
     /// Whether the const evaluator has a representation for this intrinsic.
@@ -1596,6 +1613,7 @@ impl BuiltinTraitMethodDescriptor {
             place_receiver_kind: None,
             is_value_operator: true,
             is_place_method: false,
+            tracks_caller: false,
         }
     }
 
@@ -1614,6 +1632,7 @@ impl BuiltinTraitMethodDescriptor {
             place_receiver_kind,
             is_value_operator: false,
             is_place_method: true,
+            tracks_caller: false,
         }
     }
 
@@ -1631,6 +1650,15 @@ impl BuiltinTraitMethodDescriptor {
             place_receiver_kind: None,
             is_value_operator: false,
             is_place_method: false,
+            tracks_caller: false,
+        }
+    }
+
+    /// This method, receiving its caller's source location.
+    const fn tracking_caller(self) -> Self {
+        Self {
+            tracks_caller: true,
+            ..self
         }
     }
 }
