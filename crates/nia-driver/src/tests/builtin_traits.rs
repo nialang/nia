@@ -2126,3 +2126,72 @@ fun main() i32 {
     );
     assert!(summaries.is_empty(), "{summaries:?}");
 }
+
+/// Links `source` as `main.nia` with the freestanding runtime and returns
+/// the program's exit status.
+fn run_exit_code(name: &str, source: &str) -> Option<i32> {
+    let root = temp_dir(name);
+    let main = root.join("main.nia");
+    write(&main, source);
+    let artifact = test_driver()
+        .link_executable(crate::LinkExecutableRequest::new(
+            crate::CheckRequest::new(main.to_string_lossy().into_owned())
+                .with_runtime(test_freestanding_runtime()),
+            root.join("main.exe"),
+        ))
+        .result
+        .expect("program must link");
+    std::process::Command::new(&artifact.path)
+        .status()
+        .expect("run the program")
+        .code()
+}
+
+#[test]
+fn builtin_operator_dispatch_selects_the_most_specific_implementation() {
+    // Both implementations apply to `Wrapper[i32]`; trait selection prefers
+    // the concrete one there and the generic one elsewhere, in generic and
+    // concrete callers alike.
+    let code = run_exit_code(
+        "builtin_operator_dispatch_selects_the_most_specific_implementation",
+        r#"
+using std::process;
+
+struct Wrapper[T] { value: T }
+
+extend[T] Wrapper[T] : Add[Wrapper[T]] {
+    type Output = i32;
+
+    fun add(self, rhs: Wrapper[T]) i32 {
+        _ = self;
+        _ = rhs;
+        1
+    }
+}
+
+extend Wrapper[i32] : Add[Wrapper[i32]] {
+    type Output = i32;
+
+    fun add(self, rhs: Wrapper[i32]) i32 {
+        self.value + rhs.value
+    }
+}
+
+fun sum[T](a: Wrapper[T], b: Wrapper[T]) i32 {
+    a + b
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let concrete = Wrapper[i32] { value: 20 } + Wrapper[i32] { value: 22 };
+    let generic = sum(Wrapper[i32] { value: 20 }, Wrapper[i32] { value: 22 });
+    let other = Wrapper[bool] { value: true } + Wrapper[bool] { value: false };
+    if concrete != 42 or generic != 42 or other != 1 {
+        return process::ExitCode(1)!;
+    }
+    !()
+}
+"#,
+    );
+    assert_eq!(code, Some(0));
+}

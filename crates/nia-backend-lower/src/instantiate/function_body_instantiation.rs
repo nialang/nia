@@ -560,10 +560,10 @@ impl<'a> ModuleLowerer<'a> {
                                 let resolved = self.resolve_builtin_trait_method_call_impl(
                                     trait_id,
                                     &trait_args,
-                                    method,
+                                    nia_symbol::ToSymbolId::symbol_id(method),
                                     self_ty,
                                 );
-                                if let Some((def_id, target_args)) = resolved {
+                                if let Some((def_id, target_args, target_const_args)) = resolved {
                                     return FunctionExpr {
                                         span,
                                         ty,
@@ -573,7 +573,7 @@ impl<'a> ModuleLowerer<'a> {
                                                 arg_module_id: self.current_arg_module_id(),
                                                 self_arg: None,
                                                 args: target_args,
-                                                const_args: Vec::new(),
+                                                const_args: target_const_args,
                                                 receiver_kind: self
                                                     .receiver_kind_for_method_or_diagnose(
                                                         def_id,
@@ -1705,8 +1705,6 @@ impl<'a> ModuleLowerer<'a> {
         let key = crate::ExtensionTraitMethodKey {
             trait_id: TraitId::Source(trait_id),
             method_name: trait_method_name,
-            trait_arg_count: trait_args.len(),
-            trait_const_arg_count: trait_const_args.len(),
         };
         if let Some(candidate) =
             self.selected_user_trait_method_impl(&key, &trait_args, &trait_const_args, self_ty)

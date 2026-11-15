@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::{ExtensionTraitMethodCandidate, ExtensionTraitMethodKey, ModuleLowerer};
+use crate::ModuleLowerer;
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding,
     FunctionBuiltinMethod, FunctionBuiltinOperator, FunctionBuiltinOperatorOp, FunctionCallee,
@@ -1017,7 +1017,7 @@ impl<'a> ModuleLowerer<'a> {
                 args,
             };
         }
-        if let Some((def_id, method_args)) =
+        if let Some((def_id, method_args, method_const_args)) =
             self.resolve_builtin_operator_impl_method(operator, receiver.ty, &[])
         {
             return FunctionExprKind::Call {
@@ -1026,7 +1026,7 @@ impl<'a> ModuleLowerer<'a> {
                     arg_module_id: self.current_arg_module_id(),
                     self_arg: None,
                     args: method_args,
-                    const_args: Vec::new(),
+                    const_args: method_const_args,
                     receiver_kind: self.receiver_kind_for_method_or_diagnose(def_id, receiver.span),
                     receiver: Box::new(receiver.clone()),
                 },
@@ -1059,7 +1059,7 @@ impl<'a> ModuleLowerer<'a> {
                 args,
             };
         }
-        if let Some((def_id, method_args)) =
+        if let Some((def_id, method_args, method_const_args)) =
             self.resolve_builtin_operator_impl_method(operator, lhs.ty, &[rhs.ty])
         {
             return FunctionExprKind::Call {
@@ -1068,7 +1068,7 @@ impl<'a> ModuleLowerer<'a> {
                     arg_module_id: self.current_arg_module_id(),
                     self_arg: None,
                     args: method_args,
-                    const_args: Vec::new(),
+                    const_args: method_const_args,
                     receiver_kind: self.receiver_kind_for_method_or_diagnose(def_id, lhs.span),
                     receiver: Box::new(lhs.clone()),
                 },
@@ -1090,8 +1090,13 @@ impl<'a> ModuleLowerer<'a> {
         receiver: FunctionExpr,
         args: Vec<FunctionExpr>,
     ) -> FunctionExprKind {
-        if let Some((def_id, method_args)) =
-            self.resolve_builtin_trait_impl_method(trait_id, &trait_args, method, self_ty)
+        if let Some((def_id, method_args, method_const_args)) = self
+            .resolve_builtin_trait_method_call_impl(
+                trait_id,
+                &trait_args,
+                method.symbol_id(),
+                self_ty,
+            )
         {
             FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
@@ -1099,7 +1104,7 @@ impl<'a> ModuleLowerer<'a> {
                     arg_module_id: self.current_arg_module_id(),
                     self_arg: None,
                     args: method_args,
-                    const_args: Vec::new(),
+                    const_args: method_const_args,
                     receiver_kind: self.receiver_kind_for_method_or_diagnose(def_id, receiver.span),
                     receiver: Box::new(receiver),
                 },
@@ -1135,12 +1140,13 @@ impl<'a> ModuleLowerer<'a> {
             return receiver.kind;
         }
         if let Some((trait_id, trait_method)) = builtin_method_trait(method)
-            && let Some((def_id, method_args)) = self.resolve_builtin_extension_impl_method(
-                trait_id,
-                &[],
-                trait_method.symbol_id(),
-                self_ty,
-            )
+            && let Some((def_id, method_args, method_const_args)) = self
+                .resolve_builtin_trait_method_call_impl(
+                    trait_id,
+                    &[],
+                    trait_method.symbol_id(),
+                    self_ty,
+                )
         {
             return FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
@@ -1148,7 +1154,7 @@ impl<'a> ModuleLowerer<'a> {
                     arg_module_id: self.current_arg_module_id(),
                     self_arg: None,
                     args: method_args,
-                    const_args: Vec::new(),
+                    const_args: method_const_args,
                     receiver_kind: self.receiver_kind_for_method_or_diagnose(def_id, receiver.span),
                     receiver: Box::new(receiver),
                 },
@@ -1170,74 +1176,14 @@ impl<'a> ModuleLowerer<'a> {
         operator: FunctionBuiltinOperator,
         lhs_ty: InternedTyId,
         trait_args: &[InternedTyId],
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
         let method = operator.method()?;
-        self.resolve_builtin_extension_impl_method(
+        self.resolve_builtin_trait_method_call_impl(
             operator.trait_id,
             trait_args,
             method.symbol_id(),
             lhs_ty,
         )
-    }
-
-    fn resolve_builtin_extension_impl_method(
-        &mut self,
-        trait_id: BuiltinTrait,
-        trait_args: &[InternedTyId],
-        method_name: nia_symbol::SymbolId,
-        self_ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let key = ExtensionTraitMethodKey {
-            trait_id: TraitId::Builtin(trait_id),
-            method_name,
-            trait_arg_count: trait_args.len(),
-            trait_const_arg_count: 0,
-        };
-        let candidates = self.program_extension_trait_method_candidates(&key);
-        let mut candidate = None;
-        for next_candidate in &candidates {
-            let Some(next) =
-                self.builtin_impl_method_for_candidate(next_candidate, trait_args, self_ty)
-            else {
-                continue;
-            };
-            if candidate.is_some() {
-                return None;
-            }
-            candidate = Some(next);
-        }
-        candidate
-    }
-
-    fn resolve_builtin_trait_impl_method(
-        &mut self,
-        trait_id: BuiltinTrait,
-        trait_args: &[InternedTyId],
-        method: BuiltinTraitMethod,
-        self_ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        self.resolve_builtin_extension_impl_method(
-            trait_id,
-            trait_args,
-            method.symbol_id(),
-            self_ty,
-        )
-    }
-
-    fn builtin_impl_method_for_candidate(
-        &mut self,
-        candidate: &ExtensionTraitMethodCandidate,
-        trait_args: &[InternedTyId],
-        self_ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let substitutions =
-            self.match_extension_trait_impl_candidate(candidate, trait_args, &[], self_ty)?;
-        let args = self
-            .candidate_impl_generics(candidate)
-            .iter()
-            .filter_map(|generic| substitutions.get(generic).copied())
-            .collect::<Vec<_>>();
-        Some((candidate.method_def_id, args))
     }
 
     fn builtin_operator_resolution(

@@ -1,16 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
-
 use nia_ids::{GlobalDefId, ModuleId};
 
-use crate::{ExtensionTraitMethodCandidate, ExtensionTraitMethodKey, TypeSubstitutionId};
+use crate::TypeSubstitutionId;
 
 #[derive(Default)]
 pub(crate) struct BackendInstantiationContext {
-    pub(crate) extension_trait_method_candidates: Option<(
-        ModuleId,
-        HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
-    )>,
     pub(crate) function: Option<GlobalDefId>,
     pub(crate) instantiation_module_id: Option<ModuleId>,
     pub(crate) type_substitutions: Option<TypeSubstitutionId>,
@@ -18,10 +12,6 @@ pub(crate) struct BackendInstantiationContext {
 }
 
 pub(crate) struct BackendInstantiationSnapshot {
-    extension_trait_method_candidates: Option<(
-        ModuleId,
-        HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
-    )>,
     function: Option<GlobalDefId>,
     instantiation_module_id: Option<ModuleId>,
     type_substitutions: Option<TypeSubstitutionId>,
@@ -31,7 +21,6 @@ pub(crate) struct BackendInstantiationSnapshot {
 impl BackendInstantiationContext {
     pub(crate) fn take_snapshot(&mut self) -> BackendInstantiationSnapshot {
         BackendInstantiationSnapshot {
-            extension_trait_method_candidates: self.extension_trait_method_candidates.take(),
             function: self.function.take(),
             instantiation_module_id: self.instantiation_module_id.take(),
             type_substitutions: self.type_substitutions.take(),
@@ -40,7 +29,6 @@ impl BackendInstantiationContext {
     }
 
     pub(crate) fn restore(&mut self, snapshot: BackendInstantiationSnapshot) {
-        self.extension_trait_method_candidates = snapshot.extension_trait_method_candidates;
         self.function = snapshot.function;
         self.instantiation_module_id = snapshot.instantiation_module_id;
         self.type_substitutions = snapshot.type_substitutions;

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use crate::{BuiltinTraitGoalKey, ExtensionTraitMethodCandidate, ExtensionTraitMethodKey};
+use crate::{BuiltinTraitGoalKey, ExtensionTraitMethodKey};
 use nia_ids::BuiltinAssociatedType;
 use nia_symbol::ToSymbolId;
 use nia_trait_solve::TraitSelection;
 
 impl<'a> ModuleLowerer<'a> {
-    pub(super) fn selected_user_trait_method_impl(
+    pub(crate) fn selected_user_trait_method_impl(
         &mut self,
         key: &ExtensionTraitMethodKey,
         trait_args: &[InternedTyId],
@@ -82,111 +82,6 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
         Some((def_id, args, const_args))
-    }
-
-    pub(super) fn candidate_where_predicates_hold(
-        &mut self,
-        candidate: &ExtensionTraitMethodCandidate,
-        substitutions: &SymbolMap<InternedTyId>,
-    ) -> bool {
-        let predicates =
-            self.normalize_where_predicates(&candidate.where_predicates, candidate.module_id);
-        let substitutions = self.intern_type_substitutions(substitutions);
-        let predicates = predicates
-            .iter()
-            .map(|predicate| self.instantiate_where_predicate(predicate, substitutions))
-            .collect::<Vec<_>>();
-        self.where_predicates_hold(&predicates)
-    }
-
-    fn where_predicates_hold(
-        &mut self,
-        predicates: &[nia_item_signatures::WherePredicateSignature],
-    ) -> bool {
-        let assumptions = self.current_trait_assumptions();
-        let associated_type_assumptions =
-            self.current_associated_type_assumptions_without_active_projections();
-        let program_fieldless_enum = |def_id| {
-            self.input
-                .program
-                .enums()
-                .get(&def_id)
-                .is_some_and(|enum_| enum_.signature.is_fieldless())
-        };
-        let context = TraitSolverContext {
-            type_store: self.type_store,
-            normalization: self.input.type_normalization,
-            trait_impls: self.input.program.trait_impls(),
-            trait_impl_index: Some(self.input.program.trait_impl_index()),
-            layouts: Some(self.input.layouts),
-            program_layouts: None,
-            type_layout: None,
-            local_module_id: self.input.module_id,
-            local_enums: &self.input.signatures.enums,
-            program_fieldless_enum: Some(&program_fieldless_enum),
-            const_expr_value: None,
-            impl_is_visible: None,
-        };
-        let mut solver = context
-            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
-        for predicate in predicates {
-            for bound in &predicate.bounds {
-                match solver.satisfies_static_callable_bound(predicate.ty, bound.trait_ty) {
-                    Ok(Some(true)) => continue,
-                    Ok(Some(false)) => return false,
-                    Ok(None) => {}
-                    Err(error) => {
-                        self.type_context.record_internal(error);
-                        return false;
-                    }
-                }
-                let Some((trait_id, trait_args, trait_const_args)) =
-                    self.trait_id_and_args(bound.trait_ty)
-                else {
-                    return false;
-                };
-                let proven = match solver.proves(TraitGoal {
-                    self_ty: predicate.ty,
-                    trait_id,
-                    trait_args: trait_args.clone(),
-                    trait_const_args: trait_const_args.clone(),
-                }) {
-                    Ok(proven) => proven,
-                    Err(error) => {
-                        self.type_context.record_internal(error);
-                        return false;
-                    }
-                };
-                if !proven {
-                    return false;
-                }
-                for binding in &bound.associated_type_bindings {
-                    let actual_ty = match solver.resolve_associated_type(
-                        predicate.ty,
-                        trait_id,
-                        &trait_args,
-                        &trait_const_args,
-                        &binding.name,
-                    ) {
-                        Ok(Some(actual_ty)) => actual_ty,
-                        Ok(None) => return false,
-                        Err(error) => {
-                            self.type_context.record_internal(error);
-                            return false;
-                        }
-                    };
-                    match solver.types_equivalent(actual_ty, binding.ty) {
-                        Ok(true) => {}
-                        Ok(false) => return false,
-                        Err(error) => {
-                            self.type_context.record_internal(error);
-                            return false;
-                        }
-                    }
-                }
-            }
-        }
-        true
     }
 
     pub(super) fn current_trait_assumptions(&mut self) -> Vec<TraitGoal> {
@@ -411,46 +306,30 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    pub(super) fn resolve_builtin_trait_method_call_impl(
+    /// The implementation of a builtin trait method that the trait solver
+    /// selects for the goal, which owns applicability and specificity.
+    ///
+    /// A goal that names a type parameter selects nothing yet: a more
+    /// specific implementation may apply once the parameter is known, so
+    /// each instance selects for its own concrete goal.
+    pub(crate) fn resolve_builtin_trait_method_call_impl(
         &mut self,
         trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],
-        method: BuiltinTraitMethod,
+        method_name: nia_symbol::SymbolId,
         self_ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>, Vec<nia_ty::ConstGenericArg>)> {
+        if std::iter::once(self_ty)
+            .chain(trait_args.iter().copied())
+            .any(|ty| self.cached_ty_contains_generic_param(ty))
+        {
+            return None;
+        }
         let key = ExtensionTraitMethodKey {
             trait_id: TraitId::Builtin(trait_id),
-            method_name: method.symbol_id(),
-            trait_arg_count: trait_args.len(),
-            trait_const_arg_count: 0,
+            method_name,
         };
-        let candidates = self.program_extension_trait_method_candidates(&key);
-        let candidates = candidates
-            .iter()
-            .filter_map(|candidate| {
-                self.builtin_trait_impl_method_for_candidate(candidate, trait_args, self_ty)
-            })
-            .collect::<Vec<_>>();
-        match candidates.as_slice() {
-            [candidate] => Some(candidate.clone()),
-            _ => None,
-        }
-    }
-
-    pub(super) fn builtin_trait_impl_method_for_candidate(
-        &mut self,
-        candidate: &ExtensionTraitMethodCandidate,
-        trait_args: &[InternedTyId],
-        self_ty: InternedTyId,
-    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let substitutions =
-            self.match_extension_trait_impl_candidate(candidate, trait_args, &[], self_ty)?;
-        let args = self
-            .candidate_impl_generics(candidate)
-            .iter()
-            .filter_map(|generic| substitutions.get(generic).copied())
-            .collect::<Vec<_>>();
-        Some((candidate.method_def_id, args))
+        self.selected_user_trait_method_impl(&key, trait_args, &[], self_ty)
     }
 
     pub(super) fn lower_intrinsic_builtin_trait_method_call(
@@ -668,53 +547,6 @@ impl<'a> ModuleLowerer<'a> {
                 .insert(key, resolution.clone());
         }
         resolution
-    }
-
-    pub(crate) fn extension_trait_method_candidates(
-        &self,
-        key: &ExtensionTraitMethodKey,
-    ) -> Vec<ExtensionTraitMethodCandidate> {
-        let mut out = self
-            .trait_context
-            .extension_trait_method_candidates
-            .get(key)
-            .cloned()
-            .unwrap_or_default();
-        if let Some((_, instance_candidates)) =
-            &self.instantiation.extension_trait_method_candidates
-        {
-            for candidate in instance_candidates.get(key).cloned().unwrap_or_default() {
-                if !out
-                    .iter()
-                    .any(|existing| existing.method_def_id == candidate.method_def_id)
-                {
-                    out.push(candidate);
-                }
-            }
-        }
-        out
-    }
-
-    pub(crate) fn program_extension_trait_method_candidates(
-        &self,
-        key: &ExtensionTraitMethodKey,
-    ) -> Vec<ExtensionTraitMethodCandidate> {
-        let mut candidates = self
-            .shared
-            .program_extension_trait_method_candidates
-            .get(key)
-            .cloned()
-            .unwrap_or_default();
-        for candidate in self.extension_trait_method_candidates(key) {
-            if candidates
-                .iter()
-                .any(|existing| existing.method_def_id == candidate.method_def_id)
-            {
-                continue;
-            }
-            candidates.push(candidate);
-        }
-        candidates
     }
 
     pub(super) fn pointer_elem_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {

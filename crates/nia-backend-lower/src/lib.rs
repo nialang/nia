@@ -1482,22 +1482,6 @@ pub(crate) struct BuiltinTraitGoalKey {
 pub(crate) struct ExtensionTraitMethodKey {
     trait_id: TraitId,
     method_name: SymbolId,
-    trait_arg_count: usize,
-    /// Const-argument count is part of the lookup bucket; values are checked
-    /// by trait selection after the cheap arity filter.
-    trait_const_arg_count: usize,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ExtensionTraitMethodCandidate {
-    module_id: ModuleId,
-    target_ty: InternedTyId,
-    method_def_id: GlobalDefId,
-    trait_args: Vec<InternedTyId>,
-    /// Concrete or generic const arguments of the implemented trait.
-    trait_const_args: Vec<nia_ty::ConstGenericArg>,
-    where_predicates: Vec<WherePredicateSignature>,
-    effective_generics: Vec<SymbolId>,
 }
 
 #[derive(Debug, Clone)]
@@ -1513,8 +1497,6 @@ pub(crate) struct BackendLowerShared {
     program_extension_generics_by_method: HashMap<GlobalDefId, Vec<SymbolId>>,
     program_extension_method_sources_by_def: HashMap<GlobalDefId, ExtensionMethodSource>,
     program_trait_impls_by_method: HashMap<GlobalDefId, usize>,
-    program_extension_trait_method_candidates:
-        HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     program_trait_methods_with_defaults: HashSet<GlobalDefId>,
     program_method_symbols_by_def: HashMap<GlobalDefId, SymbolId>,
 }
@@ -1538,8 +1520,6 @@ impl BackendLowerShared {
             program_trait_impls_by_method: first
                 .map(index_program_trait_impls_by_method)
                 .unwrap_or_default(),
-            program_extension_trait_method_candidates:
-                index_program_extension_trait_method_candidates(first),
             program_trait_methods_with_defaults: first
                 .map(index_program_trait_methods_with_defaults)
                 .unwrap_or_default(),
