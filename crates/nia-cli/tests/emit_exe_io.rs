@@ -1024,6 +1024,13 @@ using std::fmt;
 using std::fs;
 using std::process;
 
+fun exitCode[E](error: E) i32
+where E: std::builtin::IntoError[process::ExitCode]
+{
+    let code: process::ExitCode = error.intoError();
+    code.0
+}
+
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     match io::debugPrint(&"{", &[]) {
@@ -1050,21 +1057,21 @@ pub fun main(init: process::Init) process::ExitCode!() {
         },
     }
 
-    if (io::DebugPrintError::Format(fmt::Error::MissingArgument).intoError().0) != 22 {
+    if exitCode(io::DebugPrintError::Format(fmt::Error::MissingArgument)) != 22 {
         return process::ExitCode(5)!;
     }
-    if (io::DebugPrintError::Flush(fs::Error::BadFd).intoError().0) != 9 {
+    if exitCode(io::DebugPrintError::Flush(fs::Error::BadFd)) != 9 {
         return process::ExitCode(6)!;
     }
-    if (std::TextFormatError::InvalidUtf8(
+    if exitCode(std::TextFormatError::InvalidUtf8(
         std::unicode::Utf8DecodeError::InvalidLeadingByte,
-    ).intoError().0) != 22 {
+    )) != 22 {
         return process::ExitCode(7)!;
     }
-    if (std::TextFormatError::Allocation(std::mem::Error::OutOfMemory).intoError().0) != 12 {
+    if exitCode(std::TextFormatError::Allocation(std::mem::Error::OutOfMemory)) != 12 {
         return process::ExitCode(8)!;
     }
-    if (std::TextFormatError::Format(fmt::Error::InvalidTemplate).intoError().0) != 22 {
+    if exitCode(std::TextFormatError::Format(fmt::Error::InvalidTemplate)) != 22 {
         return process::ExitCode(9)!;
     }
 

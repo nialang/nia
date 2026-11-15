@@ -3636,6 +3636,13 @@ fun failWithNoSpace() fs::Error!() {
     fs::Error::NoSpace!
 }
 
+fun exitCode[E](error: E) i32
+where E: std::builtin::IntoError[process::ExitCode]
+{
+    let code: process::ExitCode = error.intoError();
+    code.0
+}
+
 pub fun main(init: process::Init) ExitCode!() {
     _ = init;
 
@@ -3649,25 +3656,25 @@ pub fun main(init: process::Init) ExitCode!() {
     if notFoundCode.0 != 2 {
         return ExitCode(3)!;
     }
-    if (process::Error::Allocation(mem::Error::OutOfMemory).intoError().0) != 12 {
+    if exitCode(process::Error::Allocation(mem::Error::OutOfMemory)) != 12 {
         return ExitCode(5)!;
     }
-    if (process::Error::Path(fs::PathError::TooLong).intoError().0) != 36 {
+    if exitCode(process::Error::Path(fs::PathError::TooLong)) != 36 {
         return ExitCode(6)!;
     }
-    if (process::Error::ArgumentContainsNul(3).intoError().0) != 22 {
+    if exitCode(process::Error::ArgumentContainsNul(3)) != 22 {
         return ExitCode(7)!;
     }
-    if (process::Error::Environment {
+    if exitCode(process::Error::Environment {
         index: 2,
         cause: process::EnvEntryError::EmptyName,
-    }.intoError().0) != 22 {
+    }) != 22 {
         return ExitCode(10)!;
     }
-    if (process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound)).intoError().0) != 2 {
+    if exitCode(process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound))) != 2 {
         return ExitCode(8)!;
     }
-    if (process::Error::Kill(process::SystemError::Invalid).intoError().0) != 22 {
+    if exitCode(process::Error::Kill(process::SystemError::Invalid)) != 22 {
         return ExitCode(9)!;
     }
     let picked = pickResult().?;

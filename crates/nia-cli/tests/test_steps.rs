@@ -78,6 +78,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
             .ValuesEqual(_) => return process::ExitCode(16)!,
             .ValuesNotEqual(_) => return process::ExitCode(17)!,
             .Memory(_) => return process::ExitCode(18)!,
+            .Propagated(_) => return process::ExitCode(19)!,
         },
         null => return process::ExitCode(18)!,
     }
@@ -332,7 +333,7 @@ fun firstEven(values: &[u32]) ?u32 {
 }
 
 fun passing() test::Error!() {
-    test::expectEqual(test::expectOk(parse(b"ab")).?, 2).?;
+    test::expectEqual(parse(b"ab").?, 2).?;
     test::expectEqual(test::expectError(parse(b"")).?, Parse::Empty).?;
     test::expectEqual(test::expectError(parse(b"abcd")).?, .TooLong).?;
     test::expectEqual(test::expectSome(firstEven(&[1, 4, 6])).?, 4).?;
@@ -340,7 +341,7 @@ fun passing() test::Error!() {
     !()
 }
 
-fun okFails() test::Error!() { _ = test::expectOk(parse(b"")).?; !() }
+fun okFails() test::Error!() { _ = parse(b"").?; !() }
 fun errorFails() test::Error!() { _ = test::expectError(parse(b"a")).?; !() }
 fun someFails() test::Error!() { _ = test::expectSome(firstEven(&[1])).?; !() }
 fun nullFails() test::Error!() { test::expectNull(firstEven(&[2])) }
@@ -372,9 +373,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
         .output_timeout_in_session("run result and optional assertions");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stderr}");
-    // Each failure names the line and column of the assertion's caller.
+    // Each failure names the line and column of the assertion's caller, or
+    // of the `.?` that propagated an error out of the test.
     for expected in [
-        "ok: tests/unit.nia:27:36: assertion failed",
+        "ok: tests/unit.nia:27:36: error propagated",
         "error: tests/unit.nia:28:39: assertion failed",
         "some: tests/unit.nia:29:38: assertion failed",
         "null: tests/unit.nia:30:34: assertion failed",

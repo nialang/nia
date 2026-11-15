@@ -18,6 +18,18 @@ pub enum Error {
     ValuesEqual(SourceLocation) = 2,
     ValuesNotEqual(SourceLocation) = 3,
     Memory(mem::Error) = 4,
+    Propagated(SourceLocation) = 5,
+}
+
+// Any error propagated out of a test with `.?` fails it at the propagation.
+// The error itself is not kept: its type varies, and its value means
+// something only to the code that returned it. A test that checks which
+// error a call returned uses `expectError`.
+extend[E] E : IntoError[Error] {
+    const fun intoError(self) Error {
+        _ = self;
+        .Propagated(callerLocation())
+    }
 }
 
 // Preserve the allocation cause. Errors that own rollback resources must be
@@ -40,6 +52,10 @@ extend Error : fmt::Format {
             .ValuesNotEqual(location) => {
                 location.format(formatter).?;
                 formatter.writeText(": values are not equal")
+            },
+            .Propagated(location) => {
+                location.format(formatter).?;
+                formatter.writeText(": error propagated")
             },
             .Memory(cause) => {
                 formatter.writeText("memory operation failed (mem::Error ").?;
@@ -236,17 +252,6 @@ where T: Eq[T]
 @[trackCaller]
 pub fun fail() Error!() {
     .AssertionFailed(callerLocation())!
-}
-
-// The value of a successful result, or a failed assertion at the caller.
-// The result's error type is not converted, so any error union can be
-// checked without an `IntoError` implementation.
-@[trackCaller]
-pub fun expectOk[T, E](result: E!T) Error!T {
-    match result {
-        !value => !value,
-        _! => .AssertionFailed(callerLocation())!,
-    }
 }
 
 // The error of a failed result, or a failed assertion at the caller when

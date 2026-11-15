@@ -54,16 +54,16 @@ pub fun main(init: process::Init) process::ExitCode!() {
 | `test::expect(condition)` | `condition` is false |
 | `test::expectEqual(actual, expected)` | the values differ; the type needs `Eq` |
 | `test::expectNotEqual(actual, expected)` | the values are equal |
-| `test::expectOk(result)` | `result` is an error; otherwise returns its value |
 | `test::expectError(result)` | `result` succeeded; otherwise returns its error |
 | `test::expectSome(optional)` | `optional` is `null`; otherwise returns its value |
 | `test::expectNull(optional)` | `optional` holds a value |
 | `test::fail()` | always |
 
-`expectOk` and `expectError` accept a result of any error type: the error is
-not converted to `test::Error`, so code under test does not need an
-`IntoError` implementation for its errors. To check which error a call
-returned, compare the one `expectError` gives back:
+Any error converts to `test::Error`, so `.?` on a call under test fails the
+test when the call returns an error and reports where the error propagated.
+A `std::mem::Error` keeps its cause; any other error records only the
+location. `expectError` accepts a result of any error type, and to check
+which error a call returned, compare the one it gives back:
 
 ```nia
 using std::test;
@@ -81,7 +81,7 @@ fun parseLength(text: &[u8]) ParseError!usize {
 }
 
 fun rejectsEmptyInput() test::Error!() {
-    test::expectEqual(test::expectOk(parseLength(b"ab")).?, 2).?;
+    test::expectEqual(parseLength(b"ab").?, 2).?;
     test::expectEqual(test::expectError(parseLength(b"")).?, .Empty).?;
     !()
 }

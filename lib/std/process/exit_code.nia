@@ -14,7 +14,9 @@ using io::DebugPrintError;
 extend test::Error : builtin::IntoError[ExitCode] {
     const fun intoError(self) ExitCode {
         match self {
-            .AssertionFailed(_), .ValuesEqual(_), .ValuesNotEqual(_), .Memory(_) => ExitCode(1),
+            .AssertionFailed(_), .ValuesEqual(_), .ValuesNotEqual(_), .Memory(_), .Propagated(_) => {
+                ExitCode(1)
+            },
         }
     }
 }

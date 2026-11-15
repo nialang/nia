@@ -125,23 +125,30 @@ fun buildError(cause: process::Error) build::Error {
     }
 }
 
+fun exitCode[E](error: E) i32
+where E: std::builtin::IntoError[process::ExitCode]
+{
+    let code: process::ExitCode = error.intoError();
+    code.0
+}
+
 pub fun main(init: process::Init) process::ExitCode!() {
     let spawn = buildError(process::Error::Spawn(process::SpawnError::Exec(process::SystemError::NotFound)));
-    if (spawn.intoError().0) != 2 {
+    if exitCode(spawn) != 2 {
         return process::ExitCode(1)!;
     }
     let close = buildError(process::Error::Close {
         stream: process::StdStream::Stdout,
         cause: io::Error::System(io::SystemError::BadFd),
     });
-    if (close.intoError().0) != 9 {
+    if exitCode(close) != 9 {
         return process::ExitCode(2)!;
     }
     let environment = buildError(process::Error::Environment {
         index: 1,
         cause: process::EnvEntryError::DuplicateName(0),
     });
-    if (environment.intoError().0) != 22 {
+    if exitCode(environment) != 22 {
         return process::ExitCode(3)!;
     }
 
@@ -209,6 +216,13 @@ fun systemFailure() fs::OperationError!() {
     }!
 }
 
+fun exitCode[E](error: E) i32
+where E: std::builtin::IntoError[process::ExitCode]
+{
+    let code: process::ExitCode = error.intoError();
+    code.0
+}
+
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
     let path = match pathFailure().withBuildContext(
@@ -225,8 +239,8 @@ pub fun main(init: process::Init) process::ExitCode!() {
         !ok => { _ = ok; return process::ExitCode(2)!; },
         cause! => cause,
     };
-    if (path.intoError().0) != 22
-        or (system.intoError().0) != 2
+    if exitCode(path) != 22
+        or exitCode(system) != 2
     {
         return process::ExitCode(3)!;
     }

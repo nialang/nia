@@ -154,7 +154,11 @@ impl<'a> BodyChecker<'a> {
                 call.receiver_ty,
                 BuiltinTrait::IntoError,
             )
-        })?;
+        });
+        let Some(target_ty) = target_ty else {
+            self.report_unknown_into_error_target(call);
+            return Some(self.error());
+        };
         let trait_args = vec![target_ty];
         self.record_trait_provider_demand(
             call.receiver_ty,
@@ -166,6 +170,12 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::IntoError),
             trait_args.clone(),
         ) {
+            self.report_trait_bound_not_satisfied(
+                call.span,
+                call.receiver_ty,
+                TraitId::Builtin(BuiltinTrait::IntoError),
+                &trait_args,
+            );
             return Some(self.error());
         }
         self.record_resolved_node_call(
@@ -179,6 +189,41 @@ impl<'a> BodyChecker<'a> {
             },
         );
         Some(target_ty)
+    }
+
+    /// Reports an `intoError` call whose target type nothing determines:
+    /// no expected type, and not exactly one conversion from the receiver.
+    fn report_unknown_into_error_target(&mut self, call: &MethodCall<'_>) {
+        let source = self.ty_name(call.receiver_ty);
+        let targets = self
+            .visible_trait_arg_candidates(
+                call.receiver_ty,
+                TraitId::Builtin(BuiltinTrait::IntoError),
+            )
+            .into_iter()
+            .filter_map(|(args, _)| {
+                args.first()
+                    .map(|target| format!("`{}`", self.ty_name(*target)))
+            })
+            .collect::<Vec<_>>();
+        let mut diagnostic = Diagnostic::user_error(
+            codes::TYPE_CHECK,
+            format!("cannot infer the type `{source}` converts into"),
+        )
+        .primary(call.span, "this `intoError` call has no target type");
+        diagnostic = if targets.is_empty() {
+            diagnostic.note(format!("`{source}` implements `IntoError` for no type"))
+        } else {
+            diagnostic.note(format!(
+                "`{source}` converts into each of {}",
+                targets.join(", ")
+            ))
+        };
+        self.diagnostics.push(
+            diagnostic
+                .help("give the result an expected type, as in `let target: Target = value.intoError();`")
+                .finish(),
+        );
     }
 
     pub(in crate::calls::methods) fn check_builtin_trait_associated_method_call(

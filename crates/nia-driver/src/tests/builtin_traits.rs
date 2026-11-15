@@ -2251,3 +2251,34 @@ pub fun main(init: process::Init) process::ExitCode!() {
     );
     assert_eq!(code, Some(0));
 }
+
+#[test]
+fn into_error_without_a_target_type_names_the_candidates() {
+    let summaries = error_summaries(
+        "into_error_without_a_target_type_names_the_candidates",
+        r#"
+using std::builtin::IntoError;
+
+enum Source { Bad }
+struct First(i32)
+struct Second(i32)
+
+extend Source : IntoError[First] {
+    fun intoError(self) First { First(1) }
+}
+
+extend Source : IntoError[Second] {
+    fun intoError(self) Second { Second(2) }
+}
+
+fun main() i32 {
+    let chosen: First = Source::Bad.intoError();
+    chosen.0 + Source::Bad.intoError().0
+}
+"#,
+    );
+    assert_eq!(
+        summaries,
+        vec!["cannot infer the type `Source` converts into".to_string()]
+    );
+}
