@@ -636,7 +636,12 @@ impl Analyzer<'_> {
             }
         }
         match candidates.len() {
-            0 => ResolvedConstCalleeSelection::NoMatch,
+            0 => {
+                // The provider may simply not be loaded yet: demand it, so a
+                // later round can find it.
+                self.record_const_method_provider_demand(actual_receiver_ty, name);
+                ResolvedConstCalleeSelection::NoMatch
+            }
             1 => ResolvedConstCalleeSelection::Unique(candidates.remove(0).2),
             _ => ResolvedConstCalleeSelection::Ambiguous,
         }

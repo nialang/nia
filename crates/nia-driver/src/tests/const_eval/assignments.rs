@@ -705,7 +705,13 @@ fun main() i32 {
 "#,
     );
 
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    // The length is evaluated before any body that calls `iter` is checked,
+    // so evaluation itself must demand the range's `Iterable` provider; no
+    // import or earlier check loads it. Both checking entries agree.
+    let main = root.join("main.nia").to_string_lossy().into_owned();
+    let program = check_program(main.clone());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let program = check_entry_program(main);
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 

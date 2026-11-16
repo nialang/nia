@@ -1188,6 +1188,32 @@ impl Analyzer<'_> {
         }
     }
 
+    /// Asks the loader for the providers of `method_name` on `target_ty`,
+    /// as body checking does for a method it cannot find. Evaluation may
+    /// call a method before any body that names it has been checked, so the
+    /// providers it needs are demanded here as well.
+    pub(super) fn record_const_method_provider_demand(
+        &mut self,
+        target_ty: InternedTyId,
+        method_name: SymbolId,
+    ) {
+        let Some(source_path) = self.current_execution_source_path() else {
+            return;
+        };
+        let target = self.provider_owner_identity(target_ty);
+        self.provider_demands.insert(ProviderDemand {
+            source_path,
+            request: ProviderRequest::Method {
+                target_type_name: target.name,
+                // Structural receivers get their trait implementations from
+                // std, the builtin traits' package.
+                target_package: target.package.unwrap_or(nia_symbol::known::STD),
+                target_module_segments: target.module_segments,
+                method_name,
+            },
+        });
+    }
+
     fn record_const_trait_provider_demand(
         &mut self,
         self_ty: InternedTyId,
