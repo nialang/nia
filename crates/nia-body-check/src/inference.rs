@@ -697,11 +697,27 @@ impl FunctionInference {
         checker: &mut BodyChecker<'_>,
         receiver: &Expr,
         name: &nia_symbol::SymbolId,
+        explicit_type_args: Option<&[nia_ast::BracketArg]>,
         receiver_term: InferId,
     ) -> Option<CallSignatureTerms> {
         let receiver_ty = self.resolve(checker, receiver_term)?;
         let signature = checker.method_signature_for_inference(receiver, receiver_ty, name)?;
         let mut generics = HashMap::new();
+        // Explicit type arguments fix the method's own type parameters, in
+        // declaration order, as for a generic function call.
+        if let Some(type_args) = explicit_type_args {
+            let type_params = signature.generic_params.iter().filter(|generic| {
+                matches!(
+                    generic.kind,
+                    nia_item_signatures::GenericParamSignatureKind::Type
+                )
+            });
+            for (generic, arg) in type_params.zip(type_args) {
+                let arg = checker.ty_for_type(arg.ty.as_ref()?);
+                let term = self.signature_term(checker, arg, &mut generics);
+                generics.insert(generic.name, term);
+            }
+        }
         let callable_bounds = signature
             .callable_bounds
             .into_iter()
@@ -730,10 +746,13 @@ impl FunctionInference {
         })
     }
 
+    /// The result of a method call `receiver.name(args)`, or
+    /// `receiver.name[types](args)` with `explicit_type_args`.
     fn constrain_method_call(
         &mut self,
         checker: &mut BodyChecker<'_>,
         callee: &Expr,
+        explicit_type_args: Option<&[nia_ast::BracketArg]>,
         args: &[Expr],
         expected: Option<InferId>,
     ) -> Option<InferId> {
@@ -753,7 +772,8 @@ impl FunctionInference {
             // projection chain.
             return None;
         }
-        let signature = self.method_call_signature_terms(checker, lhs, name, receiver)?;
+        let signature =
+            self.method_call_signature_terms(checker, lhs, name, explicit_type_args, receiver)?;
         let result = self.call_result(checker, signature.return_type, expected);
         for (index, (arg, param)) in args.iter().zip(signature.params).enumerate() {
             let callable_bound = signature
@@ -1854,6 +1874,26 @@ impl FunctionInference {
                 union
             }
             ExprKind::Call { callee, args } => {
+                // `receiver.name[types](args)` names a method when one is
+                // found; its arguments may also read as expressions, as
+                // `[u32]` does, so only the type reading is required.
+                if let ExprKind::BracketSuffix {
+                    callee: generic_callee,
+                    args: type_args,
+                } = &callee.kind
+                    && matches!(generic_callee.kind, ExprKind::Field { .. })
+                    && type_args.iter().all(|arg| arg.ty.is_some())
+                    && let Some(result) = self.constrain_method_call(
+                        checker,
+                        generic_callee,
+                        Some(type_args),
+                        args,
+                        expected,
+                    )
+                {
+                    self.unify(checker, term, result);
+                    return term;
+                }
                 // A bracket suffix in callee position is resolved by the body
                 // checker as generic instantiation. Keep it out of the
                 // ordinary callable/index shape pass; treating `id[T]` as a
@@ -1909,7 +1949,7 @@ impl FunctionInference {
                     }
                     self.known(ty)
                 } else if let Some(result) =
-                    self.constrain_method_call(checker, callee, args, expected)
+                    self.constrain_method_call(checker, callee, None, args, expected)
                 {
                     result
                 } else {

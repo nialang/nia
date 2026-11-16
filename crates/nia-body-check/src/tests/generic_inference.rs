@@ -2088,3 +2088,48 @@ fun main() i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn method_call_with_explicit_type_arguments_gives_its_result_to_later_calls() {
+    // `read[i32]` names the method's type argument, which a type and an
+    // expression can both spell. The call's result type must still reach
+    // `mapError`, so that `.Inner` finds its enum.
+    let checked = pipeline(
+        r#"
+enum Fault {
+    Bad,
+}
+
+enum Outer {
+    Inner(Fault),
+}
+
+struct Reader {}
+
+extend Reader {
+    fun read[T](self, value: T) Fault!T {
+        !value
+    }
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun run(reader: Reader) Outer!i32 {
+    let value = reader.read[i32](1).mapError(.Inner).?;
+    !value
+}
+
+fun main() i32 {
+    if run(Reader {}) is !value { value } else { 0 }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}

@@ -38,6 +38,9 @@ pub(super) struct MethodGenericContext<'a> {
 }
 
 pub(crate) struct MethodInferenceSignature {
+    /// The method's own generic parameters, which explicit type arguments
+    /// fix in order.
+    pub(crate) generic_params: Vec<nia_item_signatures::GenericParamSignature>,
     pub(crate) params: Vec<InternedTyId>,
     pub(crate) return_type: InternedTyId,
     pub(crate) callable_bounds: Vec<Option<(Vec<InternedTyId>, InternedTyId)>>,
@@ -119,6 +122,7 @@ impl<'a> BodyChecker<'a> {
             let (params, return_type) =
                 self.builtin_trait_method_signature_for_inference(resolution.receiver_ty, name)?;
             return Some(MethodInferenceSignature {
+                generic_params: Vec::new(),
                 callable_bounds: vec![None; params.len()],
                 params,
                 return_type,
@@ -162,6 +166,7 @@ impl<'a> BodyChecker<'a> {
                 candidate.self_ty,
             );
             return Some(MethodInferenceSignature {
+                generic_params: signature.generic_params.clone(),
                 params,
                 return_type,
                 callable_bounds,
@@ -218,6 +223,7 @@ impl<'a> BodyChecker<'a> {
             candidate.self_ty,
         );
         Some(MethodInferenceSignature {
+            generic_params: candidate.signature.generic_params.clone(),
             params,
             return_type,
             callable_bounds,
