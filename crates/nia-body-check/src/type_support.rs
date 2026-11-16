@@ -1162,14 +1162,28 @@ impl<'a> BodyChecker<'a> {
         let mut solver = context
             .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions)
             .with_callable_assumptions(&callable_assumptions);
-        match solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
-        {
+        let resolved = match solver.resolve_associated_type(
+            self_ty,
+            trait_id,
+            trait_args,
+            trait_const_args,
+            name,
+        ) {
             Ok(resolved) => resolved,
             Err(error) => {
                 self.record_internal(error);
-                None
+                return None;
             }
+        };
+        // Implementations load on demand, as for a trait obligation: a
+        // concrete projection that no loaded implementation defines asks the
+        // loader for one, and the next round resolves it. A projection on a
+        // generic parameter is the environment's, which no implementation
+        // defines.
+        if resolved.is_none() && !self.type_contains_generic_param(self_ty) {
+            self.record_trait_provider_demand(self_ty, trait_id, trait_args);
         }
+        resolved
     }
 
     pub(crate) fn expect_type(

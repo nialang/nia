@@ -258,6 +258,20 @@ enum Projection {
     Index(InferId),
 }
 
+/// An associated type `[Self as Trait[Args]]::Name` of a generic callee's
+/// signature, whose `Self` or arguments mention the callee's generic
+/// parameters. It names a type only once those parameters are known for
+/// this call.
+#[derive(Clone, Debug)]
+struct AssociatedTypeObligation {
+    self_ty: InferId,
+    trait_id: nia_ty::TraitId,
+    trait_args: Vec<InferId>,
+    trait_const_args: Vec<nia_ty::ConstGenericArg>,
+    name: SymbolId,
+    result: InferId,
+}
+
 /// Where an omitted enum constructor may find its enum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ConstructorSearch {
@@ -280,6 +294,7 @@ enum InferenceObligation {
     Try(TryObligation),
     OmittedEnumConstructor(OmittedEnumConstructorObligation),
     Projection(ProjectionObligation),
+    AssociatedType(AssociatedTypeObligation),
 }
 
 /// Constraint state for one function body.
@@ -452,6 +467,38 @@ impl FunctionInference {
         match checker.interner.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => {
                 *generics.entry(name).or_insert_with(|| self.fresh())
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                trait_const_args,
+                name,
+            }) if checker.type_contains_generic_param(ty) && !checker.type_is_bound_in_body(ty) => {
+                // The callee's parameters are fresh terms of this call, so
+                // the projection is too, resolved once they are known. A
+                // projection on the body's own parameters, such as a
+                // receiver's `[R as Reader]::Error`, is a rigid type of the
+                // environment and is resolved as written below.
+                let self_ty = self.signature_term(checker, self_ty, generics);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.signature_term(checker, arg, generics))
+                    .collect();
+                let result = self.fresh();
+                let obligation = AssociatedTypeObligation {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    trait_const_args,
+                    name,
+                    result,
+                };
+                if !self.solve_associated_type(checker, &obligation) {
+                    self.obligations
+                        .push(InferenceObligation::AssociatedType(obligation));
+                }
+                result
             }
             Some(TyKind::Projection {
                 self_ty,
@@ -2256,6 +2303,43 @@ impl FunctionInference {
         true
     }
 
+    /// Give an associated type's result its type once its `Self` and trait
+    /// arguments are known. A projection no implementation defines
+    /// contributes nothing: body checking reports the call.
+    fn solve_associated_type(
+        &mut self,
+        checker: &mut BodyChecker<'_>,
+        obligation: &AssociatedTypeObligation,
+    ) -> bool {
+        let Some(self_ty) = self.resolve(checker, obligation.self_ty) else {
+            return false;
+        };
+        let Some(trait_args) = obligation
+            .trait_args
+            .iter()
+            .map(|arg| self.resolve(checker, *arg))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return false;
+        };
+        let projection = checker.interner.intern(TyKind::Projection {
+            self_ty,
+            trait_id: obligation.trait_id,
+            trait_args,
+            trait_const_args: obligation.trait_const_args.clone(),
+            name: obligation.name,
+        });
+        let resolved = checker.normalize_projection(projection);
+        if !matches!(
+            checker.interner.get(resolved),
+            Some(TyKind::Projection { .. })
+        ) {
+            let resolved = self.known(resolved);
+            self.unify(checker, obligation.result, resolved);
+        }
+        true
+    }
+
     /// Reach a fixed point across all deferred structural and operator
     /// obligations after the full body has contributed its contexts.
     ///
@@ -2283,6 +2367,9 @@ impl FunctionInference {
                 }
                 InferenceObligation::Projection(projection) => {
                     self.solve_projection(checker, *projection)
+                }
+                InferenceObligation::AssociatedType(associated) => {
+                    self.solve_associated_type(checker, associated)
                 }
             });
             search = match (pending.len() == before, search) {

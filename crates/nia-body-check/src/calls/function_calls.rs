@@ -806,7 +806,9 @@ impl<'a> BodyChecker<'a> {
                         const_substitutions,
                     )
                 };
-                let bound_ty = self.normalize_aliases_in_type(bound_ty);
+                // An instantiated bound such as `Fun([I as Iterator]::Item) R`
+                // names its parameters through the receiver's implementation.
+                let bound_ty = self.normalize_projection(bound_ty);
                 if let Some(TyKind::CallablePointee {
                     params,
                     return_type,
@@ -830,7 +832,7 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<bool> {
         let bound_ty =
             self.substitute_generics_and_consts(bound_ty, substitutions, const_substitutions);
-        let bound_ty = self.normalize_aliases_in_type(bound_ty);
+        let bound_ty = self.normalize_projection(bound_ty);
         let Some(TyKind::CallablePointee {
             params,
             return_type,
@@ -1544,7 +1546,7 @@ impl<'a> BodyChecker<'a> {
         if closure_key.is_none() && local.is_none() {
             return false;
         }
-        let pattern = self.normalization.normalize(pattern);
+        let pattern = self.normalize_projection(pattern);
         let params = match self.interner.get(pattern).cloned() {
             Some(TyKind::Callable { params, .. })
             | Some(TyKind::CallablePointee { params, .. })

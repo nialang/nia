@@ -1861,3 +1861,130 @@ fun main() i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+const ITEM_SOURCE: &str = r#"
+trait Source {
+    type Item;
+    fun take(&mut self) ?[Self as Source]::Item;
+}
+
+struct Numbers {
+    value: i32,
+}
+
+extend Numbers : Source {
+    type Item = i32;
+
+    fun take(&mut self) ?i32 {
+        ?self.value
+    }
+}
+"#;
+
+#[test]
+fn closure_parameter_is_inferred_through_a_callee_projection() {
+    let checked = pipeline(&format!(
+        r#"{ITEM_SOURCE}
+fun applyFirst[S, F, R](source: S, mapper: F) ?R
+where S: Source, F: Fun([S as Source]::Item) R
+{{
+    let mut source = source;
+    if source.take() is ?item {{ ?mapper(item) }} else {{ null }}
+}}
+
+extend[S] S
+where S: Source
+{{
+    fun mapFirst[F, R](self, mapper: F) ?R
+    where F: Fun([S as Source]::Item) R
+    {{
+        applyFirst(self, mapper)
+    }}
+}}
+
+fun main() i64 {{
+    let free = applyFirst(Numbers {{ value: 1 }}, \item -> item as i64);
+    let method = Numbers {{ value: 2 }}.mapFirst(\item -> item as i64);
+    match (free, method) {{
+        (?a, ?b) => a + b,
+        _ => 0,
+    }}
+}}
+"#
+    ));
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn extension_where_clause_on_a_projection_is_checked_on_the_resolved_type() {
+    let source = |item_bound: &str| {
+        format!(
+            r#"{ITEM_SOURCE}
+trait Marker {{}}
+
+extend {item_bound} : Marker {{}}
+
+extend[S] S
+where S: Source, [S as Source]::Item: Marker
+{{
+    fun marked(self) bool {{
+        true
+    }}
+}}
+
+fun main() bool {{
+    Numbers {{ value: 1 }}.marked()
+}}
+"#
+        )
+    };
+    let checked = pipeline(&source("i32"));
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let checked = pipeline(&source("bool"));
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("unknown method `marked`")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn callable_argument_keeps_a_projection_on_the_body_parameter_rigid() {
+    let checked = pipeline(
+        r#"
+trait Reader {
+    type Error;
+
+    fun read(&mut self) [Self as Reader]::Error!usize;
+}
+
+enum ReadFailure[E] {
+    Read(E),
+    Empty,
+}
+
+extend[Value, Source, Target] Source!Value {
+    fun mapError(self, mapper: &Fun(Source) Target) Target!Value {
+        match self {
+            !value => !value,
+            error! => mapper(error)!,
+        }
+    }
+}
+
+fun readOnce[R](reader: &mut R) ReadFailure[[R as Reader]::Error]!usize
+where R: Reader
+{
+    let count = reader.read().mapError(.Read).?;
+    !count
+}
+
+fun main() i32 { 0 }
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}

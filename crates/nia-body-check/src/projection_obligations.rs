@@ -504,6 +504,33 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    /// A callee's or type's where predicate, instantiated for a use that must
+    /// satisfy it. Instantiation can make a projection concrete, as `[I as
+    /// Iterator]::Item` becomes `[Range[i32] as Iterator]::Item`, and the
+    /// requirement is on the type it resolves to. The body's own predicates
+    /// are the solver's assumptions and stay as written: resolving them
+    /// would consult the assumptions they define.
+    fn instantiate_required_where_predicate(
+        &mut self,
+        predicate: &WherePredicateSignature,
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> WherePredicateSignature {
+        let mut predicate = self.substitute_where_predicate_with_consts(
+            predicate,
+            substitutions,
+            const_substitutions,
+        );
+        predicate.ty = self.normalize_projection(predicate.ty);
+        for bound in &mut predicate.bounds {
+            bound.trait_ty = self.normalize_projection(bound.trait_ty);
+            for binding in &mut bound.associated_type_bindings {
+                binding.ty = self.normalize_projection(binding.ty);
+            }
+        }
+        predicate
+    }
+
     pub(crate) fn check_where_predicates_hold(
         &mut self,
         predicates: &[WherePredicateSignature],
@@ -514,7 +541,7 @@ impl<'a> BodyChecker<'a> {
         let predicates = predicates
             .iter()
             .map(|predicate| {
-                self.substitute_where_predicate_with_consts(
+                self.instantiate_required_where_predicate(
                     predicate,
                     substitutions,
                     const_substitutions,
@@ -1540,7 +1567,7 @@ impl<'a> BodyChecker<'a> {
     ) -> bool {
         self.profile_stage("body_check.profile.where_predicates.can_hold", |this| {
             predicates.iter().all(|predicate| {
-                let predicate = this.substitute_where_predicate_with_consts(
+                let predicate = this.instantiate_required_where_predicate(
                     predicate,
                     substitutions,
                     const_substitutions,
@@ -1919,7 +1946,7 @@ impl<'a> BodyChecker<'a> {
         let predicates = predicates
             .iter()
             .map(|predicate| {
-                self.substitute_where_predicate_with_consts(
+                self.instantiate_required_where_predicate(
                     predicate,
                     &substitutions,
                     &const_substitutions,
