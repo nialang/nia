@@ -69,6 +69,41 @@ pub struct TraitGoal {
     pub trait_const_args: Vec<ConstGenericArg>,
 }
 
+/// A callable bound `F: Fun(A) R` that the current generic environment
+/// assumes: `F` may be called as `callable`, a callable pointee, states.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CallableAssumption {
+    /// The bounded type, usually a generic parameter.
+    pub self_ty: InternedTyId,
+    /// The callable shape it satisfies.
+    pub callable: InternedTyId,
+}
+
+impl CallableAssumption {
+    /// The callable bounds among `predicates`. `normalize` canonicalizes a
+    /// bound type and `kind` reads it, so a bound written through an alias
+    /// is found like one written directly.
+    pub fn from_where_predicates(
+        predicates: &[nia_item_signatures::WherePredicateSignature],
+        mut normalize: impl FnMut(InternedTyId) -> InternedTyId,
+        kind: impl Fn(InternedTyId) -> Option<TyKind>,
+    ) -> Vec<Self> {
+        let mut assumptions = Vec::new();
+        for predicate in predicates {
+            for bound in &predicate.bounds {
+                let callable = normalize(bound.trait_ty);
+                if matches!(kind(callable), Some(TyKind::CallablePointee { .. })) {
+                    assumptions.push(Self {
+                        self_ty: normalize(predicate.ty),
+                        callable,
+                    });
+                }
+            }
+        }
+        assumptions
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Equality for an associated-type projection supplied by a generic context.
 pub struct AssociatedTypeProjectionEq {
@@ -257,6 +292,7 @@ pub struct TraitSolver<'a> {
     trait_impl_index: Option<&'a ProgramTraitImplIndex>,
     assumptions: &'a [TraitGoal],
     associated_type_assumptions: &'a [AssociatedTypeProjectionEq],
+    callable_assumptions: &'a [CallableAssumption],
     layouts: Option<&'a Layouts>,
     program_layouts: Option<&'a dyn Fn(ModuleId) -> Option<std::sync::Arc<Layouts>>>,
     type_layout: Option<&'a dyn Fn(InternedTyId) -> bool>,
@@ -267,6 +303,16 @@ pub struct TraitSolver<'a> {
     program_fieldless_enum: Option<&'a dyn Fn(GlobalDefId) -> bool>,
     impl_is_visible: &'a dyn Fn(ModuleId, TraitImplId) -> bool,
     stats: TraitSolverStats,
+}
+
+impl<'a> TraitSolver<'a> {
+    /// This solver, also assuming the callable bounds of the generic
+    /// environment, so that an implementation whose where clause requires
+    /// `F: Fun(A) R` applies to the environment's own `F`.
+    pub fn with_callable_assumptions(mut self, assumptions: &'a [CallableAssumption]) -> Self {
+        self.callable_assumptions = assumptions;
+        self
+    }
 }
 
 impl TraitSolver<'_> {
@@ -381,6 +427,7 @@ impl<'a> TraitSolverContext<'a> {
             trait_impl_index: self.trait_impl_index,
             assumptions,
             associated_type_assumptions: &[],
+            callable_assumptions: &[],
             layouts: self.layouts,
             program_layouts: self.program_layouts,
             type_layout: self.type_layout,
@@ -414,6 +461,7 @@ impl<'a> TraitSolverContext<'a> {
             trait_impl_index: self.trait_impl_index,
             assumptions,
             associated_type_assumptions,
+            callable_assumptions: &[],
             layouts: self.layouts,
             program_layouts: self.program_layouts,
             type_layout: self.type_layout,

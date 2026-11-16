@@ -610,6 +610,7 @@ impl<'a> BodyChecker<'a> {
         let self_ty = self.normalize_aliases_in_type(self_ty);
         let assumptions = self.current_trait_goals();
         let associated_type_assumptions = self.current_associated_type_assumptions();
+        let callable_assumptions = self.current_callable_assumptions();
         let mut const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
         for assumption in &assumptions {
             for arg in &assumption.trait_const_args {
@@ -638,7 +639,8 @@ impl<'a> BodyChecker<'a> {
             impl_is_visible: None,
         };
         let mut solver = context
-            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
+            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions)
+            .with_callable_assumptions(&callable_assumptions);
         match solver.explain(TraitGoal {
             self_ty,
             trait_id,

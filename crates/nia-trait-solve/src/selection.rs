@@ -364,7 +364,9 @@ impl TraitSolver<'_> {
                 return_type,
                 ..
             } => (params, return_type),
-            _ => return Some(false),
+            // A type whose callable shape is not known here, such as a
+            // generic parameter, is callable as the environment assumes.
+            _ => return Some(self.callable_assumption_holds(actual_ty, bound_ty)),
         };
         Some(
             expected_params.len() == actual_params.len()
@@ -374,6 +376,18 @@ impl TraitSolver<'_> {
                     .all(|(expected, actual)| self.types_equivalent_inner(*expected, actual))
                 && self.types_equivalent_inner(expected_return, actual_return),
         )
+    }
+
+    fn callable_assumption_holds(
+        &mut self,
+        actual_ty: InternedTyId,
+        bound_ty: InternedTyId,
+    ) -> bool {
+        let assumptions = self.callable_assumptions;
+        assumptions.iter().any(|assumption| {
+            self.types_equivalent_inner(assumption.self_ty, actual_ty)
+                && self.types_equivalent_inner(assumption.callable, bound_ty)
+        })
     }
 
     pub(crate) fn match_impl_pattern_with_consts(

@@ -1875,6 +1875,11 @@ fn trait_method_signature_matches(
         &mut assumptions,
         &mut associated_type_assumptions,
     )?;
+    let callable_assumptions = nia_trait_solve::CallableAssumption::from_where_predicates(
+        &input.impl_signature.where_predicates,
+        |ty| input.module.normalization.normalize(ty),
+        |ty| input.type_store.get(ty).cloned(),
+    );
     let const_expr_value = |id, _ty| {
         input
             .module
@@ -1900,8 +1905,9 @@ fn trait_method_signature_matches(
         const_expr_value: Some(&const_expr_value),
         impl_is_visible: None,
     };
-    let mut solver =
-        context.solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
+    let mut solver = context
+        .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions)
+        .with_callable_assumptions(&callable_assumptions);
     let required = input.required;
     let actual = input.actual;
     if !trait_method_generic_params_match(

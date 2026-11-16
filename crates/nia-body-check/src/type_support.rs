@@ -1136,6 +1136,7 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let assumptions = self.current_trait_goals();
         let associated_type_assumptions = self.current_associated_type_assumptions();
+        let callable_assumptions = self.current_callable_assumptions();
         let const_expr_values = self.const_expr_values_for_trait_solver(trait_const_args);
         let const_expr_value = |id, ty| const_expr_values.get(&(id, ty)).cloned();
         let program_signature_scope = self.program_signature_scope;
@@ -1159,7 +1160,8 @@ impl<'a> BodyChecker<'a> {
             impl_is_visible: None,
         };
         let mut solver = context
-            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
+            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions)
+            .with_callable_assumptions(&callable_assumptions);
         match solver.resolve_associated_type(self_ty, trait_id, trait_args, trait_const_args, name)
         {
             Ok(resolved) => resolved,

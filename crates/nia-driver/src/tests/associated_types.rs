@@ -1722,3 +1722,71 @@ fun main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
+
+#[test]
+fn impl_method_signature_selects_an_implementation_through_a_callable_bound() {
+    let root = temp_dir("impl_method_signature_selects_an_implementation_through_a_callable_bound");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+
+    fun take(&mut self) ?[Self as Source]::Item;
+}
+
+trait Back : Source {
+    fun back(&mut self) ?[Self as Source]::Item;
+}
+
+struct Numbers {
+    value: i32,
+}
+
+extend Numbers : Source {
+    type Item = i32;
+
+    fun take(&mut self) ?i32 {
+        ?self.value
+    }
+}
+
+extend Numbers : Back {
+    fun back(&mut self) ?i32 {
+        ?self.value
+    }
+}
+
+struct Mapped[S, F, R] {
+    source: S,
+    mapper: F,
+}
+
+extend[S, F, R] Mapped[S, F, R] : Source
+where S: Source, F: Fun([S as Source]::Item) R
+{
+    type Item = R;
+
+    fun take(&mut self) ?R {
+        if self.source.take() is ?item { ?self.mapper(item) } else { null }
+    }
+}
+
+// The trait's `[Self as Source]::Item` is `R` only through the `Source`
+// implementation above, selected through this implementation's own
+// `F: Fun([S as Source]::Item) R`.
+extend[S, F, R] Mapped[S, F, R] : Back
+where S: Back, F: Fun([S as Source]::Item) R
+{
+    fun back(&mut self) ?R {
+        if self.source.back() is ?item { ?self.mapper(item) } else { null }
+    }
+}
+
+fun main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}

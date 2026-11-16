@@ -258,6 +258,34 @@ impl<'a> BodyChecker<'a> {
             .unwrap_or_default()
     }
 
+    /// The callable bounds `F: Fun(A) R` of the body being checked, which
+    /// the trait solver assumes as it assumes the body's trait bounds.
+    pub(crate) fn current_callable_assumptions(
+        &mut self,
+    ) -> Vec<nia_trait_solve::CallableAssumption> {
+        let predicates = self
+            .current_function_where_predicates()
+            .into_iter()
+            .map(|predicate| WherePredicateSignature {
+                ty: self.normalize_aliases_in_type(predicate.ty),
+                bounds: predicate
+                    .bounds
+                    .into_iter()
+                    .map(|bound| nia_item_signatures::WhereBoundSignature {
+                        trait_ty: self.normalize_aliases_in_type(bound.trait_ty),
+                        ..bound
+                    })
+                    .collect(),
+                span: predicate.span,
+            })
+            .collect::<Vec<_>>();
+        nia_trait_solve::CallableAssumption::from_where_predicates(
+            &predicates,
+            |ty| ty,
+            |ty| self.interner.get(ty).cloned(),
+        )
+    }
+
     pub(crate) fn current_function_where_predicates(&mut self) -> Vec<WherePredicateSignature> {
         let Some(def_id) = self
             .current_def_id
@@ -2010,6 +2038,7 @@ impl<'a> BodyChecker<'a> {
         let assumptions = self.trait_goals_for_obligations(obligations);
         let associated_type_assumptions =
             self.associated_type_assumptions_for_obligations(obligations);
+        let callable_assumptions = self.current_callable_assumptions();
         let mut const_expr_values = HashMap::new();
         for arg in &required.trait_const_args {
             self.collect_const_expr_values_for_trait_solver(arg, &mut const_expr_values);
@@ -2067,7 +2096,8 @@ impl<'a> BodyChecker<'a> {
             impl_is_visible: None,
         };
         let mut solver = context
-            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions);
+            .solver_with_associated_type_assumptions(&assumptions, &associated_type_assumptions)
+            .with_callable_assumptions(&callable_assumptions);
         let requirements = required
             .associated_type_bindings
             .iter()
