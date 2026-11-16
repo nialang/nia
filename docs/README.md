@@ -34,6 +34,9 @@ Guides cover a task from start to finish.
 | [C Interop](guides/c-interop.md) | Calling C, linking native libraries, and exporting Nia functions |
 | [Writing Idiomatic Nia](guides/writing-nia.md) | Organizing code, handling errors, iteration, layout, comments, and tests the way std does; habits from other languages that do not carry over |
 
+An AI coding assistant can be given the same guidance as a
+[skill](../skills/README.md).
+
 ## Reference
 
 References state the exact rules.

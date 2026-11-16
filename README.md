@@ -112,6 +112,7 @@ entry points are:
 
 - [Learning Nia](docs/learn/README.md), a chapter-by-chapter introduction, and the [language reference](docs/reference/language.md)
 - [Packages and dependencies](docs/guides/packages.md), [custom builds](docs/guides/build-scripts.md), and [C interop](docs/guides/c-interop.md)
+- [Writing idiomatic Nia](docs/guides/writing-nia.md), and the [writing-nia skill](skills/README.md) that gives it to an AI coding assistant
 - [Standard library](lib/README.md) and [ABI reference](docs/reference/abi.md)
 - [Platform support](docs/reference/platform-support.md)
 - [Contributing](docs/dev/contributing.md) and [compiler architecture](docs/dev/architecture.md)
@@ -127,6 +128,7 @@ entry points are:
 - `maintain/`: repository audits, fixtures, and performance infrastructure.
 - `formal/`: Lean models of compiler contracts.
 - `tools/`: the development launcher, LLVM toolchain, and release scripts.
+- `skills/`: instructions for AI coding assistants that write Nia.
 
 ## Support And Status
 
