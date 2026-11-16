@@ -2889,7 +2889,7 @@ extend types::Point {
 }
 
 #[test]
-fn executable_facade_reexport_does_not_body_check_unused_reexport_extension_providers() {
+fn executable_facade_reexport_does_not_compile_unused_reexport_extension_providers() {
     let root = temp_dir(
         "executable_facade_reexport_does_not_body_check_unused_reexport_extension_providers",
     );
@@ -2937,19 +2937,32 @@ extend types::Unused {
 "#,
     );
 
-    let program = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
+    // Code generation compiles what the entry reaches, so the provider an
+    // unused re-export names stays out of it.
+    let program = codegen_program(root.join("main.nia").to_string_lossy().into_owned());
     assert_no_error_diagnostics(&program.diagnostics);
     assert!(
         program
             .modules
             .iter()
             .all(|module| { !module.path.as_str().ends_with("impls.nia") }),
-        "unused facade re-export extension provider should not enter executable checking: {:?}",
+        "unused facade re-export extension provider should not enter code generation: {:?}",
         program
             .modules
             .iter()
             .map(|module| module.path.as_str())
             .collect::<Vec<_>>()
+    );
+
+    // Checking covers every body of the program's own tree, used or not.
+    let checked = check_entry_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.path.as_str().ends_with("impls.nia")
+                && diagnostic.diagnostic.summary.contains("missing_symbol")
+        }),
+        "{:?}",
+        checked.diagnostics
     );
 }
 

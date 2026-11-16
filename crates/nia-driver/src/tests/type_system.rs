@@ -1560,21 +1560,19 @@ fun main() TargetError!i32 {
 
     let driver = test_driver();
     driver.set_source("main.nia", initial).expect("set source");
-    let first = checked_program_from_output(driver.check_entry(CheckRequest::new("main.nia")));
+    let first = checked_program_from_output(driver.check(CheckRequest::new("main.nia")));
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
 
     driver
         .set_source("main.nia", edited.clone())
         .expect("replace source");
-    let incremental =
-        checked_program_from_output(driver.check_entry(CheckRequest::new("main.nia")));
+    let incremental = checked_program_from_output(driver.check(CheckRequest::new("main.nia")));
 
     let clean_driver = test_driver();
     clean_driver
         .set_source("main.nia", edited)
         .expect("set clean source");
-    let clean =
-        checked_program_from_output(clean_driver.check_entry(CheckRequest::new("main.nia")));
+    let clean = checked_program_from_output(clean_driver.check(CheckRequest::new("main.nia")));
     let incremental_summaries = incremental
         .diagnostics
         .iter()
@@ -1634,7 +1632,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         .expect("set source");
 
     let program = checked_program_from_output(
-        driver.check_entry(CheckRequest::new("main.nia").with_runtime(test_freestanding_runtime())),
+        driver.check(CheckRequest::new("main.nia").with_runtime(test_freestanding_runtime())),
     );
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
@@ -1665,7 +1663,7 @@ fun main() u8 {
         )
         .expect("set source");
 
-    let program = checked_program_from_output(driver.check_entry(CheckRequest::new("main.nia")));
+    let program = checked_program_from_output(driver.check(CheckRequest::new("main.nia")));
 
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }

@@ -777,39 +777,6 @@ pub(in crate::query) fn provide_backend_lowering_inputs(
     })
 }
 
-pub(in crate::query) fn effective_function_generic_params(
-    signatures: &nia_item_signatures::ItemSignatures,
-    defs: &DefCollection,
-    def_id: DefId,
-) -> Vec<nia_item_signatures::GenericParamSignature> {
-    let mut params = Vec::new();
-    if let Some(parent) = defs.defs.get(def_id).and_then(|def| def.parent) {
-        if let Some(signature) = signatures.structs.get(&parent) {
-            params.extend(signature.generic_params.iter().cloned());
-        } else if let Some(signature) = signatures.unions.get(&parent) {
-            params.extend(signature.generic_params.iter().cloned());
-        } else if let Some(signature) = signatures.traits.get(&parent) {
-            params.extend(signature.generic_params.iter().cloned());
-        }
-    }
-    if let Some(signature) = signatures.trait_impls.iter().find(|signature| {
-        signature
-            .methods
-            .iter()
-            .any(|method| method.def_id == def_id)
-    }) {
-        params.extend(signature.generic_params.iter().cloned());
-    }
-    if let Some(signature) = signatures.functions.get(&def_id) {
-        params.extend(signature.generic_params.iter().cloned());
-    }
-    let mut seen = HashSet::new();
-    params
-        .into_iter()
-        .filter(|param| seen.insert(param.name))
-        .collect()
-}
-
 pub(super) fn early_program_diagnostics(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<Vec<ProgramDiagnostic>> {

@@ -928,7 +928,7 @@ fn run_check(
             .with_cpu(options.settings.cpu.unwrap_or_default())
     });
     let output = time_summary_stage(options.settings.timings, "check", || {
-        driver.check_entry(request.clone())
+        driver.check(request.clone())
     });
     if checked_program_from_output(output, entry, format).is_none() {
         return ExitCode::FAILURE;
@@ -999,9 +999,7 @@ fn run_emit_checked(entry: &SourceEntry, runtime: RuntimeMode, context: EmitCont
         nia_driver::DriverConfig::new(context.toolchain)
             .with_cpu(context.settings.cpu.unwrap_or_default()),
     );
-    let output = time_summary_stage(context.settings.timings, "check", || {
-        driver.check_entry(request)
-    });
+    let output = time_summary_stage(context.settings.timings, "check", || driver.check(request));
     match checked_program_from_output(output, entry, format) {
         Some(program) => write_stdout(format_args!("{program:#?}\n")),
         None => ExitCode::FAILURE,

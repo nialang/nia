@@ -9,8 +9,8 @@ use super::{
     SignatureConstItemTreeQuery, SignatureItemTreeQuery,
 };
 use crate::{
-    ActiveModuleItemTreeFactKind, CodegenScope, FrontendCheckCertificateCacheKey,
-    FrontendCheckInputFingerprint, FrontendCheckScope, RuntimeSpec, TimingMode,
+    ActiveModuleItemTreeFactKind, FrontendCheckCertificateCacheKey, FrontendCheckInputFingerprint,
+    FrontendCheckScope, RootScope, RuntimeSpec, TimingMode,
 };
 use nia_ids::ModuleId;
 use nia_imports::{ModuleGraphSnapshot, StableModuleKey};
@@ -276,8 +276,8 @@ impl CompilerContext {
         self.inputs.read().optimization
     }
 
-    pub(super) fn codegen_scope(&self) -> crate::CodegenScope {
-        self.inputs.read().codegen_scope
+    pub(super) fn root_scope(&self) -> crate::RootScope {
+        self.inputs.read().root_scope
     }
 
     pub(super) fn timings(&self) -> TimingMode {
@@ -498,7 +498,7 @@ pub(super) fn resolve_stable_module_sequence(
 pub(super) struct CompilerInputs {
     pub(super) optimization: OptimizationPolicy,
     pub(super) timings: TimingMode,
-    pub(super) codegen_scope: CodegenScope,
+    pub(super) root_scope: RootScope,
     pub(super) current_package: Option<nia_package_metadata::PackageId>,
 }
 
@@ -507,7 +507,7 @@ impl CompilerInputs {
         Self {
             optimization: request.optimization.policy(),
             timings: request.timings,
-            codegen_scope: request.codegen_scope,
+            root_scope: request.root_scope,
             current_package: request.current_package,
         }
     }
@@ -519,7 +519,7 @@ pub(super) struct ExecutableFactEpoch {
     pub(super) runtime_root_modules: Vec<ModuleId>,
     pub(super) target: TargetConfig,
     pub(super) runtime: RuntimeSpec,
-    pub(super) codegen_scope: CodegenScope,
+    pub(super) root_scope: RootScope,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

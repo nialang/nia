@@ -5,6 +5,19 @@ label: 68..69 Primary Source this method parameter shadows the enclosing paramet
 help: rename the method parameter or remove it and use the enclosing `T` parameter
 
 path: fail/signature_generic_shadowing/main.nia
+code: E0301
+summary: type mismatch in binding initializer: expected i32, got bool
+label: 119..123 Primary Source type mismatch in binding initializer: expected i32, got bool
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+path: fail/signature_generic_shadowing/main.nia
+code: E0201
+summary: unknown value `missing_in_method`
+label: 133..150 Primary Source no value named `missing_in_method` is visible in this scope
+help: check the spelling, import `missing_in_method`, or declare it before this use
+
+path: fail/signature_generic_shadowing/main.nia
 code: E0203
 summary: method generic parameter cannot shadow enclosing generic parameter `T`
 label: 195..196 Primary Source this method parameter shadows the enclosing parameter
@@ -17,6 +30,13 @@ label: 241..256 Primary Source no value named `missing_in_main` is visible in th
 help: check the spelling, import `missing_in_main`, or declare it before this use
 
 report:
+error[E0201]: unknown value `missing_in_method`
+  --> fail/signature_generic_shadowing/main.nia:8:9
+  |
+8 |         missing_in_method
+  |         ^^^^^^^^^^^^^^^^^ no value named `missing_in_method` is visible in this scope
+help: check the spelling, import `missing_in_method`, or declare it before this use
+
 error[E0201]: unknown value `missing_in_main`
    --> fail/signature_generic_shadowing/main.nia:17:5
    |
@@ -38,4 +58,12 @@ error[E0203]: method generic parameter cannot shadow enclosing generic parameter
    |                 ^ this method parameter shadows the enclosing parameter
 help: rename the method parameter or remove it and use the enclosing `T` parameter
 
-summary: 3 errors, 0 warnings
+error[E0301]: type mismatch in binding initializer: expected i32, got bool
+  --> fail/signature_generic_shadowing/main.nia:7:29
+  |
+7 |         let mismatch: i32 = true;
+  |                             ^^^^
+note: this context requires `i32`, but the expression produces `bool`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
+
+summary: 5 errors, 0 warnings

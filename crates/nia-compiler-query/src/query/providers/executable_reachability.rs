@@ -1670,15 +1670,34 @@ fn const_declaration_demands(
     Ok(demands)
 }
 
+/// The functions and globals reachability starts from; see `RootScope`.
 fn executable_root_defs(
     db: &QueryDb<CompilerContext>,
     entry: ModuleId,
     runtime_root_modules: &[ModuleId],
     parse_ok: &[ModuleId],
 ) -> QueryResult<(Vec<GlobalDefId>, Vec<GlobalDefId>)> {
-    if *db.get(CompilerCodegenScopeQuery)? == crate::CodegenScope::Package {
-        return package_root_defs(db, entry, parse_ok);
+    let (mut functions, mut globals) = entry_root_defs(db, entry, runtime_root_modules, parse_ok)?;
+    if *db.get(CompilerRootScopeQuery)? == crate::RootScope::Tree {
+        let (tree_functions, tree_globals) = tree_root_defs(db, parse_ok)?;
+        functions.extend(tree_functions);
+        globals.extend(tree_globals);
+        functions.sort_unstable();
+        functions.dedup();
+        globals.sort_unstable();
+        globals.dedup();
     }
+    Ok((functions, globals))
+}
+
+/// What the entry reaches: its top-level functions and globals under the
+/// bare runtime, or the runtime's entry point and required exports.
+fn entry_root_defs(
+    db: &QueryDb<CompilerContext>,
+    entry: ModuleId,
+    runtime_root_modules: &[ModuleId],
+    parse_ok: &[ModuleId],
+) -> QueryResult<(Vec<GlobalDefId>, Vec<GlobalDefId>)> {
     match db.get(CompilerRuntimeQuery)?.as_ref() {
         RuntimeSpec::Bare => {
             let defs = full_module_defs_semantic(db, entry)?;
@@ -1849,17 +1868,21 @@ fn exported_extern_definitions(
     Ok(functions)
 }
 
-fn package_root_defs(
+/// Every runtime body of the program's own module tree: functions and
+/// methods with bodies, generic or not, and top-level globals. A generic
+/// body is checked once, against its parameters.
+fn tree_root_defs(
     db: &QueryDb<CompilerContext>,
-    entry: ModuleId,
     parse_ok: &[ModuleId],
 ) -> QueryResult<(Vec<GlobalDefId>, Vec<GlobalDefId>)> {
     let graph = db.get(ModuleGraphQuery)?;
-    let package_root = graph.current_package_root(entry);
     let mut functions = Vec::new();
     let mut globals = Vec::new();
     for module_id in parse_ok.iter().copied() {
-        if graph.current_package_root(module_id) != package_root {
+        if !graph
+            .get(module_id)
+            .is_some_and(|module| module.module_path.is_program_tree())
+        {
             continue;
         }
         let defs = full_module_defs_semantic(db, module_id)?;
@@ -1873,8 +1896,7 @@ fn package_root_defs(
             };
             if matches!(definition.kind, DefKind::Function | DefKind::Method)
                 && signature.has_body
-                && effective_function_generic_params(&signatures.semantic, &defs, *def_id)
-                    .is_empty()
+                && !signature.is_const
             {
                 functions.push(GlobalDefId {
                     module_id,
@@ -1882,15 +1904,28 @@ fn package_root_defs(
                 });
             }
         }
+        // A trait's default method bodies, checked once against `Self`.
+        let trait_signatures = db.get(SignatureItemSignaturesQuery(
+            module_id,
+            nia_item_tree::SignatureItemSet::Traits,
+        ))?;
+        for signature in trait_signatures.semantic.traits.values() {
+            functions.extend(
+                signature
+                    .methods
+                    .iter()
+                    .filter(|method| method.has_default)
+                    .map(|method| GlobalDefId {
+                        module_id,
+                        def_id: method.def_id,
+                    }),
+            );
+        }
         globals.extend(defs.defs.iter().filter_map(|(def_id, definition)| {
             (definition.kind == DefKind::Global && definition.parent.is_none())
                 .then_some(GlobalDefId { module_id, def_id })
         }));
     }
-    functions.sort_unstable();
-    functions.dedup();
-    globals.sort_unstable();
-    globals.dedup();
     Ok((functions, globals))
 }
 

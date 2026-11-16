@@ -12,7 +12,7 @@ pub struct CompileRequest {
     /// Compiler timing collection policy.
     pub timings: TimingMode,
     /// Definition-root scope used by executable and package code generation.
-    pub codegen_scope: crate::CodegenScope,
+    pub root_scope: crate::RootScope,
     /// Canonical identity of the current source package for package-qualified
     /// symbols. Standalone source compilations derive an anonymous identity
     /// from their stable source root.
@@ -29,7 +29,7 @@ impl CompileRequest {
             loader_facts,
             optimization: NiaOptimizationLevel::default(),
             timings: TimingMode::Off,
-            codegen_scope: crate::CodegenScope::Entry,
+            root_scope: crate::RootScope::Entry,
             current_package: None,
             frontend_cache_dir: None,
             verify_frontend_cache: false,
@@ -50,8 +50,8 @@ impl CompileRequest {
 
     /// Selects whether code generation starts from an entry or the complete
     /// concrete definition inventory of the current package.
-    pub fn with_codegen_scope(mut self, scope: crate::CodegenScope) -> Self {
-        self.codegen_scope = scope;
+    pub fn with_root_scope(mut self, scope: crate::RootScope) -> Self {
+        self.root_scope = scope;
         self
     }
 

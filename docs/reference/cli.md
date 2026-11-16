@@ -108,6 +108,11 @@ graph. The path is a source file, or a directory that holds a `main.nia` or a
 `nia.toml` with a `[library]` path; that file roots the tree, and its child
 modules are found beside it.
 
+`nia check` checks every function, method, and global of the tree, whether or
+not anything calls it; a generic function or a trait's default method is
+checked once against its parameters. Dependencies are checked as far as the
+tree uses them. `nia emit` compiles only what the entry reaches.
+
 ```sh
 nia check lib/root.nia
 nia emit --llvm src/main.nia
@@ -130,7 +135,7 @@ artifact with its dependencies.
 
 | Option | Effect |
 | --- | --- |
-| `--runtime <bare\|freestanding>` | `bare` (the default) checks every function as an ordinary function; `freestanding` also checks the standard `main` entry. `--exe` always builds `freestanding`. |
+| `--runtime <bare\|freestanding>` | `bare` (the default) checks the tree with no entry point; `freestanding` also checks the standard `main` entry and the runtime that calls it. `--exe` always builds `freestanding`. |
 | `-M, --module <name=path>` | Map a package name for `using`; repeatable. |
 | `--cache-dir <path>` | Reuse compiler products from this directory. |
 | `--opt-report` | Print the optimization report to stderr. |

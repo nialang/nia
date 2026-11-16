@@ -160,17 +160,20 @@ impl<'borrow, 'stream, 'executor> BackendFinalizationSchedule<'borrow, 'stream, 
     }
 }
 
-/// Root-selection scope for backend code generation.
-///
-/// Runtime startup controls executable semantics, while package publication
-/// selects every concrete runtime definition owned by the current package.
+/// The definitions executable reachability starts from, which are the ones
+/// whose bodies are checked and, when code is generated, emitted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum CodegenScope {
-    /// Emit definitions reachable from selected entry/runtime roots.
+pub enum RootScope {
+    /// What the entry reaches: its top-level functions under the bare
+    /// runtime, or the runtime's entry point and exports. Code generation
+    /// uses it, so an executable holds only what it can run.
     #[default]
     Entry,
-    /// Emit every non-generic runtime definition owned by the current package.
-    Package,
+    /// Every runtime body of the program's own module tree, generic or not,
+    /// plus the entry roots. Checking uses it, so code nothing reaches is
+    /// checked too; dependencies are still checked only as far as the tree
+    /// reaches into them.
+    Tree,
 }
 
 /// Source text retained for diagnostic paths at the producing revision.

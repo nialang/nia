@@ -8,7 +8,7 @@ impl Driver {
     pub fn emit_llvm_ir(&self, request: EmitLlvmRequest) -> DriverOutput<LlvmIrArtifact> {
         {
             let timings = request.check.timings;
-            let database = match self.compiler_database(&request.check) {
+            let database = match self.compiler_database(&request.check, RootScope::Entry) {
                 Ok(database) => database,
                 Err(error) => {
                     return DriverOutput::from_error(DriverError::InternalDiagnostic(
@@ -218,10 +218,7 @@ impl Driver {
             let timings = request.check.timings;
             let (database, loader) =
                 match time_detail_stage(timings, mode.prepare_database_stage(), || {
-                    self.compilation_databases_with_codegen_scope(
-                        &request.check,
-                        CodegenScope::Entry,
-                    )
+                    self.compilation_databases(&request.check, RootScope::Entry)
                 }) {
                     Ok(databases) => databases,
                     Err(error) => {

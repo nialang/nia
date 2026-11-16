@@ -857,7 +857,7 @@ impl DriverActionExecutor {
             .progress
             .as_ref()
             .map(|progress| progress.activity(action.key.clone(), ProgressActivity::Checking));
-        let checked = driver.check_entry_with_source_manifest(request).result;
+        let checked = driver.check_with_source_manifest(request).result;
         let check_success = checked.is_ok();
         if let Some(activity) = check_activity {
             activity.finish(check_success);
@@ -1084,7 +1084,7 @@ impl DriverActionExecutor {
                 return Ok(Some(ActionCacheOutcome::Unavailable));
             }
             let checked = driver
-                .check_entry_with_source_manifest(request.clone())
+                .check_with_source_manifest(request.clone())
                 .result
                 .map_err(|error| CoordinatorError::Driver {
                     action: action.key.clone(),

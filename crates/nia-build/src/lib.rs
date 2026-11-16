@@ -3419,7 +3419,7 @@ fn compile_build_runner(
     // Check the user-owned build script before lowering the generated wrapper.
     // A bad build script otherwise poisons the wrapper's recovery values and
     // produces a long list of diagnostics at synthetic runner locations.
-    if let Err(error) = driver.check_entry(check.clone()).result {
+    if let Err(error) = driver.check(check.clone()).result {
         let error = focus_build_script_diagnostics(error, &SourcePath::new(runner.path.clone()));
         return Err(BuildError::CompileRunner {
             path: runner.path.clone(),
@@ -4845,7 +4845,7 @@ mod tests {
                         .expect("Darwin runtime"),
                 );
             driver
-                .check_entry(request.clone())
+                .check(request.clone())
                 .result
                 .expect("Darwin runner semantic check");
             driver

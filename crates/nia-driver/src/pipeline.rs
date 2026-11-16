@@ -7,7 +7,7 @@ use std::{
 };
 
 use nia_compiler_query::{
-    BackendFunctionStats, CodegenScope, CompileRequest, CompilerDatabase, TimingMode,
+    BackendFunctionStats, CompileRequest, CompilerDatabase, RootScope, TimingMode,
     has_error_diagnostics, query_error_diagnostic,
 };
 use nia_diagnostic::Diagnostic;

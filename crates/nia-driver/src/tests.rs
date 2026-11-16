@@ -93,7 +93,7 @@ fun main() i32 {{ selected() }}
         )
         .expect("set source");
 
-    let output = driver.check_entry(crate::CheckRequest::new("main.nia"));
+    let output = driver.check(crate::CheckRequest::new("main.nia"));
 
     assert_eq!(driver.config().artifact_target, invocation_target);
     output

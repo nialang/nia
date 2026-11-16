@@ -27,7 +27,7 @@ pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry>
         CheckedProgramQuery,
         CodegenPreparationQuery,
         CodegenProgramQuery,
-        CompilerCodegenScopeQuery,
+        CompilerRootScopeQuery,
         CompilerOptimizationQuery,
         CompilerRuntimeQuery,
         CompilerTargetQuery,

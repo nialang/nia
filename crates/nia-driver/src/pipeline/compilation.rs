@@ -81,7 +81,7 @@ impl Driver {
         &self,
         request: CheckRequest,
     ) -> nia_query::QueryResult<CheckedProgram> {
-        self.compile_with(request, CompilerDatabase::check_program)
+        self.compile_with(request, RootScope::Tree, CompilerDatabase::check_program)
     }
 
     #[cfg(test)]
@@ -89,13 +89,14 @@ impl Driver {
         &self,
         request: CheckRequest,
     ) -> nia_compiler_query::CheckedProgramAnalysis {
-        self.compile_with(request, CompilerDatabase::analyze_program)
+        self.compile_with(request, RootScope::Tree, CompilerDatabase::analyze_program)
             .expect("test compiler analysis")
     }
 
-    /// Checks the request entry and its reachable semantic program.
-    pub fn check_entry(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
-        let program = match self.check_entry_inner(request) {
+    /// Checks every runtime body of the request's module tree, and the
+    /// dependencies as far as the tree reaches into them.
+    pub fn check(&self, request: CheckRequest) -> DriverOutput<CheckedProgram> {
+        let program = match self.check_inner(request) {
             Ok(program) => program,
             Err(error) => {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
@@ -109,12 +110,12 @@ impl Driver {
         DriverOutput::success(program)
     }
 
-    /// Checks an entry and returns its exact source manifest alongside it.
-    pub fn check_entry_with_source_manifest(
+    /// Checks as `check` does and returns the exact source manifest alongside.
+    pub fn check_with_source_manifest(
         &self,
         request: CheckRequest,
     ) -> DriverOutput<CheckedProgramWithSourceManifest> {
-        let checked = match self.check_entry_with_source_manifest_inner(request) {
+        let checked = match self.check_with_source_manifest_inner(request) {
             Ok(checked) => checked,
             Err(error) => {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
@@ -128,16 +129,23 @@ impl Driver {
         DriverOutput::success(checked)
     }
 
-    fn check_entry_inner(&self, request: CheckRequest) -> nia_query::QueryResult<CheckedProgram> {
-        self.compile_with(request, CompilerDatabase::entry_check_program)
+    fn check_inner(&self, request: CheckRequest) -> nia_query::QueryResult<CheckedProgram> {
+        self.compile_with(
+            request,
+            RootScope::Tree,
+            CompilerDatabase::entry_check_program,
+        )
     }
 
-    fn check_entry_with_source_manifest_inner(
+    fn check_with_source_manifest_inner(
         &self,
         request: CheckRequest,
     ) -> nia_query::QueryResult<CheckedProgramWithSourceManifest> {
-        let (program, source_manifest) =
-            self.compile_with_source_manifest(request, CompilerDatabase::entry_check_program)?;
+        let (program, source_manifest) = self.compile_with_source_manifest(
+            request,
+            RootScope::Tree,
+            CompilerDatabase::entry_check_program,
+        )?;
         Ok(CheckedProgramWithSourceManifest {
             program,
             source_manifest,
@@ -149,8 +157,12 @@ impl Driver {
         &self,
         request: CheckRequest,
     ) -> nia_compiler_query::CheckedProgramAnalysis {
-        self.compile_with(request, CompilerDatabase::analyze_entry_program)
-            .expect("test entry compiler analysis")
+        self.compile_with(
+            request,
+            RootScope::Tree,
+            CompilerDatabase::analyze_entry_program,
+        )
+        .expect("test entry compiler analysis")
     }
 
     /// Checks and lowers the request into a code-generation program.
@@ -170,19 +182,20 @@ impl Driver {
     }
 
     fn codegen_inner(&self, request: CheckRequest) -> nia_query::QueryResult<CodegenProgram> {
-        self.compile_with(request, CompilerDatabase::codegen_program)
+        self.compile_with(request, RootScope::Entry, CompilerDatabase::codegen_program)
     }
 
     fn compile_with<T>(
         &self,
         request: CheckRequest,
+        root_scope: RootScope,
         compile: impl Fn(&CompilerDatabase) -> nia_query::QueryResult<T>,
     ) -> nia_query::QueryResult<T>
     where
         T: ProviderDemandOutput,
     {
         let timings = request.timings;
-        let database = self.compiler_database(&request)?;
+        let database = self.compiler_database(&request, root_scope)?;
         let output = compile(&database)?;
         let loader_trace = self.loader_query_trace()?;
         emit_compilation_counters(
@@ -199,13 +212,14 @@ impl Driver {
     fn compile_with_source_manifest<T>(
         &self,
         request: CheckRequest,
+        root_scope: RootScope,
         compile: impl Fn(&CompilerDatabase) -> nia_query::QueryResult<T>,
     ) -> nia_query::QueryResult<(T, SourceInputManifest)>
     where
         T: ProviderDemandOutput,
     {
         let timings = request.timings;
-        let (database, loader) = self.compilation_databases(&request)?;
+        let (database, loader) = self.compilation_databases(&request, root_scope)?;
         let output = compile(&database)?;
         let source_manifest = loader.source_input_manifest()?;
         let loader_trace = self.loader_query_trace()?;
@@ -223,22 +237,16 @@ impl Driver {
     pub(super) fn compiler_database(
         &self,
         request: &CheckRequest,
+        root_scope: RootScope,
     ) -> nia_query::QueryResult<CompilerDatabase> {
-        self.compilation_databases(request)
+        self.compilation_databases(request, root_scope)
             .map(|(compiler, _)| compiler)
     }
 
-    fn compilation_databases(
+    pub(super) fn compilation_databases(
         &self,
         request: &CheckRequest,
-    ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
-        self.compilation_databases_with_codegen_scope(request, CodegenScope::Entry)
-    }
-
-    pub(super) fn compilation_databases_with_codegen_scope(
-        &self,
-        request: &CheckRequest,
-        codegen_scope: CodegenScope,
+        root_scope: RootScope,
     ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
         let loader = self.loader_database(request)?;
         loader.load_program()?;
@@ -253,7 +261,7 @@ impl Driver {
                 CompileRequest::new(loader.clone())
                     .with_optimization(request.optimization)
                     .with_timings(request.timings)
-                    .with_codegen_scope(codegen_scope)
+                    .with_root_scope(root_scope)
                     .with_current_package(request.current_package.clone())
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache),
@@ -264,7 +272,7 @@ impl Driver {
                 CompileRequest::new(loader.clone())
                     .with_optimization(request.optimization)
                     .with_timings(request.timings)
-                    .with_codegen_scope(codegen_scope)
+                    .with_root_scope(root_scope)
                     .with_current_package(request.current_package.clone())
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache),

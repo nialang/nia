@@ -39,7 +39,7 @@ pub(super) fn assert_check_case_with_module_map(
     module_map: crate::ModuleMap,
     snapshot_path: &Path,
 ) {
-    let program = checked_program_from_output(driver.check_entry(
+    let program = checked_program_from_output(driver.check(
         crate::CheckRequest::new(source.to_string_lossy().into_owned()).with_module_map(module_map),
     ));
     assert_eq!(
@@ -64,6 +64,13 @@ pub(super) fn assert_check_case_with_module_map(
             .iter()
             .fold(report, |report, prefix| report.replace(prefix, ""));
         snapshot.push_str(&report);
+    }
+    // `NIA_UPDATE_SNAPSHOTS=1` rewrites a changed snapshot instead of failing,
+    // so that every case a change affects can be reviewed as a diff at once.
+    if snapshot != expected && std::env::var_os("NIA_UPDATE_SNAPSHOTS").is_some() {
+        fs::write(snapshot_path, &snapshot)
+            .unwrap_or_else(|error| panic!("write {}: {error}", snapshot_path.display()));
+        return;
     }
     assert_eq!(
         snapshot,

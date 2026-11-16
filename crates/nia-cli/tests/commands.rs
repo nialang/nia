@@ -1527,3 +1527,84 @@ fn object_dir_defines_symbol(dir: &std::path::Path, symbol: &str) -> bool {
     }
     false
 }
+
+// `nia check` checks every body of the tree it is given, whether or not
+// anything calls it: functions in child modules, methods, generic functions,
+// and trait default methods. Imports a child module needs are not reported
+// unused.
+#[test]
+fn check_reports_errors_in_every_body_of_the_tree() {
+    let root = temp_dir("check_reports_errors_in_every_body_of_the_tree");
+    std::fs::create_dir_all(root.join("lib")).expect("create library directory");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"tree\"\nversion = \"1.0.0\"\n[library]\npath = \"lib/root.nia\"\n",
+    )
+    .expect("write package manifest");
+    std::fs::write(
+        root.join("lib/root.nia"),
+        r#"module helpers;
+pub(root) module shapes;
+
+struct Point { x: i32 }
+
+extend Point {
+    fun unusedMethod(&self) () {
+        let inMethod: bool = 1;
+    }
+}
+
+trait Describe {
+    fun describe(&self) () {
+        let inDefault: bool = 2;
+    }
+}
+
+fun unusedGeneric[T](value: T) () {
+    _ = value;
+    let inGeneric: bool = 3;
+}
+"#,
+    )
+    .expect("write library root");
+    std::fs::write(
+        root.join("lib/helpers.nia"),
+        r#"using std::slice;
+
+pub(root) fun copyInto(target: &mut [u8], source: &[u8]) () {
+    _ = target.copyFrom(source);
+}
+
+fun unusedHelper() () {
+    let inChild: bool = 4;
+}
+"#,
+    )
+    .expect("write private child module");
+    std::fs::write(
+        root.join("lib/shapes.nia"),
+        "pub fun area() i32 {\n    let inPublicChild: bool = 5;\n    0\n}\n",
+    )
+    .expect("write public child module");
+
+    let output = support::nia_command()
+        .arg("check")
+        .arg(&root)
+        .output_timeout_for_compiler("check a library tree");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    for (file, line) in [
+        ("root.nia", 8),
+        ("root.nia", 14),
+        ("root.nia", 20),
+        ("helpers.nia", 8),
+        ("shapes.nia", 2),
+    ] {
+        assert!(
+            stderr.contains(&format!("{file}:{line}:")),
+            "missing the error at {file}:{line}:\n{stderr}"
+        );
+    }
+    // `copyFrom` is an extension method of `std::slice`.
+    assert!(!stderr.contains("unused import"), "{stderr}");
+}

@@ -51,15 +51,15 @@ impl CompilerDatabase {
             })
         };
         let new_inputs = CompilerInputs::new(request);
-        let (optimization_changed, codegen_scope_changed, current_package_changed) = {
+        let (optimization_changed, root_scope_changed, current_package_changed) = {
             let mut inputs = self.inputs.write();
             let optimization_changed = inputs.optimization != new_inputs.optimization;
-            let codegen_scope_changed = inputs.codegen_scope != new_inputs.codegen_scope;
+            let root_scope_changed = inputs.root_scope != new_inputs.root_scope;
             let current_package_changed = inputs.current_package != new_inputs.current_package;
             *inputs = new_inputs;
             (
                 optimization_changed,
-                codegen_scope_changed,
+                root_scope_changed,
                 current_package_changed,
             )
         };
@@ -90,7 +90,7 @@ impl CompilerDatabase {
         }
         let inputs_invalidation = self.invalidate_inputs(
             optimization_changed,
-            codegen_scope_changed,
+            root_scope_changed,
             current_package_changed,
         )?;
         invalidation
@@ -104,7 +104,7 @@ impl CompilerDatabase {
     fn invalidate_inputs(
         &self,
         optimization_changed: bool,
-        codegen_scope_changed: bool,
+        root_scope_changed: bool,
         current_package_changed: bool,
     ) -> QueryResult<CompilerInvalidation> {
         let mut invalidation = CompilerInvalidation::default();
@@ -116,8 +116,8 @@ impl CompilerDatabase {
         if optimization_changed {
             invalidation.extend(self.db.invalidate(CompilerOptimizationQuery)?);
         }
-        if codegen_scope_changed {
-            invalidation.extend(self.db.invalidate(CompilerCodegenScopeQuery)?);
+        if root_scope_changed {
+            invalidation.extend(self.db.invalidate(CompilerRootScopeQuery)?);
         }
         if current_package_changed {
             invalidation.extend(self.db.invalidate(MonomorphizationQuery)?);

@@ -38,7 +38,7 @@ fn run_case(case_root: &Path) {
             verify_frontend_cache,
             ..crate::DriverConfig::new(crate::tests::common::test_toolchain_layout())
         });
-        checked_program_from_output(driver.check_entry(crate::CheckRequest::new(
+        checked_program_from_output(driver.check(crate::CheckRequest::new(
             source.to_string_lossy().into_owned(),
         )))
     };
