@@ -1892,14 +1892,14 @@ impl<'a> BodyChecker<'a> {
         };
         let output_is_boolean = builtin_trait_output_is_boolean(trait_id);
 
-        // An omitted enum member has no standalone type. In a comparison the
-        // other operand supplies that type, so check it first when the member
-        // appears on the left-hand side. This keeps `.Variant == value`
-        // symmetric with `value == .Variant` without guessing when both sides
-        // are omitted.
+        // An omitted enum member or a `null` has no standalone type. In a
+        // comparison the other operand supplies that type, so check it first
+        // when such an operand is on the left-hand side. This keeps
+        // `.Variant == value` symmetric with `value == .Variant` without
+        // guessing when both sides need context.
         if matches!(op, BinaryOp::Eq | BinaryOp::Ne)
-            && matches!(lhs.kind, ExprKind::OmittedMember { .. })
-            && !matches!(rhs.kind, ExprKind::OmittedMember { .. })
+            && crate::branches::requires_context_type(lhs)
+            && !crate::branches::requires_context_type(rhs)
         {
             let rhs_actual = self.check_expr(rhs);
             let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
@@ -1960,7 +1960,7 @@ impl<'a> BodyChecker<'a> {
         let rhs_expected = if self.is_numeric_literal_expr(rhs)
             || self.is_context_typed(rhs)
             || (matches!(op, BinaryOp::Eq | BinaryOp::Ne)
-                && matches!(rhs.kind, ExprKind::OmittedMember { .. }))
+                && crate::branches::requires_context_type(rhs))
         {
             Some(lhs_ty)
         } else {

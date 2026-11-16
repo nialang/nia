@@ -49,3 +49,23 @@ extend[Value] ?Value {
         }
     }
 }
+
+// Two optionals are equal when both are `null`, or both are present with
+// equal values.
+extend[Value] ?Value : Eq[?Value]
+where Value: Eq[Value]
+{
+    fun eq(self, rhs: ?Value) bool {
+        if self is ?left {
+            if rhs is ?right {
+                return left == right;
+            }
+            return false;
+        }
+        rhs.isNull()
+    }
+
+    fun ne(self, rhs: ?Value) bool {
+        not self.eq(rhs)
+    }
+}

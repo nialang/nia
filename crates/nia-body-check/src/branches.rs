@@ -29,15 +29,16 @@ enum BranchTyping {
 }
 
 /// Whether `expr` has no type without one from its context: `null`, an
-/// omitted member or aggregate, or a block, `if`, or `match` whose every
-/// result is such.
-fn requires_context_type(expr: &Expr) -> bool {
+/// omitted member or aggregate, `?value` of such, or a block, `if`, or
+/// `match` whose every result is such.
+pub(crate) fn requires_context_type(expr: &Expr) -> bool {
     let block_requires =
         |block: &nia_ast::Block| block.tail.as_deref().is_some_and(requires_context_type);
     match &expr.kind {
         ExprKind::Null
         | ExprKind::OmittedMember { .. }
         | ExprKind::OmittedAggregateLiteral { .. } => true,
+        ExprKind::OptionalSome { expr } => requires_context_type(expr),
         ExprKind::Block(block) => block_requires(block),
         ExprKind::If {
             then_branch,

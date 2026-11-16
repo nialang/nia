@@ -671,6 +671,12 @@ groupings, such as `?(E!T)`.
 Values are inspected with [patterns](#patterns) and propagated with
 [`.?`](#propagation).
 
+`std` implements `?T : Eq[?T]` when `T: Eq[T]`: two optionals are equal when
+both are `null`, or both are present with equal values. A `null` or `?value`
+operand takes the other operand's type, as an omitted enum member does, so
+`found == null` and `found == ?2` compare with `found: ?usize`. `is null` and
+`isNull()` test the case without requiring `T: Eq[T]`.
+
 ### Structs, Unions, And Enums
 
 Struct, union, and enum types are nominal and introduced by

@@ -281,6 +281,7 @@ written `\value -> value * 2`:
 | `orElse(f)` | `E!T` | replaces a failure with the result of `f` |
 | `inspectError(f)` | `E!T` | calls `f` with the error and returns the result unchanged |
 | `isPresent()`, `isNull()` | `?T` | tests the case |
+| `a == b`, `a != b` | `?T` | compares two optionals of a comparable `T`; `null` equals only `null` |
 | `isSuccess()`, `isError()` | `E!T` | tests the case |
 
 `mapError` accepts an enum variant constructor directly, which keeps a

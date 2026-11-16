@@ -328,6 +328,7 @@
     "block_optional_literal_optional_peer",
     "suffixed_optional_literal_optional_peer",
     "null_optional_peer",
-    "block_null_optional_peer"
+    "block_null_optional_peer",
+    "present_null_nested_optional_peer"
   ]
 }

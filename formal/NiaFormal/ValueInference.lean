@@ -289,8 +289,8 @@ theorem incompatible_literal_context_is_rejected :
    or the other operand of an operator. The checker gives it the peer's type
    only when `canTake` admits that type; otherwise the expression is typed on
    its own and the peers are compared as usual. An expression with no type
-   of its own at all, such as `null`, always takes its peer's type, and is
-   rejected when that type does not fit it. -/
+   of its own at all, such as `null` or `?null`, always takes its peer's
+   type, and is rejected when that type does not fit it. -/
 
 def Literal.isContextTyped : Literal -> Bool
   | .integerDefault | .integerNegative | .floatDefault => true
@@ -310,7 +310,7 @@ def canTake : ValueType -> Bool
   | _ => false
 
 def requiresContext (frames : List Frame) (literal : Literal) : Bool :=
-  frames.all (· == .blockTail) && literal == .null
+  frames.all Frame.keepsContextTyping && literal == .null
 
 def peerType (frames : List Frame) (literal : Literal) (peer : ValueType) : Option ValueType :=
   if requiresContext frames literal then
@@ -414,7 +414,10 @@ def peerCases : List PeerCase := [
   { name := "null_optional_peer", frames := [], literal := .null,
     peer := .optional (.scalar .u8), result := .optional (.scalar .u8) },
   { name := "block_null_optional_peer", frames := [.blockTail], literal := .null,
-    peer := .optional (.scalar .i64), result := .optional (.scalar .i64) }
+    peer := .optional (.scalar .i64), result := .optional (.scalar .i64) },
+  { name := "present_null_nested_optional_peer", frames := [.optionalSome], literal := .null,
+    peer := .optional (.optional (.scalar .u8)),
+    result := .optional (.optional (.scalar .u8)) }
 ]
 
 def peerCaseTags : List String := peerCases.map (·.name)

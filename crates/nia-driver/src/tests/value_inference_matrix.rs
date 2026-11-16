@@ -414,6 +414,7 @@ fn context_typed_values_take_their_peer_type_in_either_branch() {
         ("suffixed_optional_literal_optional_peer", "?u8", "?1u8"),
         ("null_optional_peer", "?u8", "null"),
         ("block_null_optional_peer", "?i64", "{ null }"),
+        ("present_null_nested_optional_peer", "??u8", "?null"),
     ];
     let matrix: serde_json::Value =
         serde_json::from_str(FORMAL_MATRIX).expect("formal inference matrix is valid JSON");

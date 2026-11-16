@@ -37,7 +37,7 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
 | `std::math` | Checked arithmetic traits (`CheckedAdd`, `CheckedMul`, ...); `BinaryFloat` for IEEE-754 bit access and classification |
 | `std::mem` | `Allocator` trait, `Block`/`Layout`, page, fixed-buffer, arena, general-purpose, and pool allocators, typed owners |
 | `std::os` | Low-level operating-system services, and the native interfaces `os::linux::syscall`, `os::windows::bindings`, and `os::macos::bindings` with their platform calling conventions and error results |
-| `std::option` | Operations on optional values (`?T`) |
+| `std::option` | Operations on optional values (`?T`), and equality of optionals |
 | `std::parse` | `From` and `FromRadix` parsing traits and their `Error`; correctly rounded `f32`/`f64` parsing from text or bytes |
 | `std::process` | `process::Init`, arguments, environment, commands, child processes, exit codes |
 | `std::result` | Operations on error unions (`E!T`) |
