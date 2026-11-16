@@ -287,7 +287,11 @@ initialization.finish()
     assert_module_loaded(&program, "lib/std/build.nia");
     assert_module_loaded(&program, "lib/std/build/lifecycle.nia");
     assert_module_loaded(&program, "lib/std/build/types.nia");
-    assert_module_not_loaded(&program, "lib/std/build/core.nia");
+    // `lifecycle` imports `core`, whose cleanup methods its `deinit` calls,
+    // so `core` is known; nothing it holds is needed for `init`.
+    let core = module_by_suffix(&program, "lib/std/build/core.nia");
+    assert!(!core.semantic_selected, "{core:?}");
+    assert!(!core.process_used_paths, "{core:?}");
     assert_module_not_loaded(&program, "lib/std/build/plan.nia");
 }
 
@@ -312,7 +316,7 @@ value.score()
 pub(root) module providers;
 pub(root) module types;
 
-using self::providers;
+pub using self::providers;
 pub using types::Widget;
 "#,
     );

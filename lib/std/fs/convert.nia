@@ -3,6 +3,8 @@ using root::fs::types;
 using root::os;
 
 using types::{DirEntry, Error, FileKind, Metadata, Operation, OperationError, PathError, Timestamp};
+using root::result;
+using root::option;
 
 extend os::Error : builtin::IntoError[Error] {
     const fun intoError(self) Error {

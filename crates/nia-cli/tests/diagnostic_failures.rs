@@ -263,6 +263,7 @@ fn external_command_failure_preserves_streams_without_corrupting_json() {
         nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Build);
     let root = temp_dir("external_failure_reports");
     std::fs::write(root.join("build.nia"), r#"using std::build;
+using std::slice;
 pub fun build(b: &mut build::Build) build::Error!() {
     let step = (if b.hostTarget().os().equals(&"windows") {
         let args = [

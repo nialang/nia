@@ -17,14 +17,21 @@ pub(root) module term;
 pub(root) module types;
 
 using root::process::args;
+pub using args;
 using root::process::child;
+pub using child;
 using root::process::command;
+pub using command;
 using root::process::convert;
 using root::process::env;
+pub using env;
 using root::process::exit_code;
 using root::process::init;
+pub using init;
 using root::process::pipe;
+pub using pipe;
 using root::process::term;
+pub using term;
 
 pub using types::{
     Arg,

@@ -7,6 +7,7 @@ using root::math::float::decimal::Decimal;
 using root::fmt::formatter::Formatter;
 using root::fmt::spec::{FormatAlignment, FormatSpec};
 using root::fmt::traits::Error;
+using root::fmt::integer;
 
 enum Piece {
     Digits(usize, usize),

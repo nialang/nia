@@ -18,6 +18,7 @@ pub(root) module layout;
 pub(root) module page_allocator;
 pub(root) module pool_allocator;
 pub(root) module types;
+pub using root::mem::allocator;
 
 using root::mem::arena_allocator;
 using root::mem::allocation;

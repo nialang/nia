@@ -2,6 +2,7 @@ using root::process::types;
 using root::process::env;
 
 using types::{Args, Env, Init};
+using root::process::args;
 
 extend Init {
     // Runtime startup constructs the public process context before invoking

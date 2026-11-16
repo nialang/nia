@@ -9,6 +9,7 @@ using root::os::windows::bindings::{
 using root::os::windows::types::{Errno, StdIo, FileDescriptor};
 using root::os::windows::error::{lastError, errno};
 using root::os::windows::mem::{mapPages, unmapPages};
+using root::os::windows::fd;
 
 // Each prepared stream owns its child duplicate and optional parent pipe end.
 // takeParent transfers only that end; close releases everything still owned.

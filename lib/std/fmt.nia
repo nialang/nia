@@ -10,10 +10,13 @@ pub module template;
 
 using root::fmt::formatter;
 using root::fmt::float;
+pub using float;
 using root::fmt::integer;
+pub using integer;
 using root::fmt::primitive;
 using root::fmt::spec;
 using root::fmt::template;
+pub using template;
 using root::fmt::traits;
 
 pub using traits::{Error, FormatWriter, Format};

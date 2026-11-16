@@ -15,6 +15,11 @@ using root::option;
 using root::os;
 using root::process::convert;
 using root::process::types;
+using root::result;
+using root::slice;
+using root::unicode;
+using root::process::child;
+using root::process::env;
 
 using types::{
     AllocatorSpawnAttempt,

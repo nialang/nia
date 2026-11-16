@@ -8,6 +8,8 @@ using root::os::macos as platform;
 using root::builtin;
 using super::types;
 using types::{Error, FileHandle, ProcessId, SpawnAttempt, SpawnError, SpawnOptions, SpawnResult, SpawnStage, StdIo, WaitStatus};
+using root::os::file;
+using root::option;
 
 pub fun spawn(path: &u8, argv: &&u8, envp: &&u8, options: SpawnOptions) SpawnAttempt {
     .fromPlatform(platform::spawn(path, argv, envp, options.platform()))

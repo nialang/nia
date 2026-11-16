@@ -1,6 +1,7 @@
 using std::{atomic, builtin, SourceLocation};
 using std::builtin::target;
 using std::os::FileHandle;
+using std::os;
 
 // Reports a failed runtime check on standard error, then traps.
 //

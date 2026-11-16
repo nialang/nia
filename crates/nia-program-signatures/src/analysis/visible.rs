@@ -360,6 +360,14 @@ fn extension_visibility_context<'a>(
     }
 }
 
+/// The modules whose inherent extension methods `context.module_id` sees:
+/// itself, the modules it imports, the modules they re-export, the providers
+/// a directly imported package's root facade publishes, and the providers
+/// the loader selected for its method demands. A demand searches only the
+/// providers that this module's own imports publish, through the facade a
+/// module or an item is imported from, so importing a type through a facade
+/// that publishes the type's methods makes them visible, and what a module
+/// sees still depends on its own imports alone.
 fn extension_visibility_modules(
     context: &ExtensionVisibilityContext<'_>,
 ) -> Vec<nia_ids::ModuleId> {

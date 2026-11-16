@@ -14,11 +14,15 @@ pub(root) module x86;
 pub(root) module aarch64;
 
 using root::os::linux::fd;
+pub(root) using fd;
 using root::os::linux::mem as memory;
 using root::os::linux::process;
+pub(root) using process;
 using root::os::linux::random as randomImpl;
 using root::os::linux::stat;
+pub(root) using stat;
 using root::os::linux::types;
+pub using types;
 
 pub using memory::MappedPages;
 

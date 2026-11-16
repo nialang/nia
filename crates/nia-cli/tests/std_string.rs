@@ -14,6 +14,7 @@ fn emit_exe_std_string_supports_scalar_text_workflows() {
         &main,
         r#"
 using std;
+using std::slice;
 using std::collections;
 using std::hash;
 using std::mem;
@@ -503,6 +504,7 @@ fn emit_exe_std_text_composes_with_files_and_processes() {
         &main,
         r#"
 using std;
+using std::unicode;
 using std::fmt;
 using std::fs;
 using std::io;

@@ -29,6 +29,7 @@ pub(crate) fn collect_used_modules(
         let ItemTreeNodeKind::Using(using) = &item.kind else {
             continue;
         };
+        let mut using_paths = Vec::new();
         collect_using_modules(
             &using.host,
             &using.selector,
@@ -36,8 +37,19 @@ pub(crate) fn collect_used_modules(
             &local_module_names,
             &using_aliases,
             &mut packages,
-            &mut paths,
+            &mut using_paths,
         );
+        // A re-export publishes the module's names and providers; it uses
+        // nothing itself. Its providers load when a demand of an importer
+        // needs them, never because the re-exporting module was processed.
+        if item.vis != Visibility::Private {
+            for path in &mut using_paths {
+                if path.processing() == UsedModulePathProcessing::IfProvidesExtensions {
+                    *path = path.with_processing(UsedModulePathProcessing::Never);
+                }
+            }
+        }
+        paths.extend(using_paths);
     }
     let mut collector = QualifiedPathModuleCollector {
         module_map,

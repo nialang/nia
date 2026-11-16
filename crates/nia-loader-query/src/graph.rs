@@ -1264,6 +1264,22 @@ pub(crate) fn add_visible_declared_module_path(
 /// diagnostics.
 pub(crate) type ReexportStack = Vec<(nia_imports::ModuleId, SymbolId)>;
 
+/// The processing a re-export source is followed with. A lookup that loads
+/// only what it needs, or nothing, keeps that criterion through the
+/// re-export, so passing through a facade never loads a module the lookup
+/// would not load directly. A lookup that selects the item follows the
+/// source's own processing.
+fn reexport_source_processing(
+    processing: &UsedModulePathProcessing,
+) -> Option<UsedModulePathProcessing> {
+    match processing {
+        UsedModulePathProcessing::Never
+        | UsedModulePathProcessing::IfProvidesExtensions
+        | UsedModulePathProcessing::IfProvidesTraitMethod { .. } => Some(processing.clone()),
+        UsedModulePathProcessing::Always | UsedModulePathProcessing::IfSelectedItem => None,
+    }
+}
+
 pub(crate) fn add_visible_declared_module_path_following(
     graph: &mut ModuleGraph,
     accessing_module: nia_imports::ModuleId,
@@ -1309,8 +1325,7 @@ pub(crate) fn add_visible_declared_module_path_following(
         )?
         else {
             let reexport_facade = current;
-            let source_processing = (processing == UsedModulePathProcessing::Never)
-                .then_some(UsedModulePathProcessing::Never);
+            let source_processing = reexport_source_processing(&processing);
             let Some(reexport_source) = add_public_reexport_source_module(
                 graph,
                 current,
@@ -1360,8 +1375,7 @@ pub(crate) fn add_visible_declared_module_path_following(
         // module re-exports. A path's last segment may name either; load the
         // re-export's source too, or the public surface silently lacks it.
         if is_terminal {
-            let source_processing = (processing == UsedModulePathProcessing::Never)
-                .then_some(UsedModulePathProcessing::Never);
+            let source_processing = reexport_source_processing(&processing);
             if let Some(reexport_source) = add_public_reexport_source_module(
                 graph,
                 current,

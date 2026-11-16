@@ -6,6 +6,8 @@ using root::os::windows as platform;
 @[if os == "macos"]
 using root::os::macos as platform;
 using root::builtin;
+using root::option;
+using root::os::file;
 
 pub const maxPathBytes: usize = platform::maxPathBytes;
 

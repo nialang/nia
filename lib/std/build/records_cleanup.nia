@@ -25,6 +25,7 @@ using root::build::commands;
 using root::build::modules;
 using root::build::steps;
 using root::build::targets;
+using root::build::error;
 
 pub(root) trait OwnedBuildValue {
     fun deinitOwned(

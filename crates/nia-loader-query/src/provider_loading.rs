@@ -283,9 +283,12 @@ fn add_reexport_provider_modules_matching_inner(
     let db = fact_memo.db();
     let mut any_match = false;
     for source in source_paths {
-        if source.publication.is_some_and(|visibility| {
-            !nia_imports::visibility_allows(visibility, graph, facade_module, requesting_module)
-        }) {
+        if !nia_imports::visibility_allows(
+            source.publication,
+            graph,
+            facade_module,
+            requesting_module,
+        ) {
             continue;
         }
         let source_path = &source.path;

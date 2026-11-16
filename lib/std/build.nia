@@ -30,6 +30,7 @@ pub(root) module steps;
 pub(root) module targets;
 pub(root) module types;
 pub(root) module validation;
+pub using root::build::error;
 
 // Build API values use the standard string and path views directly. Re-export
 // their provider modules so build scripts can use the facade's documented
@@ -43,6 +44,7 @@ using root::build::error_format;
 using root::build::lifecycle;
 using root::build::plan;
 using root::build::probes;
+pub using probes;
 using root::build::step_registration;
 using root::build::targets;
 

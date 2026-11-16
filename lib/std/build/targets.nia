@@ -12,6 +12,7 @@ using root::build::types;
 
 using error::Error;
 using error::ErrorSubject as Subject;
+using root::slice;
 using types::{
     ExecutableOptions,
     ExecutableTarget,

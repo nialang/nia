@@ -20,6 +20,8 @@ using root::fs::path;
 using root::build::types;
 
 using error::Error;
+using root::slice;
+using root::build::paths;
 using types::{
     BuildPathView,
     Module,

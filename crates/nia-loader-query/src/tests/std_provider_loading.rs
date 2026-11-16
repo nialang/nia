@@ -638,8 +638,8 @@ pub(root) module file;
 pub(root) module process;
 
 using self::types;
-using self::file;
-using self::process;
+pub using self::file;
+pub using self::process;
 
 pub using types::{FileHandle, ProcessId};
 "#,

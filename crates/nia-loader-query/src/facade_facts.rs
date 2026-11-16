@@ -28,7 +28,8 @@ pub(crate) struct PublicReexportSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProviderSource {
     pub(crate) path: UsedModulePath,
-    pub(crate) publication: Option<Visibility>,
+    /// The re-export's visibility; a private `using` publishes nothing.
+    pub(crate) publication: Visibility,
 }
 
 impl PartialOrd for ProviderSource {
@@ -39,14 +40,7 @@ impl PartialOrd for ProviderSource {
 
 impl Ord for ProviderSource {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (
-            &self.path,
-            self.publication.map(|visibility| visibility as u8),
-        )
-            .cmp(&(
-                &other.path,
-                other.publication.map(|visibility| visibility as u8),
-            ))
+        (&self.path, self.publication as u8).cmp(&(&other.path, other.publication as u8))
     }
 }
 
@@ -76,7 +70,6 @@ impl ModuleFacadeFacts {
         module_map: &ModuleMap,
     ) -> Self {
         let local_module_names = local_module_names(item_tree);
-        let has_declared_modules = !local_module_names.is_empty();
         let aliases = module_using_aliases(item_tree, module_map, &local_module_names);
         let mut public_type_names = HashSet::new();
         let mut public_reexports = Vec::new();
@@ -98,17 +91,18 @@ impl ModuleFacadeFacts {
                 continue;
             };
 
-            if item.vis != Visibility::Private {
-                collect_public_reexport_sources(&host_path, &using.selector, &mut public_reexports);
+            // Only a re-export publishes: a private `using` imports into this
+            // module alone, whether or not the module declares children.
+            if item.vis == Visibility::Private {
+                continue;
             }
-            if item.vis != Visibility::Private || has_declared_modules {
-                let mut paths = Vec::new();
-                collect_provider_source_paths(&host_path, &using.selector, &mut paths);
-                provider_source_paths.extend(paths.into_iter().map(|path| ProviderSource {
-                    path,
-                    publication: (item.vis != Visibility::Private).then_some(item.vis),
-                }));
-            }
+            collect_public_reexport_sources(&host_path, &using.selector, &mut public_reexports);
+            let mut paths = Vec::new();
+            collect_provider_source_paths(&host_path, &using.selector, &mut paths);
+            provider_source_paths.extend(paths.into_iter().map(|path| ProviderSource {
+                path,
+                publication: item.vis,
+            }));
         }
 
         public_reexports.sort();

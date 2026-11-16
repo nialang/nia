@@ -7,6 +7,7 @@ using std::io;
 using std::iter;  // For .take() extension method
 using std::mem;
 using std::process;
+using std::slice;  // For .equals() on byte slices
 using std::string;
 using buildScript;
 

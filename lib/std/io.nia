@@ -11,6 +11,7 @@ pub(root) module limit;
 pub(root) module read_to_end;
 pub(root) module debug;
 pub(root) module traits;
+pub using root::io::file_adapter;
 
 using root::io::buffered;
 using root::io::error;

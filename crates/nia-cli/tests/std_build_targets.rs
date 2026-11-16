@@ -47,6 +47,7 @@ fn build_separates_owned_host_and_artifact_targets() {
         &main,
         r#"
 using std::build;
+using std::slice;
 using std::fs;
 using std::mem;
 using std::process;

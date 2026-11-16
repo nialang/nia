@@ -8,6 +8,7 @@ using root::build::error::{Error, ErrorOperation as Operation, ErrorSubject as S
 using root::build::types::{BuildPathView, BuildPaths};
 using root::fs;
 using root::mem;
+using root::build::error;
 
 extend BuildPaths {
     pub(root) fun init() BuildPaths {

@@ -73,17 +73,12 @@ fn facade_facts_cache_round_trips_all_path_processing_modes() {
             .into_iter()
             .enumerate()
             .map(|(index, path)| {
-                let visibility = match index % 4 {
-                    0 => nia_imports::Visibility::Private,
-                    1 => nia_imports::Visibility::PublicSuper,
-                    2 => nia_imports::Visibility::PublicRoot,
+                let publication = match index % 3 {
+                    0 => nia_imports::Visibility::PublicSuper,
+                    1 => nia_imports::Visibility::PublicRoot,
                     _ => nia_imports::Visibility::Public,
                 };
-                crate::facade_facts::ProviderSource {
-                    path,
-                    publication: (visibility != nia_imports::Visibility::Private)
-                        .then_some(visibility),
-                }
+                crate::facade_facts::ProviderSource { path, publication }
             })
             .collect(),
     );
@@ -145,7 +140,7 @@ fun second(value: facade::Widget) i32 {
 pub(root) module providers;
 pub(root) module types;
 
-using self::providers;
+pub using self::providers;
 pub using types::Widget;
 "#,
     );

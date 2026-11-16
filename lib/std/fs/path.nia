@@ -4,6 +4,7 @@ using root::mem;
 using root::option;
 using root::slice;
 using root::string;
+using root::unicode;
 
 using types::{
     NativePathView,

@@ -7,6 +7,7 @@ using root::build::error;
 using root::build::types;
 
 using error::Error;
+using root::build::lifecycle;
 using types::{
     Build,
     BuildInitAttempt,

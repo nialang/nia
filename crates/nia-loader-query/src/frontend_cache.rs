@@ -851,13 +851,7 @@ fn encode_facade_facts_payload(
     encoded.extend_from_slice(&(facts.provider_source_paths().len() as u64).to_le_bytes());
     for source in facts.provider_source_paths() {
         write_used_module_path(&mut encoded, &source.path);
-        match source.publication {
-            Some(visibility) => {
-                encoded.push(1);
-                write_visibility(&mut encoded, visibility);
-            }
-            None => encoded.push(0),
-        }
+        write_visibility(&mut encoded, source.publication);
     }
     Ok(encoded)
 }
@@ -881,14 +875,10 @@ fn decode_facade_facts_payload(payload: &[u8], symbols: &SymbolTable) -> Option<
     for _ in 0..provider_len {
         provider_source_paths.push(ProviderSource {
             path: read_used_module_path(&mut cursor)?,
-            publication: match read_u8(&mut cursor)? {
-                0 => None,
-                1 => {
-                    let visibility = read_visibility(&mut cursor)?;
-                    (visibility != Visibility::Private).then_some(())?;
-                    Some(visibility)
-                }
-                _ => return None,
+            publication: {
+                let visibility = read_visibility(&mut cursor)?;
+                (visibility != Visibility::Private).then_some(())?;
+                visibility
             },
         });
     }

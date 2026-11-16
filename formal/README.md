@@ -75,19 +75,23 @@ Lean model checks the inventory, and the compiler tests read the same file.
 
 `ModuleVisibility.lean` models the source-visible extension set separately
 from trait implementation witnesses. Extension methods follow the caller's
-direct module imports, explicit `pub using` module/provider re-exports, provider
-edges published by the facade of a directly imported package, and provider
-demands recorded for that caller. Imports and provider demands belonging to an
-imported module do not become caller imports. Importing a nominal type does not
-implicitly import external extension providers; only members declared in the
-nominal type's owner module use the separate nominal-owner lookup. Trait
-witnesses remain a transitive closure of their own provider edges. The model
-proves these sets have distinct propagation rules and that public re-exports are
-followed transitively without hard-coding a package such as `std`.
+direct module imports, explicit `pub using` module/provider re-exports, and
+provider edges published by the facade of a directly imported package. A
+provider the loader selects for a method demand is loaded, but loading never
+makes it visible: the model proves that extension visibility depends on the
+import frame alone, so private imports, provider demands (the caller's own or
+an imported module's), nominal type imports, and trait witnesses leave it
+unchanged, that a demand alone makes nothing visible, and that importing more
+never hides a visible module. Importing a nominal type does not implicitly
+import external extension providers; only members declared in the nominal
+type's owner module use the separate nominal-owner lookup. Trait witnesses
+remain a transitive closure of their own provider edges, and public re-exports
+are followed transitively without hard-coding a package such as `std`.
 
 [`NiaFormal/visibility_matrix.json`](NiaFormal/visibility_matrix.json) lists
 the modeled rules and the driver cases that exercise import leakage,
-nominal-type imports, and explicit re-exports. The Lean build checks the rule
+nominal-type imports, explicit re-exports, and isolation from private child
+imports and method demands. The Lean build checks the rule
 inventory; the driver tests read the same JSON and check that their cases match
 the manifest. This still does not prove
 the Rust loader and query implementation correct, so the end-to-end cases are

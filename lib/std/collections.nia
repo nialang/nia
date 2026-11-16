@@ -19,12 +19,14 @@ pub(root) module tree_set;
 using root::collections::array_list;
 using root::collections::array_list::format as array_list_format;
 using root::collections::hash_map;
+pub using hash_map;
 using root::collections::hash_map::context;
 using root::collections::hash_map::format as hash_map_format;
 using root::collections::hash_map::iterators;
 using root::collections::hash_map::map;
 using root::collections::hash_set;
 using root::collections::tree_map;
+pub using tree_map;
 using root::collections::tree_set;
 
 // Re-export split provider modules so collection methods remain available

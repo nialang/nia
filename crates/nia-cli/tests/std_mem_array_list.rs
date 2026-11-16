@@ -14,6 +14,8 @@ fn emit_exe_std_array_list_push_pop_and_deinit() {
         &main,
         r#"
 using std;
+using std::iter;
+using std::slice;
 using std::mem;
 using std::process;
 
@@ -366,6 +368,7 @@ fn emit_exe_std_array_list_preserves_elements_while_shrinking_and_reuses() {
         &main,
         r#"
 using std;
+using std::slice;
 using std::mem;
 using std::process;
 
@@ -447,6 +450,7 @@ fn emit_exe_std_array_list_owned_slice_and_clone() {
         &main,
         r#"
 using std;
+using std::slice;
 using std::mem;
 using std::process;
 
@@ -859,6 +863,7 @@ fn emit_exe_std_array_list_range_operations_and_owned_copy() {
         &main,
         r#"
 using std;
+using std::slice;
 using std::mem;
 using std::process;
 

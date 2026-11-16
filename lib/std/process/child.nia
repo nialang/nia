@@ -5,6 +5,8 @@ using root::option;
 using root::result;
 using root::process::convert;
 using root::process::types;
+using root::process::term;
+using root::process::pipe;
 
 using types::{Child, ChildState, ChildStateKind, ChildStderr, ChildStdin, ChildStdout, Error, ExitedChild, ProcessId, RunningChild, Signal, StdStream, Term};
 

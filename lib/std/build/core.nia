@@ -32,6 +32,7 @@ using root::build::step_registration;
 using root::build::targets::isValidStableName;
 using root::build::targets::isValidPublicStepName;
 using root::build::types;
+using root::build::targets;
 using root::build::validation::{
     validatePackageHandle as validatePackageHandleValue,
 };
@@ -39,6 +40,9 @@ using root::build::validation::{
 using error::Error;
 using error::ErrorOperation as Operation;
 using error::ErrorSubject as Subject;
+using root::error as stdError;
+using root::build::modules;
+using root::slice;
 using types::{
     Build,
     StepHandle,

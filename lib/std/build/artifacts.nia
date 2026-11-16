@@ -28,6 +28,8 @@ using root::build::validation::{
 using error::Error;
 using error::ErrorOperation as Operation;
 using error::ErrorSubject as Subject;
+using root::build::targets;
+using root::slice;
 using types::{
     Build,
     ExecutableHandle,

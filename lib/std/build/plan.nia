@@ -25,6 +25,10 @@ using root::hash;
 using error::Error;
 using error::ErrorOperation as Operation;
 using error::ErrorSubject as Subject;
+using root::unicode;
+using root::build::core;
+using root::build::artifacts;
+using root::slice;
 using types::{
     Build,
     ExecutableTarget,

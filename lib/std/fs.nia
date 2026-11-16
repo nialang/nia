@@ -10,10 +10,15 @@ pub(root) module file;
 pub(root) module options;
 pub(root) module path;
 pub(root) module types;
+// The conversions from OS facts are std-internal, as their methods are.
+pub(root) using root::fs::convert;
 
 using root::fs::file;
+pub using file;
 using root::fs::options;
+pub using options;
 using root::fs::path;
+pub using path;
 using root::fs::types;
 
 pub using file::getCwd;

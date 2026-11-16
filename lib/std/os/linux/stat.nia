@@ -1,6 +1,7 @@
 using root::os::linux::syscall;
 using root::os::linux::types;
 using root::error;
+using root::os::linux::fd;
 
 using types::{Errno, FileDescriptor, FileKind, FileMetadata, Timestamp};
 using types::OpenHow;

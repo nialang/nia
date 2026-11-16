@@ -2,11 +2,16 @@
 
 using root::collections;
 using root::fs;
+using root::io;
 using root::mem;
 using root::option;  // For .map() on optional values
 using root::process;
+using root::result;
+using root::unicode;
+using root::slice;
 using root::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
 using root::build::types::Build;
+using root::build::error;
 
 const maxObservationRecords: usize = 16384;
 const maxObservationBytes: usize = 16777216;

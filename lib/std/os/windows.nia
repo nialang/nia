@@ -20,6 +20,9 @@ pub(root) module random;
 pub(root) module stat;
 pub(root) module types;
 
+// The file descriptor methods, which the OS layer calls, stay inside std.
+pub(root) using root::os::windows::fd;
+
 pub using root::os::windows::types::{
     maxPathBytes,
     Errno,

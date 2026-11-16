@@ -51,6 +51,13 @@ fn formal_visibility_manifest_matches_import_regression_groups() {
                 "package_root_facade_provider_reexport_activates_for_a_sibling_import",
             ],
         ),
+        (
+            "isolation_cases",
+            vec![
+                "private_using_of_a_child_does_not_publish_its_extensions",
+                "an_unrelated_import_does_not_publish_a_provider",
+            ],
+        ),
     ];
     for (group, expected_cases) in expected {
         let actual = matrix[group]
@@ -1381,7 +1388,23 @@ pub fun main(init: Init) ExitCode!() {
         unrelated.is_empty(),
         "text workflow selected unrelated compiler work: {unrelated:#?}"
     );
-    assert_same_compiler_work("semantic", &broad_work.0, &narrow_work.0);
+    // The narrow spelling imports `Path`, `PathView`, and `String` through
+    // the std root facade, so its semantic work also reads that facade; the
+    // broad spelling never names it. Everything else is the same work.
+    let narrow_semantic = narrow_work
+        .0
+        .iter()
+        .filter(|module| *module != "toolchain:/std/root.nia")
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(
+        narrow_work
+            .0
+            .iter()
+            .any(|module| module == "toolchain:/std/root.nia"),
+        "items imported through the std root facade must read it"
+    );
+    assert_same_compiler_work("semantic", &broad_work.0, &narrow_semantic);
     assert_same_compiler_work("body", &broad_work.1, &narrow_work.1);
     assert_same_compiler_work("backend", &broad_work.2, &narrow_work.2);
 
@@ -4765,4 +4788,81 @@ fn slice_sorting_demand_activates_ordering_provider_compiler_work() {
             "sorting demand must activate ordering {phase} work: {broad_work:#?}"
         );
     }
+}
+
+/// Reports the unknown-method diagnostics of checking `main.nia` in `root`.
+fn unknown_methods(root: &Path) -> Vec<String> {
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.clone())
+        .filter(|summary| summary.starts_with("unknown method"))
+        .collect()
+}
+
+#[test]
+fn private_using_of_a_child_does_not_publish_its_extensions() {
+    // `facade` declares a child and imports it privately. Importing the
+    // facade, or a type through it, never reaches the child's methods; only
+    // `pub using` publishes them, and then both forms of import see them.
+    let root = temp_dir("private_using_of_a_child_does_not_publish_its_extensions");
+    let facade = |publication: &str| {
+        format!(
+            "module point_ext;\n{publication} root::facade::point_ext;\npub using root::math::Point;\n"
+        )
+    };
+    write(
+        &root.join("math.nia"),
+        "pub struct Point { x: i32, y: i32 }",
+    );
+    write(
+        &root.join("facade/point_ext.nia"),
+        r#"
+using root::math;
+
+extend math::Point {
+    pub fun len2(&self) i32 { 4 }
+}
+"#,
+    );
+    for main in [
+        "module math;\nmodule facade;\nusing root::facade;\n\nfun main(p: facade::Point) i32 { p.len2() }\n",
+        "module math;\nmodule facade;\nusing root::facade::Point;\n\nfun main(p: Point) i32 { p.len2() }\n",
+    ] {
+        write(&root.join("main.nia"), main);
+        write(&root.join("facade.nia"), &facade("using"));
+        assert_eq!(
+            unknown_methods(&root),
+            vec!["unknown method `len2`".to_string()],
+            "{main}"
+        );
+        write(&root.join("facade.nia"), &facade("pub using"));
+        assert_eq!(unknown_methods(&root), Vec::<String>::new(), "{main}");
+    }
+}
+
+#[test]
+fn an_unrelated_import_does_not_publish_a_provider() {
+    // `equals` is declared by `std::slice`. `std::builtin` declares the
+    // traits `std::slice` implements but does not publish it, so importing
+    // `std::builtin` does not make `equals` visible; importing `std::slice`
+    // does.
+    let root = temp_dir("an_unrelated_import_does_not_publish_a_provider");
+    let source = |imports: &str| {
+        format!(
+            "{imports}\nfun main() bool {{\n    let text = b\"nia\";\n    text.equals(b\"nia\")\n}}\n"
+        )
+    };
+    write(&root.join("main.nia"), &source("using std::builtin;"));
+    assert_eq!(
+        unknown_methods(&root),
+        vec!["unknown method `equals`".to_string()]
+    );
+
+    write(
+        &root.join("main.nia"),
+        &source("using std::builtin;\nusing std::slice;"),
+    );
+    assert_eq!(unknown_methods(&root), Vec::<String>::new());
 }

@@ -4,13 +4,16 @@
     "direct_using",
     "public_reexport",
     "public_provider_reexport",
+    "item_import_facade_providers",
     "package_facade_provider_reexport",
-    "direct_provider_demand",
+    "sound_provider_demands_add_nothing",
     "trait_provider_closure",
     "private_using_is_local",
     "provider_demands_are_module_local",
     "type_import_does_not_import_extension_provider",
-    "separate_extension_and_trait_closures"
+    "separate_extension_and_trait_closures",
+    "visibility_depends_on_imports_alone",
+    "imports_only_add_visibility"
   ],
   "runtime_cases": [
     "io_import_without_use",
@@ -25,5 +28,9 @@
     "imports_public_extension_methods_through_explicit_reexport",
     "public_module_reexports_scope_associated_extension_members",
     "package_root_facade_provider_reexport_activates_for_a_sibling_import"
+  ],
+  "isolation_cases": [
+    "private_using_of_a_child_does_not_publish_its_extensions",
+    "an_unrelated_import_does_not_publish_a_provider"
   ]
 }

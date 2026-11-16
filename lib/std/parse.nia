@@ -3,5 +3,6 @@ pub(root) module ascii;
 module float;
 
 using root::parse::core;
+pub using core;
 
 pub using core::{Error, From, FromRadix};

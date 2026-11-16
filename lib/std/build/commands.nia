@@ -15,6 +15,7 @@ using root::build::types;
 using root::build::paths;
 
 using error::Error;
+using root::slice;
 using types::{
     ActionResourceClass,
     BuildPathView,

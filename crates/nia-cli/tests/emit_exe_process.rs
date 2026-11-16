@@ -2685,6 +2685,8 @@ fn emit_exe_exposes_std_root_text_and_cstring() {
         &main,
         r#"
 using std;
+using std::slice;
+using std::unicode;
 using std::fmt;
 using std::mem;
 using std::process;

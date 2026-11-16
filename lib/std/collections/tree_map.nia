@@ -8,6 +8,7 @@ pub(root) module types;
 
 using root::collections::tree_map::entries;
 using root::collections::tree_map::iterators;
+pub using iterators;
 using root::collections::tree_map::map;
 using root::collections::tree_map::storage;
 using root::collections::tree_map::types;
