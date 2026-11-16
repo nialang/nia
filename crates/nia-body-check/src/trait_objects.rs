@@ -955,13 +955,37 @@ impl<'a> BodyChecker<'a> {
             ));
             return false;
         };
+        // A projection key binds an associated type of a supertrait, which the
+        // object's vtable covers; another trait's is not part of the object.
+        let mut ok = true;
+        for binding in associated_type_bindings {
+            let Some(binding_trait) = binding.trait_id else {
+                continue;
+            };
+            if binding_trait != trait_id && !self.trait_has_supertrait(trait_id, binding_trait) {
+                let object_name = self.trait_ty_name(trait_id, &[]);
+                let binding_trait_name = self.trait_ty_name(binding_trait, &[]);
+                self.diagnostics.push(
+                    Diagnostic::user_error(
+                        codes::OBJECT_SAFETY,
+                        format!("`{binding_trait_name}` is not a supertrait of `{object_name}`"),
+                    )
+                    .primary(
+                        span,
+                        format!("this object binds an associated type of `{binding_trait_name}`"),
+                    )
+                    .help("a trait object binds the associated types of its trait and that trait's supertraits")
+                    .finish(),
+                );
+                ok = false;
+            }
+        }
         let associated_type_bindings = self.trait_object_bindings_with_supertraits(
             trait_id,
             trait_args,
             trait_const_args,
             associated_type_bindings,
         );
-        let mut ok = true;
         let self_ty = self.interner.intern(TyKind::SelfParam);
         let mut visiting = Vec::new();
         let mut expanded = Vec::new();

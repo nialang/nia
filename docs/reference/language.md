@@ -2483,7 +2483,8 @@ A trait object converts to an object of a declared supertrait with the same
 mutability. If the target binds associated types, the source must carry the
 same bindings. A plain name binds only the trait's own associated types;
 associated types of a supertrait are bound with projection keys, as in
-`&Child[[Self as A]::Item = i32, [Self as B]::Item = usize]`.
+`&Child[[Self as A]::Item = i32, [Self as B]::Item = usize]`. A key must name
+the object's trait or one of its supertraits.
 
 ```nia continued
 trait Parent {}

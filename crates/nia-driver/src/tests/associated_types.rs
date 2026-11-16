@@ -1932,3 +1932,45 @@ fun main() i32 { 0 }
         "{summaries:#?}"
     );
 }
+
+#[test]
+fn trait_object_projection_key_must_name_a_supertrait() {
+    let root = temp_dir("trait_object_projection_key_must_name_a_supertrait");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+}
+
+trait Other {
+    type Item;
+}
+
+trait Sub : Source {}
+
+fun inherited(source: &Sub[[Self as Source]::Item = i32]) {
+    _ = source;
+}
+
+fun unrelated(source: &Sub[[Self as Other]::Item = i32]) {
+    _ = source;
+}
+
+fun main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let summaries = program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries,
+        ["`Other` is not a supertrait of `Sub`"],
+        "{:?}",
+        program.diagnostics
+    );
+}
