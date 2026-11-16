@@ -1,19 +1,27 @@
 // Appends a reader's remaining bytes to caller-owned storage.
 //
-// Partial bytes remain in the output on every error, so a failed read or
-// allocation never drops an owner that the caller cannot recover.
+// Bytes are read straight into the list's spare capacity, which grows with
+// the list so the total copying stays linear in the bytes read. Storage is
+// reserved before each read, so a failed allocation never loses bytes the
+// reader has already handed over, and it never grows past `maxBytes`. Partial
+// bytes remain in the output on every error, so a failed read or allocation
+// never drops an owner that the caller cannot recover.
 
 using root::collections::ArrayList;
 using root::mem;
 using root::cmp;
 using root::result;
 using root::io::traits::Reader;
+using root::slice;
 
 pub enum ReadToEndError[E] {
     Read(E),
     Memory(mem::Error),
     LimitExceeded,
 }
+
+// The smallest growth step, so short inputs take one allocation.
+const MIN_GROWTH: usize = 4096;
 
 pub fun readToEnd[R](
     reader: &mut R,
@@ -26,27 +34,39 @@ where R: Reader
     if output.len() > maxBytes {
         return .LimitExceeded!;
     }
-    let mut chunk: [u8; 4096] = [0; 4096];
     loop {
         let remaining = maxBytes - output.len();
-        // Probe one byte past the limit without overflowing even at usize::MAX.
-        let request = cmp::min(remaining, chunk.len() - 1) + 1;
-        if remaining != 0 {
-            let additional = cmp::min(remaining, chunk.len());
-            output.reserveExact(allocator, additional).mapError(.Memory).?;
+        if remaining == 0 {
+            return probePastLimit(reader);
         }
-        let bytes = &mut chunk[0..request];
-        let count = reader.read(bytes).mapError(.Read).?;
+        if output.spareCapacity().isEmpty() {
+            // Grow by the list's length, so capacity doubles, but never past
+            // the limit.
+            let growth = cmp::min(remaining, cmp::max(MIN_GROWTH, output.len()));
+            output.reserveExact(allocator, growth).mapError(.Memory).?;
+        }
+        let spare = output.spareCapacity();
+        let request = cmp::min(spare.len(), remaining);
+        let count = reader.read(&mut spare[0..request]).mapError(.Read).?;
         if count > request {
             return .Read(reader.invalidRead())!;
         }
         if count == 0 {
             return !();
         }
-        let accepted = cmp::min(count, remaining);
-        output.appendSlice(allocator, &chunk[0..accepted]).mapError(.Memory).?;
-        if count > remaining {
-            return .LimitExceeded!;
-        }
+        output.commitSpare(count);
     }
+}
+
+// Reads one byte once the output holds `maxBytes`: the input ends there only
+// when no byte follows.
+fun probePastLimit[R](reader: &mut R) ReadToEndError[[R as Reader]::Error]!()
+where R: Reader
+{
+    let mut probe: [u8; 1] = [0];
+    let count = reader.read(&mut probe[..]).mapError(.Read).?;
+    if count > probe.len() {
+        return .Read(reader.invalidRead())!;
+    }
+    if count == 0 { !() } else { .LimitExceeded! }
 }

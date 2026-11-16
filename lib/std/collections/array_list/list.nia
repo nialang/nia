@@ -437,6 +437,22 @@ where T: Sized
         slot.* = value;
     }
 
+    // The allocated slots past the last item, which are not part of the
+    // list. A producer that writes items in place, such as a reader filling
+    // a buffer, writes a prefix of them and then adds it with `commitSpare`.
+    pub fun spareCapacity(&mut self) &mut [T] {
+        let len = self.len();
+        let mut items = self.allocatedItems();
+        &mut items[len..]
+    }
+
+    // Adds the first `count` slots of `spareCapacity()`, which the caller has
+    // written, to the end of the list. Traps when `count` exceeds the spare
+    // capacity.
+    pub fun commitSpare(&mut self, count: usize) () {
+        _ = self.addManyUninitializedAssumeCapacity(count);
+    }
+
     fun addOneUninitialized(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut T {
         let mut items = self.addManyUninitialized(allocator, 1).?;
         !&mut items[0]

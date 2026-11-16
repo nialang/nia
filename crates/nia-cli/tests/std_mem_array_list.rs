@@ -974,3 +974,68 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let status = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(status.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_array_list_commits_items_written_into_spare_capacity() {
+    let root = temp_dir("emit_exe_std_array_list_commits_items_written_into_spare_capacity");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std;
+using std::mem;
+using std::process;
+using std::slice;
+
+fun check(condition: bool, code: i32) process::ExitCode!() {
+    if not condition {
+        return process::ExitCode(code)!;
+    }
+    !()
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let mut page = mem::PageAllocator::init();
+    let allocator: &mut mem::Allocator = &mut page;
+    let mut list: std::ArrayList[u16] = .init();
+    defer list.deinit(allocator).?;
+
+    check(list.spareCapacity().isEmpty(), 1).?;
+    list.push(allocator, 7).?;
+    list.reserveExact(allocator, 3).?;
+    let spare = list.spareCapacity();
+    check(spare.len() == list.capacity() - 1, 2).?;
+    spare[0] = 8;
+    spare[1] = 9;
+    // Written but uncommitted slots are not items.
+    check(list.len() == 1, 3).?;
+    list.commitSpare(2);
+    check(list.len() == 3 and list.asSlice().equals(&[7u16, 8, 9][..]), 4).?;
+    check(list.spareCapacity().len() == list.capacity() - 3, 5).?;
+    list.commitSpare(0);
+    check(list.len() == 3, 6).?;
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe array list spare capacity");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}

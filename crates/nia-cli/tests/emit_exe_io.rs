@@ -2291,3 +2291,84 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let status = Command::new(&exe).status_timeout("run invalid transfer count executable");
     assert_eq!(status.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_io_read_to_end_grows_storage_geometrically() {
+    let root = temp_dir("emit_exe_std_io_read_to_end_grows_storage_geometrically");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    // A one-megabyte input read 1000 bytes at a time. Growing by a fixed step
+    // would take hundreds of allocations, each copying everything read so
+    // far; doubling takes about log2(1 MiB / 4 KiB) = 8.
+    std::fs::write(
+        &main,
+        r#"
+using std::{collections, io, mem, process, test};
+
+struct Pattern { remaining: usize }
+extend Pattern : io::Reader {
+    type Error = ();
+    fun endOfStream(&self) () { () }
+    fun invalidRead(&self) () { () }
+    fun read(&mut self, bytes: &mut [u8]) ()!usize {
+        let mut count = 1000usize;
+        if count > bytes.len() { count = bytes.len(); }
+        if count > self.remaining { count = self.remaining; }
+        let mut index = 0usize;
+        while index < count {
+            bytes[index] = (self.remaining - index) as u8;
+            index += 1;
+        }
+        self.remaining -= count;
+        !count
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let total = 1usize << 20;
+    let mut page = mem::PageAllocator::init();
+    let mut counting = test::FailingAllocator::init(&mut page);
+    let allocator: &mut mem::Allocator = &mut counting;
+    let mut output = collections::ArrayList[u8]::init();
+    defer output.deinit(allocator).?;
+
+    let mut reader: Pattern = .{ remaining: total };
+    if io::readToEnd(&mut reader, allocator, usize::MAX, &mut output) is error! {
+        _ = error;
+        return process::ExitCode(1)!;
+    }
+    if output.len() != total {
+        return process::ExitCode(2)!;
+    }
+    let bytes = output.asSlice();
+    if bytes[0] != total as u8 or bytes[total - 1] != 1 {
+        return process::ExitCode(3)!;
+    }
+    let growths = counting.allocationAttempts() + counting.resizeAttempts();
+    if growths > 24 {
+        return process::ExitCode(4)!;
+    }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe read to end growth");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}
