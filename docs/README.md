@@ -32,6 +32,7 @@ Guides cover a task from start to finish.
 | [Custom Builds](guides/build-scripts.md) | `build.nia`: extra steps, generated files, external commands, artifacts declared in code, reading the environment |
 | [Targets And Runtimes](guides/targets.md) | Cross-compiling, platform-specific code, build profiles, programs without an operating system |
 | [C Interop](guides/c-interop.md) | Calling C, linking native libraries, and exporting Nia functions |
+| [Writing Idiomatic Nia](guides/writing-nia.md) | Organizing code, handling errors, iteration, layout, comments, and tests the way std does; habits from other languages that do not carry over |
 
 ## Reference
 

@@ -24,7 +24,7 @@ use nia_test_support::{CommandExt, test_dir as temp_dir};
 /// Each documentation file with `nia` blocks gets its own test, so files are
 /// checked in parallel. `every_documented_file_is_listed` keeps the list
 /// complete.
-const DOCUMENTS: [&str; 21] = [
+const DOCUMENTS: [&str; 22] = [
     "README.md",
     "lib/README.md",
     "crates/nia-body-check/README.md",
@@ -42,6 +42,7 @@ const DOCUMENTS: [&str; 21] = [
     "docs/guides/build-scripts.md",
     "docs/guides/targets.md",
     "docs/guides/c-interop.md",
+    "docs/guides/writing-nia.md",
     "docs/reference/abi.md",
     "docs/reference/builtins.md",
     "docs/reference/language.md",
@@ -232,8 +233,9 @@ document_tests! {
     build_scripts_guide_blocks_check => 14,
     targets_guide_blocks_check => 15,
     c_interop_guide_blocks_check => 16,
-    abi_reference_blocks_check => 17,
-    builtins_reference_blocks_check => 18,
-    language_reference_blocks_check => 19,
-    platform_support_reference_blocks_check => 20,
+    writing_nia_guide_blocks_check => 17,
+    abi_reference_blocks_check => 18,
+    builtins_reference_blocks_check => 19,
+    language_reference_blocks_check => 20,
+    platform_support_reference_blocks_check => 21,
 }

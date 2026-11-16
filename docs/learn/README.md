@@ -17,8 +17,10 @@ compiles and prints what it shows.
 | 9. [Modules And Visibility](modules.md) | files and modules, `using`, visibility, extension methods, facades |
 | 10. [Testing](testing.md) | test suites, assertions, reporting, test-only code |
 
-After these, the [guides](../README.md#guides) cover packages and
-dependencies, custom builds, cross-compilation, and C interop, and the
+After these, [Writing Idiomatic Nia](../guides/writing-nia.md) shows how to
+put the parts together the way std does. The other
+[guides](../README.md#guides) cover packages and dependencies, custom builds,
+cross-compilation, and C interop, and the
 [examples](../../examples/README.md) are complete programs to read. The
 [language reference](../reference/language.md) states every rule exactly.
 

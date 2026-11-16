@@ -180,7 +180,7 @@ it is worth knowing their modules:
 | Methods | Import |
 | --- | --- |
 | slice helpers: `get`, `equals`, `copyFrom`, `startsWith`, `sort`, ... | `using std::slice;` |
-| iterator adapters: `map`, `fold`, `count`, `position`, `forEach`, ... | `using std::iter;` |
+| iterator adapters and consumers: `map`, `filter`, `enumerate`, `zip`, `fold`, `count`, `find`, ... | `using std::iter;` |
 | optional helpers: `okOr`, `isPresent`, `isNull`, `map`, ... | `using std::option;` |
 | error-union helpers: `mapError`, `orElse`, `isError`, `map`, ... | `using std::result;` |
 | `cleanupAfter` | `using std::error;` |
