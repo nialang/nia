@@ -851,6 +851,12 @@ impl ModuleGraph {
         Ok(id)
     }
 
+    /// Makes `module` the root of `package` too, as when the program's own
+    /// tree is std. The module keeps its own module path.
+    pub fn bind_package_root(&mut self, package: SymbolId, module: ModuleId) {
+        Arc::make_mut(&mut self.package_roots).insert(package, module);
+    }
+
     /// Interns a declared child with default processing flags.
     pub fn intern_declared_child(
         &mut self,

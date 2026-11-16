@@ -251,6 +251,7 @@ fn build_module_graph(
                 std::sync::Arc::new(db.context().symbols.clone()),
                 source_table,
             )?;
+            bind_entry_as_std(db, &mut graph);
             inject_entry_runtime(db, &mut graph)?;
             (
                 graph,
@@ -1553,6 +1554,26 @@ fn add_builtin_declarations(
         )?;
     }
     Ok(())
+}
+
+/// Makes the program's root std's package root too when the program is std,
+/// as when std itself is checked. Without it nothing is std: the builtin
+/// traits std declares go unloaded and undeclared, and a `std::` path from a
+/// module of the program would mount a second copy of the tree.
+///
+/// std is mounted under its toolchain identity and the entry under the path
+/// it was named by, so the two are compared as files.
+fn bind_entry_as_std(db: &QueryDb<LoaderContext>, graph: &mut ModuleGraph) {
+    let Some(std_path) = db.context().module_map.std_path() else {
+        return;
+    };
+    let entry = graph.entry();
+    if graph
+        .get(entry)
+        .is_some_and(|node| node.path.as_str() == std_path.as_str())
+    {
+        graph.bind_package_root(nia_symbol::known::STD, entry);
+    }
 }
 
 fn inject_entry_runtime(

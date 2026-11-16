@@ -95,8 +95,17 @@ pub(crate) fn module_package(
     graph: &dyn nia_imports::ModuleGraphLookup,
     module_id: nia_ids::ModuleId,
 ) -> nia_ice::IceResult<SymbolId> {
-    graph
+    let package = graph
         .module_path(module_id)
         .map(|path| path.package)
-        .ok_or_else(|| nia_ice::Ice::new(format!("missing module path for module {module_id:?}")))
+        .ok_or_else(|| {
+            nia_ice::Ice::new(format!("missing module path for module {module_id:?}"))
+        })?;
+    // A program that is std, as when std itself is checked, is std's tree:
+    // its root is bound as std's package root, and it owns what std owns.
+    let std_root = graph.package_root_module(&known::STD);
+    if std_root.is_some() && graph.current_package_root_module(module_id) == std_root {
+        return Ok(known::STD);
+    }
+    Ok(package)
 }
