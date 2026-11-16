@@ -341,9 +341,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
     let mut page: mem::PageAllocator = .init();
     let mut allocator: mem::GeneralPurposeAllocator = .init(page);
-    defer { _ = allocator.deinitWithoutLeakCheck(); };
+    defer _ = allocator.deinitWithoutLeakCheck();
     let mut list: std::ArrayList[[u8; 3]] = .init();
-    defer { _ = list.deinit(allocator); };
+    defer _ = list.deinit(allocator);
     list.push(allocator, [7, 8, 9]).?;
     if list.asSlice()[0][1] != 8 {
         return process::ExitCode(2)!;

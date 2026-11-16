@@ -546,9 +546,7 @@ fun inspect(path: & u8) i32 {
         return 1;
     }
 
-    defer {
-        _ = fclose(file);
-    };
+    defer _ = fclose(file);
 
     0
 }
