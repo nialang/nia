@@ -997,3 +997,119 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let run = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(run.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_iterator_adapters_compose_and_consume() {
+    let root = temp_dir("emit_exe_std_iterator_adapters_compose_and_consume");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+using std::option;
+using std::process;
+using std::slice;
+
+static mut tested: i32 = 0;
+
+fun some(value: ?i32, expected: i32) bool {
+    if value is ?actual {
+        return actual == expected;
+    }
+    false
+}
+
+fun check(condition: bool, code: i32) process::ExitCode!() {
+    if not condition {
+        return process::ExitCode(code)!;
+    }
+    !()
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let values = [3, 1, 4, 1, 5, 9, 2, 6];
+    let items = &values[..];
+
+    let evenSum = items.iter().filter(\x -> x.* % 2 == 0).fold(0, &\total, x -> total + x.*);
+    check(evenSum == 12, 1).?;
+    let squares = items.iter().filterMap(\x -> if x.* > 4 { ?(x.* * x.*) } else { null })
+        .fold(0, &\total, x -> total + x);
+    check(squares == 25 + 81 + 36, 2).?;
+
+    let mut positions: usize = 0;
+    for (index, &value) in items.iter().enumerate() {
+        if value == 1 {
+            positions += index;
+        }
+    }
+    check(positions == 1 + 3, 3).?;
+
+    let names = ["a", "b", "c"];
+    let mut zipped = 0;
+    for (&value, name) in items.iter().zip((&names[..]).iter()) {
+        _ = name;
+        zipped += value;
+    }
+    check(zipped == 3 + 1 + 4, 4).?;
+
+    let chained = (0..3).iter().chain((10..12).iter()).fold(0, &\total, x -> total + x);
+    check(chained == 0 + 1 + 2 + 10 + 11, 5).?;
+    check((0..10).iter().skip(7).count() == 3, 6).?;
+    check((0..10).iter().stepBy(3).fold(0, &\total, x -> total + x) == 0 + 3 + 6 + 9, 7).?;
+    check(items.iter().takeWhile(\x -> x.* < 5).count() == 4, 8).?;
+    check(items.iter().skipWhile(\x -> x.* < 5).count() == 4, 9).?;
+    check(some((0..10).iter().take(3).last(), 2), 10).?;
+
+    check(items.iter().any(&\x -> x.* == 9), 11).?;
+    check(not items.iter().any(&\x -> x.* == 7), 12).?;
+    check(items.iter().all(&\x -> x.* > 0), 13).?;
+    check((0..0).iter().all(&\x -> x > 5), 14).?;
+    check(some(items.iter().find(&\x -> x.* > 4).map(\x -> x.*), 5), 15).?;
+    check(some(items.iter().findMap(&\x -> if x.* > 5 { ?(x.* * 10) } else { null }), 90), 16).?;
+    check(some((0..10).iter().nth(4), 4), 17).?;
+    check(some((0..10).iter().last(), 9), 18).?;
+    check(not (0..0).iter().last().isPresent(), 19).?;
+    let position = items.iter().position(&\x -> x.* == 4);
+    check(if position is ?index { index == 2 } else { false }, 20).?;
+
+    // Map and Filter keep their source's double-endedness.
+    check((0..10).iter().filter(\x -> x % 3 == 0).rev().fold(0, &\total, x -> total * 10 + x) == 9630, 21).?;
+    check(items.iter().map(\x -> x.* + 1).rev().fold(0, &\total, x -> total * 10 + x) == 74062524, 22).?;
+    check(some(items.iter().map(\x -> x.*).min(), 1), 23).?;
+    check(some(items.iter().map(\x -> x.*).max(), 9), 24).?;
+    check(some(items.iter().copied().min(), 1), 25).?;
+    check(items.iter().copied().rev().fold(0, &\total, x -> total * 10 + x) == 62951413, 26).?;
+
+    // Adapters are lazy: the predicate runs only as items are pulled.
+    let mut large = items.iter().filter(\x -> {
+        tested += 1;
+        x.* > 4
+    });
+    check(tested == 0, 27).?;
+    check(some(large.next().map(\x -> x.*), 5), 28).?;
+    check(tested == 5, 29).?;
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe iterator adapters");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}

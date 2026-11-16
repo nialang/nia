@@ -201,6 +201,7 @@ pays off: the parameter types come from the iterator.
 using std::io;
 using std::iter;
 using std::process;
+using std::slice;
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
@@ -208,19 +209,31 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let total = squares.fold(0, \sum, value -> sum + value);
     let firstBig = (1..10).iter().position(\value -> value * value > 20);
     let index = if firstBig is ?i { i } else { 0 };
+
+    let readings = [12, 7, 30, 18, 3];
+    let large = readings.iter().copied().filter(\value -> value >= 10);
+    let largeSum = large.fold(0, \sum, value -> sum + value);
+    let latest = readings.iter().copied().rev().find(\value -> value >= 10);
+    let latestLarge = if latest is ?value { value } else { 0 };
     io::debugPrint("total={} firstBig={}\n", [total, index]).?;
+    io::debugPrint("largeSum={} latestLarge={}\n", [largeSum, latestLarge]).?;
     !()
 }
 ```
 
 ```text
 total=30 firstBig=4
+largeSum=60 latestLarge=18
 ```
 
-`map` is lazy: it produces a new iterator that applies the closure as values
-are requested. `fold`, `position`, `count`, and `forEach` consume the
-iterator. These are extension methods of `std::iter`, so the program imports
-that module.
+Adapters such as `map`, `filter`, `filterMap`, `take`, `skip`, `stepBy`,
+`takeWhile`, `skipWhile`, `enumerate`, `zip`, `chain`, `copied`, and `rev` are
+lazy: each returns a new iterator that owns its closure and applies it as
+values are requested. A slice iterator yields `&T`; `copied` reads the items out
+by value. Consumers such as `fold`, `count`, `position`, `find`, `any`, `all`,
+`min`, `max`, and `forEach` drive the iterator and borrow their closure for
+that one call. These are extension methods of `std::iter`, so the program
+imports that module.
 
 ## Summary
 

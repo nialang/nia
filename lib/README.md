@@ -33,7 +33,7 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
 | `std::fs` | `Path`/`PathView`, files, directories, metadata, and directory iteration |
 | `std::hash` | `Hash` and `Hasher` traits and the non-cryptographic hashers `Wyhash`, `SipHash13`, `SipHash24`, `XxHash64`, `Fnv1a32`, and `Fnv1a64` |
 | `std::io` | `Reader`/`Writer` traits, fixed and buffered adapters, file readers/writers, bounded `readToEnd`, `debugPrint` |
-| `std::iter` | Iterator adapters, ranges, and eager consumers such as `forEach` and `fold` |
+| `std::iter` | `DoubleEndedIterator`, ranges, lazy adapters (`map`, `filter`, `filterMap`, `take`, `skip`, `stepBy`, `takeWhile`, `skipWhile`, `enumerate`, `zip`, `chain`, `copied`, `rev`), and consumers such as `fold`, `find`, `any`, `min`, and `forEach` |
 | `std::math` | Checked arithmetic traits (`CheckedAdd`, `CheckedMul`, ...); `BinaryFloat` for IEEE-754 bit access and classification |
 | `std::mem` | `Allocator` trait, `Block`/`Layout`, page, fixed-buffer, arena, general-purpose, and pool allocators, typed owners |
 | `std::os` | Low-level operating-system services, and the native interfaces `os::linux::syscall`, `os::windows::bindings`, and `os::macos::bindings` with their platform calling conventions and error results |

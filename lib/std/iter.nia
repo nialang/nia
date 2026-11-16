@@ -1,7 +1,9 @@
-// Iterator adapters and eager callback consumers.
+// Iterator adapters and eager consumers.
 //
-// `forEach`, `fold`, `tryFold`, and `position` borrow callbacks for one call.
-// Lazy adapters such as `Map` own their callback and iterator state.
+// Lazy adapters such as `Map` and `Filter` own their callback and iterator
+// state, and do nothing until the result is iterated. Eager consumers such
+// as `fold`, `any`, and `find` borrow their callback for one call and stop
+// consuming as soon as the answer is known.
 
 pub(root) module range;
 
@@ -18,6 +20,21 @@ where I: Iterator
     remaining: usize,
 }
 
+pub struct Skip[I]
+where I: Iterator
+{
+    iter: I,
+    remaining: usize,
+}
+
+pub struct StepBy[I]
+where I: Iterator
+{
+    iter: I,
+    step: usize,
+    first: bool,
+}
+
 pub struct Rev[I]
 where I: DoubleEndedIterator
 {
@@ -29,6 +46,64 @@ where I: Iterator
 {
     iter: I,
     mapper: Mapper,
+}
+
+pub struct Filter[I, Predicate]
+where I: Iterator
+{
+    iter: I,
+    predicate: Predicate,
+}
+
+pub struct FilterMap[I, Mapper, Mapped]
+where I: Iterator
+{
+    iter: I,
+    mapper: Mapper,
+}
+
+pub struct TakeWhile[I, Predicate]
+where I: Iterator
+{
+    iter: I,
+    predicate: Predicate,
+    done: bool,
+}
+
+pub struct SkipWhile[I, Predicate]
+where I: Iterator
+{
+    iter: I,
+    predicate: Predicate,
+    skipping: bool,
+}
+
+pub struct Enumerate[I]
+where I: Iterator
+{
+    iter: I,
+    index: usize,
+}
+
+pub struct Zip[A, B]
+where A: Iterator, B: Iterator
+{
+    first: A,
+    second: B,
+}
+
+pub struct Chain[A, B]
+where A: Iterator, B: Iterator[Item = [A as Iterator]::Item]
+{
+    first: A,
+    second: B,
+    firstDone: bool,
+}
+
+pub struct Copied[I, T]
+where I: Iterator[Item = &T]
+{
+    iter: I,
 }
 
 extend[I] Take[I]
@@ -53,6 +128,63 @@ where I: Iterator
             return ?value;
         }
         null
+    }
+}
+
+extend[I] Skip[I]
+where I: Iterator
+{
+    pub fun init(iter: I, remaining: usize) Skip[I] {
+        .{ iter, remaining }
+    }
+}
+
+extend[I] Skip[I] : Iterator
+where I: Iterator
+{
+    type Item = [I as Iterator]::Item;
+
+    pub fun next(&mut self) ?[I as Iterator]::Item {
+        while self.remaining != 0 {
+            self.remaining -= 1;
+            if self.iter.next() is null {
+                return null;
+            }
+        }
+        self.iter.next()
+    }
+}
+
+extend[I] StepBy[I]
+where I: Iterator
+{
+    // `step` must be at least 1: the first item, then every `step`th one.
+    pub fun init(iter: I, step: usize) StepBy[I] {
+        if step == 0 {
+            root::builtin::trap();
+        }
+        .{ iter, step, first: true }
+    }
+}
+
+extend[I] StepBy[I] : Iterator
+where I: Iterator
+{
+    type Item = [I as Iterator]::Item;
+
+    pub fun next(&mut self) ?[I as Iterator]::Item {
+        if self.first {
+            self.first = false;
+            return self.iter.next();
+        }
+        let mut skipped: usize = 1;
+        while skipped < self.step {
+            if self.iter.next() is null {
+                return null;
+            }
+            skipped += 1;
+        }
+        self.iter.next()
     }
 }
 
@@ -103,6 +235,246 @@ where I: Iterator, Mapper: Fun([I as Iterator]::Item) Mapped
     }
 }
 
+extend[I, Mapper, Mapped] Map[I, Mapper, Mapped] : DoubleEndedIterator
+where I: DoubleEndedIterator, Mapper: Fun([I as Iterator]::Item) Mapped
+{
+    pub fun nextBack(&mut self) ?Mapped {
+        if self.iter.nextBack() is ?value {
+            return ?self.mapper(value);
+        }
+        null
+    }
+}
+
+extend[I, Predicate] Filter[I, Predicate]
+where I: Iterator, Predicate: Fun([I as Iterator]::Item) bool
+{
+    pub fun init(iter: I, predicate: Predicate) Filter[I, Predicate] {
+        .{ iter, predicate }
+    }
+}
+
+extend[I, Predicate] Filter[I, Predicate] : Iterator
+where I: Iterator, Predicate: Fun([I as Iterator]::Item) bool
+{
+    type Item = [I as Iterator]::Item;
+
+    pub fun next(&mut self) ?[I as Iterator]::Item {
+        loop {
+            let value = match self.iter.next() {
+                ?value => value,
+                null => return null,
+            };
+            if self.predicate(value) {
+                return ?value;
+            }
+        }
+    }
+}
+
+extend[I, Predicate] Filter[I, Predicate] : DoubleEndedIterator
+where I: DoubleEndedIterator, Predicate: Fun([I as Iterator]::Item) bool
+{
+    pub fun nextBack(&mut self) ?[I as Iterator]::Item {
+        loop {
+            let value = match self.iter.nextBack() {
+                ?value => value,
+                null => return null,
+            };
+            if self.predicate(value) {
+                return ?value;
+            }
+        }
+    }
+}
+
+extend[I, Mapper, Mapped] FilterMap[I, Mapper, Mapped]
+where I: Iterator, Mapper: Fun([I as Iterator]::Item) ?Mapped
+{
+    pub fun init(iter: I, mapper: Mapper) FilterMap[I, Mapper, Mapped] {
+        .{ iter, mapper }
+    }
+}
+
+extend[I, Mapper, Mapped] FilterMap[I, Mapper, Mapped] : Iterator
+where I: Iterator, Mapper: Fun([I as Iterator]::Item) ?Mapped
+{
+    type Item = Mapped;
+
+    pub fun next(&mut self) ?Mapped {
+        loop {
+            let value = match self.iter.next() {
+                ?value => value,
+                null => return null,
+            };
+            if self.mapper(value) is ?mapped {
+                return ?mapped;
+            }
+        }
+    }
+}
+
+extend[I, Predicate] TakeWhile[I, Predicate]
+where I: Iterator, Predicate: Fun([I as Iterator]::Item) bool
+{
+    pub fun init(iter: I, predicate: Predicate) TakeWhile[I, Predicate] {
+        .{ iter, predicate, done: false }
+    }
+}
+
+extend[I, Predicate] TakeWhile[I, Predicate] : Iterator
+where I: Iterator, Predicate: Fun([I as Iterator]::Item) bool
+{
+    type Item = [I as Iterator]::Item;
+
+    pub fun next(&mut self) ?[I as Iterator]::Item {
+        if self.done {
+            return null;
+        }
+        if self.iter.next() is ?value {
+            if self.predicate(value) {
+                return ?value;
+            }
+        }
+        self.done = true;
+        null
+    }
+}
+
+extend[I, Predicate] SkipWhile[I, Predicate]
+where I: Iterator, Predicate: Fun([I as Iterator]::Item) bool
+{
+    pub fun init(iter: I, predicate: Predicate) SkipWhile[I, Predicate] {
+        .{ iter, predicate, skipping: true }
+    }
+}
+
+extend[I, Predicate] SkipWhile[I, Predicate] : Iterator
+where I: Iterator, Predicate: Fun([I as Iterator]::Item) bool
+{
+    type Item = [I as Iterator]::Item;
+
+    pub fun next(&mut self) ?[I as Iterator]::Item {
+        if not self.skipping {
+            return self.iter.next();
+        }
+        self.skipping = false;
+        loop {
+            let value = match self.iter.next() {
+                ?value => value,
+                null => return null,
+            };
+            if not self.predicate(value) {
+                return ?value;
+            }
+        }
+    }
+}
+
+extend[I] Enumerate[I]
+where I: Iterator
+{
+    pub fun init(iter: I) Enumerate[I] {
+        .{ iter, index: 0 }
+    }
+}
+
+extend[I] Enumerate[I] : Iterator
+where I: Iterator
+{
+    type Item = (usize, [I as Iterator]::Item);
+
+    pub fun next(&mut self) ?(usize, [I as Iterator]::Item) {
+        if self.iter.next() is ?value {
+            let index = self.index;
+            self.index += 1;
+            return ?(index, value);
+        }
+        null
+    }
+}
+
+extend[A, B] Zip[A, B]
+where A: Iterator, B: Iterator
+{
+    pub fun init(first: A, second: B) Zip[A, B] {
+        .{ first, second }
+    }
+}
+
+extend[A, B] Zip[A, B] : Iterator
+where A: Iterator, B: Iterator
+{
+    type Item = ([A as Iterator]::Item, [B as Iterator]::Item);
+
+    // Ends with the shorter iterator. The first iterator is advanced first,
+    // so when it ends the second is left untouched.
+    pub fun next(&mut self) ?([A as Iterator]::Item, [B as Iterator]::Item) {
+        if self.first.next() is ?first {
+            if self.second.next() is ?second {
+                return ?(first, second);
+            }
+        }
+        null
+    }
+}
+
+extend[A, B] Chain[A, B]
+where A: Iterator, B: Iterator[Item = [A as Iterator]::Item]
+{
+    pub fun init(first: A, second: B) Chain[A, B] {
+        .{ first, second, firstDone: false }
+    }
+}
+
+extend[A, B] Chain[A, B] : Iterator
+where A: Iterator, B: Iterator[Item = [A as Iterator]::Item]
+{
+    type Item = [A as Iterator]::Item;
+
+    pub fun next(&mut self) ?[A as Iterator]::Item {
+        if not self.firstDone {
+            if self.first.next() is ?value {
+                return ?value;
+            }
+            self.firstDone = true;
+        }
+        self.second.next()
+    }
+}
+
+extend[I, T] Copied[I, T]
+where I: Iterator[Item = &T]
+{
+    pub fun init(iter: I) Copied[I, T] {
+        .{ iter }
+    }
+}
+
+extend[I, T] Copied[I, T] : Iterator
+where I: Iterator[Item = &T]
+{
+    type Item = T;
+
+    pub fun next(&mut self) ?T {
+        if self.iter.next() is ?item {
+            return ?item.*;
+        }
+        null
+    }
+}
+
+extend[I, T] Copied[I, T] : DoubleEndedIterator
+where I: DoubleEndedIterator + Iterator[Item = &T]
+{
+    pub fun nextBack(&mut self) ?T {
+        if self.iter.nextBack() is ?item {
+            return ?item.*;
+        }
+        null
+    }
+}
+
 extend[I] I
 where I: Iterator
 {
@@ -112,8 +484,64 @@ where I: Iterator
         .init(self, mapper)
     }
 
+    // The items for which `predicate` holds.
+    pub fun filter[Predicate](self, predicate: Predicate) Filter[I, Predicate]
+    where Predicate: Fun([I as Iterator]::Item) bool
+    {
+        .init(self, predicate)
+    }
+
+    // The present results of `mapper`, skipping the items it maps to `null`.
+    pub fun filterMap[Mapper, Mapped](self, mapper: Mapper) FilterMap[I, Mapper, Mapped]
+    where Mapper: Fun([I as Iterator]::Item) ?Mapped
+    {
+        .init(self, mapper)
+    }
+
     pub fun take(self, limit: usize) Take[I] {
         .init(self, limit)
+    }
+
+    pub fun skip(self, count: usize) Skip[I] {
+        .init(self, count)
+    }
+
+    // The first item, then every `step`th one. `step` must be at least 1.
+    pub fun stepBy(self, step: usize) StepBy[I] {
+        .init(self, step)
+    }
+
+    // The items before the first for which `predicate` fails.
+    pub fun takeWhile[Predicate](self, predicate: Predicate) TakeWhile[I, Predicate]
+    where Predicate: Fun([I as Iterator]::Item) bool
+    {
+        .init(self, predicate)
+    }
+
+    // The items from the first for which `predicate` fails.
+    pub fun skipWhile[Predicate](self, predicate: Predicate) SkipWhile[I, Predicate]
+    where Predicate: Fun([I as Iterator]::Item) bool
+    {
+        .init(self, predicate)
+    }
+
+    // Each item with its position, counted from 0.
+    pub fun enumerate(self) Enumerate[I] {
+        .init(self)
+    }
+
+    // Pairs of items from this iterator and `other`, until either ends.
+    pub fun zip[J](self, other: J) Zip[I, J]
+    where J: Iterator
+    {
+        .init(self, other)
+    }
+
+    // The items of this iterator, then those of `other`.
+    pub fun chain[J](self, other: J) Chain[I, J]
+    where J: Iterator[Item = [I as Iterator]::Item]
+    {
+        .init(self, other)
     }
 
     pub fun count(self) usize {
@@ -163,6 +591,109 @@ where I: Iterator
             index += 1;
         }
         null
+    }
+
+    // Whether `predicate` holds for some item; `false` for no items.
+    pub fun any(self, predicate: &Fun([I as Iterator]::Item) bool) bool {
+        for value in self {
+            if predicate(value) {
+                return true;
+            }
+        }
+        false
+    }
+
+    // Whether `predicate` holds for every item; `true` for no items.
+    pub fun all(self, predicate: &Fun([I as Iterator]::Item) bool) bool {
+        for value in self {
+            if not predicate(value) {
+                return false;
+            }
+        }
+        true
+    }
+
+    // The first item for which `predicate` holds.
+    pub fun find(self, predicate: &Fun([I as Iterator]::Item) bool) ?[I as Iterator]::Item {
+        for value in self {
+            if predicate(value) {
+                return ?value;
+            }
+        }
+        null
+    }
+
+    // The first present result of `mapper`.
+    pub fun findMap[Mapped](self, mapper: &Fun([I as Iterator]::Item) ?Mapped) ?Mapped {
+        for value in self {
+            if mapper(value) is ?mapped {
+                return ?mapped;
+            }
+        }
+        null
+    }
+
+    // The item at `index`, counted from 0, consuming the items before it.
+    pub fun nth(self, index: usize) ?[I as Iterator]::Item {
+        let mut remaining = index;
+        for value in self {
+            if remaining == 0 {
+                return ?value;
+            }
+            remaining -= 1;
+        }
+        null
+    }
+
+    pub fun last(self) ?[I as Iterator]::Item {
+        let mut last: ?[I as Iterator]::Item = null;
+        for value in self {
+            last = ?value;
+        }
+        last
+    }
+}
+
+extend[I] I
+where I: Iterator, [I as Iterator]::Item: Ord[[I as Iterator]::Item]
+{
+    // The smallest item; of equal smallest items, the first.
+    pub fun min(self) ?[I as Iterator]::Item {
+        let mut smallest: ?[I as Iterator]::Item = null;
+        for value in self {
+            if smallest is ?current {
+                if value < current {
+                    smallest = ?value;
+                }
+            } else {
+                smallest = ?value;
+            }
+        }
+        smallest
+    }
+
+    // The largest item; of equal largest items, the last.
+    pub fun max(self) ?[I as Iterator]::Item {
+        let mut largest: ?[I as Iterator]::Item = null;
+        for value in self {
+            if largest is ?current {
+                if value >= current {
+                    largest = ?value;
+                }
+            } else {
+                largest = ?value;
+            }
+        }
+        largest
+    }
+}
+
+extend[I, T] I
+where I: Iterator[Item = &T]
+{
+    // The items a borrowing iterator points at, read out by value.
+    pub fun copied(self) Copied[I, T] {
+        .init(self)
     }
 }
 

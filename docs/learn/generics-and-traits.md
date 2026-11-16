@@ -342,6 +342,10 @@ digits=321 sum=10
 appear directly after `in`, because the `{` would be read as the loop body;
 bind it to a name first, as above.
 
+With `using std::iter;`, every iterator, `Countdown` included, also has the
+adapters and consumers of `std::iter`, such as `filter`, `map`, and `fold`;
+[Closures With Iterators](closures.md#closures-with-iterators) shows them.
+
 ## Trait Objects
 
 A generic function is compiled once per type. When one piece of code must
