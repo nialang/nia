@@ -2,7 +2,6 @@ using root::cstring;
 using root::fmt;
 using root::parse;
 using root::process::types;
-using root::slice;
 
 using types::{Arg, Args, ArgsIter};
 

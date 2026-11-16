@@ -4,7 +4,6 @@
 // visits every nested owner and reports the first failure, leaving unreleased
 // list storage attached for a later Build::deinit retry.
 
-using root::collections;
 using root::mem;
 using root::string;
 using root::error::CleanupAccumulator;

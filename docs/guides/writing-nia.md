@@ -45,8 +45,8 @@ compiler, which suggests a `using`;
 [Extension Methods](../learn/modules.md#extension-methods) lists the modules
 of std's common ones.
 
-`nia check` checks every function of the tree it is given, so an import it
-reports unused is unused: remove it.
+`nia check` reports every import that nothing needs, including one that only
+made extension methods visible that no call uses: remove it.
 
 ## Errors Are a System, Not a `match`
 

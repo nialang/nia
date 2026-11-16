@@ -23,6 +23,8 @@ pub(super) fn provide_checked_program(
             "checked_program.closure_safety",
             || closure_safety_diagnostics(db, &diagnostic_modules),
         )?);
+        let unused_imports = unused_import_diagnostics(db, &diagnostic_modules)?;
+        diagnostics.extend(unused_imports);
         Ok(CheckedProgramAnalysis {
             diagnostic_sources: diagnostic_sources(db, &graph, &diagnostics)?,
             graph,
@@ -55,6 +57,8 @@ pub(super) fn provide_entry_checked_program(
             "entry_checked_program.closure_safety",
             || closure_safety_diagnostics(db, &diagnostic_modules),
         )?);
+        let unused_imports = unused_import_diagnostics(db, &diagnostic_modules)?;
+        diagnostics.extend(unused_imports);
         Ok(CheckedProgramAnalysis {
             diagnostic_sources: diagnostic_sources(db, &graph, &diagnostics)?,
             graph,

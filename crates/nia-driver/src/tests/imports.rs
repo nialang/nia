@@ -58,6 +58,16 @@ fn formal_visibility_manifest_matches_import_regression_groups() {
                 "an_unrelated_import_does_not_publish_a_provider",
             ],
         ),
+        (
+            "unused_import_cases",
+            vec![
+                "unused_import_ignores_providers_selected_for_other_calls",
+                "unused_import_keeps_imports_whose_extension_methods_are_called",
+                "unused_import_keeps_an_item_import_whose_facade_publishes_the_method",
+                "unused_import_counts_an_import_named_by_another_using",
+                "unused_import_reports_the_first_of_two_imports_with_the_same_methods",
+            ],
+        ),
     ];
     for (group, expected_cases) in expected {
         let actual = matrix[group]

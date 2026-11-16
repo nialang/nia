@@ -1610,3 +1610,182 @@ fn a_child_module_does_not_hide_a_reexported_value_of_the_same_name() {
         assert_no_error_diagnostics(&program.diagnostics);
     }
 }
+
+/// The names `check` reports as unused imports in the program at `main`.
+fn unused_import_names(root: &std::path::Path) -> Vec<String> {
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.diagnostic.code.as_str() == "W0201"),
+        "{:?}",
+        program.diagnostics
+    );
+    let mut names = program
+        .diagnostics
+        .iter()
+        .filter_map(|diagnostic| {
+            let summary = &diagnostic.diagnostic.summary;
+            Some(
+                summary
+                    .strip_prefix("unused import `")?
+                    .strip_suffix('`')?
+                    .to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
+#[test]
+fn unused_import_ignores_providers_selected_for_other_calls() {
+    // `len` is a trait method, but the loader also searches every imported
+    // module that declares a `len` and selects it; that must not make the
+    // import used.
+    let root = temp_dir("unused_import_ignores_providers_selected_for_other_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::fs;
+using std::option;
+using std::slice;
+
+fun size(text: &[char]) usize {
+    text.len()
+}
+
+fun main() i32 {
+    size("abc") as i32
+}
+"#,
+    );
+
+    assert_eq!(unused_import_names(&root), ["fs", "option", "slice"]);
+}
+
+#[test]
+fn unused_import_keeps_imports_whose_extension_methods_are_called() {
+    // Each import makes a called extension method visible, directly or
+    // through what its module publishes.
+    let root = temp_dir("unused_import_keeps_imports_whose_extension_methods_are_called");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::iter;
+using std::option;
+using std::slice;
+
+fun positive(values: &[i32], fallback: ?i32) usize {
+    _ = fallback.map(\value -> value + 1);
+    _ = values.equals(values);
+    values.iter().filter(\value -> value.* > 0).count()
+}
+
+fun main() i32 {
+    let mut values = [2, 1];
+    (&mut values[..]).sort();
+    positive(&values[..], null) as i32
+}
+"#,
+    );
+
+    assert!(unused_import_names(&root).is_empty());
+}
+
+#[test]
+fn unused_import_keeps_an_item_import_whose_facade_publishes_the_method() {
+    // `parse` is declared in a provider that `api` publishes; importing an
+    // item of `api` is what makes it visible.
+    let root = temp_dir("unused_import_keeps_an_item_import_whose_facade_publishes_the_method");
+    write(
+        &root.join("main.nia"),
+        r#"
+module api;
+using root::api::Marker;
+
+fun main() i32 {
+    (&"abc").count()
+}
+"#,
+    );
+    write(
+        &root.join("api.nia"),
+        r#"
+pub module counting;
+pub using counting::Marker;
+"#,
+    );
+    std::fs::create_dir_all(root.join("api")).expect("create api module dir");
+    write(
+        &root.join("api/counting.nia"),
+        r#"
+pub struct Marker {}
+
+extend [char] {
+    pub fun count(&self) i32 {
+        self.len() as i32
+    }
+}
+"#,
+    );
+
+    assert!(unused_import_names(&root).is_empty());
+}
+
+#[test]
+fn unused_import_counts_an_import_named_by_another_using() {
+    let root = temp_dir("unused_import_counts_an_import_named_by_another_using");
+    write(
+        &root.join("main.nia"),
+        r#"
+module defs;
+using root::defs;
+using defs::*;
+
+fun main() i32 {
+    Item {}.value()
+}
+"#,
+    );
+    write(
+        &root.join("defs.nia"),
+        r#"
+pub struct Item {}
+
+extend Item {
+    pub fun value(self) i32 {
+        _ = self;
+        1
+    }
+}
+"#,
+    );
+
+    assert!(unused_import_names(&root).is_empty());
+}
+
+#[test]
+fn unused_import_reports_the_first_of_two_imports_with_the_same_methods() {
+    // Either import makes `equals` visible. Reporting the first leaves the
+    // second, so removing every reported import keeps the program compiling.
+    let root = temp_dir("unused_import_reports_the_first_of_two_imports_with_the_same_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+using std::slice;
+using std::slice as views;
+
+fun same(text: &[char]) bool {
+    text.equals(text)
+}
+
+fun main() i32 {
+    if same("a") { 0 } else { 1 }
+}
+"#,
+    );
+
+    assert_eq!(unused_import_names(&root), ["slice"]);
+}

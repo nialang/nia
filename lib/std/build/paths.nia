@@ -6,7 +6,6 @@
 using root::error::CleanupAccumulator;
 using root::build::error::{Error, ErrorOperation as Operation, ErrorSubject as Subject};
 using root::build::types::{BuildPathView, BuildPaths};
-using root::fs;
 using root::mem;
 using root::build::error;
 

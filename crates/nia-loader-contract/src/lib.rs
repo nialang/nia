@@ -171,10 +171,10 @@ pub trait LoaderFactProvider: Send + Sync {
         &self,
         module_id: nia_ids::ModuleId,
     ) -> QueryResult<Option<Vec<ParseError>>>;
-    fn module_unused_imports(
+    fn module_using_imports(
         &self,
         module_id: nia_ids::ModuleId,
-    ) -> QueryResult<Option<Vec<UnusedUsingImport>>>;
+    ) -> QueryResult<Option<Vec<UsingImportFact>>>;
     fn module_item_tree(&self, module_id: nia_ids::ModuleId)
     -> QueryResult<Option<ModuleItemTree>>;
     fn active_module_item_tree(
@@ -302,15 +302,15 @@ impl LoaderFactProvider for LoadedProgram {
             .find(|module| module.id == module_id)
             .map(|module| module.parse_errors.clone()))
     }
-    fn module_unused_imports(
+    fn module_using_imports(
         &self,
         module_id: nia_ids::ModuleId,
-    ) -> QueryResult<Option<Vec<UnusedUsingImport>>> {
+    ) -> QueryResult<Option<Vec<UsingImportFact>>> {
         Ok(self
             .modules
             .iter()
             .find(|module| module.id == module_id)
-            .map(|module| module.unused_imports.clone()))
+            .map(|module| module.using_imports.clone()))
     }
     fn module_item_tree(
         &self,
@@ -382,17 +382,27 @@ pub struct LoadedModule {
     pub provider_summary: ProviderSummary,
     pub origins: NodeOriginTable,
     pub parse_errors: Vec<ParseError>,
-    pub unused_imports: Vec<UnusedUsingImport>,
+    pub using_imports: Vec<UsingImportFact>,
 }
 
-/// An explicit `using` name that its entry-package module never references.
+/// An explicit `using` name of a program-tree module.
 ///
-/// The loader owns reference collection; the compiler owns the warning, so it
-/// can suppress names whose `using` directive already failed to resolve.
+/// The loader owns reference collection. An import whose name nothing
+/// references may still make extension methods visible, which only body
+/// checking can tell, so the compiler decides whether it is unused and owns
+/// the warning.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnusedUsingImport {
+pub struct UsingImportFact {
     /// Name exposed to the local scope, including an alias.
     pub name: nia_symbol::SymbolId,
     /// Span of the selected name or alias.
     pub name_span: nia_span::Span,
+    /// Whether a path in the module names the import.
+    pub referenced: bool,
+    /// The module the import names, when it names one: its extensions, and
+    /// those it re-exports or publishes, are visible with the import.
+    pub module: Option<nia_ids::ModuleId>,
+    /// The provider modules that method demands selected by searching this
+    /// import.
+    pub demand_providers: Vec<nia_ids::ModuleId>,
 }

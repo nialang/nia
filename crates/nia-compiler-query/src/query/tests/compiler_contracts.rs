@@ -113,7 +113,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "module_item_tree_input"
             | "module_origins"
             | "module_parse_errors"
-            | "module_unused_imports"
+            | "module_using_imports"
             | "module_using_scope"
             | "module_lexical_using_scopes"
             | "item_signatures"

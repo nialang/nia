@@ -1,5 +1,4 @@
 using super::ascii::AsciiUnit;
-using root::slice;
 using root::option;
 
 pub enum Error: i32 {

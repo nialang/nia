@@ -113,6 +113,12 @@ not anything calls it; a generic function or a trait's default method is
 checked once against its parameters. Dependencies are checked as far as the
 tree uses them. `nia emit` compiles only what the entry reaches.
 
+Only `nia check` warns about unused imports, because only it sees every call:
+an import is unused when no path names it and no extension method a checked
+call resolves to is visible through it. Of two imports that make the same
+methods visible, the first is reported, so removing every reported import
+keeps the tree compiling. A module with errors gets no such warning.
+
 ```sh
 nia check lib/root.nia
 nia emit --llvm src/main.nia

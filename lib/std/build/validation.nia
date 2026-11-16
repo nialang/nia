@@ -5,7 +5,6 @@
 
 using root::build::error;
 using root::build::handles;
-using root::build::targets;
 using root::build::types;
 
 using error::Error;

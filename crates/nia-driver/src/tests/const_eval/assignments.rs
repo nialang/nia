@@ -688,8 +688,6 @@ fn const_for_in_accepts_range_iter_method() {
     write(
         &root.join("main.nia"),
         r#"
-using std::iter;
-
 const fun width() usize {
     let mut total: usize = 0;
     for value in (0usize..4usize).iter() {

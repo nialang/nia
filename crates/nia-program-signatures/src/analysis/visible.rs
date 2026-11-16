@@ -378,48 +378,7 @@ fn extension_visibility_modules(
         .values()
         .copied()
         .collect::<Vec<_>>();
-    let mut pending_modules = direct_imports.iter().copied().collect::<VecDeque<_>>();
-    while let Some(module_id) = pending_modules.pop_front() {
-        if !visible.insert(module_id) {
-            continue;
-        }
-        if let Some(surface) = context.public_surfaces.public_surface(module_id) {
-            pending_modules.extend(surface.reexported_modules.iter().filter_map(
-                |(name, module)| {
-                    surface
-                        .module_scopes
-                        .get(name)
-                        .is_none_or(|scope| {
-                            scope.allows(&|restriction| {
-                                nia_imports::access_restriction_allows(
-                                    restriction,
-                                    context.graph,
-                                    context.module_id,
-                                )
-                            })
-                        })
-                        .then_some(*module)
-                },
-            ));
-            pending_modules.extend(
-                surface
-                    .reexported_provider_modules
-                    .iter()
-                    .filter(|module| {
-                        surface.provider_scopes.get(module).is_none_or(|scope| {
-                            scope.allows(&|restriction| {
-                                nia_imports::access_restriction_allows(
-                                    restriction,
-                                    context.graph,
-                                    context.module_id,
-                                )
-                            })
-                        })
-                    })
-                    .copied(),
-            );
-        }
-    }
+    follow_publications(context, direct_imports.iter().copied(), &mut visible);
     visible.extend(
         context
             .graph
@@ -439,30 +398,91 @@ fn extension_visibility_modules(
         .filter_map(|module| context.graph.current_package_root_module(module))
         .collect::<HashSet<_>>();
     for package_root in package_roots {
-        if let Some(surface) = context.public_surfaces.public_surface(package_root) {
-            visible.extend(
-                surface
-                    .reexported_provider_modules
-                    .iter()
-                    .filter(|module| {
-                        surface.provider_scopes.get(module).is_none_or(|scope| {
-                            scope.allows(&|restriction| {
-                                nia_imports::access_restriction_allows(
-                                    restriction,
-                                    context.graph,
-                                    context.module_id,
-                                )
-                            })
-                        })
-                    })
-                    .copied(),
-            );
-        }
+        visible.extend(published_providers(context, package_root));
     }
     visible.remove(&context.module_id);
     let mut modules = visible.into_iter().collect::<Vec<_>>();
     modules.sort();
     modules
+}
+
+/// Returns the modules whose extension methods a `using` of `module` makes
+/// visible to `input.module_id`, by the rules of
+/// [`visible_extension_provider_modules`]: the module, what it re-exports and
+/// publishes, and the providers its package root publishes.
+///
+/// The providers the loader selects for method demands through the import
+/// are not included; the loader records them per import.
+pub fn imported_module_extension_modules(
+    input: VisibleExtensionProviderModulesInput<'_>,
+    module: nia_ids::ModuleId,
+) -> Vec<nia_ids::ModuleId> {
+    let context = extension_visibility_context(input);
+    let mut visible = HashSet::new();
+    follow_publications(&context, [module], &mut visible);
+    if let Some(package_root) = context.graph.current_package_root_module(module) {
+        visible.extend(published_providers(&context, package_root));
+    }
+    visible.remove(&context.module_id);
+    let mut modules = visible.into_iter().collect::<Vec<_>>();
+    modules.sort();
+    modules
+}
+
+/// Adds `modules` to `visible`, with the modules each re-exports and the
+/// providers each publishes, transitively, as far as the export scopes allow
+/// `context.module_id` to see them.
+fn follow_publications(
+    context: &ExtensionVisibilityContext<'_>,
+    modules: impl IntoIterator<Item = nia_ids::ModuleId>,
+    visible: &mut HashSet<nia_ids::ModuleId>,
+) {
+    let mut pending_modules = modules.into_iter().collect::<VecDeque<_>>();
+    while let Some(module_id) = pending_modules.pop_front() {
+        if !visible.insert(module_id) {
+            continue;
+        }
+        if let Some(surface) = context.public_surfaces.public_surface(module_id) {
+            pending_modules.extend(surface.reexported_modules.iter().filter_map(
+                |(name, module)| {
+                    surface
+                        .module_scopes
+                        .get(name)
+                        .is_none_or(|scope| scope_allows(context, scope))
+                        .then_some(*module)
+                },
+            ));
+        }
+        pending_modules.extend(published_providers(context, module_id));
+    }
+}
+
+/// The providers `module` publishes with `pub using` that
+/// `context.module_id` may see.
+fn published_providers<'a>(
+    context: &'a ExtensionVisibilityContext<'_>,
+    module: nia_ids::ModuleId,
+) -> impl Iterator<Item = nia_ids::ModuleId> + 'a {
+    let surface = context.public_surfaces.public_surface(module);
+    surface.into_iter().flat_map(|surface| {
+        surface
+            .reexported_provider_modules
+            .iter()
+            .filter(|provider| {
+                surface
+                    .provider_scopes
+                    .get(provider)
+                    .is_none_or(|scope| scope_allows(context, scope))
+            })
+            .copied()
+            .collect::<Vec<_>>()
+    })
+}
+
+fn scope_allows(context: &ExtensionVisibilityContext<'_>, scope: &nia_defs::ExportScope) -> bool {
+    scope.allows(&|restriction| {
+        nia_imports::access_restriction_allows(restriction, context.graph, context.module_id)
+    })
 }
 
 struct ExtensionVisibilityContext<'a> {

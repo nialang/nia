@@ -4,7 +4,6 @@
 
 using root::build::types;
 using root::build::handles;
-using root::string;
 
 using types::{
     ExecutableHandle,

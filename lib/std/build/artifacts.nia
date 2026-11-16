@@ -4,9 +4,7 @@
 // allocator-owned records; step construction stays in core.nia.
 
 using root::build::error;
-using root::string;
 using root::build::handles;
-using root::build::paths;
 using root::build::queries::{
     findExecutable as findExecutableRecord,
     findObject as findObjectRecord,

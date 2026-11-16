@@ -1,4 +1,3 @@
-using root::slice;
 using root::unicode;
 
 pub enum BufferError: i32 {

@@ -30,7 +30,7 @@ pub(crate) fn collect_used_modules(
             continue;
         };
         let mut using_paths = Vec::new();
-        collect_using_modules(
+        used_aliases.extend(collect_using_modules(
             &using.host,
             &using.selector,
             module_map,
@@ -38,7 +38,7 @@ pub(crate) fn collect_used_modules(
             &using_aliases,
             &mut packages,
             &mut using_paths,
-        );
+        ));
         // A re-export publishes the module's names and providers; it uses
         // nothing itself. Its providers load when a demand of an importer
         // needs them, never because the re-exporting module was processed.
@@ -94,7 +94,7 @@ struct QualifiedPathModuleCollector<'a> {
 
 impl QualifiedPathModuleCollector<'_> {
     fn collect_using(&mut self, using: &UsingItem) {
-        collect_using_modules(
+        self.used_aliases.extend(collect_using_modules(
             &using.host,
             &using.selector,
             self.module_map,
@@ -102,7 +102,7 @@ impl QualifiedPathModuleCollector<'_> {
             self.using_aliases,
             self.packages,
             self.paths,
-        );
+        ));
     }
 
     fn collect_path_segments(&mut self, segments: Vec<SymbolId>) {
@@ -397,6 +397,8 @@ fn type_qualified_segments(
     Some((root, segments))
 }
 
+/// Collects the module paths a `using` selects. A host that starts with
+/// another import's name uses that import, whose name is returned.
 fn collect_using_modules(
     host: &[nia_ast::UsingHostSegment],
     selector: &UsingSelector,
@@ -405,10 +407,10 @@ fn collect_using_modules(
     aliases: &SymbolMap<UsedModulePath>,
     packages: &mut Vec<SymbolId>,
     paths: &mut Vec<UsedModulePath>,
-) {
+) -> Option<SymbolId> {
     if host.is_empty() {
         collect_root_group_modules(selector, module_map, local_module_names, packages, paths);
-        return;
+        return None;
     }
     if let Some((first, rest)) = host.split_first()
         && let Some(first_name) = using_host_segment_name(first)
@@ -417,13 +419,11 @@ fn collect_using_modules(
         let host_path =
             alias.with_appended_segments_with_processing(&host_segments(rest), false, false);
         collect_selector_modules_from_path(host_path, selector, paths);
-        return;
+        return Some(first_name);
     }
-    let Some(root) = UsedModuleRoot::from_host(host, module_map, local_module_names, packages)
-    else {
-        return;
-    };
+    let root = UsedModuleRoot::from_host(host, module_map, local_module_names, packages)?;
     collect_selector_modules(root, selector, paths);
+    None
 }
 
 fn collect_using_aliases(
@@ -754,7 +754,9 @@ fn collect_root_group_modules(
                 }
             }
             UsingGroupItem::Nested { host, selector } => {
-                collect_using_modules(
+                // Nested hosts start from the group's root, never from an
+                // import's name.
+                _ = collect_using_modules(
                     host,
                     selector,
                     module_map,

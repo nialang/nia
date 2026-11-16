@@ -14,11 +14,8 @@ using root::io;
 using root::iter;
 using root::mem;
 using root::option;
-using root::result;
 using root::slice;
 using root::unicode;
-
-using root::string::hash as stringHash;
 
 pub enum TextError {
     InvalidUtf8(unicode::Utf8DecodeError),

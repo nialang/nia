@@ -3,7 +3,6 @@
 
 using root::cmp;
 using root::iter;
-using root::option;
 using root::slice;
 using root::math::float::decimal::{Decimal, Interval};
 

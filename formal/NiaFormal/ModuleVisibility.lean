@@ -117,6 +117,7 @@ inductive VisibilityRule where
   | separateExtensionAndTraitClosures
   | visibilityDependsOnImportsAlone
   | importsOnlyAddVisibility
+  | visibilityDecomposesOverImports
   deriving DecidableEq, Repr
 
 def VisibilityRule.name : VisibilityRule -> String
@@ -134,6 +135,7 @@ def VisibilityRule.name : VisibilityRule -> String
   | .separateExtensionAndTraitClosures => "separate_extension_and_trait_closures"
   | .visibilityDependsOnImportsAlone => "visibility_depends_on_imports_alone"
   | .importsOnlyAddVisibility => "imports_only_add_visibility"
+  | .visibilityDecomposesOverImports => "visibility_decomposes_over_imports"
 
 def allVisibilityRules : List VisibilityRule := [
   .rootModule, .directUsing, .publicReexport, .publicProviderReexport,
@@ -141,7 +143,8 @@ def allVisibilityRules : List VisibilityRule := [
   .soundProviderDemandsAddNothing, .traitProviderClosure, .privateUsingIsLocal,
   .providerDemandsAreModuleLocal,
   .typeImportDoesNotImportExtensionProvider, .separateExtensionAndTraitClosures,
-  .visibilityDependsOnImportsAlone, .importsOnlyAddVisibility
+  .visibilityDependsOnImportsAlone, .importsOnlyAddVisibility,
+  .visibilityDecomposesOverImports
 ]
 
 def visibilityRuleNames : List String := allVisibilityRules.map VisibilityRule.name
@@ -308,6 +311,129 @@ theorem imports_only_add_visibility (input : Input) (extra : List Nat) (module :
   · exact Or.inr (Or.inl (reexport_reachable_mono more h))
   · exact Or.inr (Or.inr (Or.inl (published_provider_mono input extra h)))
   · exact Or.inr (Or.inr (Or.inr ⟨imported, root, more _ himport, hroot, hfacade⟩))
+
+/- Unused imports. The compiler reports an import unused when every module
+   whose extension methods the checked bodies call, and that the import makes
+   visible on its own, is also made visible by another import that is kept.
+   That is sound because visibility decomposes over imports: a module is
+   visible exactly when the root is the module or one import alone makes it
+   visible. The compiler's per-import set is a subset of the import's own
+   visibility (its demand-selected providers are published along it, as
+   `demandsSound` states), so a module it attributes to a kept import stays
+   visible. -/
+
+/-- The frame reached from `imports` and `items` alone, with the same
+    publications. -/
+def ImportFrame.restrict (frame : ImportFrame) (imports items : List Nat) : ImportFrame :=
+  { frame with directImports := imports, itemImportFacades := items }
+
+/-- What a `using` of the module `imported` makes visible on its own. -/
+def moduleImportVisible (frame : ImportFrame) (imported module : Nat) : Prop :=
+  frameVisible (frame.restrict [imported] []) module
+
+/-- What a `using` of an item of `facade` makes visible on its own. -/
+def itemImportVisible (frame : ImportFrame) (facade module : Nat) : Prop :=
+  frameVisible (frame.restrict [] [facade]) module
+
+theorem reexport_reachable_from_one_import {imports : List Nat}
+    {edges : List (Prod Nat Nat)} {module : Nat}
+    (h : ReexportReachable imports edges module) :
+    ∃ imported, List.Mem imported imports ∧ ReexportReachable [imported] edges module := by
+  induction h with
+  | direct h => exact ⟨_, h, .direct (.head _)⟩
+  | reexport _ edge ih =>
+    obtain ⟨imported, himported, reached⟩ := ih
+    exact ⟨imported, himported, .reexport reached edge⟩
+
+theorem published_provider_from_one_import {frame : ImportFrame} {module : Nat}
+    (h : PublishedProvider frame module) :
+    (∃ imported, List.Mem imported frame.directImports ∧
+      PublishedProvider (frame.restrict [imported] []) module) ∨
+    (∃ facade, List.Mem facade frame.itemImportFacades ∧
+      PublishedProvider (frame.restrict [] [facade]) module) := by
+  induction h with
+  | fromModule reached edge =>
+    obtain ⟨imported, himported, reached⟩ := reexport_reachable_from_one_import reached
+    exact Or.inl ⟨imported, himported, .fromModule reached edge⟩
+  | fromItem h edge => exact Or.inr ⟨_, h, .fromItem (.head _) edge⟩
+  | chain _ edge ih =>
+    rcases ih with ⟨imported, himported, published⟩ | ⟨facade, hfacade, published⟩
+    · exact Or.inl ⟨imported, himported, .chain published edge⟩
+    · exact Or.inr ⟨facade, hfacade, .chain published edge⟩
+
+/-- Every visible module other than the root is visible through one import
+    on its own. -/
+theorem visibility_decomposes_over_imports (frame : ImportFrame) (module : Nat)
+    (h : frameVisible frame module) :
+    module = frame.root ∨
+      (∃ imported, List.Mem imported frame.directImports ∧
+        moduleImportVisible frame imported module) ∨
+      (∃ facade, List.Mem facade frame.itemImportFacades ∧
+        itemImportVisible frame facade module) := by
+  rcases h with h | h | h | ⟨imported, root, himport, hroot, hfacade⟩
+  · exact Or.inl h
+  · obtain ⟨imported, himported, reached⟩ := reexport_reachable_from_one_import h
+    exact Or.inr (Or.inl ⟨imported, himported, Or.inr (Or.inl reached)⟩)
+  · rcases published_provider_from_one_import h with
+      ⟨imported, himported, published⟩ | ⟨facade, hfacade, published⟩
+    · exact Or.inr (Or.inl ⟨imported, himported, Or.inr (Or.inr (Or.inl published))⟩)
+    · exact Or.inr (Or.inr ⟨facade, hfacade, Or.inr (Or.inr (Or.inl published))⟩)
+  · exact Or.inr (Or.inl
+      ⟨imported, himport, Or.inr (Or.inr (Or.inr ⟨imported, root, .head _, hroot, hfacade⟩))⟩)
+
+theorem published_provider_restrict_mono {frame : ImportFrame} {imports items : List Nat}
+    {module : Nat}
+    (himports : ∀ imported, List.Mem imported imports → List.Mem imported frame.directImports)
+    (hitems : ∀ facade, List.Mem facade items → List.Mem facade frame.itemImportFacades)
+    (h : PublishedProvider (frame.restrict imports items) module) :
+    PublishedProvider frame module := by
+  induction h with
+  | fromModule reached edge => exact .fromModule (reexport_reachable_mono himports reached) edge
+  | fromItem h edge => exact .fromItem (hitems _ h) edge
+  | chain _ edge ih => exact .chain ih edge
+
+/-- A frame sees everything a frame of some of its imports sees. -/
+theorem frame_visible_restrict_mono {frame : ImportFrame} {imports items : List Nat}
+    {module : Nat}
+    (himports : ∀ imported, List.Mem imported imports → List.Mem imported frame.directImports)
+    (hitems : ∀ facade, List.Mem facade items → List.Mem facade frame.itemImportFacades)
+    (h : frameVisible (frame.restrict imports items) module) :
+    frameVisible frame module := by
+  rcases h with h | h | h | ⟨imported, root, himport, hroot, hfacade⟩
+  · exact Or.inl h
+  · exact Or.inr (Or.inl (reexport_reachable_mono himports h))
+  · exact Or.inr (Or.inr (Or.inl (published_provider_restrict_mono himports hitems h)))
+  · exact Or.inr (Or.inr (Or.inr ⟨imported, root, himports _ himport, hroot, hfacade⟩))
+
+/-- Removing imports keeps a module visible when a kept module import makes it
+    visible on its own: an import is safe to remove when every module it is
+    needed for is covered by another kept import. -/
+theorem kept_import_keeps_visibility (frame : ImportFrame) (kept : List Nat)
+    (imported module : Nat) (hkept : List.Mem imported kept)
+    (h : moduleImportVisible frame imported module) :
+    frameVisible (frame.restrict kept frame.itemImportFacades) module := by
+  apply frame_visible_restrict_mono (imports := [imported]) (items := [])
+  · intro other hother
+    cases hother with
+    | head => exact hkept
+    | tail _ h => cases h
+  · intro _ h
+    cases h
+  · exact h
+
+/-- The same for a kept item import. -/
+theorem kept_item_import_keeps_visibility (frame : ImportFrame) (imports kept : List Nat)
+    (facade module : Nat) (hkept : List.Mem facade kept)
+    (h : itemImportVisible frame facade module) :
+    frameVisible (frame.restrict imports kept) module := by
+  apply frame_visible_restrict_mono (imports := []) (items := [facade])
+  · intro _ h
+    cases h
+  · intro other hother
+    cases hother with
+    | head => exact hkept
+    | tail _ h => cases h
+  · exact h
 
 theorem direct_trait_provider_is_visible (input : Input) (module : Nat)
     (h : List.Mem (input.root, module) input.traitImplProviders) :

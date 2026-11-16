@@ -37,6 +37,7 @@ mod program_flow;
 mod program_signatures;
 mod semantic_inputs;
 mod signature_const;
+mod unused_imports;
 
 use self::body_check_flow::*;
 pub(in crate::query) use self::body_check_flow::{
@@ -73,6 +74,7 @@ use self::signature_const::{
     provide_signature_const_module, signature_const_array_lengths, signature_const_module_lowering,
     signature_const_values, signature_layouts_for_types, with_type_signature_const_input,
 };
+use self::unused_imports::unused_import_diagnostics;
 
 pub(super) struct QueryPublicSurfaceLookup<'a> {
     db: &'a QueryDb<CompilerContext>,

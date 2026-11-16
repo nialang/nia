@@ -88,7 +88,7 @@ fn loader_query_registry() -> QueryResult<nia_query::QueryRegistry> {
         queries::ModuleItemTreeFactQuery,
         queries::ModuleOriginsFactQuery,
         queries::ModuleParseErrorsFactQuery,
-        queries::ModuleUnusedImportsFactQuery,
+        queries::ModuleUsingImportsFactQuery,
         queries::ParsedModuleQuery,
         queries::PublicSurfaceModuleFactsQuery,
         provider_facts::ProviderDemandsQuery,
@@ -741,16 +741,16 @@ impl LoaderFactProvider for LoaderDatabase {
         ))
     }
 
-    fn module_unused_imports(
+    fn module_using_imports(
         &self,
         module_id: nia_imports::ModuleId,
-    ) -> QueryResult<Option<Vec<nia_loader_contract::UnusedUsingImport>>> {
+    ) -> QueryResult<Option<Vec<nia_loader_contract::UsingImportFact>>> {
         let Some(source_id) = self.source_id_for_module(module_id)? else {
             return Ok(None);
         };
         Ok(Some(
             self.db
-                .get(queries::ModuleUnusedImportsFactQuery(source_id))?
+                .get(queries::ModuleUsingImportsFactQuery(source_id))?
                 .as_ref()
                 .clone(),
         ))

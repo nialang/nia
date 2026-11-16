@@ -850,11 +850,27 @@ fn apply_provider_demands(
                 import
                     .path
                     .with_appended_segments_with_processing_mode(&[], false, processing);
+            let before = graph
+                .get(node.id)
+                .map(|module| module.provider_dependencies.clone())
+                .unwrap_or_default();
             record_traversal_diagnostic(
                 add_used_module_path(db, graph, node.id, &path, fact_memo),
                 diagnostics,
                 &node.path,
             )?;
+            // Which import a provider came through decides whether the
+            // import is unused; an earlier import keeps a provider it shares
+            // with a later one.
+            let selected = graph
+                .get(node.id)
+                .map(|module| module.provider_dependencies.clone())
+                .unwrap_or_default();
+            for provider in selected {
+                if before.binary_search(&provider).is_err() {
+                    graph.add_import_provider_dependency(node.id, import.alias, provider);
+                }
+            }
         }
     }
     Ok(())

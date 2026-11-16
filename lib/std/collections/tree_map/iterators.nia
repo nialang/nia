@@ -1,6 +1,5 @@
 // Borrowed ordered-map iterators.
 
-using root::iter;
 using super::entries;
 using super::storage;
 using super::map;

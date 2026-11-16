@@ -1,6 +1,5 @@
 using root::collections::tree_map;
 using root::mem;
-using root::iter;
 using root::option;
 
 pub struct TreeSet[K]

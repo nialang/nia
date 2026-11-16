@@ -12,11 +12,9 @@
 
 using root::cmp;
 using root::error;
-using root::iter::range;
 using root::mem;
 using root::mem::layout::LayoutBuilder;
 using root::option;
-using root::slice;
 using super::map;
 using super::raw;
 using super::types;

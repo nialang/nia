@@ -1,5 +1,4 @@
 using root::io;
-using root::math;
 using root::option;
 using super::formatter::Formatter;
 using super::spec::{FormatAlignment, FormatPresentation, FormatSpec};

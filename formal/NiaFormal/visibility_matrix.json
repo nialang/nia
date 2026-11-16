@@ -13,7 +13,8 @@
     "type_import_does_not_import_extension_provider",
     "separate_extension_and_trait_closures",
     "visibility_depends_on_imports_alone",
-    "imports_only_add_visibility"
+    "imports_only_add_visibility",
+    "visibility_decomposes_over_imports"
   ],
   "runtime_cases": [
     "io_import_without_use",
@@ -32,5 +33,12 @@
   "isolation_cases": [
     "private_using_of_a_child_does_not_publish_its_extensions",
     "an_unrelated_import_does_not_publish_a_provider"
+  ],
+  "unused_import_cases": [
+    "unused_import_ignores_providers_selected_for_other_calls",
+    "unused_import_keeps_imports_whose_extension_methods_are_called",
+    "unused_import_keeps_an_item_import_whose_facade_publishes_the_method",
+    "unused_import_counts_an_import_named_by_another_using",
+    "unused_import_reports_the_first_of_two_imports_with_the_same_methods"
   ]
 }

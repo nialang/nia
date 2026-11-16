@@ -4,7 +4,6 @@
 // until cleanup succeeds. Teardown reports the first failure after attempting
 // every release and leaves failed owners available for a later retry.
 
-using root::collections;
 using root::fs;
 using root::mem;
 using root::string;

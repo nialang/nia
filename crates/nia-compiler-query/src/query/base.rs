@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use nia_loader_contract::UnusedUsingImport;
+use nia_loader_contract::UsingImportFact;
 use nia_node_id::NodeOriginTable;
 use nia_syntax::ParseError;
 use std::collections::HashMap;
@@ -760,23 +760,23 @@ impl QueryKey<CompilerContext> for ModuleParseErrorsQuery {
 
 /// Explicit entry-package imports that the loader found no reference to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ModuleUnusedImportsQuery(pub(super) ModuleId);
+pub(super) struct ModuleUsingImportsQuery(pub(super) ModuleId);
 
-impl QueryKey<CompilerContext> for ModuleUnusedImportsQuery {
-    type Value = Vec<UnusedUsingImport>;
+impl QueryKey<CompilerContext> for ModuleUsingImportsQuery {
+    type Value = Vec<UsingImportFact>;
 
     const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
-        "module_unused_imports"
+        "module_using_imports"
     }
 
     fn description(&self) -> String {
-        format!("module_unused_imports({:?})", self.0)
+        format!("module_using_imports({:?})", self.0)
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
-        db.context().module_unused_imports(db, self.0)
+        db.context().module_using_imports(db, self.0)
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {

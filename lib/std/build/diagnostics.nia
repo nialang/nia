@@ -4,7 +4,6 @@
 // can remain independent of output streams.
 
 using root::io;
-using root::fmt;
 using root::fmt::template;  // For .print() extension method
 using root::build::error;
 

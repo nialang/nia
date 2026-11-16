@@ -92,8 +92,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
         .find(|module| module.path.as_str().ends_with("main.nia"))
         .expect("entry module");
     let mut unused = entry
-        .unused_imports
+        .using_imports
         .iter()
+        .filter(|import| !import.referenced)
         .map(|import| {
             program
                 .symbols
@@ -107,7 +108,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
         unused,
         ["build", "fs", "io", "mem"],
         "{:?}",
-        entry.unused_imports
+        entry.using_imports
     );
     let build = module_by_suffix(&program, "lib/std/build.nia");
     let fs = module_by_suffix(&program, "lib/std/fs.nia");

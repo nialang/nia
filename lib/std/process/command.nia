@@ -13,7 +13,6 @@ using root::fs;
 using root::mem;
 using root::option;
 using root::os;
-using root::process::convert;
 using root::process::types;
 using root::result;
 using root::slice;

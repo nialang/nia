@@ -2,7 +2,6 @@
 
 using root::cmp;
 using root::iter;
-using root::iter::range;
 
 // Compare borrowed values without requiring callers to move keys out of a
 // slice. Built-in Ord operations supply the natural ordering convenience API.
@@ -360,4 +359,3 @@ where T: Sized + Ord[T]
         self.isSortedBy(&compare)
     }
 }
-

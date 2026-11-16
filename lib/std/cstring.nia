@@ -1,11 +1,9 @@
 using root::collections;
 using root::builtin;
 using root::fmt;
-using root::math;
 using root::mem;
 using root::option;
 using root::parse;
-using root::slice;
 using root::unicode;
 
 pub enum CStringError: i32 {

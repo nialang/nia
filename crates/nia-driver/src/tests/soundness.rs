@@ -556,7 +556,6 @@ module impls;
 
 using root::api;
 using root::types;
-using root::impls;
 
 const fun len[T]() usize
 where T: api::HasLen

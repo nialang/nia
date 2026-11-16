@@ -19,8 +19,6 @@ using root::build::error;
 using root::build::types;
 using root::build::handles;
 using root::build::targets;
-using root::build::paths;
-using root::hash;
 
 using error::Error;
 using error::ErrorOperation as Operation;

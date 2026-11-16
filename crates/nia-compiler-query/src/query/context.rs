@@ -5,7 +5,7 @@ use super::{
     DeclarationActiveModuleItemTreeInputQuery, DeclarationModuleItemTreeInputQuery,
     ExecutableFactSession, ExtensionProviderSummaryQuery, FullActiveModuleItemTreeInputQuery,
     FullModuleItemTreeInputQuery, LoadedModulesQuery, ModuleItemTreeInputQuery, ModuleOriginsQuery,
-    ModuleParseErrorsQuery, ModulePathQuery, ModuleSourceVersionQuery, ModuleUnusedImportsQuery,
+    ModuleParseErrorsQuery, ModulePathQuery, ModuleSourceVersionQuery, ModuleUsingImportsQuery,
     SignatureConstItemTreeQuery, SignatureItemTreeQuery,
 };
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
 use nia_ids::ModuleId;
 use nia_imports::{ModuleGraphSnapshot, StableModuleKey};
 use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
-use nia_loader_contract::UnusedUsingImport;
+use nia_loader_contract::UsingImportFact;
 use nia_opt::OptimizationPolicy;
 use nia_query::{QueryDb, QueryError, QueryResult};
 use nia_source::{SourceIdentity, SourceVersion};
@@ -115,16 +115,16 @@ impl CompilerContext {
             })
     }
 
-    pub(super) fn module_unused_imports(
+    pub(super) fn module_using_imports(
         &self,
         db: &QueryDb<CompilerContext>,
         module_id: ModuleId,
-    ) -> QueryResult<Vec<UnusedUsingImport>> {
+    ) -> QueryResult<Vec<UsingImportFact>> {
         self.loader_facts()
-            .module_unused_imports(module_id)?
+            .module_using_imports(module_id)?
             .ok_or_else(|| {
                 db.invalid_input(
-                    &ModuleUnusedImportsQuery(module_id),
+                    &ModuleUsingImportsQuery(module_id),
                     format!("missing loaded module {module_id:?}"),
                 )
             })

@@ -12,7 +12,6 @@
 
 using root::collections;
 using root::fs;
-using root::mem;
 using root::string;
 using root::build::error;
 using root::error::CleanupAccumulator;

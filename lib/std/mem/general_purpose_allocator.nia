@@ -41,7 +41,6 @@
 using root::cmp;
 using root::error;
 using root::math;
-using root::iter::range;
 using root::mem::allocator;
 using root::mem::types;
 using root::option;

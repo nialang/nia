@@ -7,7 +7,6 @@ using root::option;
 using super::context;
 using super::entries;
 using super::raw;
-using super::storage;
 using super::types;
 
 using context::DefaultHashMapContext;

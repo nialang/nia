@@ -753,8 +753,8 @@ fn check_rejects_misplaced_numeric_separators() {
 }
 
 #[test]
-fn emit_obj_reports_unused_import_warning_without_skipping_codegen() {
-    let root = temp_dir("emit_obj_reports_unused_import_warning_without_skipping_codegen");
+fn emit_obj_leaves_unused_imports_to_check() {
+    let root = temp_dir("emit_obj_leaves_unused_imports_to_check");
     let main = root.join("main.nia");
     let objects = root.join("objects");
     std::fs::write(
@@ -773,16 +773,23 @@ pub fun main() () {}
         .arg(&main)
         .arg("--out-dir")
         .arg(&objects)
-        .output_timeout_for_build("emit object with unused import warning");
+        .output_timeout_for_build("emit object with an unused import");
 
+    // Emit checks only what the entry reaches, so it cannot tell whether an
+    // import is needed; check sees every call and reports it.
     assert!(
         output.status.success(),
-        "emit should succeed with warnings\nstderr:\n{}",
+        "emit should succeed\nstderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(output.status.code(), Some(0));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("warning[W0201]"), "{stderr}");
+    assert!(!stderr.contains("W0201"), "{stderr}");
+    let check = support::nia_command()
+        .arg("check")
+        .arg(&main)
+        .output_timeout_for_compiler("check a source with an unused import");
+    assert!(check.status.success());
+    let stderr = String::from_utf8_lossy(&check.stderr);
     assert!(stderr.contains("unused import `collections`"), "{stderr}");
     let objects = nia_test_support::object_files(&objects);
     assert!(!objects.is_empty(), "no object was emitted");

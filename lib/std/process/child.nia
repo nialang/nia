@@ -3,7 +3,6 @@ using root::error;
 using root::os;
 using root::option;
 using root::result;
-using root::process::convert;
 using root::process::types;
 using root::process::term;
 using root::process::pipe;

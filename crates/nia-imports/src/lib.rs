@@ -551,6 +551,7 @@ impl ModuleGraph {
                 children: SymbolMap::default(),
                 declarations: Vec::new(),
                 provider_dependencies: Vec::new(),
+                import_provider_dependencies: Vec::new(),
                 trait_impl_dependencies: Vec::new(),
                 semantic_selected: true,
                 process_used_paths: true,
@@ -779,6 +780,23 @@ impl ModuleGraph {
             !was_selected
         } else {
             false
+        }
+    }
+
+    /// Records that searching the import `import` of `module_id` selected
+    /// `provider_module`, one of its provider dependencies.
+    pub fn add_import_provider_dependency(
+        &mut self,
+        module_id: ModuleId,
+        import: SymbolId,
+        provider_module: ModuleId,
+    ) {
+        let Some(module) = self.get_mut(module_id) else {
+            return;
+        };
+        let entry = (import, provider_module);
+        if let Err(index) = module.import_provider_dependencies.binary_search(&entry) {
+            module.import_provider_dependencies.insert(index, entry);
         }
     }
 
@@ -1063,6 +1081,7 @@ impl ModuleGraph {
             children: SymbolMap::default(),
             declarations: Vec::new(),
             provider_dependencies: Vec::new(),
+            import_provider_dependencies: Vec::new(),
             trait_impl_dependencies: Vec::new(),
             semantic_selected: process_used_paths,
             process_used_paths,
@@ -1283,6 +1302,10 @@ pub struct ModuleNode {
     pub declarations: Vec<ModuleDeclaration>,
     /// Provider modules selected through this module's semantic demands.
     pub provider_dependencies: Vec<ModuleId>,
+    /// The provider dependencies a method demand first selected by
+    /// searching one of this module's own imports, as pairs of the import's
+    /// local name and the provider, sorted.
+    pub import_provider_dependencies: Vec<(SymbolId, ModuleId)>,
     /// Trait witnesses selected independently of extension import scope.
     pub trait_impl_dependencies: Vec<ModuleId>,
     /// Whether semantic analysis selected this module.

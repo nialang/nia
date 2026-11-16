@@ -1,7 +1,6 @@
 // Byte and Unicode output, text precision, and alignment.
 
 using root::cmp;
-using root::slice;
 using root::unicode;
 using super::spec::FormatSpec;
 using super::traits::{Error, FormatWriter};

@@ -74,7 +74,7 @@ enum TestLoaderFactValue {
     ModuleProviderSummary(Option<nia_provider_summary::ProviderSummary>),
     ModuleOrigins(Option<NodeOriginTable>),
     ModuleParseErrors(Option<Vec<ParseError>>),
-    ModuleUnusedImports(Option<Vec<nia_loader_contract::UnusedUsingImport>>),
+    ModuleUnusedImports(Option<Vec<nia_loader_contract::UsingImportFact>>),
     ModuleItemTree(Option<ModuleItemTree>),
     ActiveModuleItemTree(Option<ActiveModuleItemTree>),
     LoadDiagnostics(Vec<ProgramDiagnostic>),
@@ -126,7 +126,7 @@ impl QueryKey<TestLoaderContext> for TestLoaderFactQuery {
                 module(module_id).map(|module| module.parse_errors.clone()),
             ),
             TestLoaderFactKey::ModuleUnusedImports(module_id) => Self::Value::ModuleUnusedImports(
-                module(module_id).map(|module| module.unused_imports.clone()),
+                module(module_id).map(|module| module.using_imports.clone()),
             ),
             TestLoaderFactKey::ModuleItemTree(module_id) => Self::Value::ModuleItemTree(
                 module(module_id).map(|module| module.item_tree.clone()),
@@ -311,10 +311,10 @@ impl crate::LoaderFactProvider for TestLoaderFacts {
         Ok(errors.clone())
     }
 
-    fn module_unused_imports(
+    fn module_using_imports(
         &self,
         module_id: ModuleId,
-    ) -> QueryResult<Option<Vec<nia_loader_contract::UnusedUsingImport>>> {
+    ) -> QueryResult<Option<Vec<nia_loader_contract::UsingImportFact>>> {
         let fact = self.fact(TestLoaderFactKey::ModuleUnusedImports(module_id));
         let TestLoaderFactValue::ModuleUnusedImports(imports) = fact.as_ref() else {
             unreachable!()

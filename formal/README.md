@@ -96,10 +96,16 @@ type's owner module use the separate nominal-owner lookup. Trait witnesses
 remain a transitive closure of their own provider edges, and public re-exports
 are followed transitively without hard-coding a package such as `std`.
 
+Visibility also decomposes over imports: every visible module other than the
+caller is visible through one module or item import on its own, and a frame
+sees whatever a frame of some of its imports sees. `nia check` relies on this
+to report an import unused when each module it is needed for is covered by
+another kept import; removing it then keeps every needed module visible.
+
 [`NiaFormal/visibility_matrix.json`](NiaFormal/visibility_matrix.json) lists
 the modeled rules and the driver cases that exercise import leakage,
-nominal-type imports, explicit re-exports, and isolation from private child
-imports and method demands. The Lean build checks the rule
+nominal-type imports, explicit re-exports, isolation from private child
+imports and method demands, and unused imports. The Lean build checks the rule
 inventory; the driver tests read the same JSON and check that their cases match
 the manifest. This still does not prove
 the Rust loader and query implementation correct, so the end-to-end cases are
