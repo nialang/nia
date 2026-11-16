@@ -1775,6 +1775,17 @@ impl FunctionInference {
                 UnaryOp::Ref | UnaryOp::RefReadOnly => {
                     if matches!(inner.kind, ExprKind::Closure { .. }) {
                         self.constrain_expr(checker, inner, expected)
+                    } else if matches!(
+                        inner.kind,
+                        ExprKind::Index {
+                            index: nia_ast::IndexArg::Range(_),
+                            ..
+                        }
+                    ) {
+                        // `&base[range]` is a slice, not a pointer to the
+                        // indexed place, and slices have no structural
+                        // inference shape.
+                        self.fallback_term(checker, expr, expected)
                     } else {
                         let elem = self.constrain_expr(checker, inner, None);
                         if let Some(expected) = expected

@@ -1988,3 +1988,22 @@ fun main() i32 { 0 }
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn closure_parameter_is_inferred_from_a_slice_reference_argument() {
+    let checked = pipeline(
+        r#"
+fun apply[T, F, R](value: T, f: F) R
+where F: Fun(T) R
+{
+    f(value)
+}
+
+fun main() i32 {
+    let values = [3, 1, 4];
+    apply(&values[..], \items -> items[0])
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
