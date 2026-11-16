@@ -1943,10 +1943,12 @@ fun main() bool {{
 
     let checked = pipeline(&source("bool"));
     assert!(
-        checked
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.summary.contains("unknown method `marked`")),
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("method `marked` is not available for `Numbers`")
+            && diagnostic
+                .primary_message()
+                .is_some_and(|message| message.contains("requires `i32: Marker`"))),
         "{:?}",
         checked.diagnostics
     );

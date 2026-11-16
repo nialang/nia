@@ -3168,13 +3168,30 @@ where T: Marker {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let unavailable = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("method `tag` is not available for `Box[bool]`")
+        })
+        .unwrap_or_else(|| panic!("{:?}", program.diagnostics));
     assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
+        unavailable
             .diagnostic
-            .summary
-            .contains("unknown method `tag`")),
-        "{:?}",
-        program.diagnostics
+            .primary_message()
+            .is_some_and(|message| message.contains("requires `bool: Marker`")),
+        "{unavailable:?}"
+    );
+    assert!(
+        unavailable
+            .diagnostic
+            .related
+            .iter()
+            .any(|related| related.message.contains("the method is declared here")),
+        "{unavailable:?}"
     );
 }
 

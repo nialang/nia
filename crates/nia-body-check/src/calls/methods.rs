@@ -623,6 +623,21 @@ impl<'a> BodyChecker<'a> {
             // exists; otherwise a call miss belongs to method lookup rather
             // than the field checker.
             if !self.has_named_field(receiver_ty, call.name) {
+                let unsatisfied = self
+                    .extension_method_matches(receiver_ty, call.name)
+                    .unsatisfied;
+                if !unsatisfied.is_empty() {
+                    self.report_unsatisfied_extension_method(
+                        call.callee_span,
+                        call.name,
+                        receiver_ty,
+                        &unsatisfied,
+                    );
+                    for arg in call.args {
+                        self.check_expr(arg);
+                    }
+                    return Some(self.error());
+                }
                 let name = self.symbol_name(*call.name);
                 let receiver_name = self.ty_name(receiver_ty);
                 let summary = format!("unknown method `{name}`");
@@ -925,6 +940,59 @@ impl<'a> BodyChecker<'a> {
             let return_type = this.normalize_projection(return_type);
             Some(this.normalize_aliases_in_type(return_type))
         })
+    }
+
+    /// Reports a call of an extension method that exists for the receiver
+    /// but whose where clause does not hold for it.
+    fn report_unsatisfied_extension_method(
+        &mut self,
+        span: Span,
+        method_name: &SymbolId,
+        receiver_ty: InternedTyId,
+        unsatisfied: &[resolution::UnsatisfiedExtensionMethod],
+    ) {
+        let Some(method) = unsatisfied
+            .iter()
+            .min_by_key(|method| method.candidate.method.def_id)
+        else {
+            return;
+        };
+        let name = self.symbol_name(*method_name);
+        let receiver_name = self.ty_name(receiver_ty);
+        let requirement = format!(
+            "{}: {}",
+            self.ty_name(method.subject),
+            self.ty_name(method.bound)
+        );
+        let mut diagnostic = Diagnostic::user_error(
+            codes::TYPE_CHECK,
+            format!("method `{name}` is not available for `{receiver_name}`"),
+        )
+        .primary(span, format!("`{name}` requires `{requirement}`"))
+        .note(format!(
+            "`{name}` is declared for a receiver of this type, but `{requirement}` does not hold"
+        ))
+        .help(format!(
+            "use a receiver for which `{requirement}` holds, or provide the missing implementation"
+        ));
+        let method_id = method.candidate.method.def_id;
+        let declaration_span = self
+            .program
+            .defs
+            .and_then(|defs| defs(method_id.module_id))
+            .and_then(|defs| defs.defs.get(method_id.def_id).map(|def| def.span));
+        let source_path = self
+            .program
+            .module_source_path
+            .and_then(|source_path| source_path(method_id.module_id));
+        if let (Some(path), Some(declaration_span)) = (source_path, declaration_span) {
+            diagnostic = diagnostic.related_at(
+                path.as_str(),
+                declaration_span,
+                "the method is declared here",
+            );
+        }
+        self.diagnostics.push(diagnostic.finish());
     }
 
     pub(in crate::calls) fn report_inaccessible_extension_method(

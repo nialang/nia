@@ -46,6 +46,21 @@ pub(in crate::calls::methods) enum ExtensionCallArgs<'a> {
     Written,
 }
 
+/// The extension methods matching a receiver, as method lookup sees them.
+pub(in crate::calls::methods) struct ExtensionMethodMatches {
+    /// The candidates whose where clause can hold.
+    pub(in crate::calls::methods) candidates: Vec<MethodCandidate>,
+    /// The methods whose target matches but whose where clause cannot hold.
+    pub(in crate::calls::methods) unsatisfied: Vec<UnsatisfiedExtensionMethod>,
+}
+
+/// An extension method passed over because `subject: bound` cannot hold.
+pub(in crate::calls::methods) struct UnsatisfiedExtensionMethod {
+    pub(in crate::calls::methods) candidate: MethodCandidate,
+    pub(in crate::calls::methods) subject: InternedTyId,
+    pub(in crate::calls::methods) bound: InternedTyId,
+}
+
 impl<'a> BodyChecker<'a> {
     fn contextual_receiver_probe(&self) -> BodyChecker<'a> {
         let mut probe = self.clone_for_type_compare();
@@ -818,6 +833,19 @@ impl<'a> BodyChecker<'a> {
         receiver_ty: InternedTyId,
         name: &SymbolId,
     ) -> Vec<MethodCandidate> {
+        self.extension_method_matches(receiver_ty, name).candidates
+    }
+
+    /// The extension methods named `name` whose target matches the
+    /// receiver, at the first auto-dereference level that has one whose
+    /// where clause can hold, and those passed over because their where
+    /// clause cannot.
+    pub(in crate::calls::methods) fn extension_method_matches(
+        &mut self,
+        receiver_ty: InternedTyId,
+        name: &SymbolId,
+    ) -> ExtensionMethodMatches {
+        let mut unsatisfied = Vec::new();
         self.profile_stage("body_check.profile.method.callable_named", |this| {
             this.ensure_callable_extension_methods_named(name)
         });
@@ -868,34 +896,45 @@ impl<'a> BodyChecker<'a> {
                         )
                     });
                 if matches_receiver {
-                    if !self.extension_method_where_predicates_can_hold(
-                        &method,
+                    let unholdable = self.first_unholdable_where_bound(
+                        &method.where_predicates,
                         &target_substitutions,
                         &target_const_substitutions,
-                    ) {
-                        continue;
-                    }
-                    candidates.push(MethodCandidate {
+                    );
+                    let candidate = MethodCandidate {
                         target_ty,
                         self_ty: receiver_ty,
                         method,
                         inaccessible_visibility,
                         target_substitutions,
                         target_const_substitutions,
-                    });
+                    };
+                    match unholdable {
+                        None => candidates.push(candidate),
+                        Some(bound) => unsatisfied.push(UnsatisfiedExtensionMethod {
+                            candidate,
+                            subject: bound.0,
+                            bound: bound.1,
+                        }),
+                    }
                 }
             }
-            if !candidates.is_empty() {
-                return candidates;
-            }
-            if self.receiver_is_trait_object(receiver_ty) {
-                return Vec::new();
+            if !candidates.is_empty() || self.receiver_is_trait_object(receiver_ty) {
+                return ExtensionMethodMatches {
+                    candidates,
+                    unsatisfied,
+                };
             }
             match self.interner.get(receiver_ty) {
                 Some(TyKind::Pointer { elem, .. }) => {
                     receiver_ty = self.normalize_aliases_in_type(*elem);
                 }
-                _ => return Vec::new(),
+                _ => {
+                    return ExtensionMethodMatches {
+                        candidates,
+                        unsatisfied,
+                    };
+                }
             }
         }
     }
@@ -2016,19 +2055,6 @@ impl<'a> BodyChecker<'a> {
             self.infer_generics_from_type(return_type, expected, &mut substitutions, context.span);
         }
         Some((substitutions, const_substitutions))
-    }
-
-    fn extension_method_where_predicates_can_hold(
-        &mut self,
-        method: &nia_defs::VisibleExtensionMethod,
-        substitutions: &SymbolMap<InternedTyId>,
-        const_substitutions: &SymbolMap<ConstGenericArg>,
-    ) -> bool {
-        self.where_predicates_can_hold_with_consts(
-            &method.where_predicates,
-            substitutions,
-            const_substitutions,
-        )
     }
 
     pub(in crate::calls) fn extension_target_instance_args(

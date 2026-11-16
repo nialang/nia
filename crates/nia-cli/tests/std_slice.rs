@@ -484,5 +484,9 @@ fun main() () {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("unknown method `rev`"), "{stderr}");
+    assert!(
+        stderr.contains("method `rev` is not available for `Take[Range[usize]]`")
+            && stderr.contains("`rev` requires `Take[Range[usize]]: DoubleEndedIterator`"),
+        "{stderr}"
+    );
 }

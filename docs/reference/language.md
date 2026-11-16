@@ -2200,7 +2200,10 @@ implementation from a third package. A `pub(root)` or
 private trait's implementations apply only where the trait is visible.
 Extension methods declared without a trait are different: they are scoped and
 need a `using` of their module, or of a module that
-[re-exports](#re-exports) it.
+[re-exports](#re-exports) it. An extension block's `where` clause limits the
+receivers its methods apply to. A call on a receiver whose type matches the
+target but fails the clause is reported with the requirement that does not
+hold, such as `` `rev` requires `Take[Range[usize]]: DoubleEndedIterator` ``.
 
 When two implementation headers overlap, a strictly more-specific header may
 specialize the general one and is selected for matching types. A header is

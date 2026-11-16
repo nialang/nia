@@ -1565,8 +1565,23 @@ impl<'a> BodyChecker<'a> {
         substitutions: &SymbolMap<InternedTyId>,
         const_substitutions: &SymbolMap<ConstGenericArg>,
     ) -> bool {
+        self.first_unholdable_where_bound(predicates, substitutions, const_substitutions)
+            .is_none()
+    }
+
+    /// The first bound among `predicates`, instantiated by the
+    /// substitutions, that cannot hold, as `(subject, bound)`. A bound that
+    /// still mentions an uninferred parameter may yet hold: a method
+    /// candidate can infer it from the call's expected return type, and the
+    /// final where-predicate check stays strict.
+    pub(crate) fn first_unholdable_where_bound(
+        &mut self,
+        predicates: &[WherePredicateSignature],
+        substitutions: &SymbolMap<InternedTyId>,
+        const_substitutions: &SymbolMap<ConstGenericArg>,
+    ) -> Option<(InternedTyId, InternedTyId)> {
         self.profile_stage("body_check.profile.where_predicates.can_hold", |this| {
-            predicates.iter().all(|predicate| {
+            predicates.iter().find_map(|predicate| {
                 let predicate = this.instantiate_required_where_predicate(
                     predicate,
                     substitutions,
@@ -1579,54 +1594,55 @@ impl<'a> BodyChecker<'a> {
                 ) {
                     // The subject itself is still abstract. Keep the candidate
                     // available until its caller supplies the missing type.
-                    return true;
+                    return None;
                 }
-                predicate.bounds.iter().all(|bound| {
-                    if let Some(holds) = this.static_callable_bound_holds(
-                        predicate_ty,
-                        bound.trait_ty,
-                        &SymbolMap::default(),
-                        &SymbolMap::default(),
-                    ) {
-                        return holds;
-                    }
-                    let bound_ty = this.substitute_generics_and_consts(
-                        bound.trait_ty,
-                        substitutions,
-                        const_substitutions,
-                    );
-                    // A method candidate may still infer its generic trait
-                    // arguments from the call's expected return type. Keep
-                    // such a candidate alive until that inference phase;
-                    // the final where-predicate check below remains strict.
-                    if this.type_contains_generic_param(bound_ty)
-                        || this.type_contains_const_generic_param(bound_ty)
-                    {
-                        return true;
-                    }
-                    let Some((trait_id, trait_args, trait_const_args)) =
-                        this.trait_id_and_args(bound_ty)
-                    else {
-                        return false;
-                    };
-                    if !this.current_context_proves_trait_obligation_with_const_args(
-                        predicate_ty,
-                        trait_id,
-                        trait_args.clone(),
-                        trait_const_args.clone(),
-                    ) {
-                        return false;
-                    }
-                    this.where_bound_associated_type_bindings_hold(
-                        predicate_ty,
-                        trait_id,
-                        &trait_args,
-                        &trait_const_args,
-                        &bound.associated_type_bindings,
-                    )
-                })
+                predicate
+                    .bounds
+                    .iter()
+                    .find(|bound| !this.where_bound_can_hold(predicate_ty, bound))
+                    .map(|bound| (predicate_ty, bound.trait_ty))
             })
         })
+    }
+
+    fn where_bound_can_hold(
+        &mut self,
+        predicate_ty: InternedTyId,
+        bound: &nia_item_signatures::WhereBoundSignature,
+    ) -> bool {
+        if let Some(holds) = self.static_callable_bound_holds(
+            predicate_ty,
+            bound.trait_ty,
+            &SymbolMap::default(),
+            &SymbolMap::default(),
+        ) {
+            return holds;
+        }
+        let bound_ty = bound.trait_ty;
+        if self.type_contains_generic_param(bound_ty)
+            || self.type_contains_const_generic_param(bound_ty)
+        {
+            return true;
+        }
+        let Some((trait_id, trait_args, trait_const_args)) = self.trait_id_and_args(bound_ty)
+        else {
+            return false;
+        };
+        if !self.current_context_proves_trait_obligation_with_const_args(
+            predicate_ty,
+            trait_id,
+            trait_args.clone(),
+            trait_const_args.clone(),
+        ) {
+            return false;
+        }
+        self.where_bound_associated_type_bindings_hold(
+            predicate_ty,
+            trait_id,
+            &trait_args,
+            &trait_const_args,
+            &bound.associated_type_bindings,
+        )
     }
 
     fn where_bound_associated_type_bindings_hold(
