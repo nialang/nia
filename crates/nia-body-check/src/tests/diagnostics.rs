@@ -358,3 +358,37 @@ fun main() i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn unsatisfied_callable_bound_names_the_callable_once() {
+    let checked = pipeline(
+        r#"
+fun hold[F](f: F) bool
+where F: Fun(i32) bool
+{
+    f(1)
+}
+
+fun main() bool {
+    hold(\value: bool -> value)
+}
+"#,
+    );
+    let summaries = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary.contains(": Fun(i32) bool")),
+        "{summaries:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .all(|summary| !summary.contains("Fun(Fun(")),
+        "{summaries:?}"
+    );
+}
