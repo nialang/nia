@@ -283,6 +283,145 @@ theorem null_requires_an_optional_context : literalType .null none = none := rfl
 theorem incompatible_literal_context_is_rejected :
     literalType .integerDefault (some (.scalar .bool)) = none := by decide
 
+/- Peer typing. With no expected type, an expression whose type can only come
+   from its context (an unsuffixed numeric literal under `?x` and block-tail
+   frames) takes the type of a peer: the other branch of an `if` or `match`,
+   or the other operand of an operator. The checker gives it the peer's type
+   only when `canTake` admits that type; otherwise the expression is typed on
+   its own and the peers are compared as usual. An expression with no type
+   of its own at all, such as `null`, always takes its peer's type, and is
+   rejected when that type does not fit it. -/
+
+def Literal.isContextTyped : Literal -> Bool
+  | .integerDefault | .integerNegative | .floatDefault => true
+  | _ => false
+
+def Frame.keepsContextTyping : Frame -> Bool
+  | .optionalSome | .blockTail => true
+  | _ => false
+
+def contextTyped (frames : List Frame) (literal : Literal) : Bool :=
+  frames.all Frame.keepsContextTyping && literal.isContextTyped
+
+/-- The checker's guard: a numeric type, or an optional of one for `?x`. -/
+def canTake : ValueType -> Bool
+  | .scalar primitive => primitive.isInteger || primitive.isFloat
+  | .optional element => canTake element
+  | _ => false
+
+def requiresContext (frames : List Frame) (literal : Literal) : Bool :=
+  frames.all (· == .blockTail) && literal == .null
+
+def peerType (frames : List Frame) (literal : Literal) (peer : ValueType) : Option ValueType :=
+  if requiresContext frames literal then
+    inferFrames frames literal (some peer)
+  else if contextTyped frames literal && canTake peer then
+    inferFrames frames literal (some peer)
+  else
+    inferFrames frames literal none
+
+theorem context_typed_literal_context_is_takeable (literal : Literal) (expected leaf : ValueType)
+    (hliteral : literal.isContextTyped = true)
+    (htype : literalType literal (some expected) = some leaf) : canTake expected = true := by
+  cases literal <;> simp [Literal.isContextTyped] at hliteral <;>
+    cases expected <;> simp [literalType] at htype <;>
+    simp_all [canTake]
+
+theorem projection_through_context_typing_frames_reaches_takeable_leaf
+    (frames : List Frame) (expected leaf : ValueType)
+    (hframes : frames.all Frame.keepsContextTyping = true)
+    (hprojection : projectFrames frames expected = some leaf)
+    (hleaf : canTake leaf = true) : canTake expected = true := by
+  induction frames generalizing expected with
+  | nil =>
+      simp [projectFrames] at hprojection
+      simpa [hprojection] using hleaf
+  | cons frame rest ih =>
+      simp [List.all] at hframes
+      obtain ⟨hframe, hrest⟩ := hframes
+      cases frame <;> simp [Frame.keepsContextTyping] at hframe
+      · cases expected <;> simp [projectFrames, projectFrame] at hprojection
+        rename_i element
+        simpa [canTake] using ih element (by simpa using hrest) hprojection
+      · exact ih expected (by simpa using hrest) (by simpa [projectFrames, projectFrame] using hprojection)
+
+/-- The guard loses no program: every peer type that a context-typed
+    expression can be typed at is one `canTake` admits. -/
+theorem peer_guard_admits_every_typeable_peer
+    (frames : List Frame) (literal : Literal) (peer : ValueType)
+    (hcontext : contextTyped frames literal = true)
+    (htyped : inferFrames frames literal (some peer) = some peer) : canTake peer = true := by
+  simp [contextTyped] at hcontext
+  obtain ⟨hframes, hliteral⟩ := hcontext
+  simp [inferFrames] at htyped
+  cases hprojection : projectFrames frames peer with
+  | none => simp [hprojection] at htyped
+  | some leaf =>
+      cases hleaf : literalType literal (some leaf) with
+      | none => simp [hprojection, hleaf] at htyped
+      | some typed =>
+          exact projection_through_context_typing_frames_reaches_takeable_leaf frames peer leaf
+            (by simpa using hframes) hprojection
+            (context_typed_literal_context_is_takeable literal leaf typed hliteral hleaf)
+
+theorem present_optional_literal_takes_its_optional_peer :
+    peerType [.optionalSome] .integerDefault (.optional (.scalar .u8)) =
+      some (.optional (.scalar .u8)) := by decide
+
+theorem literal_takes_its_numeric_peer :
+    peerType [] .integerDefault (.scalar .usize) = some (.scalar .usize) := by decide
+
+theorem literal_keeps_its_default_beside_a_non_numeric_peer :
+    peerType [] .integerDefault (.scalar .bool) = some (.scalar .i32) := by decide
+
+theorem null_takes_its_optional_peer :
+    peerType [] .null (.optional (.scalar .u8)) = some (.optional (.scalar .u8)) := by decide
+
+theorem null_beside_a_non_optional_peer_is_rejected :
+    peerType [] .null (.scalar .u8) = none := by decide
+
+theorem suffixed_literal_ignores_its_peer :
+    peerType [.optionalSome] (.integerSuffix .u16) (.optional (.scalar .u8)) =
+      some (.optional (.scalar .u16)) := by decide
+
+/-- A peer-typing case the compiler test compiles in both branch orders. -/
+structure PeerCase where
+  name : String
+  frames : List Frame
+  literal : Literal
+  peer : ValueType
+  result : ValueType
+
+def peerCases : List PeerCase := [
+  { name := "literal_numeric_peer", frames := [], literal := .integerDefault,
+    peer := .scalar .u8, result := .scalar .u8 },
+  { name := "negative_literal_numeric_peer", frames := [], literal := .integerNegative,
+    peer := .scalar .i16, result := .scalar .i16 },
+  { name := "float_literal_numeric_peer", frames := [], literal := .floatDefault,
+    peer := .scalar .f32, result := .scalar .f32 },
+  { name := "optional_literal_optional_peer", frames := [.optionalSome],
+    literal := .integerDefault, peer := .optional (.scalar .u8),
+    result := .optional (.scalar .u8) },
+  { name := "optional_float_optional_peer", frames := [.optionalSome],
+    literal := .floatDefault, peer := .optional (.scalar .f32),
+    result := .optional (.scalar .f32) },
+  { name := "block_optional_literal_optional_peer", frames := [.blockTail, .optionalSome],
+    literal := .integerDefault, peer := .optional (.scalar .usize),
+    result := .optional (.scalar .usize) },
+  { name := "suffixed_optional_literal_optional_peer", frames := [.optionalSome],
+    literal := .integerSuffix .u8, peer := .optional (.scalar .u8),
+    result := .optional (.scalar .u8) },
+  { name := "null_optional_peer", frames := [], literal := .null,
+    peer := .optional (.scalar .u8), result := .optional (.scalar .u8) },
+  { name := "block_null_optional_peer", frames := [.blockTail], literal := .null,
+    peer := .optional (.scalar .i64), result := .optional (.scalar .i64) }
+]
+
+def peerCaseTags : List String := peerCases.map (·.name)
+
+def peerCasesHold : Bool :=
+  peerCases.all fun case => peerType case.frames case.literal case.peer == some case.result
+
 def localOwner : DefinitionId := { moduleName := "root", itemName := "Node" }
 def importedOwner : DefinitionId := { moduleName := "api", itemName := "Node" }
 
@@ -591,5 +730,7 @@ example : constructorCoverageForms = constructorTags := by native_decide
 example : constructorCoverageIsWellFormed = true := by native_decide
 example : manifestNames "ast_expression_forms" = astExpressionTags := by native_decide
 example : manifestNames "compiler_expression_cases" = compilerCaseTags := by native_decide
+example : manifestNames "peer_typing_cases" = peerCaseTags := by native_decide
+example : peerCasesHold = true := by native_decide
 
 end NiaValueInference

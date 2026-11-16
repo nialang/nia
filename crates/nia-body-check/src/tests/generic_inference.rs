@@ -2007,3 +2007,45 @@ fun main() i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn present_optional_literal_takes_its_type_from_the_other_branch() {
+    let checked = pipeline(
+        r#"
+fun pick(choose: bool, other: ?u8) ?u8 {
+    let picked = if choose { ?1 } else { other };
+    picked
+}
+
+fun main() i32 {
+    if pick(true, null) is ?value { value as i32 } else { 0 }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn null_branch_takes_its_type_from_a_later_literal_branch() {
+    let checked = pipeline(
+        r#"
+fun first(choose: bool) ?i32 {
+    let value = if choose { null } else { ?1 };
+    value
+}
+
+fun second(choose: bool) ?i32 {
+    let value = match choose {
+        true => ?1,
+        false => null,
+    };
+    value
+}
+
+fun main() i32 {
+    if first(true) is ?value { value } else { 0 }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}

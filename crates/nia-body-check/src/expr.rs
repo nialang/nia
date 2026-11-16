@@ -1921,7 +1921,8 @@ impl<'a> BodyChecker<'a> {
         if self.is_context_typed(lhs) && !self.is_context_typed(rhs) {
             let rhs_actual = self.check_expr(rhs);
             let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_actual);
-            if self.is_numeric(rhs_ty) && self.can_expected_type_drive_builtin_operator(rhs_ty, op)
+            if self.context_typed_expr_can_take(rhs_ty)
+                && self.can_expected_type_drive_builtin_operator(rhs_ty, op)
             {
                 let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
                 self.expect_expr_type(lhs, rhs_ty, lhs_actual, "binary operator");

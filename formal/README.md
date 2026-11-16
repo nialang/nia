@@ -38,11 +38,19 @@ It proves that:
   address;
 - the source spelling of a constructor (typed, qualified, omitted, or through
   an alias) does not change the resolved nominal identity, and declarations in
-  different modules stay distinct.
+  different modules stay distinct;
+- with no expected type, a context-typed expression (an unsuffixed numeric
+  literal under `?x` and block-tail frames) takes the type of its peer branch
+  or operand, and the checker's `canTake` guard admits every peer type such an
+  expression can be typed at, so the guard rejects no program; `null`, which
+  has no type of its own, always takes its peer's type.
 
 [`NiaFormal/value_inference_matrix.json`](NiaFormal/value_inference_matrix.json)
-lists the literal forms, constructor forms, AST expression forms, and compiler
-cases. The links are:
+lists the literal forms, constructor forms, AST expression forms, compiler
+cases, and peer typing cases. The Lean build checks each peer typing case
+against the model, and
+[`value_inference_matrix.rs`](../crates/nia-driver/src/tests/value_inference_matrix.rs)
+compiles each one in both branch orders. The links are:
 
 1. The Lean build checks that every inventory in the model equals the
    corresponding manifest list (`native_decide` examples at the end of the

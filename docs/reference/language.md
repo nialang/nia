@@ -206,12 +206,17 @@ The branches of an `if` and the arms of a `match` have one type: the type the
 context expects, or else the type of the first branch that has a type of its
 own. A branch whose type can only come from its context, such as an unsuffixed
 literal, takes that type wherever it is, so `if c { 1usize } else { 0 }` and
-`if c { 0 } else { 1usize }` are both `usize`. A branch that does not return,
+`if c { 0 } else { 1usize }` are both `usize`. When no branch has a type of its
+own, such a literal gives its default. A branch with no type of its own at
+all, such as `null` or an omitted `.Variant`, never gives the type, so
+`if c { null } else { ?1 }` is `?i32`. A branch that does not return,
 such as one that ends in `return`, adds no type.
 
 An expected optional or error-union type passes its payload type to the
 constructed value: in a function returning `?usize`, `return ?0;` makes `0` a
-`usize`. Wrapping does not force the literal to default to `i32`.
+`usize`. Wrapping does not force the literal to default to `i32`. A present
+optional of such a literal, such as `?1`, is itself typed by its context in
+the same places: with `other: ?u8`, `if c { ?1 } else { other }` is `?u8`.
 
 ### Character And String Literals
 

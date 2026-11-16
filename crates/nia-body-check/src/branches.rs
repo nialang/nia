@@ -16,14 +16,55 @@ pub(crate) enum Branch<'a> {
     Arm(&'a nia_ast::MatchArmBody),
 }
 
+/// Where a branch's type comes from when the branches have no expected type.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BranchTyping {
+    /// The branch has a type of its own.
+    Own,
+    /// From the other branches, else the branch's default, as for an
+    /// unsuffixed literal.
+    ContextOrDefault,
+    /// Only from the other branches, as for `null`.
+    ContextOnly,
+}
+
+/// Whether `expr` has no type without one from its context: `null`, an
+/// omitted member or aggregate, or a block, `if`, or `match` whose every
+/// result is such.
+fn requires_context_type(expr: &Expr) -> bool {
+    let block_requires =
+        |block: &nia_ast::Block| block.tail.as_deref().is_some_and(requires_context_type);
+    match &expr.kind {
+        ExprKind::Null
+        | ExprKind::OmittedMember { .. }
+        | ExprKind::OmittedAggregateLiteral { .. } => true,
+        ExprKind::Block(block) => block_requires(block),
+        ExprKind::If {
+            then_branch,
+            else_branch: Some(else_branch),
+            ..
+        } => block_requires(then_branch) && requires_context_type(else_branch),
+        ExprKind::Match(matched) => {
+            !matched.arms.is_empty()
+                && matched.arms.iter().all(|arm| match &arm.body {
+                    nia_ast::MatchArmBody::Expr(expr) => requires_context_type(expr),
+                    nia_ast::MatchArmBody::Block(block) => block_requires(block),
+                    nia_ast::MatchArmBody::Stmt(_) => false,
+                })
+        }
+        _ => false,
+    }
+}
+
 impl<'a> BodyChecker<'a> {
     /// Types branches that share one result type, and returns it. The type is
     /// `expected` when the context gives one; otherwise it is the type of the
-    /// first branch that has a type of its own, so a branch whose type can
-    /// only come from its context, such as an unsuffixed literal, takes it
-    /// wherever the branch is. When every branch is of that kind, the first
-    /// one's own type is used. A branch of type `never` gives no type; `None`
-    /// when no branch gives one.
+    /// first branch that has a type of its own. A branch whose type comes from
+    /// its context takes that type wherever the branch is: one that also has
+    /// a default, such as an unsuffixed literal, gives its default only when
+    /// no branch has a type of its own, and one with no type of its own, such
+    /// as `null`, never gives the type. A branch of type `never` gives no
+    /// type; `None` when no branch gives one.
     pub(crate) fn check_branches(
         &mut self,
         branches: &[Branch<'_>],
@@ -32,9 +73,12 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let mut result = expected;
         let mut checked = vec![false; branches.len()];
-        if result.is_none() {
+        for tier in [BranchTyping::Own, BranchTyping::ContextOrDefault] {
+            if result.is_some() {
+                break;
+            }
             for (index, branch) in branches.iter().enumerate() {
-                if self.branch_is_context_typed(*branch) {
+                if checked[index] || self.branch_typing(*branch) != tier {
                     continue;
                 }
                 checked[index] = true;
@@ -86,19 +130,25 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn branch_is_context_typed(&self, branch: Branch<'_>) -> bool {
-        match branch {
-            Branch::Block(block) => self.block_is_context_typed(block),
-            Branch::Expr(expr) => self.is_context_typed(expr),
-            Branch::Arm(nia_ast::MatchArmBody::Expr(expr)) => self.is_context_typed(expr),
-            Branch::Arm(nia_ast::MatchArmBody::Block(block)) => self.block_is_context_typed(block),
-            Branch::Arm(nia_ast::MatchArmBody::Stmt(_)) => false,
+    fn branch_typing(&self, branch: Branch<'_>) -> BranchTyping {
+        let tail = match branch {
+            Branch::Block(block) => block.tail.as_deref(),
+            Branch::Arm(nia_ast::MatchArmBody::Block(block)) => block.tail.as_deref(),
+            Branch::Expr(expr) => Some(expr),
+            Branch::Arm(nia_ast::MatchArmBody::Expr(expr)) => Some(&**expr),
+            Branch::Arm(nia_ast::MatchArmBody::Stmt(_)) => None,
+        };
+        match tail {
+            Some(expr) if self.is_context_typed(expr) => BranchTyping::ContextOrDefault,
+            Some(expr) if requires_context_type(expr) => BranchTyping::ContextOnly,
+            _ => BranchTyping::Own,
         }
     }
 
     /// Whether the type of `expr` can only come from its context: an
-    /// unsuffixed numeric literal, arithmetic over such, or a block, `if`, or
-    /// `match` whose every result is such. It takes the type its context
+    /// unsuffixed numeric literal, arithmetic over such, a present optional
+    /// `?value` of such, or a block, `if`, or `match` whose every result is
+    /// such. It takes the type its context
     /// gives, as a single unsuffixed literal does: the other operand of an
     /// arithmetic or comparison operator, or the type of the other branches.
     pub(crate) fn is_context_typed(&self, expr: &Expr) -> bool {
@@ -108,6 +158,7 @@ impl<'a> BodyChecker<'a> {
                 op: UnaryOp::Neg | UnaryOp::BitNot,
                 expr: operand,
             } => self.is_context_typed(operand),
+            ExprKind::OptionalSome { expr: value } => self.is_context_typed(value),
             ExprKind::Binary { op, lhs, rhs } => {
                 matches!(
                     op,
@@ -137,6 +188,15 @@ impl<'a> BodyChecker<'a> {
                     })
             }
             _ => false,
+        }
+    }
+
+    /// Whether a context-typed expression can take `ty`: a numeric type, or
+    /// an optional of one for `?value`.
+    pub(crate) fn context_typed_expr_can_take(&self, ty: InternedTyId) -> bool {
+        match self.interner.get(ty) {
+            Some(TyKind::Optional { elem }) => self.context_typed_expr_can_take(*elem),
+            _ => self.is_numeric(ty),
         }
     }
 

@@ -318,5 +318,16 @@
     "float_suffix_f32",
     "float_context_f64",
     "float_suffix_f64"
+  ],
+  "peer_typing_cases": [
+    "literal_numeric_peer",
+    "negative_literal_numeric_peer",
+    "float_literal_numeric_peer",
+    "optional_literal_optional_peer",
+    "optional_float_optional_peer",
+    "block_optional_literal_optional_peer",
+    "suffixed_optional_literal_optional_peer",
+    "null_optional_peer",
+    "block_null_optional_peer"
   ]
 }

@@ -399,3 +399,63 @@ fun main() i32 { invalid() }
         "expected every invalid constructor to be rejected: {summaries:#?}"
     );
 }
+
+#[test]
+fn context_typed_values_take_their_peer_type_in_either_branch() {
+    // (case, peer type, context-typed expression); each case is
+    // `NiaFormal.ValueInference.peerCases` in manifest order.
+    let cases = [
+        ("literal_numeric_peer", "u8", "1"),
+        ("negative_literal_numeric_peer", "i16", "-1"),
+        ("float_literal_numeric_peer", "f32", "1.5"),
+        ("optional_literal_optional_peer", "?u8", "?1"),
+        ("optional_float_optional_peer", "?f32", "?1.5"),
+        ("block_optional_literal_optional_peer", "?usize", "{ ?1 }"),
+        ("suffixed_optional_literal_optional_peer", "?u8", "?1u8"),
+        ("null_optional_peer", "?u8", "null"),
+        ("block_null_optional_peer", "?i64", "{ null }"),
+    ];
+    let matrix: serde_json::Value =
+        serde_json::from_str(FORMAL_MATRIX).expect("formal inference matrix is valid JSON");
+    let manifest_cases = matrix["peer_typing_cases"]
+        .as_array()
+        .expect("formal matrix lists peer typing cases")
+        .iter()
+        .map(|case| case.as_str().expect("case names are strings"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        cases.iter().map(|(name, _, _)| *name).collect::<Vec<_>>(),
+        manifest_cases,
+        "compiler cases and the formal manifest must cover the same peer typing cases"
+    );
+
+    // The unannotated `let` gives the branches no expected type, so the
+    // context-typed branch can only take the other branch's type; the
+    // return then requires exactly that type.
+    let functions = cases
+        .iter()
+        .enumerate()
+        .map(|(index, (_, peer, expression))| {
+            format!(
+                r#"
+fun peerThen{index}(choose: bool, peer: {peer}) {peer} {{
+    let value = if choose {{ {expression} }} else {{ peer }};
+    value
+}}
+
+fun peerElse{index}(choose: bool, peer: {peer}) {peer} {{
+    let value = if choose {{ peer }} else {{ {expression} }};
+    value
+}}
+"#
+            )
+        })
+        .collect::<String>();
+    let root = temp_dir("context_typed_values_take_their_peer_type");
+    write(
+        &root.join("main.nia"),
+        &format!("{functions}\nfun main() i32 {{ 0 }}\n"),
+    );
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
