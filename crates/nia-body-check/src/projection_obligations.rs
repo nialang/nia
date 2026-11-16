@@ -608,27 +608,36 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn infer_where_predicate_candidates(
+    /// The substitutions under which one bound `predicate_ty: bound` holds,
+    /// one per implementation that could prove it. The bounds of a predicate
+    /// all hold, so each bound's candidates are alternatives only to each
+    /// other; callers combine the bounds of a predicate through the
+    /// substitutions they establish.
+    pub(crate) fn infer_where_bound_candidates(
         &mut self,
-        predicate: &WherePredicateSignature,
+        predicate_ty: InternedTyId,
+        bound: &nia_item_signatures::WhereBoundSignature,
         substitutions: &SymbolMap<InternedTyId>,
     ) -> Vec<SymbolMap<InternedTyId>> {
-        let self_ty = self.substitute_ty(predicate.ty, substitutions);
-        let bounds = predicate.bounds.clone();
+        let self_ty = self.substitute_ty(predicate_ty, substitutions);
+        let bound_ty = self.substitute_ty(bound.trait_ty, substitutions);
+        let Some((trait_id, trait_args, trait_const_args)) = self.trait_id_and_args(bound_ty)
+        else {
+            return Vec::new();
+        };
         let mut candidates = Vec::new();
-        for bound in bounds {
-            let bound_ty = self.substitute_ty(bound.trait_ty, substitutions);
-            let Some((trait_id, trait_args, trait_const_args)) = self.trait_id_and_args(bound_ty)
-            else {
-                continue;
-            };
-            self.push_where_predicate_trait_impl_candidates(
-                self_ty,
-                (trait_id, &trait_args, &trait_const_args),
-                &bound.associated_type_bindings,
-                substitutions,
-                &mut candidates,
-            );
+        self.push_where_predicate_trait_impl_candidates(
+            self_ty,
+            (trait_id, &trait_args, &trait_const_args),
+            &bound.associated_type_bindings,
+            substitutions,
+            &mut candidates,
+        );
+        // Implementations load on demand: a concrete subject that no loaded
+        // implementation covers asks the loader for one, and the next round
+        // sees it, as for an unproven trait obligation.
+        if candidates.is_empty() && !self.type_contains_generic_param(self_ty) {
+            self.record_trait_provider_demand(self_ty, trait_id, &trait_args);
         }
         candidates
     }

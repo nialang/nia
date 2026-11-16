@@ -2051,3 +2051,40 @@ fun main() i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn where_predicate_bounds_infer_together() {
+    // Every bound of a predicate holds, so `Marker`, which says nothing about
+    // `T`, does not make `Source[Item = T]`'s answer ambiguous.
+    let checked = pipeline(
+        r#"
+trait Source {
+    type Item;
+    fun take(&mut self) ?[Self as Source]::Item;
+}
+
+trait Marker {}
+
+struct Numbers { value: i32 }
+
+extend Numbers : Source {
+    type Item = i32;
+    fun take(&mut self) ?i32 { ?self.value }
+}
+
+extend Numbers : Marker {}
+
+fun first[S, T](source: S) ?T
+where S: Source[Item = T] + Marker
+{
+    let mut source = source;
+    source.take()
+}
+
+fun main() i32 {
+    if first(Numbers { value: 1 }) is ?value { value } else { 0 }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}

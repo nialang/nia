@@ -2552,9 +2552,13 @@ impl<'a> BodyChecker<'a> {
         let mut changed = true;
         while changed {
             changed = false;
-            for predicate in &signature.where_predicates {
+            for (predicate, bound) in signature
+                .where_predicates
+                .iter()
+                .flat_map(|predicate| predicate.bounds.iter().map(move |bound| (predicate, bound)))
+            {
                 let candidates = self
-                    .infer_where_predicate_candidates(predicate, substitutions)
+                    .infer_where_bound_candidates(predicate.ty, bound, substitutions)
                     .into_iter()
                     .filter(|candidate| {
                         self.where_candidate_matches_call_args(signature, args, candidate)
