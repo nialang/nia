@@ -1113,3 +1113,60 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let run = Command::new(&exe).status_timeout("run emitted executable");
     assert_eq!(run.code(), Some(0));
 }
+
+#[test]
+fn emit_exe_std_iterator_bounds_bind_the_supertrait_item() {
+    let root = temp_dir("emit_exe_std_iterator_bounds_bind_the_supertrait_item");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    // `T` is determined only by the binding of `Iterator`'s `Item`, which
+    // needs the slice iterator's implementation loaded on demand.
+    std::fs::write(
+        &main,
+        r#"
+using std::iter;
+using std::process;
+using std::slice;
+
+fun lastOf[I, T](items: I) ?T
+where I: iter::DoubleEndedIterator[[Self as Iterator]::Item = &T], T: Sized
+{
+    let mut items = items;
+    if items.nextBack() is ?item { ?item.* } else { null }
+}
+
+fun firstOf[I, T](items: I) ?T
+where I: iter::DoubleEndedIterator + Iterator[Item = &T], T: Sized
+{
+    let mut items = items;
+    if items.next() is ?item { ?item.* } else { null }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    let values = [3, 1, 4];
+    if lastOf((&values[..]).iter()) != ?4 { return process::ExitCode(1)!; }
+    if firstOf((&values[..]).iter()) != ?3 { return process::ExitCode(2)!; }
+    !()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = support::nia_command()
+        .arg("emit")
+        .arg("--exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout_for_build("run nia emit --exe supertrait item bounds");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).status_timeout("run emitted executable");
+    assert_eq!(run.code(), Some(0));
+}

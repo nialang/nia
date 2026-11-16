@@ -1647,6 +1647,7 @@ fn impl_where_predicate_substitutes_const_arguments_from_target() {
                 bounds: vec![nia_item_signatures::WhereBoundSignature {
                     trait_ty: prerequisite_ty,
                     associated_type_bindings: Vec::new(),
+                    implied_by: None,
                     span: nia_span::Span::default(),
                 }],
                 span: nia_span::Span::default(),
@@ -1988,6 +1989,7 @@ fn cyclic_impl_where_predicates_do_not_prove_each_other() {
         bounds: vec![nia_item_signatures::WhereBoundSignature {
             trait_ty,
             associated_type_bindings: Vec::new(),
+            implied_by: None,
             span: nia_span::Span::default(),
         }],
         span: nia_span::Span::default(),
@@ -2107,6 +2109,7 @@ fn cyclic_where_goal_guard_uses_semantic_const_identity() {
             bounds: vec![nia_item_signatures::WhereBoundSignature {
                 trait_ty,
                 associated_type_bindings: Vec::new(),
+                implied_by: None,
                 span: nia_span::Span::default(),
             }],
             span: nia_span::Span::default(),

@@ -455,16 +455,20 @@ impl TypeLowerer<'_, '_> {
                                 "associated type bindings require a trait bound",
                             ));
                         } else {
-                            let Some(LoweredAssocBindingKey { name, .. }) =
-                                self.lower_assoc_binding_key(key, Some(TraitId::Source(def_id)))
+                            let Some(LoweredAssocBindingKey {
+                                name,
+                                trait_id: binding_trait_id,
+                                trait_args: binding_trait_args,
+                                trait_const_args: binding_trait_const_args,
+                            }) = self.lower_assoc_binding_key(key, Some(TraitId::Source(def_id)))
                             else {
                                 continue;
                             };
                             if !seen_assoc_bindings.insert(self.assoc_binding_seen_key(
                                 name,
-                                None,
-                                &[],
-                                &[],
+                                binding_trait_id,
+                                &binding_trait_args,
+                                &binding_trait_const_args,
                             )) {
                                 let name = self.symbol_name(*name);
                                 self.diagnostics.push(Diagnostic::user_error_at(
@@ -473,13 +477,29 @@ impl TypeLowerer<'_, '_> {
                                     format!("duplicate associated type binding `{name}`"),
                                 ));
                             }
-                            if !self.trait_has_associated_type(def_id, name) {
+                            // A projection key `[Self as Super]::Name` binds
+                            // the associated type of the trait it names;
+                            // program signature analysis checks that it is a
+                            // supertrait of this bound.
+                            let defined = match binding_trait_id {
+                                Some(binding_trait) => {
+                                    self.trait_id_has_associated_type(binding_trait, name)
+                                }
+                                None => self.trait_has_associated_type(def_id, name),
+                            };
+                            if !defined {
                                 let name = self.symbol_name(*name);
-                                self.diagnostics.push(Diagnostic::user_error_at(
+                                let mut diagnostic = Diagnostic::user_error(
                                     codes::TYPE_NORMALIZATION,
-                                    *span,
                                     format!("trait does not define associated type `{name}`"),
-                                ));
+                                )
+                                .primary(*span, format!("`{name}` is not declared by this trait"));
+                                if binding_trait_id.is_none() {
+                                    diagnostic = diagnostic.help(format!(
+                                        "a name binds only the trait's own associated types; bind a supertrait's with a projection key, as in `[Self as Super]::{name} = T`"
+                                    ));
+                                }
+                                self.diagnostics.push(diagnostic.finish());
                             }
                         }
                     } else {

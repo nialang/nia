@@ -458,7 +458,7 @@ impl<'a> SignatureCollector<'a> {
                     .map(|supertrait| TraitSupertraitSignature {
                         ty: self.ty_for_type(supertrait),
                         associated_type_bindings: self
-                            .associated_type_binding_signatures(supertrait),
+                            .supertrait_associated_type_binding_signatures(supertrait),
                         span: supertrait.span,
                     })
                     .collect(),
@@ -1671,53 +1671,129 @@ impl<'a> SignatureCollector<'a> {
                 bounds: predicate
                     .bounds
                     .iter()
-                    .map(|bound| WhereBoundSignature {
-                        trait_ty: self.ty_for_type(bound),
-                        associated_type_bindings: self.associated_type_binding_signatures(bound),
-                        span: bound.span,
-                    })
+                    .flat_map(|bound| self.where_bound_signatures(bound))
                     .collect(),
                 span: predicate.span,
             })
             .collect()
     }
 
-    fn associated_type_binding_signatures(
+    /// The bounds one written bound stands for. `T: Sub[[Self as Super]::Name
+    /// = U]` binds an associated type of the supertrait `Super`, so it is
+    /// `T: Sub` and the bound it implies, `T: Super[Name = U]`; keeping each
+    /// binding on the trait that declares it lets every later stage treat
+    /// them as ordinary bounds.
+    fn where_bound_signatures(&mut self, bound: &nia_ast::TypeRef) -> Vec<WhereBoundSignature> {
+        let trait_ty = self.ty_for_type(bound);
+        let (own, implied) = self.split_associated_type_bindings(bound, trait_ty);
+        let mut bounds = vec![WhereBoundSignature {
+            trait_ty,
+            associated_type_bindings: own,
+            implied_by: None,
+            span: bound.span,
+        }];
+        for (supertrait, binding) in implied {
+            match bounds
+                .iter_mut()
+                .skip(1)
+                .find(|implied| implied.trait_ty == supertrait)
+            {
+                Some(implied) => implied.associated_type_bindings.push(binding),
+                None => bounds.push(WhereBoundSignature {
+                    trait_ty: supertrait,
+                    associated_type_bindings: vec![binding],
+                    implied_by: Some(trait_ty),
+                    span: bound.span,
+                }),
+            }
+        }
+        bounds
+    }
+
+    /// The bindings of a supertrait list entry. A supertrait's own supertrait
+    /// is not a declared supertrait of the trait, so a projection key naming
+    /// another trait is rejected here; it is written as a separate
+    /// supertrait, `trait A : B + C[Name = T]`.
+    fn supertrait_associated_type_binding_signatures(
+        &mut self,
+        supertrait: &nia_ast::TypeRef,
+    ) -> Vec<AssociatedTypeBindingSignature> {
+        let supertrait_ty = self.ty_for_type(supertrait);
+        let (own, implied) = self.split_associated_type_bindings(supertrait, supertrait_ty);
+        for (_, binding) in implied {
+            self.diagnostics.push(
+                Diagnostic::user_error(
+                    codes::ITEM_SIGNATURE,
+                    "a supertrait entry binds only its own associated types",
+                )
+                .primary(binding.span, "this binds an associated type of another trait")
+                .help("list that trait as a separate supertrait with the binding, as in `trait A : B + C[Name = T]`")
+                .finish(),
+            );
+        }
+        own
+    }
+
+    /// The associated type bindings written on `bound`, split into those of
+    /// the bound's own trait and those whose projection key names another
+    /// trait, with that trait's lowered type.
+    fn split_associated_type_bindings(
         &mut self,
         bound: &nia_ast::TypeRef,
-    ) -> Vec<AssociatedTypeBindingSignature> {
+        bound_ty: InternedTyId,
+    ) -> (
+        Vec<AssociatedTypeBindingSignature>,
+        Vec<(InternedTyId, AssociatedTypeBindingSignature)>,
+    ) {
+        let mut own = Vec::new();
+        let mut implied = Vec::new();
         let nia_ast::TypeKind::Path { segments } = &bound.kind else {
-            return Vec::new();
+            return (own, implied);
         };
         let Some(segment) = segments.last() else {
-            return Vec::new();
+            return (own, implied);
         };
-        segment
-            .args
-            .iter()
-            .filter_map(|arg| match arg {
-                nia_ast::TypeArg::AssocBinding { key, ty, span } => {
-                    let name = match key {
-                        nia_ast::AssocBindingKey::Name(name) => *name,
-                        nia_ast::AssocBindingKey::Projection(projection) => {
-                            let nia_ast::TypeKind::Projection { name, .. } = &projection.kind
-                            else {
-                                return None;
-                            };
-                            *name
-                        }
+        let bound_trait = self.trait_identity(bound_ty);
+        for arg in &segment.args {
+            let nia_ast::TypeArg::AssocBinding { key, ty, span } = arg else {
+                continue;
+            };
+            let (name, key_trait) = match key {
+                nia_ast::AssocBindingKey::Name(name) => (*name, None),
+                nia_ast::AssocBindingKey::Projection(projection) => {
+                    let nia_ast::TypeKind::Projection {
+                        name, trait_ref, ..
+                    } = &projection.kind
+                    else {
+                        continue;
                     };
-                    Some(AssociatedTypeBindingSignature {
-                        name,
-                        ty: self.ty_for_type(ty),
-                        span: *span,
-                    })
+                    (*name, Some(self.ty_for_type(trait_ref)))
                 }
-                nia_ast::TypeArg::Type(_)
-                | nia_ast::TypeArg::Const(_)
-                | nia_ast::TypeArg::TypeOrConst { .. } => None,
-            })
-            .collect()
+            };
+            let binding = AssociatedTypeBindingSignature {
+                name,
+                ty: self.ty_for_type(ty),
+                span: *span,
+            };
+            match key_trait {
+                Some(key_trait)
+                    if bound_trait.is_some() && self.trait_identity(key_trait) != bound_trait =>
+                {
+                    implied.push((key_trait, binding));
+                }
+                _ => own.push(binding),
+            }
+        }
+        (own, implied)
+    }
+
+    /// The trait a lowered bound type names, without its arguments.
+    fn trait_identity(&self, ty: InternedTyId) -> Option<TraitId> {
+        match self.type_store.get(ty) {
+            Some(TyKind::Nominal { def_id, .. }) => Some(TraitId::Source(*def_id)),
+            Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(*trait_id)),
+            _ => None,
+        }
     }
 
     fn def_id_for_node(

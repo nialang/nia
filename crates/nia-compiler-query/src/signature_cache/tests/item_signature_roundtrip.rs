@@ -57,6 +57,8 @@ fn item_signatures_roundtrip_rehydrates_all_stable_fields() {
                 ty: primitive,
                 span,
             }],
+            // The type round-trips through the graph like the bound's own.
+            implied_by: Some(nominal),
             span,
         }],
         span,

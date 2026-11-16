@@ -310,6 +310,7 @@ pub fn collect_extension_method_diagnostics_for_module(
 ) -> nia_ice::IceResult<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
     validate_supertraits(module, input, &mut diagnostics)?;
+    validate_implied_where_bounds(module, input, &mut diagnostics);
     for impl_signature in &module.signatures.trait_impls {
         if impl_signature.builtin.is_some() {
             continue;
@@ -642,6 +643,7 @@ fn normalize_where_predicates(
                             span: binding.span,
                         })
                         .collect(),
+                    implied_by: bound.implied_by.map(|ty| normalization.normalize(ty)),
                     span: bound.span,
                 })
                 .collect(),
@@ -848,6 +850,96 @@ fn validate_supertraits(
         )?;
     }
     Ok(())
+}
+
+/// Checks each where bound of the module's type and trait items written as a
+/// projection-key binding on another bound, `T: Sub[[Self as Super]::Name =
+/// U]`: the binding is part of `Sub` only when `Super` is a supertrait of
+/// `Sub`. Body checking checks function signatures the same way.
+fn validate_implied_where_bounds(
+    module: &ExtensionModuleInput<'_>,
+    input: ExtensionMethodValidationInput<'_>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let types = module.type_signatures;
+    let items = module.signatures;
+    let predicates = types
+        .structs
+        .values()
+        .map(|signature| &signature.where_predicates)
+        .chain(
+            types
+                .unions
+                .values()
+                .map(|signature| &signature.where_predicates),
+        )
+        .chain(
+            items
+                .traits
+                .values()
+                .map(|signature| &signature.where_predicates),
+        )
+        .chain(
+            items
+                .trait_impls
+                .iter()
+                .map(|signature| &signature.where_predicates),
+        )
+        .flatten();
+    for bound in predicates.flat_map(|predicate| &predicate.bounds) {
+        let Some(implied_by) = bound.implied_by else {
+            continue;
+        };
+        let (Some(subtrait), Some(supertrait)) = (
+            bound_trait_id(module, implied_by),
+            bound_trait_id(module, bound.trait_ty),
+        ) else {
+            // Type lowering already reported a path that names no trait.
+            continue;
+        };
+        let declared_supertraits = |def_id| {
+            input
+                .trait_signatures
+                .get(&def_id)
+                .map(|signature| {
+                    signature
+                        .signature
+                        .supertraits
+                        .iter()
+                        .filter_map(|parent| bound_trait_id(module, parent.ty))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        if nia_item_signatures::trait_has_supertrait(subtrait, supertrait, declared_supertraits) {
+            continue;
+        }
+        diagnostics.push(nia_item_signatures::implied_bound_not_supertrait(
+            bound,
+            &trait_id_name(subtrait, input),
+            &trait_id_name(supertrait, input),
+        ));
+    }
+}
+
+fn trait_id_name(trait_id: TraitId, input: ExtensionMethodValidationInput<'_>) -> String {
+    match trait_id {
+        TraitId::Source(def_id) => trait_name(def_id, input.trait_names, input.symbols),
+        TraitId::Builtin(builtin) => builtin.name().to_string(),
+    }
+}
+
+/// The trait a lowered bound type names, without its arguments.
+fn bound_trait_id(module: &ExtensionModuleInput<'_>, ty: InternedTyId) -> Option<TraitId> {
+    match module
+        .type_store
+        .get(module.normalization.normalize(ty))
+        .cloned()
+    {
+        Some(TyKind::Nominal { def_id, .. }) => Some(TraitId::Source(def_id)),
+        Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
+        _ => None,
+    }
 }
 
 fn validate_supertrait_associated_binding_conflicts(

@@ -111,6 +111,9 @@ impl<'a> BodyChecker<'a> {
                                 span: binding.span,
                             })
                             .collect(),
+                        implied_by: bound
+                            .implied_by
+                            .map(|ty| self.normalize_aliases_in_type(ty)),
                         span: bound.span,
                     })
                     .collect(),

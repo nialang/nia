@@ -465,7 +465,7 @@ where I: Iterator[Item = &T]
 }
 
 extend[I, T] Copied[I, T] : DoubleEndedIterator
-where I: DoubleEndedIterator + Iterator[Item = &T]
+where I: DoubleEndedIterator[[Self as Iterator]::Item = &T]
 {
     pub fun nextBack(&mut self) ?T {
         if self.iter.nextBack() is ?item {

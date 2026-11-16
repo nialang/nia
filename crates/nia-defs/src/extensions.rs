@@ -24,6 +24,11 @@ pub struct WhereBoundSignature {
     pub trait_ty: InternedTyId,
     /// Associated-type equality bindings.
     pub associated_type_bindings: Vec<AssociatedTypeBindingSignature>,
+    /// The bound this one was written on, for a supertrait's associated type
+    /// bound with a projection key: `T: Sub[[Self as Super]::Name = U]` is
+    /// `T: Sub` plus this bound, `T: Super[Name = U]`, implied by `Sub`.
+    /// Program signature analysis checks that `Super` is a supertrait of it.
+    pub implied_by: Option<InternedTyId>,
     /// Bound source span.
     pub span: Span,
 }

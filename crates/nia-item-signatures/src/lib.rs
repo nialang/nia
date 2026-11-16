@@ -511,6 +511,62 @@ pub fn inline_cpu_features_error(
 
 pub use nia_ids::{BuiltinFunction, BuiltinTrait};
 
+/// Whether `supertrait` is a supertrait of `subtrait`, directly or through
+/// other supertraits. `source_supertraits` lists the declared supertraits of
+/// a source trait; a builtin trait's come from its descriptor.
+pub fn trait_has_supertrait(
+    subtrait: TraitId,
+    supertrait: TraitId,
+    mut source_supertraits: impl FnMut(nia_ids::GlobalDefId) -> Vec<TraitId>,
+) -> bool {
+    let mut pending = vec![subtrait];
+    let mut visited = std::collections::HashSet::new();
+    while let Some(current) = pending.pop() {
+        if !visited.insert(current) {
+            continue;
+        }
+        let parents = match current {
+            TraitId::Builtin(builtin) => builtin
+                .supertraits()
+                .iter()
+                .map(|parent| TraitId::Builtin(parent.trait_id))
+                .collect(),
+            TraitId::Source(def_id) => source_supertraits(def_id),
+        };
+        if parents.contains(&supertrait) {
+            return true;
+        }
+        pending.extend(parents);
+    }
+    false
+}
+
+/// The report for a bound written as a projection-key binding,
+/// `T: Sub[[Self as Super]::Name = U]`, whose `Super` is not a supertrait of
+/// `Sub`: the binding is not part of `Sub`.
+pub fn implied_bound_not_supertrait(
+    bound: &WhereBoundSignature,
+    subtrait_name: &str,
+    supertrait_name: &str,
+) -> Diagnostic {
+    let span = bound
+        .associated_type_bindings
+        .first()
+        .map_or(bound.span, |binding| binding.span);
+    Diagnostic::user_error(
+        codes::NAME_RESOLUTION,
+        format!("`{supertrait_name}` is not a supertrait of `{subtrait_name}`"),
+    )
+    .primary(
+        span,
+        format!("this binds an associated type of `{supertrait_name}`"),
+    )
+    .help(format!(
+        "bind it on a separate bound, as in `{subtrait_name} + {supertrait_name}[...]`"
+    ))
+    .finish()
+}
+
 /// One lowered function parameter.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamSignature {

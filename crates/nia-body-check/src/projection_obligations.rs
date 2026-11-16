@@ -217,6 +217,7 @@ impl<'a> BodyChecker<'a> {
         def_id: DefId,
         signature: &FunctionSignature,
     ) {
+        self.check_implied_where_bounds(&signature.where_predicates);
         let obligations = self.function_signature_trait_obligations(def_id, signature);
         for param in &signature.params {
             self.check_type_projection_obligations(param.span, param.ty, &obligations);
@@ -233,6 +234,54 @@ impl<'a> BodyChecker<'a> {
                 for binding in &bound.associated_type_bindings {
                     self.check_type_projection_obligations(binding.span, binding.ty, &obligations);
                 }
+            }
+        }
+    }
+
+    /// Whether `supertrait` is a supertrait of `subtrait`, directly or
+    /// through other supertraits.
+    pub(crate) fn trait_has_supertrait(&mut self, subtrait: TraitId, supertrait: TraitId) -> bool {
+        nia_item_signatures::trait_has_supertrait(subtrait, supertrait, |def_id| {
+            self.resolved_trait_signature(def_id)
+                .map(|signature| {
+                    signature
+                        .supertraits
+                        .iter()
+                        .filter_map(|parent| {
+                            self.trait_id_and_args(parent.ty)
+                                .map(|(trait_id, _, _)| trait_id)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+    }
+
+    /// Checks each bound written as a projection-key binding on another,
+    /// `T: Sub[[Self as Super]::Name = U]`: the binding is part of `Sub` only
+    /// when `Super` is a supertrait of `Sub`. Program signature analysis
+    /// checks the bounds of type and trait items the same way.
+    fn check_implied_where_bounds(&mut self, predicates: &[WherePredicateSignature]) {
+        for bound in predicates.iter().flat_map(|predicate| &predicate.bounds) {
+            let Some(implied_by) = bound.implied_by else {
+                continue;
+            };
+            let (Some((subtrait, _, _)), Some((supertrait, _, _))) = (
+                self.trait_id_and_args(implied_by),
+                self.trait_id_and_args(bound.trait_ty),
+            ) else {
+                // Type lowering already reported a path that names no trait.
+                continue;
+            };
+            if !self.trait_has_supertrait(subtrait, supertrait) {
+                let subtrait_name = self.trait_ty_name(subtrait, &[]);
+                let supertrait_name = self.trait_ty_name(supertrait, &[]);
+                self.diagnostics
+                    .push(nia_item_signatures::implied_bound_not_supertrait(
+                        bound,
+                        &subtrait_name,
+                        &supertrait_name,
+                    ));
             }
         }
     }
@@ -497,6 +546,9 @@ impl<'a> BodyChecker<'a> {
                             },
                         )
                         .collect(),
+                    implied_by: bound.implied_by.map(|ty| {
+                        self.substitute_generics_and_consts(ty, substitutions, const_substitutions)
+                    }),
                     span: bound.span,
                 })
                 .collect(),

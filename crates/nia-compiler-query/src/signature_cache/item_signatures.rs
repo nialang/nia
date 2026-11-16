@@ -859,6 +859,7 @@ pub(crate) fn write_where_predicates(
         for bound in &predicate.bounds {
             write_type_index(encoded, graph.intern(bound.trait_ty)?);
             write_associated_type_bindings(encoded, &bound.associated_type_bindings, graph)?;
+            write_optional_type(encoded, bound.implied_by, graph)?;
             write_span(encoded, bound.span);
         }
         write_span(encoded, predicate.span);
@@ -882,9 +883,11 @@ pub(crate) fn read_where_predicates(
             let trait_ty = read_type_index(cursor, types)?;
             let associated_type_bindings =
                 read_associated_type_bindings(cursor, types, symbols, source_len)?;
+            let implied_by = read_optional_type(cursor, types)?;
             bounds.push(item_signatures::WhereBoundSignature {
                 trait_ty,
                 associated_type_bindings,
+                implied_by,
                 span: read_span(cursor, source_len)?,
             });
         }

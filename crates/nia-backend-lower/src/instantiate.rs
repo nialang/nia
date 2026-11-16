@@ -718,6 +718,9 @@ impl<'a> ModuleLowerer<'a> {
                                 },
                             )
                             .collect(),
+                        implied_by: bound
+                            .implied_by
+                            .map(|ty| self.normalized_type_from_module(module_id, ty)),
                         span: bound.span,
                     })
                     .collect(),
@@ -749,6 +752,9 @@ impl<'a> ModuleLowerer<'a> {
                             },
                         )
                         .collect(),
+                    implied_by: bound
+                        .implied_by
+                        .map(|ty| self.instantiate_ty_with_id(ty, substitutions)),
                     span: bound.span,
                 })
                 .collect(),

@@ -1790,3 +1790,145 @@ fun main() i32 { 0 }
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
+
+#[test]
+fn where_bound_binds_a_supertrait_associated_type_with_a_projection_key() {
+    let root = temp_dir("where_bound_binds_a_supertrait_associated_type_with_a_projection_key");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+
+    fun take(&mut self) ?[Self as Source]::Item;
+}
+
+trait Back : Source {
+    fun back(&mut self) ?[Self as Source]::Item;
+}
+
+struct Numbers {
+    value: i32,
+}
+
+extend Numbers : Source {
+    type Item = i32;
+
+    fun take(&mut self) ?i32 {
+        ?self.value
+    }
+}
+
+extend Numbers : Back {
+    fun back(&mut self) ?i32 {
+        ?(self.value + 1)
+    }
+}
+
+// `[Self as Source]::Item = T` binds the supertrait's associated type, so
+// `back` returns `?T` and `T` is inferred from `Numbers`.
+fun last[S, T](source: S) ?T
+where S: Back[[Self as Source]::Item = T]
+{
+    let mut source = source;
+    source.back()
+}
+
+struct Holder[S]
+where S: Back[[Self as Source]::Item = i32]
+{
+    source: S,
+}
+
+fun main() i32 {
+    let held = Holder[Numbers] { source: Numbers { value: 1 } };
+    _ = held;
+    if last(Numbers { value: 1 }) is ?value { value } else { 0 }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn projection_key_binding_must_name_a_supertrait_of_its_bound() {
+    let root = temp_dir("projection_key_binding_must_name_a_supertrait_of_its_bound");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+}
+
+trait Other {
+    type Item;
+}
+
+trait Sub : Source {}
+
+fun inFunction[S](source: S) S
+where S: Sub[[Self as Other]::Item = i32]
+{
+    source
+}
+
+struct InStruct[S]
+where S: Sub[[Self as Other]::Item = i32]
+{
+    source: S,
+}
+
+fun plainName[S](source: S) S
+where S: Sub[Item = i32]
+{
+    source
+}
+
+trait InSupertraitList : Sub[[Self as Source]::Item = i32] {}
+
+fun main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let summaries = program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        summaries
+            .iter()
+            .filter(|summary| summary.contains("`Other` is not a supertrait of `Sub`"))
+            .count(),
+        2,
+        "{summaries:#?}"
+    );
+    let plain = program
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .summary
+                .contains("trait does not define associated type `Item`")
+        })
+        .unwrap_or_else(|| panic!("{summaries:#?}"));
+    assert!(
+        plain
+            .diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("`[Self as Super]::Item = T`")),
+        "{plain:?}"
+    );
+    assert!(
+        summaries
+            .iter()
+            .any(|summary| summary
+                .contains("a supertrait entry binds only its own associated types")),
+        "{summaries:#?}"
+    );
+}

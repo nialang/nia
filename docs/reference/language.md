@@ -2375,6 +2375,24 @@ where T: Mapper[i32, bool, C = i32, D = bool] {
 }
 ```
 
+A plain name binds only the trait's own associated types. An associated type of
+a supertrait is bound with a projection key naming that supertrait:
+`I: DoubleEndedIterator[[Self as Iterator]::Item = &T]` bounds `I` by
+`DoubleEndedIterator` and fixes the `Item` it has as an `Iterator`, the same as
+`I: DoubleEndedIterator + Iterator[Item = &T]`. The named trait must be a
+supertrait of the bound, directly or through others. A supertrait list entry
+binds only its own trait's associated types; another trait's are bound on a
+separate entry, as in `trait A : B + C[Name = T]`.
+
+```nia continued
+trait Ranked : Source {}
+
+fun read_ranked[T](source: &T) i32
+where T: Ranked[[Self as Source]::Item = i32] {
+    source.get()
+}
+```
+
 ### Associated Constants
 
 A trait declares `const NAME: Type;` without a value, and each implementation
