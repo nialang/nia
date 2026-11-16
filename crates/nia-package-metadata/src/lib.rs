@@ -2761,7 +2761,7 @@ fn write_fingerprint_field(encoded: &mut Vec<u8>, value: &[u8]) {
 }
 
 /// Step names the build derives from the manifest; an artifact cannot take one.
-const RESERVED_STEP_NAMES: [&str; 2] = ["all", "test"];
+const RESERVED_STEP_NAMES: [&str; 3] = ["all", "library", "test"];
 
 fn manifest_artifacts(
     executables: Vec<RawArtifact>,
@@ -9879,6 +9879,10 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                 "reserved",
             ),
             ("[[test]]\nname = \"all\"\npath = \"a.nia\"\n", "reserved"),
+            (
+                "[[executable]]\nname = \"library\"\npath = \"a.nia\"\n",
+                "reserved",
+            ),
             (
                 "[[executable]]\nname = \"run-a\"\npath = \"a.nia\"\n",
                 "reserved",

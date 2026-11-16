@@ -20,6 +20,7 @@ using root::build::targets::isValidInternalStepName;
 using root::build::types;
 using root::build::validation::{
     validateExecutableHandle as validateExecutableHandleValue,
+    validateModuleHandle as validateModuleHandleValue,
     validateObjectHandle as validateObjectHandleValue,
     validatePackageHandle as validatePackageHandleValue,
     validateRunnableTarget,
@@ -87,6 +88,14 @@ extend Build {
     pub fun addCheckExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {
         validateExecutableHandleValue(self.ownerId, self.executables.len(), target).?;
         self.addStepRecord(name, .CheckExecutable, .{ executable: .init(target) })
+    }
+
+    // Checks every function of the module tree rooted at `target`, for the
+    // artifact target, without compiling it: the step for a library, which
+    // no artifact of its own compiles.
+    pub fun addCheckModuleStep(&mut self, name: &[char], target: ModuleHandle) Error!StepHandle {
+        validateModuleHandleValue(self.ownerId, self.modules.len(), target).?;
+        self.addStepRecord(name, .CheckModule, .{ moduleTree: .init(target, self.artifactTarget) })
     }
 
     pub fun addEmitExecutableStep(&mut self, name: &[char], target: ExecutableHandle) Error!StepHandle {

@@ -65,7 +65,9 @@ virtual workspace root.
 
 Other packages open the library with `using <dependency name>;`, and the
 package's own executables and tests open it with `using <package name>;`.
-Importing a package that declares no library is an error.
+Importing a package that declares no library is an error. `nia build` checks
+every function of the library with the step `library`, part of the default
+step.
 
 ## `[source]`
 
@@ -92,7 +94,7 @@ An executable produces the step `<name>`, and `run-<name>` when the build's
 target is the host; a test suite produces the step `<name>`, which builds and
 runs it, and joins `test`. Names follow the
 [step-name rule](cli.md#nia-build), must be unique across both tables, and
-cannot be `all`, `test`, or start with `run-`.
+cannot be `all`, `library`, `test`, or start with `run-`.
 
 ## Dependency Tables
 

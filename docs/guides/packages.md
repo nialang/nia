@@ -117,7 +117,8 @@ file's module as described under
 
 ## Building, Running, And Testing
 
-Every manifest artifact becomes a build step:
+Every manifest artifact becomes a build step, and the library becomes the step
+`library`, which checks it:
 
 ```sh
 nia build --list
@@ -126,6 +127,7 @@ nia build --list
 ```text
 all           aggregate (default)
 hello         compiler-emit
+library       compiler-check
 run-hello     run-executable
 test          aggregate
 unit          test-executable
@@ -133,7 +135,8 @@ unit          test-executable
 
 | Command | What it does |
 | --- | --- |
-| `nia build` | runs the default step, `all`: builds every executable and runs every test suite |
+| `nia build` | runs the default step, `all`: checks the library, builds every executable, and runs every test suite |
+| `nia build library` | checks every function of the library, whether or not anything calls it |
 | `nia build hello` | builds the `hello` executable into `build/out/hello` |
 | `nia build run-hello` | builds `hello`, then runs it |
 | `nia build test` | builds and runs every test suite |
@@ -152,8 +155,8 @@ and put them after `--`, as in `nia build run-hello -- Ada`; see
 run directly from `build/out/`.
 
 Names in `[[executable]]` and `[[test]]` must be unique across both tables, and
-cannot be `all`, `test`, or start with `run-`, because those names belong to
-the derived steps. An artifact may set `runtime = "bare"` to build without the
+cannot be `all`, `library`, `test`, or start with `run-`, because those names
+belong to the derived steps. An artifact may set `runtime = "bare"` to build without the
 standard process entry; see [Targets And Runtimes](targets.md).
 
 ## Adding Dependencies

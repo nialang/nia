@@ -176,7 +176,10 @@ nia build [step] [options] [-- <program-args>...]
 
 `nia build` runs the named step, or the package's default step, after every
 step it depends on. Steps come from the manifest and from `build.nia`;
-`nia build --list` prints them. Outputs go to `build/out/`, as described in
+`nia build --list` prints them. A `[library]` becomes the step `library`,
+which checks every function of the library as `nia check` does, since no
+artifact compiles a library on its own; the default step includes it.
+Outputs go to `build/out/`, as described in
 [The Build Directory](#the-build-directory). When a run step's program exits
 with a nonzero status, `nia build` reports the step as failed and exits with
 status 1.

@@ -408,6 +408,9 @@ pub struct BuildInvocation {
     /// Executables and test suites the root manifest declares, which the
     /// runner declares before it runs `build.nia`.
     pub manifest_artifacts: Vec<nia_package_metadata::ManifestArtifact>,
+    /// The root path of the library the root manifest declares, relative to
+    /// the package root, which the runner checks with step `library`.
+    pub manifest_library: Option<String>,
     /// Invocation-local build output directory.
     pub build_dir: PathBuf,
     /// Invocation-local persistent action-cache directory.
@@ -3202,6 +3205,9 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
             BuildProfile::Debug => manifest.profiles.debug.cpu,
             BuildProfile::Release => manifest.profiles.release.cpu,
         });
+    let manifest_library = manifest
+        .as_ref()
+        .and_then(|manifest| manifest.library_path.clone());
     let manifest_artifacts = manifest.map_or_else(Vec::new, |manifest| manifest.artifacts);
 
     let build_dir = normalize_host_path(layout.out_dir());
@@ -3224,6 +3230,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
         package_graph_report,
         build_script,
         manifest_artifacts,
+        manifest_library,
         step: if request.list {
             BuildStepSelection::List
         } else {

@@ -46,7 +46,19 @@ pub(crate) fn encode(invocation: &BuildInvocation) -> Result<Vec<u8>, BuildError
             write_text(&mut payload, "requested step", step)?;
         }
     }
-    write_u32(&mut payload, invocation.manifest_artifacts.len() as u32);
+    let library = invocation.manifest_library.iter();
+    write_u32(
+        &mut payload,
+        (invocation.manifest_artifacts.len() + library.len()) as u32,
+    );
+    // The library goes first, as kind 2 with no name and the bare runtime;
+    // the runner checks it with step `library`.
+    for library in library {
+        payload.push(2);
+        write_text(&mut payload, "library name", "")?;
+        write_text(&mut payload, "library path", library)?;
+        payload.push(0);
+    }
     for artifact in &invocation.manifest_artifacts {
         payload.push(match artifact.kind {
             ArtifactKind::Executable => 0,
@@ -306,6 +318,7 @@ mod tests {
             },
             build_script: PathBuf::from("/workspace/package/build.nia"),
             manifest_artifacts: Vec::new(),
+            manifest_library: None,
             build_dir: PathBuf::from("/workspace/package/build/out"),
             cache_dir: PathBuf::from("/workspace/package/build/cache"),
             artifact_cache_dir: PathBuf::from("/workspace/package/build/cache"),

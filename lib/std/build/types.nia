@@ -21,6 +21,7 @@ pub enum StepKind: i32 {
     InstallStaticArchive = 12,
     Uncacheable = 6,
     ExternalCommand = 7,
+    CheckModule = 13,
     _
 }
 
@@ -204,6 +205,13 @@ pub struct ExecutableStep {
     target: ExecutableHandle,
 }
 
+// Checks a module tree that is not compiled on its own, such as the
+// package's library, for the target at `targetIndex`.
+pub struct ModuleStep {
+    target: ModuleHandle,
+    targetIndex: usize,
+}
+
 pub struct ObjectStep {
     target: ObjectHandle,
 }
@@ -332,6 +340,7 @@ pub struct ExternalCommandStep {
 pub union StepPayload {
     aggregate: AggregateStep,
     executable: ExecutableStep,
+    moduleTree: ModuleStep,
     object: ObjectStep,
     staticArchive: StaticArchiveStep,
     generatedFile: GeneratedFileStep,

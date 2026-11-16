@@ -321,6 +321,7 @@ Steps are the units that `nia build <step>` runs. Each step has a unique name.
 | `addEmitObjectStep(name, object)` | writes the object files |
 | `addEmitStaticArchiveStep(name, archive)` | writes the static archive |
 | `addCheckExecutableStep(name, exe)` | type-checks the executable without producing it |
+| `addCheckModuleStep(name, module)` | type-checks every function of the module's tree, as the manifest's `library` step does |
 | `addRunExecutableStep(name, RunOptions)` | builds and runs an executable |
 | `addInstallExecutableStep(name, exe, buildPath)` | copies the executable to a path under `build/out/` |
 | `addInstallStaticArchiveStep(name, archive, buildPath)` | copies the archive to a path under `build/out/` |

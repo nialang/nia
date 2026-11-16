@@ -23,6 +23,8 @@ using types::{
     GeneratedFileStep,
     InstallExecutableStep,
     InstallStaticArchiveStep,
+    ModuleHandle,
+    ModuleStep,
     ObjectHandle,
     ObjectStep,
     RunExecutableStep,
@@ -87,6 +89,12 @@ extend GeneratedFileStep {
 
 extend ExecutableStep {
     pub(root) fun init(target: ExecutableHandle) ExecutableStep { .{ target } }
+}
+
+extend ModuleStep {
+    pub(root) fun init(target: ModuleHandle, targetIndex: usize) ModuleStep {
+        .{ target, targetIndex }
+    }
 }
 
 extend ObjectStep {

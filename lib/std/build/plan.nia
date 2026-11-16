@@ -405,6 +405,16 @@ extend PlanEncoder {
                 self.writeCompilationMode(target.test).?;
                 self.writeArtifactConfiguration(target.linkage, target.debugInfo, target.panicStrategy, target.lto, target.cpu, target.defines.asSlice(), target.systemLibraries.asSlice())
             },
+            .CheckModule => {
+                let moduleRecord = modules[step.payload.moduleTree.target.index];
+                self.writeU8(0).?;
+                self.writeRootNodeKey(moduleRecord.name.text()).?;
+                self.writeTarget(targets[step.payload.moduleTree.targetIndex].view()).?;
+                // Bare: the tree has no entry point to start.
+                self.writeU8(0).?;
+                self.writeCompilationMode(false).?;
+                self.writeArtifactConfiguration(.StaticPie, .None, .Abort, null, null, &[], &[])
+            },
             .EmitExecutable => {
                 let target = executables[step.payload.executable.target.index];
                 self.writeU8(1).?;

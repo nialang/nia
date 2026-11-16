@@ -630,6 +630,7 @@ mod tests {
             },
             build_script,
             manifest_artifacts: Vec::new(),
+            manifest_library: None,
             build_dir: package_root.join("build/out"),
             cache_dir: package_root.join("build/cache"),
             artifact_cache_dir: package_root.join("build/cache"),

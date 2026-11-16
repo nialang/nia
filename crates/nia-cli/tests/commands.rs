@@ -1608,3 +1608,61 @@ fun unusedHelper() () {
     // `copyFrom` is an extension method of `std::slice`.
     assert!(!stderr.contains("unused import"), "{stderr}");
 }
+
+// `nia build` checks the package's library with step `library`, part of the
+// default step, since no artifact compiles a library on its own.
+#[test]
+fn build_checks_the_package_library() {
+    let root = temp_dir("build_checks_the_package_library");
+    std::fs::create_dir_all(root.join("lib")).expect("create library directory");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"checked\"\nversion = \"1.0.0\"\n[library]\npath = \"lib/root.nia\"\n",
+    )
+    .expect("write package manifest");
+    std::fs::write(
+        root.join("lib/root.nia"),
+        "module parts;\n\npub fun answer() i32 { 42 }\n",
+    )
+    .expect("write library root");
+    std::fs::write(
+        root.join("lib/parts.nia"),
+        "fun broken() () {\n    let wrong: bool = 1;\n}\n",
+    )
+    .expect("write broken child module");
+
+    let listed = support::nia_command()
+        .args(["build", "--list", "--root"])
+        .arg(&root)
+        .output_timeout_for_build("list the steps of a library package");
+    let listing = String::from_utf8_lossy(&listed.stdout);
+    assert!(
+        listed.status.success()
+            && listing.contains("library")
+            && listing.contains("compiler-check"),
+        "{listing}\n{}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+
+    let failed = support::nia_command()
+        .args(["build", "--root"])
+        .arg(&root)
+        .output_timeout_for_build("build a library with a broken child module");
+    let stderr = String::from_utf8_lossy(&failed.stderr);
+    assert!(!failed.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("parts.nia:2:") && stderr.contains("expected bool, got i32"),
+        "{stderr}"
+    );
+
+    std::fs::write(root.join("lib/parts.nia"), "fun fixed() () {}\n").expect("fix child module");
+    let built = support::nia_command()
+        .args(["build", "--root"])
+        .arg(&root)
+        .output_timeout_for_build("build a library after the fix");
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+}

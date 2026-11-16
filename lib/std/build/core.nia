@@ -290,6 +290,7 @@ extend Build {
             .CheckExecutable => ?self.executables.asSlice()[
                 step.payload.executable.target.index()
             ].rootModule.index(),
+            .CheckModule => ?step.payload.moduleTree.target.index(),
             .EmitExecutable => ?self.executables.asSlice()[
                 step.payload.executable.target.index()
             ].rootModule.index(),
@@ -518,6 +519,17 @@ extend Build {
             .withBuildContext(Operation::Retain, Subject::Step(self.steps.len())).?;
         _ = self.addRunExecutableStep(runName.text(), RunOptions::init(executable)).?;
         !()
+    }
+
+    // The `[library]` from nia.toml: the module tree that step `library`
+    // checks. No artifact compiles a library on its own, so without the step
+    // a library would be checked only as far as executables and tests use
+    // it. Its module is named `library` too, which no manifest artifact may
+    // take, so it never collides with an artifact named after the package.
+    pub fun declareManifestLibrary(&mut self, rootSource: fs::PathView) Error!() {
+        let rootModule = self.addModule(ModuleOptions::init(&"library", rootSource)).?;
+        let check = self.addCheckModuleStep(&"library", rootModule).?;
+        self.addToAllStep(check)
     }
 
     // A `[[test]]` from nia.toml: a suite like `addTestSuite`.
