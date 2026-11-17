@@ -2379,7 +2379,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     )
     .expect("write test source");
 
-    for (level, expected) in [("baseline", 1), ("x86_64-v2", 2), ("x86_64-v3", 3)] {
+    // macOS's core2 baseline guarantees SSSE3; other x86_64 baselines do not.
+    let baseline = if cfg!(target_os = "macos") { 2 } else { 1 };
+    for (level, expected) in [("baseline", baseline), ("x86_64-v2", 2), ("x86_64-v3", 3)] {
         let output = support::nia_command()
             .args(["emit", "--exe", "--cpu", level])
             .arg(&main)

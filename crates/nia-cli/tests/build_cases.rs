@@ -224,8 +224,8 @@ pub fun build(b: &mut build::Build) build::Error!() {
     assert!(!stderr.contains("stale build files"), "{stderr}");
 }
 
-/// Builds an artifact whose `lookup16` becomes the SSSE3 `pshufb` only at
-/// `x86_64-v2` and above, so the instruction shows which level was used.
+/// POPCNT distinguishes baseline from v2 on every x86_64 target, including
+/// macOS, whose baseline already includes the SSSE3 lookup instruction.
 #[cfg(target_arch = "x86_64")]
 #[test]
 fn artifacts_follow_their_own_level_then_cpu_option_then_profile() {
@@ -243,14 +243,13 @@ fn artifacts_follow_their_own_level_then_cpu_option_then_profile() {
 using std::process;
 
 @[inlineNever]
-fun lookup(table: u8x16, indices: u8x16) u8x16 {
-    builtin::lookup16(table, indices)
+fun count(value: u64) u64 {
+    builtin::popcount[u64](value)
 }
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
-    let table = builtin::insert(builtin::splat[u8x16](7u8), 3, 9u8);
-    if builtin::extract(lookup(table, builtin::splat[u8x16](3u8)), 0) != 9 {
+    if count(0x8010u64) != 2 {
         return process::ExitCode(1)!;
     }
     !()
@@ -279,10 +278,12 @@ pub fun build(b: &mut build::Build) build::Error!() {
         root.join("build/out")
             .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
     };
-    // `66 0f 38 00 /r` encodes the legacy-SSE `pshufb xmm, xmm/m128`.
-    let uses_pshufb = |name: &str| {
+    // `f3 REX.W 0f b8 /r` encodes `popcnt r64, r/m64`.
+    let uses_popcnt = |name: &str| {
         let bytes = std::fs::read(exe(name)).expect("read executable");
-        bytes.windows(4).any(|w| w == [0x66, 0x0f, 0x38, 0x00])
+        bytes
+            .windows(4)
+            .any(|w| w[0] == 0xf3 && w[1] & 0xf8 == 0x48 && w[2..] == [0x0f, 0xb8])
     };
     let build = |step: &str, release: bool, cpu: Option<&str>| {
         let mut command = support::nia_command();
@@ -306,25 +307,25 @@ pub fun build(b: &mut build::Build) build::Error!() {
     };
 
     build("plain", false, None);
-    assert!(!uses_pshufb("plain"), "the debug profile declares no level");
+    assert!(!uses_popcnt("plain"), "the debug profile declares no level");
     build("plain", true, None);
     assert!(
-        uses_pshufb("plain"),
+        uses_popcnt("plain"),
         "release follows [profile.release] cpu"
     );
     // An explicit `--cpu baseline` is a choice, not an absent option.
     build("plain", true, Some("baseline"));
-    assert!(!uses_pshufb("plain"), "--cpu overrides the profile");
+    assert!(!uses_popcnt("plain"), "--cpu overrides the profile");
     build("plain", false, Some("x86_64-v2"));
     assert!(
-        uses_pshufb("plain"),
+        uses_popcnt("plain"),
         "--cpu applies without a profile level"
     );
     // The cache key holds the level, so the baseline build is not the v2 one.
     build("plain", false, None);
-    assert!(!uses_pshufb("plain"), "returning to the baseline rebuilds");
+    assert!(!uses_popcnt("plain"), "returning to the baseline rebuilds");
     build("pinned", false, Some("baseline"));
-    assert!(uses_pshufb("pinned"), "withCpu wins over --cpu");
+    assert!(uses_popcnt("pinned"), "withCpu wins over --cpu");
 
     // The printed plan shows the pinned level and the unpinned rule.
     let plan = support::nia_command()
