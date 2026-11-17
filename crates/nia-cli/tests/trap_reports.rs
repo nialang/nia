@@ -35,7 +35,14 @@ fn run_failing(root: &std::path::Path, name: &str, body: &str, options: &[&str])
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
-        assert_eq!(output.status.signal(), Some(4), "{name}: expected SIGILL");
+        // LLVM lowers a trap to BRK on AArch64 and UD2 on x86. The former
+        // raises SIGTRAP; the latter raises SIGILL on our Unix hosts.
+        let signal = if cfg!(target_arch = "aarch64") {
+            libc::SIGTRAP
+        } else {
+            libc::SIGILL
+        };
+        assert_eq!(output.status.signal(), Some(signal), "{name}: {output:?}");
     }
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
