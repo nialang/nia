@@ -1668,6 +1668,7 @@ fn emit_exe_std_process_command_can_pipe_stderr() {
 using std;
 using std::io;
 using std::process;
+using std::slice;
 
 pub fun main(init: process::Init) process::ExitCode!() {
     let arguments: [&[char]; 2] = [&"-c", &"printf pipe-error >&2"];
