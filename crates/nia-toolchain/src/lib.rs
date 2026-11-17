@@ -1060,17 +1060,7 @@ fn validate_field(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
-
-    fn temp_dir(name: &str) -> PathBuf {
-        let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let root =
-            std::env::temp_dir().join(format!("nia-toolchain-{name}-{}-{id}", std::process::id()));
-        fs::create_dir_all(&root).expect("create toolchain test root");
-        root
-    }
+    use nia_test_support::test_dir as temp_dir;
 
     fn write_layout(root: &std::path::Path) -> PathBuf {
         let executable = root.join("bin/nia");
@@ -1176,7 +1166,7 @@ mod tests {
             .expect("installed layout");
         assert_eq!(explicit, installed);
         let relocated_root = temp_dir("relocated_layout");
-        fs::rename(&first, relocated_root.join("toolchain")).expect("relocate toolchain");
+        fs::rename(&*first, relocated_root.join("toolchain")).expect("relocate toolchain");
         let relocated = ToolchainLayout::resolve(ToolchainLayoutRequest::installed(
             relocated_root.join("toolchain/bin/nia"),
         ))

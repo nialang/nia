@@ -1794,6 +1794,7 @@ dependencies = [
  "nia-package-metadata",
  "nia-query",
  "nia-target",
+ "nia-test-support",
 ]
 
 [[package]]
