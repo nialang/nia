@@ -958,7 +958,7 @@ fn open_package_state_lock(path: &Path) -> io::Result<File> {
             )
         })?;
     let mut options = CapOpenOptions::new();
-    options.read(true).write(true).create(true);
+    options.read(true).write(true).create_new(true);
     #[cfg(unix)]
     {
         use cap_std::fs::OpenOptionsExt as _;
@@ -970,7 +970,18 @@ fn open_package_state_lock(path: &Path) -> io::Result<File> {
         use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    let file = parent.open_with(name, &options)?.into_std();
+    // Publish the lock inode with one exclusive creator. On Darwin, concurrent
+    // directory-relative opens with O_CREAT can report ENOENT for the loser.
+    // Open the winner without creation; never unlink or replace a lock inode.
+    let file = match parent.open_with(name, &options) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            options.create_new(false);
+            parent.open_with(name, &options)?
+        }
+        Err(error) => return Err(error),
+    }
+    .into_std();
     let metadata = file.metadata()?;
     if nia_compat::is_link_or_reparse_point(&metadata) || !metadata.is_file() {
         return Err(io::Error::new(
@@ -6165,6 +6176,39 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn package_state_lock_serializes_concurrent_first_and_existing_opens() {
+        use std::sync::Barrier;
+
+        for _ in 0..32 {
+            let root = lock_test_root("concurrent-state-lock");
+            let layout = state_layout(&root);
+            let counter = root.join("counter");
+            let barrier = Barrier::new(8);
+            std::thread::scope(|scope| {
+                for _ in 0..8 {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        // The first acquisition races directory and lock creation;
+                        // subsequent acquisitions must use the same lock inode.
+                        for _ in 0..2 {
+                            let _guard = layout.lock_state().unwrap();
+                            let previous = match fs::read_to_string(&counter) {
+                                Ok(text) => text.parse::<u32>().unwrap(),
+                                Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+                                Err(error) => panic!("cannot read counter: {error}"),
+                            };
+                            std::thread::yield_now();
+                            fs::write(&counter, (previous + 1).to_string()).unwrap();
+                        }
+                    });
+                }
+            });
+            assert_eq!(fs::read_to_string(counter).unwrap(), "16");
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn package_state_lock_rejects_linked_directories_and_files() {
@@ -6191,6 +6235,15 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         symlink(&target, &linked_file).unwrap();
         assert!(open_package_state_lock(&linked_file).is_err());
         assert_eq!(fs::read(&target).unwrap(), b"untouched");
+
+        fs::remove_file(&linked_file).unwrap();
+        let absent = outside.join("absent");
+        symlink(&absent, &linked_file).unwrap();
+        assert!(open_package_state_lock(&linked_file).is_err());
+        assert!(
+            !absent.exists(),
+            "opening a lock must not create a link target"
+        );
 
         fs::remove_file(linked_file).unwrap();
         fs::remove_file(linked_directory).unwrap();
