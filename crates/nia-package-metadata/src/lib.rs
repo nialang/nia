@@ -6844,7 +6844,16 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         ));
         std::fs::create_dir_all(&root).unwrap();
         let invalid_name = std::ffi::OsStr::from_bytes(b"invalid-\xff.nia");
-        std::fs::write(root.join(invalid_name), b"source").unwrap();
+        match std::fs::write(root.join(invalid_name), b"source") {
+            Ok(()) => {}
+            // Darwin filesystems can reject a non-UTF-8 filename at creation,
+            // before it can become an input to package source discovery.
+            Err(error) if error.raw_os_error() == Some(libc::EILSEQ) => {
+                std::fs::remove_dir_all(root).unwrap();
+                return;
+            }
+            Err(error) => panic!("cannot create non-UTF-8 source fixture: {error}"),
+        }
 
         let error = package_source_identity(&root, package()).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
