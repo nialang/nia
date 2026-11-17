@@ -339,8 +339,8 @@ fn platform_workflow_runs_both_darwin_execution_matrices() {
         "LLVM_TARGETS_TO_BUILD: X86;AArch64",
         "cargo maintain check",
         "cargo fmt --all -- --check",
-        "cargo clippy -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings",
-        "cargo test -p nia-cli --tests --no-default-features --features llvm-static",
+        "cargo clippy -p nia-package-metadata -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings",
+        "cargo test -p nia-package-metadata -p nia-cli --tests --no-default-features --features llvm-static",
         "--no-fail-fast -- --nocapture",
         "actions/upload-artifact@v7",
         "2>&1 | tee target/platform-evidence/suite.log",
@@ -371,7 +371,7 @@ fn platform_workflow_saves_verified_llvm_before_running_nia_suites() {
         .find("- name: Save verified static LLVM prefix")
         .unwrap();
     let suite = workflow
-        .find("- name: Run Darwin executable and standard-library suites")
+        .find("- name: Run Darwin package, executable and standard-library suites")
         .unwrap();
     assert!(verify < save && save < suite);
 }

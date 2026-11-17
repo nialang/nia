@@ -120,14 +120,14 @@ jobs:
       - name: Format and lint
         run: |
           cargo fmt --all -- --check
-          cargo clippy -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings
+          cargo clippy -p nia-package-metadata -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings
 
-      - name: Run Darwin executable and standard-library suites
+      - name: Run Darwin package, executable and standard-library suites
         id: darwin-suite
         shell: bash
         run: |
           mkdir -p target/platform-evidence
-          cargo test -p nia-cli --tests --no-default-features --features llvm-static --no-fail-fast -- --nocapture \
+          cargo test -p nia-package-metadata -p nia-cli --tests --no-default-features --features llvm-static --no-fail-fast -- --nocapture \
             2>&1 | tee target/platform-evidence/suite.log
 
       - name: Record Darwin execution evidence
