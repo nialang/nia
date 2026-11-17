@@ -7,7 +7,6 @@ license.workspace = true
 
 [dependencies]
 nia-target.workspace = true
-libc.workspace = true
 nia-ast.workspace = true
 nia-ast-walk.workspace = true
 nia-compat.workspace = true
@@ -31,6 +30,9 @@ nia-symbol-table.workspace = true
 nia-target-config.workspace = true
 nia-toolchain.workspace = true
 parking_lot.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true

@@ -18,7 +18,6 @@ nia-symbol.workspace = true
 nia-timing.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true
-nia-type-normalize.workspace = true
 
 [lib]
 path = "src/lib.rs"

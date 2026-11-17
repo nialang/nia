@@ -1112,15 +1112,12 @@ impl<'a> BodyChecker<'a> {
             trait_const_arg.map_types(|ty| self.substitute_generics(ty, substitutions));
             concrete_trait_const_args.push(trait_const_arg);
         }
-        if !self.current_context_proves_trait_obligation_with_const_args(
+        self.current_context_proves_trait_obligation_with_const_args(
             receiver_self_ty,
             trait_id,
             concrete_trait_args,
             concrete_trait_const_args,
-        ) {
-            return false;
-        }
-        true
+        )
     }
 
     pub(in crate::calls::methods) fn trait_method_candidates_for_receiver(

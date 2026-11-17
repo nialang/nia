@@ -121,19 +121,17 @@ pub fn create_real_directory(path: &std::path::Path) -> std::io::Result<()> {
 /// Reports whether metadata describes a symbolic link or a Windows reparse
 /// point (symbolic links, junctions, and other redirecting entries).
 pub fn is_link_or_reparse_point(metadata: &std::fs::Metadata) -> bool {
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt as _;
-        metadata.file_attributes()
-            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
-            != 0
+        metadata.file_type().is_symlink()
+            || metadata.file_attributes()
+                & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+                != 0
     }
     #[cfg(not(windows))]
     {
-        false
+        metadata.file_type().is_symlink()
     }
 }
 

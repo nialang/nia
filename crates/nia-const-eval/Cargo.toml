@@ -7,7 +7,6 @@ license.workspace = true
 
 [dependencies]
 nia-const-ir.workspace = true
-nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-literals.workspace = true
 nia-sema.workspace = true

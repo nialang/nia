@@ -15,8 +15,6 @@ nia-span.workspace = true
 nia-symbol.workspace = true
 nia-static-ir.workspace = true
 nia-ty.workspace = true
-nia-type-lower.workspace = true
-nia-type-normalize.workspace = true
 
 [dev-dependencies]
 nia-ast.workspace = true

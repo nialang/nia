@@ -671,8 +671,6 @@ name = "nia-backend-ir"
 version = "0.3.0-dev"
 dependencies = [
  "nia-ast",
- "nia-body-ir",
- "nia-const-check",
  "nia-function-ir",
  "nia-ice",
  "nia-ids",
@@ -830,7 +828,6 @@ dependencies = [
 name = "nia-build-plan"
 version = "0.3.0-dev"
 dependencies = [
- "blake3",
  "nia-compat",
  "nia-target",
 ]
@@ -1017,7 +1014,6 @@ version = "0.3.0-dev"
 dependencies = [
  "nia-ast",
  "nia-const-ir",
- "nia-diagnostic",
  "nia-ids",
  "nia-literals",
  "nia-parser",
@@ -1158,8 +1154,6 @@ dependencies = [
  "nia-static-ir",
  "nia-symbol",
  "nia-ty",
- "nia-type-lower",
- "nia-type-normalize",
 ]
 
 [[package]]
@@ -1178,7 +1172,6 @@ dependencies = [
  "nia-timing",
  "nia-ty",
  "nia-type-lower",
- "nia-type-normalize",
 ]
 
 [[package]]
@@ -1517,7 +1510,6 @@ name = "nia-monomorphize"
 version = "0.3.0-dev"
 dependencies = [
  "nia-ast",
- "nia-body-ir",
  "nia-const-check",
  "nia-defs",
  "nia-diagnostic",

@@ -1709,18 +1709,15 @@ fn find_program_on_path(program: &str) -> Option<String> {
 }
 
 fn is_executable_file(path: &Path) -> bool {
-    if !path.is_file() {
-        return false;
-    }
     #[cfg(unix)]
     {
         path.metadata()
-            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
             .unwrap_or(false)
     }
     #[cfg(not(unix))]
     {
-        true
+        path.is_file()
     }
 }
 
