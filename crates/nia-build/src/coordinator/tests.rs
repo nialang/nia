@@ -2421,34 +2421,43 @@ fn compiler_emit_cache_reuses_relocated_dynamic_source_closure() {
 
 #[test]
 #[cfg_attr(windows, ignore = "requires the Linux freestanding runtime")]
-fn compiler_emit_cache_does_not_publish_warnings() {
-    let invocation = test_invocation();
-    write_compiler_check_source(
-        &invocation,
-        &format!("using std::build;\n{}", freestanding_source("!()")),
-    );
-    let plan = compiler_emit_plan(
-        &invocation,
-        OptimizationMode::O2,
-        Runtime::Freestanding,
-        "bin/app",
-    );
-
-    for report in [
-        execute_build_plan(&plan, &invocation).unwrap(),
-        execute_build_plan(&plan, &invocation).unwrap(),
-    ] {
-        assert_eq!(
-            only_compiler_emit_outcome(&report),
-            &ActionCacheOutcome::Miss(ActionCacheMissReason::Uncacheable)
+fn compiler_emit_cache_keeps_entry_scope_across_source_edits() {
+    for prefix in ["using std::build;\n", "fun unreachable() i32 { true }\n"] {
+        let invocation = test_invocation();
+        let plan = compiler_emit_plan(
+            &invocation,
+            OptimizationMode::O2,
+            Runtime::Freestanding,
+            "bin/app",
         );
+        let output = invocation.build_dir.join("bin/app");
+
+        for (index, body) in ["!()", "let value = 1; _ = value; !()"].iter().enumerate() {
+            write_compiler_check_source(
+                &invocation,
+                &format!("{prefix}{}", freestanding_source(body)),
+            );
+            if index != 0 {
+                fs::remove_file(&output).expect("remove executable before source edit rebuild");
+            }
+            let report = execute_build_plan(&plan, &invocation).unwrap();
+            let expected = if index == 0 {
+                ActionCacheMissReason::NotFound
+            } else {
+                ActionCacheMissReason::Invalidated(vec![crate::ActionCacheInvalidation::Sources])
+            };
+            assert_eq!(
+                only_compiler_emit_outcome(&report),
+                &ActionCacheOutcome::Miss(expected),
+                "{prefix}source version {index}"
+            );
+            let executable = fs::read(&output).expect("emission must produce an executable");
+            fs::remove_file(&output).expect("remove executable before cache restore");
+            let warm = execute_build_plan(&plan, &invocation).unwrap();
+            assert_eq!(only_compiler_emit_outcome(&warm), &ActionCacheOutcome::Hit);
+            assert_eq!(fs::read(&output).unwrap(), executable);
+        }
     }
-    assert!(
-        !invocation
-            .cache_dir
-            .join("actions/compiler-emits/protocol")
-            .exists()
-    );
 }
 
 #[test]

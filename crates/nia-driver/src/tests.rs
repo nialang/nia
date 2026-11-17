@@ -26,6 +26,78 @@ mod value_inference_matrix;
 mod visibility_matrix;
 
 #[test]
+fn source_manifest_checks_keep_the_requested_root_scope() {
+    let root = common::temp_dir("source_manifest_root_scope");
+    let path = root.join("main.nia");
+    let source = r#"
+using std::build;
+using std::process;
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    !()
+}
+"#;
+    common::write(&path, source);
+    let driver = common::test_driver();
+    let request = crate::CheckRequest::new(path.to_string_lossy().into_owned())
+        .with_runtime(common::test_freestanding_runtime());
+    for scope in [
+        crate::RootScope::Entry,
+        crate::RootScope::Tree,
+        crate::RootScope::Entry,
+    ] {
+        let checked = driver
+            .check_with_source_manifest(request.clone(), scope)
+            .result
+            .expect("both scopes accept a program with an unused import");
+        match scope {
+            crate::RootScope::Entry => assert!(checked.program.diagnostics.is_empty()),
+            crate::RootScope::Tree => assert!(
+                checked
+                    .program
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| { diagnostic.diagnostic.code.as_str() == "W0201" })
+            ),
+        }
+    }
+
+    driver
+        .set_source(
+            path.to_string_lossy().into_owned(),
+            format!("{source}\nfun unreachable() i32 {{ true }}\n"),
+        )
+        .expect("edit source");
+    for scope in [
+        crate::RootScope::Entry,
+        crate::RootScope::Tree,
+        crate::RootScope::Entry,
+    ] {
+        let output = driver.check_with_source_manifest(request.clone(), scope);
+        match scope {
+            crate::RootScope::Entry => assert!(
+                output
+                    .result
+                    .expect("unreachable body is outside entry roots")
+                    .program
+                    .diagnostics
+                    .is_empty()
+            ),
+            crate::RootScope::Tree => match output.result {
+                Err(crate::DriverError::CheckDiagnostics(program)) => assert!(
+                    program
+                        .diagnostics
+                        .iter()
+                        .any(|diagnostic| { diagnostic.diagnostic.code.as_str() == "E0301" })
+                ),
+                other => panic!("tree roots must check the unreachable body: {other:?}"),
+            },
+        }
+    }
+}
+
+#[test]
 fn persistent_provider_demand_replay_materializes_float_format_modules() {
     let root = common::temp_dir("persistent_float_format_provider_demand_replay");
     let source = root.join("main.nia");

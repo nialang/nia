@@ -13,6 +13,7 @@ use crate::{ArtifactConfiguration, ArtifactLinkage, ArtifactLto, SystemLibraryMo
 use crate::{
     PlanPackageSource, add_manifest_module_roots, add_own_library_module_root, insert_module_root,
 };
+use nia_driver::RootScope;
 use nia_linker::{ExecutableForm, Interpreter, LinkOptions};
 use nia_package_metadata::DependencyScope;
 use nia_target::CpuLevel;
@@ -857,7 +858,9 @@ impl DriverActionExecutor {
             .progress
             .as_ref()
             .map(|progress| progress.activity(action.key.clone(), ProgressActivity::Checking));
-        let checked = driver.check_with_source_manifest(request).result;
+        let checked = driver
+            .check_with_source_manifest(request, RootScope::Tree)
+            .result;
         let check_success = checked.is_ok();
         if let Some(activity) = check_activity {
             activity.finish(check_success);
@@ -1078,22 +1081,24 @@ impl DriverActionExecutor {
                 Err(_) => ActionCacheMissReason::ReadError,
             },
         };
+        let mut precheck_cacheable = true;
         if action_cache_source_closure_miss(&miss_reason) {
             if self.dry_run {
                 self.observe_cache_decision(action, ActionCacheOutcome::Unavailable);
                 return Ok(Some(ActionCacheOutcome::Unavailable));
             }
             let checked = driver
-                .check_with_source_manifest(request.clone())
+                .check_with_source_manifest(request.clone(), RootScope::Entry)
                 .result
                 .map_err(|error| CoordinatorError::Driver {
                     action: action.key.clone(),
                     error: Box::new(error),
                 })?;
             if !checked.program.diagnostics.is_empty() {
-                return Ok(Some(ActionCacheOutcome::Miss(
-                    ActionCacheMissReason::Uncacheable,
-                )));
+                // Prechecking only discovers inputs: an uncacheable result
+                // still needs to execute the emit action and produce its output.
+                precheck_cacheable = false;
+                miss_reason = ActionCacheMissReason::Uncacheable;
             }
             let exact_identity = link_environment.and_then(|environment| {
                 CompilerEmitCacheIdentity::new(CompilerEmitCacheIdentityInput {
@@ -1113,7 +1118,7 @@ impl DriverActionExecutor {
                     link_inputs: &cache_link_inputs,
                 })
             });
-            if let Some(identity) = exact_identity {
+            if precheck_cacheable && let Some(identity) = exact_identity {
                 miss_reason = match cache.lookup(&identity) {
                     Ok(CompilerEmitCacheLookup::Hit(reference)) => {
                         let reason = match driver.restore_executable_cache(reference, &output) {
@@ -1164,7 +1169,7 @@ impl DriverActionExecutor {
             action: action.key.clone(),
             error: Box::new(error),
         })?;
-        if !linked.artifact.diagnostics.is_empty() {
+        if !precheck_cacheable || !linked.artifact.diagnostics.is_empty() {
             return Ok(Some(ActionCacheOutcome::Miss(
                 ActionCacheMissReason::Uncacheable,
             )));

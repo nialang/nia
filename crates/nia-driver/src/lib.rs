@@ -41,7 +41,8 @@ mod report;
 pub use inspect::{AstInspection, TokensInspection, ast_inspection, tokens_inspection};
 pub use nia_compiler_query::{
     BackendOptimizationChange, BackendOptimizationReport, CheckedModule, CheckedProgram,
-    CodegenProgram, DiagnosticSources, LoadedModule, LoadedProgram, ProgramDiagnostic, TimingMode,
+    CodegenProgram, DiagnosticSources, LoadedModule, LoadedProgram, ProgramDiagnostic, RootScope,
+    TimingMode,
 };
 pub use nia_imports::{ModuleMap, ROOT_MODULE_MAP_NAME};
 pub use nia_loader_query::{SourceInput, SourceInputContent, SourceInputManifest};

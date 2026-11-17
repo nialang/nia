@@ -110,12 +110,14 @@ impl Driver {
         DriverOutput::success(program)
     }
 
-    /// Checks as `check` does and returns the exact source manifest alongside.
+    /// Checks the requested roots and returns the exact source manifest alongside.
+    /// Cache discovery must use the same roots as the action consuming it.
     pub fn check_with_source_manifest(
         &self,
         request: CheckRequest,
+        root_scope: RootScope,
     ) -> DriverOutput<CheckedProgramWithSourceManifest> {
-        let checked = match self.check_with_source_manifest_inner(request) {
+        let checked = match self.check_with_source_manifest_inner(request, root_scope) {
             Ok(checked) => checked,
             Err(error) => {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
@@ -140,10 +142,11 @@ impl Driver {
     fn check_with_source_manifest_inner(
         &self,
         request: CheckRequest,
+        root_scope: RootScope,
     ) -> nia_query::QueryResult<CheckedProgramWithSourceManifest> {
         let (program, source_manifest) = self.compile_with_source_manifest(
             request,
-            RootScope::Tree,
+            root_scope,
             CompilerDatabase::entry_check_program,
         )?;
         Ok(CheckedProgramWithSourceManifest {
