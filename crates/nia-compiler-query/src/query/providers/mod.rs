@@ -337,6 +337,26 @@ impl<'a> QueryModuleGraphLookup<'a> {
 }
 
 impl ModuleGraphLookup for QueryModuleGraphLookup<'_> {
+    fn root_module_for_segment(
+        &self,
+        current: ModuleId,
+        segment: nia_imports::ModuleRootSegment,
+    ) -> Option<ModuleId> {
+        use nia_imports::ModuleRootSegment::*;
+        match segment {
+            Current => Some(current),
+            Parent => self.parent_module(current),
+            Root => self.current_package_root_module(current),
+            Named(name) => {
+                let root = capture_query_failure(
+                    &self.failure,
+                    self.db.get(ModuleNamedRootQuery(current, name)),
+                )?;
+                current_module_id(self.db, &self.failure, root.as_ref().as_ref()?)
+            }
+        }
+    }
+
     fn entry_module(&self) -> ModuleId {
         self.entry_module
     }

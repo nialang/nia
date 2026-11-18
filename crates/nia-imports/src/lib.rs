@@ -1362,6 +1362,14 @@ pub trait ModuleGraphLookup {
 }
 
 impl ModuleGraphLookup for ModuleGraph {
+    fn root_module_for_segment(
+        &self,
+        current: ModuleId,
+        segment: ModuleRootSegment,
+    ) -> Option<ModuleId> {
+        ModuleGraph::root_module_for_segment(self, current, segment)
+    }
+
     fn entry_module(&self) -> ModuleId {
         self.entry()
     }
@@ -1410,6 +1418,14 @@ impl ModuleGraphLookup for ModuleGraph {
 }
 
 impl ModuleGraphLookup for ModuleGraphSnapshot {
+    fn root_module_for_segment(
+        &self,
+        current: ModuleId,
+        segment: ModuleRootSegment,
+    ) -> Option<ModuleId> {
+        self.0.root_module_for_segment(current, segment)
+    }
+
     fn entry_module(&self) -> ModuleId {
         self.entry()
     }
@@ -1461,6 +1477,14 @@ impl<T> ModuleGraphLookup for Arc<T>
 where
     T: ModuleGraphLookup + ?Sized,
 {
+    fn root_module_for_segment(
+        &self,
+        current: ModuleId,
+        segment: ModuleRootSegment,
+    ) -> Option<ModuleId> {
+        self.as_ref().root_module_for_segment(current, segment)
+    }
+
     fn entry_module(&self) -> ModuleId {
         self.as_ref().entry_module()
     }

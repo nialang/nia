@@ -98,6 +98,7 @@ pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry>
         ModuleItemTreeQuery,
         ModuleOriginsQuery,
         ModulePackageRootQuery,
+        ModuleNamedRootQuery,
         ModuleParseErrorsQuery,
         ModuleUsingImportsQuery,
         ModulePathQuery,

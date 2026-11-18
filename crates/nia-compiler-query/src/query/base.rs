@@ -321,6 +321,37 @@ impl QueryKey<CompilerContext> for ModulePackageRootQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ModuleNamedRootQuery(pub(super) ModuleId, pub(super) SymbolId);
+
+impl QueryKey<CompilerContext> for ModuleNamedRootQuery {
+    type Value = Option<StableModuleKey>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::StableValue;
+
+    fn name() -> &'static str {
+        "module_named_root"
+    }
+
+    fn description(&self) -> String {
+        format!("module_named_root({:?}, {:?})", self.0, self.1)
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let graph = db.get(ModuleGraphQuery)?;
+        Ok(graph
+            .root_module_for_name(self.0, self.1)
+            .and_then(|root| graph.stable_key(root).cloned()))
+    }
+
+    fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
+        Some(optional_stable_module_key_fingerprint(
+            MODULE_PACKAGE_ROOT_DOMAIN,
+            value.as_ref(),
+        ))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct LoadedModulesQuery;
 
 impl QueryKey<CompilerContext> for LoadedModulesQuery {

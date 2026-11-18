@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 144);
+    assert_eq!(descriptors.len(), 145);
     assert!(
         !descriptors
             .iter()
@@ -29,6 +29,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         "module_graph_child",
         "module_graph_provider_dependencies",
         "module_lexical_using_scopes",
+        "module_named_root",
         "module_package_root",
         "provider_fact_revision",
         "provider_fact_worklist",
@@ -73,6 +74,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "module_graph_parent"
             | "module_graph_path"
             | "module_graph_provider_dependencies"
+            | "module_named_root"
             | "module_package_root"
             | "module_path"
             | "module_source_version"
