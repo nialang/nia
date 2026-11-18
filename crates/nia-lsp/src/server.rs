@@ -52,10 +52,12 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         },
     );
     let workspace = params.capabilities.workspace.unwrap_or_default();
-    let versioned_edits = workspace
-        .workspace_edit
-        .and_then(|edit| edit.document_changes)
-        .unwrap_or_default();
+    let edit = workspace.workspace_edit.unwrap_or_default();
+    let versioned_edits = edit.document_changes.unwrap_or_default();
+    let resource_rename = versioned_edits
+        && edit.resource_operations.is_some_and(|operations| {
+            operations.contains(&lsp_types::ResourceOperationKind::Rename)
+        });
     let watch_files = workspace
         .did_change_watched_files
         .and_then(|watched| watched.dynamic_registration)
@@ -102,7 +104,8 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                     "registerOptions": { "watchers": [
                         { "globPattern": "**/*.nia" },
                         { "globPattern": "**/nia.toml" },
-                        { "globPattern": "**/nia.lock" }
+                        { "globPattern": "**/nia.lock" },
+                        { "globPattern": "**/build-plan.bin" }
                     ]}
                 }]}),
             )
@@ -119,6 +122,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         semantic_refresh,
         folders,
         versioned_edits,
+        resource_rename,
         ..Server::default()
     }
     .serve(&connection, &work_tx, &reply_rx);
@@ -137,6 +141,7 @@ struct Work {
     request: Option<Request>,
     folders: Vec<PathBuf>,
     versioned_edits: bool,
+    resource_rename: bool,
 }
 
 struct Reply {
@@ -205,6 +210,7 @@ fn analyze(
                             new_name: &params.new_name,
                             folders: &work.folders,
                             versioned: work.versioned_edits,
+                            resource_rename: work.resource_rename,
                         },
                     );
                     match result {
@@ -214,11 +220,17 @@ fn analyze(
                         }
                     }
                 }
-                Ok(analysis) => query(analysis, &work.path, request, |position| {
-                    let probe =
-                        completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()));
-                    probe.complete(analysis, &work.documents, &work.path, position)
-                }),
+                Ok(analysis) => query(
+                    analysis,
+                    &work.path,
+                    request,
+                    work.resource_rename,
+                    |position| {
+                        let probe =
+                            completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()));
+                        probe.complete(analysis, &work.documents, &work.path, position)
+                    },
+                ),
                 Err(error) => {
                     Response::new_err(request.id, ErrorCode::RequestFailed as i32, error.clone())
                 }
@@ -258,6 +270,7 @@ fn query(
     analysis: &Analysis,
     path: &std::path::Path,
     request: Request,
+    resource_rename: bool,
     complete: impl FnOnce(lsp_types::Position) -> Option<Vec<lsp_types::CompletionItem>>,
 ) -> Response {
     let Request { id, method, params } = request;
@@ -281,7 +294,7 @@ fn query(
         "textDocument/documentHighlight" => decode::<lsp_types::TextDocumentPositionParams>(params)
             .map(|params| json!(analysis.document_highlights(path, params.position))),
         PREPARE_RENAME => decode::<lsp_types::TextDocumentPositionParams>(params)
-            .map(|params| json!(analysis.prepare_rename(path, params.position))),
+            .map(|params| json!(analysis.prepare_rename(path, params.position, resource_rename))),
         COMPLETION => decode::<lsp_types::CompletionParams>(params)
             .map(|params| json!(complete(params.text_document_position.position))),
         "textDocument/signatureHelp" => {
@@ -305,6 +318,7 @@ fn decode<T: DeserializeOwned>(value: Value) -> serde_json::Result<T> {
 struct Server {
     folders: Vec<PathBuf>,
     versioned_edits: bool,
+    resource_rename: bool,
     hierarchical_symbols: bool,
     fold_limit: Option<usize>,
     line_folding_only: bool,
@@ -624,6 +638,7 @@ impl Server {
             request,
             folders: self.folders.clone(),
             versioned_edits: self.versioned_edits,
+            resource_rename: self.resource_rename,
         })?;
         Ok(())
     }

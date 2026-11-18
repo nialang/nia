@@ -8,14 +8,15 @@ use std::{
 };
 
 use lsp_types::{
-    DocumentChanges, OneOf, OptionalVersionedTextDocumentIdentifier, Position,
-    PrepareRenameResponse, TextDocumentEdit, TextEdit, WorkspaceEdit,
+    DocumentChangeOperation, DocumentChanges, OneOf, OptionalVersionedTextDocumentIdentifier,
+    Position, PrepareRenameResponse, RenameFile, ResourceOp, TextDocumentEdit, TextEdit,
+    WorkspaceEdit,
 };
 use nia_lexer::{TokenKind, tokenize};
 use nia_span::Span;
 
 use crate::{
-    analysis::{Analysis, Documents, OpenDocument, Session, Symbol, normalized},
+    analysis::{Analysis, Documents, OpenDocument, Session, Symbol, normalized, uri},
     document::Document,
 };
 
@@ -32,15 +33,20 @@ struct Binding {
 }
 
 type Bindings = BTreeMap<String, BTreeMap<Span, BTreeSet<Binding>>>;
-type Edits = BTreeMap<String, BTreeSet<Span>>;
+type Edits = BTreeMap<String, BTreeMap<Span, String>>;
+type ShorthandFields = BTreeMap<String, BTreeSet<Span>>;
 
 impl Analysis {
     pub(crate) fn prepare_rename(
         &self,
         path: &Path,
         position: Position,
+        resource_rename: bool,
     ) -> Option<PrepareRenameResponse> {
-        let (_, span) = target(self, path, position).ok()?;
+        let (symbol, span) = target(self, path, position).ok()?;
+        if matches!(symbol, Symbol::Module(_)) && !resource_rename {
+            return None;
+        }
         let file = self.file(path)?;
         Some(PrepareRenameResponse::RangeWithPlaceholder {
             range: file.lines.range(&file.text, span),
@@ -79,6 +85,7 @@ pub(crate) struct Rename<'a> {
     pub(crate) new_name: &'a str,
     pub(crate) folders: &'a [PathBuf],
     pub(crate) versioned: bool,
+    pub(crate) resource_rename: bool,
 }
 
 impl Session {
@@ -94,6 +101,7 @@ impl Session {
             new_name,
             folders,
             versioned,
+            resource_rename,
         } = request;
         let (symbol, _) = target(analysis, path, position)?;
         if !identifier(new_name) {
@@ -114,16 +122,33 @@ impl Session {
             source: Arc::from(source.as_str()),
             span: *span,
         };
-        let workspace_symbol = matches!(symbol, Symbol::Global(_));
+        let workspace_symbol = analysis.rename_workspace_symbol(symbol);
         let workspace =
             self.projects
                 .workspace_requests(path, documents.keys().cloned(), folders)?;
+        let moves = if let Some(path) = analysis.module_file(symbol) {
+            if !resource_rename {
+                return Err("The editor must support rename file operations".to_owned());
+            }
+            module_moves(Path::new(path), new_name, &workspace.editable)?
+        } else {
+            Vec::new()
+        };
+        if workspace
+            .entries
+            .iter()
+            .any(|request| relocated(request.check.entry_path.as_str(), &moves).is_some())
+        {
+            return Err("A module move would relocate a declared build entry".to_owned());
+        }
         let scope = analysis.rename_scope(symbol);
         let requested_source = normalized(path);
         self.install_documents(documents)?;
         let mut snapshots = Vec::new();
         let mut files = BTreeMap::new();
         let mut edits = Edits::new();
+        let mut shorthand = ShorthandFields::new();
+        let field = analysis.is_field(symbol);
         let matches_target = |binding: &Binding| {
             binding.alias.as_ref().or(binding.declaration.as_ref()) == Some(&target)
         };
@@ -133,7 +158,7 @@ impl Session {
             .map(|entry| (entry, false))
             .chain(workspace.standalone.into_iter().map(|entry| (entry, true)))
         {
-            if standalone && files.contains_key(request.entry_path.as_str()) {
+            if standalone && files.contains_key(request.check.entry_path.as_str()) {
                 continue;
             }
             let current = self.analyze_request(request.clone())?;
@@ -147,7 +172,7 @@ impl Session {
             if let Some(error) = current.first_error() {
                 return Err(format!(
                     "Cannot check rename in {} ({error})",
-                    request.entry_path.as_str()
+                    request.check.entry_path.as_str()
                 ));
             }
             let bindings = bindings(&current);
@@ -173,7 +198,16 @@ impl Session {
                         if &file.text[span.start..span.end] == old
                             && candidates.iter().any(matches_target)
                         {
-                            edits.entry(source.clone()).or_default().insert(span);
+                            let (range, replacement) = if field && file.field_shorthand(span) {
+                                shorthand.entry(source.clone()).or_default().insert(span);
+                                (Span::new(span.start, span.start), format!("{new_name}: "))
+                            } else {
+                                (span, new_name.to_owned())
+                            };
+                            edits
+                                .entry(source.clone())
+                                .or_default()
+                                .insert(range, replacement);
                         }
                     }
                 }
@@ -183,7 +217,7 @@ impl Session {
         }
         if !edits
             .get(target.source.as_ref())
-            .is_some_and(|spans| spans.contains(&target.span))
+            .is_some_and(|spans| spans.contains_key(&target.span))
         {
             return Err("The declaration is outside the checked workspace".to_owned());
         }
@@ -193,13 +227,26 @@ impl Session {
                     continue;
                 };
                 if occurrences.iter().any(|(span, candidates)| {
-                    spans.contains(span) && !candidates.iter().all(matches_target)
+                    if shorthand
+                        .get(source)
+                        .is_some_and(|spans| spans.contains(span))
+                    {
+                        !candidates.iter().any(matches_target)
+                    } else {
+                        spans.contains_key(span) && !candidates.iter().all(matches_target)
+                    }
                 }) {
                     return Err(format!(
                         "A name resolves differently between entries in {source}"
                     ));
                 }
             }
+        }
+        if let Some((span, attribute)) = analysis.foreign_link_attribute(symbol) {
+            edits
+                .entry(source.clone())
+                .or_default()
+                .insert(span, format!("@[{attribute}(\"{old}\")] "));
         }
         let mut updated = documents.clone();
         let mut changes = Vec::new();
@@ -225,8 +272,8 @@ impl Session {
             let version = open.map(|(_, open)| open.document.version);
             let original = crate::document::Lines::new(text);
             let mut changed = text.to_string();
-            for span in spans.iter().rev() {
-                changed.replace_range(span.start..span.end, new_name);
+            for (span, replacement) in spans.iter().rev() {
+                changed.replace_range(span.start..span.end, replacement);
             }
             updated.insert(
                 open.map_or(path, |(path, _)| path.clone()),
@@ -242,14 +289,28 @@ impl Session {
                 },
                 edits: spans
                     .iter()
-                    .map(|&span| {
+                    .map(|(&span, replacement)| {
                         OneOf::Left(TextEdit::new(
                             original.range(text, span),
-                            new_name.to_owned(),
+                            replacement.clone(),
                         ))
                     })
                     .collect(),
             });
+        }
+        for (source, (file_uri, text)) in &files {
+            if let Some(destination) = relocated(source, &moves) {
+                let mut document = updated
+                    .iter()
+                    .find(|(path, _)| normalized(path) == *source)
+                    .map(|(_, document)| document.clone())
+                    .unwrap_or_else(|| OpenDocument {
+                        uri: file_uri.clone(),
+                        document: Document::new(0, text.to_string()),
+                    });
+                document.uri = uri(&destination).ok_or("Cannot form a destination URI")?;
+                updated.insert(destination, document);
+            }
         }
         self.install_documents(&updated)?;
         for (request, before) in snapshots {
@@ -257,15 +318,31 @@ impl Session {
             if let Some(error) = after.first_error() {
                 return Err(format!(
                     "Rename would break {} ({error})",
-                    request.entry_path.as_str()
+                    request.check.entry_path.as_str()
                 ));
             }
             let actual = bindings(&after);
-            let expected = shifted_bindings(before, &edits, new_name.len());
-            if actual != expected {
+            let expected =
+                shifted_bindings(before, &edits, &moves, &shorthand, &target, new_name.len());
+            let workspace_file = |source: &str| {
+                workspace
+                    .editable
+                    .iter()
+                    .any(|root| Path::new(source).starts_with(root))
+            };
+            // A new method spelling can discover extra external providers.
+            // Check every shared file and require the same workspace sources.
+            if expected.iter().any(|(source, before)| {
+                actual
+                    .get(source)
+                    .map_or_else(|| workspace_file(source), |after| after != before)
+            }) || actual
+                .keys()
+                .any(|source| workspace_file(source) && !expected.contains_key(source))
+            {
                 return Err(format!(
                     "Rename would change name resolution in {}",
-                    request.entry_path.as_str()
+                    request.check.entry_path.as_str()
                 ));
             }
         }
@@ -277,7 +354,32 @@ impl Session {
                 return Err(format!("Source changed on disk ({source})"));
             }
         }
-        if versioned {
+        if !moves.is_empty() {
+            let mut operations: Vec<_> = changes
+                .into_iter()
+                .map(DocumentChangeOperation::Edit)
+                .collect();
+            for (old, new) in moves {
+                if new.exists() {
+                    return Err(format!(
+                        "Module destination already exists ({})",
+                        new.display()
+                    ));
+                }
+                operations.push(DocumentChangeOperation::Op(ResourceOp::Rename(
+                    RenameFile {
+                        old_uri: uri(&old).ok_or("Cannot form a source URI")?,
+                        new_uri: uri(&new).ok_or("Cannot form a destination URI")?,
+                        options: None,
+                        annotation_id: None,
+                    },
+                )));
+            }
+            Ok(WorkspaceEdit {
+                document_changes: Some(DocumentChanges::Operations(operations)),
+                ..WorkspaceEdit::default()
+            })
+        } else if versioned {
             Ok(WorkspaceEdit {
                 document_changes: Some(DocumentChanges::Edits(changes)),
                 ..WorkspaceEdit::default()
@@ -303,6 +405,55 @@ impl Session {
             ))
         }
     }
+}
+
+type Moves = Vec<(PathBuf, PathBuf)>;
+
+fn module_moves(source: &Path, new_name: &str, roots: &BTreeSet<PathBuf>) -> Result<Moves, String> {
+    let file = source.with_file_name(format!("{new_name}.nia"));
+    let subtree = source.with_extension("");
+    let mut moves = vec![(source.to_path_buf(), file)];
+    if subtree.exists() {
+        if !subtree.is_dir() {
+            return Err(format!(
+                "Module subtree is not a directory ({})",
+                subtree.display()
+            ));
+        }
+        moves.push((subtree.clone(), subtree.with_file_name(new_name)));
+    }
+    for (old, new) in &moves {
+        if !editable_source(old, roots)
+            || !editable_source(new, roots)
+            || old
+                .canonicalize()
+                .ok()
+                .is_none_or(|path| normalized(&path) != normalized(old))
+        {
+            return Err(format!(
+                "Cannot move a module outside the workspace ({})",
+                old.display()
+            ));
+        }
+        if std::fs::symlink_metadata(new).is_ok() {
+            return Err(format!(
+                "Module destination already exists ({})",
+                new.display()
+            ));
+        }
+    }
+    Ok(moves)
+}
+
+fn relocated(source: &str, moves: &Moves) -> Option<PathBuf> {
+    moves.iter().find_map(|(old, new)| {
+        let tail = Path::new(source).strip_prefix(old).ok()?;
+        Some(if tail.as_os_str().is_empty() {
+            new.clone()
+        } else {
+            new.join(tail)
+        })
+    })
 }
 
 fn editable_source(path: &Path, roots: &BTreeSet<PathBuf>) -> bool {
@@ -352,7 +503,14 @@ fn bindings(analysis: &Analysis) -> Bindings {
     result
 }
 
-fn shifted_bindings(before: Bindings, edits: &Edits, len: usize) -> Bindings {
+fn shifted_bindings(
+    before: Bindings,
+    edits: &Edits,
+    moves: &Moves,
+    shorthand: &ShorthandFields,
+    target: &Site,
+    name_len: usize,
+) -> Bindings {
     let offsets: BTreeMap<_, Vec<_>> = edits
         .iter()
         .map(|(source, spans)| {
@@ -361,10 +519,11 @@ fn shifted_bindings(before: Bindings, edits: &Edits, len: usize) -> Bindings {
                 source.as_str(),
                 spans
                     .iter()
-                    .map(|&span| {
+                    .map(|(&span, replacement)| {
                         let before = delta;
-                        delta += len as isize - span.len() as isize;
-                        (span, before)
+                        let length = replacement.len();
+                        delta += length as isize - span.len() as isize;
+                        (span, before, length)
                     })
                     .collect(),
             )
@@ -374,12 +533,12 @@ fn shifted_bindings(before: Bindings, edits: &Edits, len: usize) -> Bindings {
         let Some(spans) = offsets.get(source) else {
             return span;
         };
-        let (delta, length) = match spans.binary_search_by_key(&span, |&(edit, _)| edit) {
-            Ok(index) => (spans[index].1, len),
+        let (delta, length) = match spans.binary_search_by_key(&span, |&(edit, _, _)| edit) {
+            Ok(index) => (spans[index].1, spans[index].2),
             Err(0) => (0, span.len()),
             Err(index) => {
-                let (edit, before) = spans[index - 1];
-                (before + len as isize - edit.len() as isize, span.len())
+                let (edit, before, length) = spans[index - 1];
+                (before + length as isize - edit.len() as isize, span.len())
             }
         };
         let start = span.start.saturating_add_signed(delta);
@@ -387,27 +546,34 @@ fn shifted_bindings(before: Bindings, edits: &Edits, len: usize) -> Bindings {
     };
     let shift_site = |site: Site| Site {
         span: shift(&site.source, site.span),
-        ..site
+        source: relocated(&site.source, moves).map_or(site.source, |path| normalized(&path).into()),
     };
     before
         .into_iter()
         .map(|(source, occurrences)| {
-            let updated = occurrences
-                .into_iter()
-                .map(|(span, candidates)| {
-                    (
-                        shift(&source, span),
-                        candidates
-                            .into_iter()
-                            .map(|binding| Binding {
-                                declaration: binding.declaration.map(shift_site),
-                                alias: binding.alias.map(shift_site),
-                            })
-                            .collect(),
-                    )
-                })
-                .collect();
-            (source, updated)
+            let mut updated = BTreeMap::<_, BTreeSet<_>>::new();
+            for (span, candidates) in occurrences {
+                let shifted = shift(&source, span);
+                for binding in candidates {
+                    let binding_span = if shorthand
+                        .get(&source)
+                        .is_some_and(|spans| spans.contains(&span))
+                        && binding.alias.as_ref().or(binding.declaration.as_ref()) == Some(target)
+                    {
+                        Span::new(shifted.start - name_len - 2, shifted.start - 2)
+                    } else {
+                        shifted
+                    };
+                    updated.entry(binding_span).or_default().insert(Binding {
+                        declaration: binding.declaration.map(shift_site),
+                        alias: binding.alias.map(shift_site),
+                    });
+                }
+            }
+            (
+                relocated(&source, moves).map_or(source, |path| normalized(&path)),
+                updated,
+            )
         })
         .collect()
 }

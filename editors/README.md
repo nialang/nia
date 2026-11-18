@@ -25,21 +25,28 @@ installed Git and registry sources recorded in `nia.lock`. Dependency
 installation and lockfile updates are handled by the build tools.
 
 Clients with watched-file support trigger reanalysis when Nia sources,
-manifests, or lockfiles change on disk. Open buffers take precedence over
-disk contents.
+manifests, lockfiles, or the configured build plan change on disk. Open
+buffers take precedence over disk contents. The server reads the last
+configured `build-plan.bin` to discover additional compiler entries and
+imports, including generated modules that the build has materialized.
 
-Rename supports local variables, parameters, private explicit import aliases,
-and top-level Nia functions, values, and types. Renaming a declaration also
-updates its import selectors while preserving explicit aliases. Renaming an
-alias updates the references to that binding, including those in nested blocks.
-The server checks the workspace's declared library, executable, test, and
-build-script entries, including unopened files. It rejects edits that break
-compilation, change a name's binding, or require editing sources outside the
-workspace. Projects with unresolved references or compilation errors can
-also require fixes before a rename can be verified.
+Rename supports local bindings, top-level items, explicit import and
+re-export aliases, named fields, enum variants, inherent methods, and
+source trait methods. Trait method rename includes the corresponding
+implementations. Field rename expands shorthand initializers and patterns
+when their local variable keeps its original name. Renaming the Nia name
+of an `extern` function or static preserves its native symbol with
+`linkName` or `exportName`.
 
-Generated modules, build-script imports, and rename support for members,
-public re-export aliases, module files, and foreign symbols are future work.
+Clients that support LSP resource rename operations can rename declared
+modules. The workspace edit updates paths in source and moves the module's
+`.nia` file and its child directory. The server checks the workspace's
+library, executable, test, and build-script entries, including unopened
+files. It rejects edits that would break compilation, change binding, or
+require changing a generated file or a source outside the workspace.
+Generated files are read-only to the LSP and their producer owns changes
+to the generated declarations. Associated type projections currently
+require manual refactoring.
 
 Build from the repository root with `cargo build --locked -p nia-lsp`.
 On Windows, use an x64 Developer PowerShell with the configured LLVM

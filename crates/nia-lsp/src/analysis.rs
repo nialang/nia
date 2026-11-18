@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
@@ -12,7 +13,7 @@ use lsp_types::{
 use nia_compiler_query::{CheckedProgramAnalysis, CompilerDatabase};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope};
 use nia_diagnostic::LabelStyle;
-use nia_driver::{CheckRequest, Driver};
+use nia_driver::{CheckRequest, Driver, DriverConfig};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_imports::{ModuleGraphSnapshot, ModuleRootSegment};
 use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
@@ -28,9 +29,12 @@ use url::Url;
 use crate::document::{Document, Lines};
 use crate::editing::{MemberCompletion, field_accesses};
 use crate::highlight::{Class, Kind, Resolved};
-use crate::project::Projects;
+use crate::project::{EditorRequest, Projects};
 
 mod imports;
+mod namespaces;
+#[cfg(test)]
+mod rename_tests;
 use imports::ImportOccurrences;
 
 pub(crate) type Documents = BTreeMap<PathBuf, OpenDocument>;
@@ -45,7 +49,7 @@ pub(crate) fn path(uri: &Uri) -> Option<PathBuf> {
     Url::parse(uri.as_str()).ok()?.to_file_path().ok()
 }
 
-fn uri(path: &Path) -> Option<Uri> {
+pub(crate) fn uri(path: &Path) -> Option<Uri> {
     Url::from_file_path(path).ok()?.as_str().parse().ok()
 }
 
@@ -56,6 +60,7 @@ pub(crate) fn normalized(path: &Path) -> String {
 pub(crate) struct Session {
     toolchain: Arc<ToolchainLayout>,
     driver: Driver,
+    target_drivers: RefCell<HashMap<(nia_target::TargetConfig, nia_target::CpuLevel), Driver>>,
     overlays: BTreeMap<PathBuf, Arc<str>>,
     pub(crate) projects: Projects,
 }
@@ -64,6 +69,7 @@ impl Session {
     pub(crate) fn new(toolchain: Arc<ToolchainLayout>) -> Self {
         Self {
             driver: Driver::new(toolchain.clone()),
+            target_drivers: RefCell::default(),
             toolchain,
             overlays: BTreeMap::new(),
             projects: Projects::default(),
@@ -80,8 +86,23 @@ impl Session {
         let Some(package) = self.projects.package(entry)? else {
             return analyze(CheckRequest::new(normalized(entry)));
         };
-        let entries = package.entries(entry);
         let entry_path = normalized(entry);
+        if entry.file_name().is_none_or(|name| name != "build.nia") {
+            let mut configured = package.configured_requests()?;
+            configured.sort_by_key(|request| request.check.entry_path.as_str() != entry_path);
+            for request in configured {
+                if let Ok(analysis) = analyze_editor_request(
+                    &self.driver,
+                    &self.target_drivers,
+                    &self.overlays,
+                    request,
+                ) && analysis.files.contains_key(&entry_path)
+                {
+                    return Ok(analysis);
+                }
+            }
+        }
+        let entries = package.entries(entry);
         let mut entries = entries.into_iter().peekable();
         while let Some((path, context)) = entries.next() {
             let analysis = package.request(&path, context).and_then(analyze);
@@ -104,6 +125,7 @@ impl Session {
             .any(|path| !documents.contains_key(path))
         {
             self.driver = Driver::new(self.toolchain.clone());
+            self.target_drivers.get_mut().clear();
             self.overlays.clear();
         }
         for (path, open) in documents {
@@ -111,19 +133,18 @@ impl Session {
             if self.overlays.get(path).is_some_and(|old| old == text) {
                 continue;
             }
-            self.driver
-                .set_source(normalized(path), text.clone())
-                .map_err(|error| match error {
-                    nia_driver::DriverError::InternalDiagnostic(diagnostic) => diagnostic.summary,
-                    other => format!("{other:?}"),
-                })?;
+            for driver in
+                std::iter::once(&self.driver).chain(self.target_drivers.get_mut().values())
+            {
+                set_source(driver, path, text.clone())?;
+            }
             self.overlays.insert(path.clone(), text.clone());
         }
         Ok(())
     }
 
-    pub(crate) fn analyze_request(&self, request: CheckRequest) -> Result<Analysis, String> {
-        analyze_request(&self.driver, request)
+    pub(crate) fn analyze_request(&self, request: EditorRequest) -> Result<Analysis, String> {
+        analyze_editor_request(&self.driver, &self.target_drivers, &self.overlays, request)
     }
 
     pub(crate) fn reload(&mut self) {
@@ -163,6 +184,48 @@ impl Session {
     }
 }
 
+fn analyze_editor_request(
+    driver: &Driver,
+    drivers: &RefCell<HashMap<(nia_target::TargetConfig, nia_target::CpuLevel), Driver>>,
+    overlays: &BTreeMap<PathBuf, Arc<str>>,
+    request: EditorRequest,
+) -> Result<Analysis, String> {
+    let Some((target, cpu, runtime)) = request.target else {
+        return analyze_request(driver, request.check);
+    };
+    let mut drivers = drivers.borrow_mut();
+    let configured = match drivers.entry((target, cpu)) {
+        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+        std::collections::hash_map::Entry::Vacant(entry) => {
+            let config = DriverConfig::new(driver.config().toolchain.clone())
+                .with_artifact_target(target)
+                .with_cpu(cpu);
+            let configured = Driver::with_config(config);
+            for (path, text) in overlays {
+                set_source(&configured, path, text.clone())?;
+            }
+            entry.insert(configured)
+        }
+    };
+    let runtime = match runtime {
+        nia_build_plan::Runtime::Bare => nia_toolchain::RuntimeSpec::Bare,
+        nia_build_plan::Runtime::Freestanding => {
+            nia_toolchain::RuntimeSpec::freestanding(&driver.config().toolchain, &target)
+                .map_err(|error| error.to_string())?
+        }
+    };
+    analyze_request(configured, request.check.with_runtime(runtime))
+}
+
+fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<(), String> {
+    driver
+        .set_source(normalized(path), text)
+        .map_err(|error| match error {
+            nia_driver::DriverError::InternalDiagnostic(diagnostic) => diagnostic.summary,
+            other => format!("{other:?}"),
+        })
+}
+
 fn analyze_request(driver: &Driver, request: CheckRequest) -> Result<Analysis, String> {
     driver
         .analyze_for_editor(request, |db, program| {
@@ -174,6 +237,7 @@ fn analyze_request(driver: &Driver, request: CheckRequest) -> Result<Analysis, S
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Symbol {
     Global(GlobalDefId),
+    Module(ModuleId),
     Local(ModuleId, LocalId),
     ModuleAlias(ModuleId, Span),
     ItemAlias(ModuleId, Span),
@@ -200,6 +264,23 @@ pub(crate) struct File {
 }
 
 impl File {
+    pub(crate) fn field_shorthand(&self, span: Span) -> bool {
+        fn find(node: &GreenNode, span: Span) -> bool {
+            if node.span().start > span.start || span.end > node.span().end {
+                return false;
+            }
+            if matches!(
+                node.kind(),
+                SyntaxKind::FieldInit | SyntaxKind::NamedPatternField
+            ) {
+                return node.token_span() == Some(span);
+            }
+            node.child_nodes().any(|child| find(child, span))
+        }
+        self.syntax()
+            .is_some_and(|syntax| find(syntax.tree.green_root(), span))
+    }
+
     pub(crate) fn syntax(&self) -> Option<&nia_syntax::Parse> {
         self.syntax
             .get_or_init(|| nia_syntax::parse(&self.text, None).ok())
@@ -218,6 +299,67 @@ pub(crate) struct Analysis {
 }
 
 impl Analysis {
+    pub(crate) fn is_field(&self, symbol: Symbol) -> bool {
+        let Symbol::Global(id) = symbol else {
+            return false;
+        };
+        self.defs
+            .get(&id.module_id)
+            .and_then(|defs| defs.defs.get(id.def_id))
+            .is_some_and(|def| {
+                matches!(
+                    def.kind,
+                    DefKind::StructField | DefKind::UnionField | DefKind::EnumVariantField
+                )
+            })
+    }
+
+    pub(crate) fn foreign_link_attribute(&self, symbol: Symbol) -> Option<(Span, &'static str)> {
+        let Symbol::Global(id) = symbol else {
+            return None;
+        };
+        let (source, name) = self.definitions.get(&symbol)?;
+        let file = self.files.get(source)?;
+        let def = self.defs.get(&id.module_id)?.defs.get(id.def_id)?;
+        if !matches!(def.kind, DefKind::Function | DefKind::Global) {
+            return None;
+        }
+        let item = file
+            .syntax()?
+            .tree
+            .green_root()
+            .child_nodes()
+            .find(|node| {
+                node.kind() == &SyntaxKind::Item
+                    && node.span().start <= name.start
+                    && name.end <= node.span().end
+            })?;
+        let decl = item.child_nodes().find(|node| {
+            matches!(
+                node.kind(),
+                SyntaxKind::FunctionDecl | SyntaxKind::BindingDecl
+            )
+        })?;
+        item.token(&TokenKind::Extern)?;
+        let attribute = if decl.child(&SyntaxKind::Block).is_some() {
+            "exportName"
+        } else {
+            "linkName"
+        };
+        if item
+            .child_nodes()
+            .filter(|node| node.kind() == &SyntaxKind::Attribute)
+            .any(|node| {
+                node.token(&TokenKind::Ident)
+                    .is_some_and(|token| token.text() == attribute)
+            })
+        {
+            return None;
+        }
+        let span = item.token_span()?;
+        Some((Span::new(span.start, span.start), attribute))
+    }
+
     fn from_program(
         driver: &Driver,
         db: &CompilerDatabase,
@@ -241,6 +383,8 @@ impl Analysis {
             .iter()
             .map(|module| (module.id, module))
             .collect();
+        let mut import_scopes = HashMap::new();
+        let mut trait_methods = HashMap::new();
         for node in program.graph.modules() {
             let path = node.path.as_str();
             let Some(file) = driver.sources().source_for_id(node.source_id) else {
@@ -295,16 +439,32 @@ impl Analysis {
                     .iter()
                     .find(|span| name_matches(span, def.name))
                 {
-                    declare(
-                        Symbol::Global(GlobalDefId {
-                            module_id: node.id,
-                            def_id: id,
-                        }),
-                        span,
-                    );
+                    let symbol = if def.kind == DefKind::Module {
+                        node.children.get(&def.name).copied().map(Symbol::Module)
+                    } else {
+                        None
+                    }
+                    .unwrap_or(Symbol::Global(GlobalDefId {
+                        module_id: node.id,
+                        def_id: id,
+                    }));
+                    declare(symbol, span);
                 }
             }
             if let Some(module) = module {
+                if file.text.contains("extend") {
+                    trait_methods.extend(db.source_trait_method_bindings(module)?.into_iter().map(
+                        |(definition, member)| {
+                            (
+                                GlobalDefId {
+                                    module_id: module.id,
+                                    def_id: definition,
+                                },
+                                member,
+                            )
+                        },
+                    ));
+                }
                 for (id, local) in module.local_resolution.locals.iter() {
                     use nia_local_resolve::LocalKind;
                     let kind = match local.kind {
@@ -406,30 +566,28 @@ impl Analysis {
                         &mut occurrences,
                     );
                 }
-                if tokens
-                    .iter()
-                    .any(|token| token.kind == LosslessTokenKind::Token(TokenKind::Using))
-                    && let Some(parsed) =
-                        syntax.get_or_init(|| nia_syntax::parse(&file.text, None).ok())
-                {
-                    let mut imports = ImportOccurrences {
-                        graph: &program.graph,
-                        module: module.id,
-                        text: &file.text,
-                        tokens: &tokens,
-                        occurrences: &mut occurrences,
-                        aliases: &mut rename_aliases,
-                        bindings: HashMap::new(),
-                    };
-                    imports.index(
-                        parsed.tree.green_root(),
-                        &defs,
-                        &db.source_import_scopes(module.id)?,
-                    );
-                    for (span, symbol) in imports.bindings {
-                        result.definitions.insert(symbol, (path.to_owned(), span));
-                    }
+            }
+            if tokens
+                .iter()
+                .any(|token| token.kind == LosslessTokenKind::Token(TokenKind::Using))
+                && let Some(parsed) =
+                    syntax.get_or_init(|| nia_syntax::parse(&file.text, None).ok())
+            {
+                let mut imports = ImportOccurrences {
+                    graph: &program.graph,
+                    module: node.id,
+                    text: &file.text,
+                    tokens: &tokens,
+                    occurrences: &mut occurrences,
+                    aliases: &mut rename_aliases,
+                    bindings: HashMap::new(),
+                };
+                let scopes = db.source_import_scopes(node.id)?;
+                imports.index(parsed.tree.green_root(), &defs, &scopes);
+                for (span, symbol) in imports.bindings {
+                    result.definitions.insert(symbol, (path.to_owned(), span));
                 }
+                import_scopes.insert(node.id, scopes);
             }
             occurrences.sort_by_key(|occurrence| (occurrence.span, !occurrence.declaration));
             result.files.insert(
@@ -448,6 +606,17 @@ impl Analysis {
                     rename_aliases,
                 },
             );
+        }
+        result.index_namespaces(&import_scopes)?;
+        for file in result.files.values_mut() {
+            for occurrence in &file.occurrences {
+                if let Symbol::Global(id) = occurrence.symbol
+                    && let Some(&member) = trait_methods.get(&id)
+                {
+                    file.rename_aliases
+                        .insert(occurrence.span, Symbol::Global(member));
+                }
+            }
         }
         Ok(result)
     }
@@ -485,11 +654,8 @@ impl Analysis {
                     let Some((source, name)) = self.declaration_source(symbol) else {
                         return false;
                     };
-                    def.parent.is_none()
-                        && !matches!(&source[name.start..name.end], "main" | "build")
-                        && !nia_lexer::tokenize(&source[def.span.start..name.start])
-                            .iter()
-                            .any(|token| token.kind == TokenKind::Extern)
+                    !(def.kind == DefKind::Function
+                        && matches!(&source[name.start..name.end], "main" | "build"))
                         && matches!(
                             def.kind,
                             DefKind::Function
@@ -500,22 +666,23 @@ impl Analysis {
                                 | DefKind::Enum
                                 | DefKind::Trait
                                 | DefKind::TypeAlias
+                                | DefKind::StructField
+                                | DefKind::UnionField
+                                | DefKind::EnumVariant
+                                | DefKind::EnumVariantField
+                                | DefKind::Method
+                                | DefKind::TraitMethod
                         )
                 }),
-            Symbol::ModuleAlias(module, span) | Symbol::ItemAlias(module, span) => {
-                self.defs.get(&module).is_some_and(|defs| {
-                    !defs.module_usings.iter().any(|directive| {
-                        directive.visibility != nia_ids::Visibility::Private
-                            && directive.span.start <= span.start
-                            && span.end <= directive.span.end
-                    })
-                })
-            }
+            Symbol::Module(module) => self.graph.get(module).is_some_and(|node| {
+                node.parent.is_some() && self.files.contains_key(node.path.as_str())
+            }),
+            Symbol::ModuleAlias(..) | Symbol::ItemAlias(..) => true,
         }
     }
 
     pub(crate) fn rename_scope(&self, symbol: Symbol) -> Option<Span> {
-        if matches!(symbol, Symbol::Global(_)) {
+        if self.rename_workspace_symbol(symbol) {
             return None;
         }
         let (source, span) = self.definitions.get(&symbol)?;
@@ -539,6 +706,29 @@ impl Analysis {
             enclosing = child;
         }
         block
+    }
+
+    pub(crate) fn rename_workspace_symbol(&self, symbol: Symbol) -> bool {
+        match symbol {
+            Symbol::Global(_) | Symbol::Module(_) => true,
+            Symbol::Local(..) => false,
+            Symbol::ModuleAlias(module, span) | Symbol::ItemAlias(module, span) => {
+                self.defs.get(&module).is_some_and(|defs| {
+                    defs.module_usings.iter().any(|directive| {
+                        directive.visibility != nia_ids::Visibility::Private
+                            && directive.span.start <= span.start
+                            && span.end <= directive.span.end
+                    })
+                })
+            }
+        }
+    }
+
+    pub(crate) fn module_file(&self, symbol: Symbol) -> Option<&str> {
+        let Symbol::Module(module) = symbol else {
+            return None;
+        };
+        Some(self.graph.get(module)?.path.as_str())
     }
 
     pub(crate) fn first_error(&self) -> Option<&str> {
@@ -649,7 +839,7 @@ impl Analysis {
     fn field_uses<'a>(&self, file: &'a File) -> &'a [(Span, GlobalDefId)] {
         file.field_uses.get_or_init(|| {
             let mut uses = Vec::new();
-            if file.expr_types.is_empty() || !file.text.contains('.') {
+            if file.expr_types.is_empty() {
                 return uses;
             }
             if let Some(syntax) = file.syntax() {
@@ -681,9 +871,89 @@ impl Analysis {
                         ));
                     }
                 });
+                self.named_fields(file, syntax.tree.green_root(), &mut uses);
             }
+            uses.sort_unstable();
+            uses.dedup();
             uses
         })
+    }
+
+    fn named_fields(&self, file: &File, node: &GreenNode, uses: &mut Vec<(Span, GlobalDefId)>) {
+        let list = node
+            .child(&SyntaxKind::FieldInitList)
+            .or_else(|| node.child(&SyntaxKind::NominalNamedFields));
+        if let Some(list) = list {
+            let constructor = node
+                .child_nodes()
+                .find(|child| child.kind().is_expr() || child.kind().is_type());
+            let variant = constructor.and_then(|constructor| {
+                file.occurrences.iter().find_map(|occurrence| {
+                    let Symbol::Global(id) = occurrence.symbol else {
+                        return None;
+                    };
+                    let span = constructor.span();
+                    (span.start <= occurrence.span.start
+                        && occurrence.span.end <= span.end
+                        && self.defs.get(&id.module_id)?.defs.get(id.def_id)?.kind
+                            == DefKind::EnumVariant)
+                        .then_some(id)
+                })
+            });
+            let parent = variant
+                .or_else(|| {
+                    let span = node.token_span()?;
+                    let TyKind::Nominal { def_id, .. } = self.receiver_type(file, span)? else {
+                        return None;
+                    };
+                    Some(*def_id)
+                })
+                .or_else(|| {
+                    let span = constructor?.span();
+                    file.occurrences.iter().rev().find_map(|occurrence| {
+                        let Symbol::Global(id) = occurrence.symbol else {
+                            return None;
+                        };
+                        (span.start <= occurrence.span.start
+                            && occurrence.span.end <= span.end
+                            && self.nominal_fields(id).is_some())
+                        .then_some(id)
+                    })
+                });
+            if let Some(parent) = parent {
+                for field in list
+                    .child_nodes()
+                    .filter_map(|field| field.token(&TokenKind::Ident))
+                {
+                    let name = SymbolId::from_stable_hash(stable_hash(field.text()));
+                    let def =
+                        self.nominal_fields(parent)
+                            .and_then(|fields| fields.get(&name))
+                            .or_else(|| {
+                                self.defs.get(&parent.module_id)?.defs.iter().find_map(
+                                    |(id, def)| {
+                                        (def.parent == Some(parent.def_id)
+                                            && def.kind == DefKind::EnumVariantField
+                                            && def.name == name)
+                                            .then_some(id)
+                                    },
+                                )
+                            });
+                    if let Some(def_id) = def {
+                        uses.push((
+                            field.span(),
+                            GlobalDefId {
+                                module_id: parent.module_id,
+                                def_id,
+                            },
+                        ));
+                    }
+                }
+            }
+        }
+        for child in node.child_nodes() {
+            self.named_fields(file, child, uses);
+        }
     }
 
     pub(crate) fn semantic_highlights(&self, path: &Path) -> Resolved {
@@ -698,7 +968,7 @@ impl Analysis {
                 continue;
             }
             let kind = match item.symbol {
-                Symbol::ModuleAlias(..) => Some((Kind::Namespace, false)),
+                Symbol::Module(_) | Symbol::ModuleAlias(..) => Some((Kind::Namespace, false)),
                 Symbol::ItemAlias(..) => None,
                 Symbol::Local(_, id) => file.locals.get(&id).copied(),
                 Symbol::Global(id) => self
@@ -995,7 +1265,12 @@ impl Analysis {
                 .defs
                 .get(&id.module_id)
                 .and_then(|defs| defs.defs.get(id.def_id))
-                .filter(|def| matches!(def.kind, DefKind::StructField | DefKind::UnionField))
+                .filter(|def| {
+                    matches!(
+                        def.kind,
+                        DefKind::StructField | DefKind::UnionField | DefKind::EnumVariantField
+                    )
+                })
                 .map(|_| id),
             _ => None,
         };
@@ -1124,7 +1399,7 @@ mod tests {
     use nia_test_support::{TestWorkload, acquire_test_resources, test_dir, workspace_root};
     use nia_toolchain::ToolchainLayoutRequest;
 
-    fn test_session() -> Session {
+    pub(super) fn test_session() -> Session {
         let toolchain = ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
             std::env::current_exe().unwrap(),
             workspace_root().join("lib"),
@@ -1192,6 +1467,7 @@ mod tests {
                     new_name,
                     folders: &[],
                     versioned: true,
+                    resource_rename: false,
                 },
             )
         };
@@ -1211,7 +1487,7 @@ mod tests {
                 ],
             ),
         ] {
-            assert!(analysis.prepare_rename(&entry, position).is_some());
+            assert!(analysis.prepare_rename(&entry, position, true).is_some());
             let edit = rename(position, name).unwrap();
             let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
                 panic!("expected versioned edits");
@@ -1278,6 +1554,7 @@ mod tests {
                     new_name,
                     folders: &[root.to_path_buf()],
                     versioned: false,
+                    resource_rename: false,
                 },
             )
         };
@@ -1315,6 +1592,7 @@ mod tests {
             new_name: name,
             folders: &[],
             versioned: false,
+            resource_rename: false,
         };
         let result = test_session().rename(&analysis, &documents, request("second"));
         assert!(result.unwrap_err().contains("change name resolution"));

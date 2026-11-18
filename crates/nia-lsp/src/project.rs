@@ -4,8 +4,13 @@
 use std::{
     collections::{BTreeSet, HashMap},
     path::{Path, PathBuf},
+    sync::OnceLock,
 };
 
+use nia_build_plan::{
+    ActionKind, BuildPlan, LogicalPath, LogicalPathRoot, PlanHandoffError, PlanPackageSource,
+    read_build_plan,
+};
 use nia_driver::CheckRequest;
 use nia_imports::ModuleMap;
 use nia_package_metadata::{
@@ -13,9 +18,12 @@ use nia_package_metadata::{
     WorkspaceManifest,
 };
 use nia_source::{SourceIdentity, SourcePath};
+use nia_target::{CpuLevel, TargetConfig};
 use nia_target_config::CompilationMode;
 
 use crate::analysis::normalized;
+
+mod configured;
 
 #[derive(Default)]
 pub(crate) struct Projects {
@@ -23,9 +31,24 @@ pub(crate) struct Projects {
 }
 
 pub(crate) struct WorkspaceRequests {
-    pub(crate) entries: Vec<CheckRequest>,
-    pub(crate) standalone: Vec<CheckRequest>,
+    pub(crate) entries: Vec<EditorRequest>,
+    pub(crate) standalone: Vec<EditorRequest>,
     pub(crate) editable: BTreeSet<PathBuf>,
+}
+
+#[derive(Clone)]
+pub(crate) struct EditorRequest {
+    pub(crate) check: CheckRequest,
+    pub(crate) target: Option<(TargetConfig, CpuLevel, nia_build_plan::Runtime)>,
+}
+
+impl From<CheckRequest> for EditorRequest {
+    fn from(check: CheckRequest) -> Self {
+        Self {
+            check,
+            target: None,
+        }
+    }
 }
 
 impl Projects {
@@ -39,6 +62,7 @@ impl Projects {
         let mut standalone = BTreeSet::new();
         let mut roots = BTreeSet::new();
         let mut editable = BTreeSet::new();
+        let mut configured = Vec::new();
         for folder in folders {
             if folder.join("nia.toml").is_file() {
                 roots.insert(folder.canonicalize().map_err(|error| error.to_string())?);
@@ -77,9 +101,23 @@ impl Projects {
                 .package(&root.join("nia.toml"))?
                 .ok_or("Workspace package disappeared")?;
             editable.insert(PathBuf::from(normalized(package.layout.package_root())));
-            entries.extend(package.declared_entries());
+            let planned = package.configured_requests()?;
+            entries.extend(
+                package
+                    .declared_entries()
+                    .into_iter()
+                    .filter(|(path, context)| {
+                        let path = normalized(path);
+                        !planned.iter().any(|request| {
+                            request.check.entry_path.as_str() == path
+                                && (request.check.compilation_mode == CompilationMode::Test)
+                                    == (*context == Context::Test)
+                        })
+                    }),
+            );
+            configured.extend(planned);
         }
-        let entries = entries
+        let mut entries = entries
             .into_iter()
             .map(|(path, context)| (PathBuf::from(normalized(&path)), context))
             .collect::<BTreeSet<_>>()
@@ -88,13 +126,16 @@ impl Projects {
                 Some(package) => package.request(&path, context),
                 None => Ok(CheckRequest::new(normalized(&path))),
             })
-            .collect::<Result<_, _>>()?;
+            .map(|result| result.map(EditorRequest::from))
+            .collect::<Result<Vec<_>, _>>()?;
+        entries.extend(configured);
         let standalone = standalone
             .into_iter()
             .map(|path| match self.package(&path)? {
                 Some(package) => package.request(&path, Context::Executable),
                 None => Ok(CheckRequest::new(normalized(&path))),
             })
+            .map(|result| result.map(EditorRequest::from))
             .collect::<Result<_, _>>()?;
         Ok(WorkspaceRequests {
             entries,
@@ -104,18 +145,39 @@ impl Projects {
     }
 
     pub(crate) fn package(&mut self, entry: &Path) -> Result<Option<&mut Package>, String> {
-        let Some(root) = entry
+        let Some(mut root) = entry
             .ancestors()
             .skip(1)
-            .find(|directory| directory.join("nia.toml").is_file())
+            .find(|directory| {
+                directory.join("nia.toml").is_file() || directory.join("build.nia").is_file()
+            })
+            .map(Path::to_path_buf)
         else {
             return Ok(None);
         };
-        if !self.packages.contains_key(root) {
-            let package = Package::load(root)?;
-            self.packages.insert(root.to_path_buf(), package);
+        let output = root.join("build/out");
+        if entry.starts_with(&output)
+            && let Some(workspace) =
+                WorkspaceManifest::discover(&root).map_err(|error| error.to_string())?
+        {
+            for member in workspace
+                .member_packages()
+                .map_err(|error| error.to_string())?
+            {
+                let layout =
+                    BuildLayout::for_package(&member.root).map_err(|error| error.to_string())?;
+                if entry.starts_with(Path::new(&normalized(&layout.out_dir()))) {
+                    root = layout.package_root().to_path_buf();
+                    break;
+                }
+            }
         }
-        Ok(self.packages.get_mut(root))
+        let root = PathBuf::from(normalized(&root));
+        if !self.packages.contains_key(&root) {
+            let package = Package::load(&root)?;
+            self.packages.insert(root.clone(), package);
+        }
+        Ok(self.packages.get_mut(&root))
     }
 }
 
@@ -123,6 +185,8 @@ pub(crate) struct Package {
     layout: BuildLayout,
     manifest: PackageManifest,
     maps: HashMap<Context, ModuleMap>,
+    plan: Option<BuildPlan>,
+    planned_requests: OnceLock<Result<Vec<EditorRequest>, String>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -157,10 +221,21 @@ impl Package {
         let error = |error: std::io::Error| format!("{}: {error}", root.join("nia.toml").display());
         let layout = BuildLayout::for_package(root).map_err(error)?;
         let manifest = PackageManifest::read(layout.package_root()).map_err(error)?;
+        let plan = match read_build_plan(&layout.out_dir().join("build-plan.bin")) {
+            Ok(plan) => Some(plan),
+            Err(PlanHandoffError::Open { error, .. })
+                if error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                None
+            }
+            Err(error) => return Err(error.to_string()),
+        };
         Ok(Self {
             layout,
             manifest,
             maps: HashMap::new(),
+            plan,
+            planned_requests: OnceLock::new(),
         })
     }
 

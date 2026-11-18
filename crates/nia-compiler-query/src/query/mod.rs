@@ -245,6 +245,41 @@ impl CompilerDatabase {
         full_module_defs_semantic(&self.db, module)
     }
 
+    /// Returns local methods paired with the source trait members they implement.
+    pub fn source_trait_method_bindings(
+        &self,
+        module: &CheckedModule,
+    ) -> QueryResult<Vec<(DefId, GlobalDefId)>> {
+        let signatures = self.db.get(ItemSignaturesQuery(module.id))?;
+        let types = self.type_store();
+        let mut bindings = Vec::new();
+        for implementation in &signatures.semantic.trait_impls {
+            let Some(trait_ty) = implementation.trait_ty else {
+                continue;
+            };
+            let Some(TyKind::Nominal {
+                def_id: trait_id, ..
+            }) = types.get(module.type_normalization.normalize(trait_ty))
+            else {
+                continue;
+            };
+            let defs = self.source_definitions(trait_id.module_id)?;
+            let Some(members) = defs.scopes.struct_members.get(&trait_id.def_id) else {
+                continue;
+            };
+            bindings.extend(implementation.methods.iter().filter_map(|method| {
+                Some((
+                    method.def_id,
+                    GlobalDefId {
+                        module_id: trait_id.module_id,
+                        def_id: members.methods.get(&method.name)?,
+                    },
+                ))
+            }));
+        }
+        Ok(bindings)
+    }
+
     /// Resolves methods for a source receiver in an isolated editor database.
     pub fn source_receiver_methods(
         &self,
