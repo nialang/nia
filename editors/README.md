@@ -3,11 +3,14 @@
 `nia-lsp` is a Rust language server that uses the compiler's loader and
 semantic queries. Its current editor features are live diagnostics,
 definition navigation, hover at resolved names, references within the current
-analysis graph, completion for local names, module members, and receiver
-fields and methods, signature help for source functions and resolved methods,
+analysis graph, occurrence highlighting in the current file, completion for
+local names, module members, receiver fields and methods, signature help for
+source functions and resolved methods,
 document outline, folding, and semantic highlighting. Named field accesses
 also support definition navigation and references. Receiver completion
 checks method names from declarations in the current analysis graph.
+Definition and reference lookup cover resolved type names and explicit
+module-level `using` selectors for types and values, including aliases.
 Outline and folding use the current buffer's syntax tree, including unsaved
 changes. Folds include bodies, aggregate members, multiline parameter lists
 and constraints, grouped imports, and consecutive line comments.

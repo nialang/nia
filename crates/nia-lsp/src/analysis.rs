@@ -6,10 +6,13 @@ use std::{
 };
 
 use lsp_types::{
-    CompletionItemKind, Diagnostic, DiagnosticSeverity, Location, NumberOrString, Position, Uri,
+    CompletionItemKind, Diagnostic, DiagnosticSeverity, DocumentHighlight, Location,
+    NumberOrString, Position, Uri,
 };
 use nia_compiler_query::{CheckedProgramAnalysis, CompilerDatabase};
-use nia_defs::{DefCollection, DefKind, ModuleUsingScope};
+use nia_defs::{
+    DefCollection, DefKind, ModuleUsingScope, UsingGroupItem, UsingName, UsingSelector,
+};
 use nia_diagnostic::LabelStyle;
 use nia_driver::{CheckRequest, Driver};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
@@ -18,6 +21,7 @@ use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_sema_ir::{ResolvedCall, SemanticValueUse};
 use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
+use nia_syntax::{GreenNode, SyntaxKind};
 use nia_toolchain::ToolchainLayout;
 use nia_ty::{TyKind, TypeStore};
 use nia_type_resolve::TypeNameResolution;
@@ -261,6 +265,7 @@ impl Analysis {
             let mut locals = HashMap::new();
             let mut type_highlights = Resolved::new();
             let mut expr_types = HashMap::new();
+            let syntax = OnceLock::new();
             let mut declare = |symbol, span| {
                 result.definitions.insert(symbol, (path.to_owned(), span));
                 occurrences.push(Occurrence {
@@ -311,67 +316,85 @@ impl Analysis {
                     .filter_map(|(key, call)| match call {
                         ResolvedCall::Method { def_id, .. } => Some((key, *def_id)),
                         ResolvedCall::TraitMethod { method_id, .. }
-                        | ResolvedCall::DynamicTraitMethod { method_id, .. } => {
+                        | ResolvedCall::DynamicTraitMethod { method_id, .. }
+                        | ResolvedCall::TraitAssociatedFunction { method_id, .. } => {
                             Some((key, *method_id))
                         }
                         _ => None,
                     })
                     .collect();
+                let mut method_calls = HashMap::new();
                 for (span, key) in db.source_origins(module.id)?.entries() {
                     if let Some(ty) = module.semantic_facts.node_expr_type(&key)
                         && ty != result.types.error()
                     {
                         expr_types.insert(span, module.type_normalization.normalize(ty));
                     }
-                    let type_class = match module.type_resolution.node_type_names.get(key.site()) {
-                        Some(TypeNameResolution::GenericParam) => {
-                            Some(Class::new(Kind::TypeParameter))
-                        }
-                        Some(TypeNameResolution::BuiltinTrait(_)) => {
-                            Some(Class::builtin(Kind::Interface))
-                        }
-                        Some(TypeNameResolution::Def(id)) => {
-                            defs.defs.get(*id).map(|def| Class::new(def.kind.into()))
-                        }
-                        Some(TypeNameResolution::External(id)) => modules
-                            .get(&id.module_id)
-                            .and_then(|owner| owner.defs.defs.get(id.def_id))
-                            .map(|def| Class::new(def.kind.into())),
-                        _ => None,
-                    };
-                    if let Some(class) = type_class
+                    if let Some(resolution) = module.type_resolution.node_type_names.get(key.site())
                         && let Some(name) = type_name_span(&tokens, span)
                     {
-                        type_highlights.insert(name, class);
+                        let symbol = match resolution {
+                            TypeNameResolution::Def(def_id) => Some(GlobalDefId {
+                                module_id: module.id,
+                                def_id: *def_id,
+                            }),
+                            TypeNameResolution::External(id) => Some(*id),
+                            TypeNameResolution::GenericParam => {
+                                type_highlights.insert(name, Class::new(Kind::TypeParameter));
+                                None
+                            }
+                            TypeNameResolution::BuiltinTrait(_) => {
+                                type_highlights.insert(name, Class::builtin(Kind::Interface));
+                                None
+                            }
+                            _ => None,
+                        };
+                        if let Some(id) = symbol {
+                            occurrences.push(Occurrence {
+                                span: name,
+                                symbol: Symbol::Global(id),
+                                declaration: false,
+                            });
+                        }
                     }
                     let names = tokens_in(span);
                     let target = match module.semantic_uses.node_value_use(&key) {
-                        Some(SemanticValueUse::Local(id)) => Some(Symbol::Local(module.id, id)),
-                        Some(SemanticValueUse::Global(id)) => Some(Symbol::Global(id)),
-                        None => module
-                            .semantic_uses
-                            .node_type_prefix(&key)
-                            .map(Symbol::Global),
+                        Some(SemanticValueUse::Local(id)) => names
+                            .last()
+                            .map(|&name| (name, Symbol::Local(module.id, id))),
+                        Some(SemanticValueUse::Global(id)) => {
+                            names.last().map(|&name| (name, Symbol::Global(id)))
+                        }
+                        None => module.semantic_uses.node_type_prefix(&key).and_then(|id| {
+                            Some((type_name_span(&tokens, span)?, Symbol::Global(id)))
+                        }),
                     };
-                    if let Some(symbol) = target
-                        && let Some(&span) = names.last()
-                    {
+                    if let Some((span, symbol)) = target {
                         occurrences.push(Occurrence {
                             span,
                             symbol,
                             declaration: false,
                         });
                     }
-                    if let Some(id) = call_targets.get(&key)
-                        && let Some(def) = modules
-                            .get(&id.module_id)
-                            .and_then(|module| module.defs.defs.get(id.def_id))
-                        && let Some(&span) = names.iter().find(|span| name_matches(span, def.name))
-                    {
-                        occurrences.push(Occurrence {
-                            span,
-                            symbol: Symbol::Global(*id),
-                            declaration: false,
+                    if let Some(&id) = call_targets.get(&key) {
+                        method_calls.insert(span, id);
+                    }
+                }
+                if !method_calls.is_empty()
+                    && let Some(parsed) =
+                        syntax.get_or_init(|| nia_syntax::parse(&file.text, None).ok())
+                {
+                    index_method_calls(
+                        parsed.tree.green_root(),
+                        &mut method_calls,
+                        &mut occurrences,
+                    );
+                }
+                if !defs.module_usings.is_empty() {
+                    let imports = db.source_imports(module.id, 0)?;
+                    for directive in &defs.module_usings {
+                        visit_using_names(&directive.selector, &mut |name| {
+                            index_using_name(name, directive.span, &imports, &mut occurrences);
                         });
                     }
                 }
@@ -388,7 +411,7 @@ impl Analysis {
                     locals,
                     type_highlights,
                     expr_types,
-                    syntax: OnceLock::new(),
+                    syntax,
                     field_uses: OnceLock::new(),
                 },
             );
@@ -797,7 +820,35 @@ impl Analysis {
         let Some(symbol) = self.symbol_at(path, position) else {
             return Vec::new();
         };
-        let mut locations = Vec::new();
+        self.files
+            .values()
+            .flat_map(|file| {
+                self.reference_spans(file, symbol, declaration)
+                    .into_iter()
+                    .map(|span| Location::new(file.uri.clone(), file.lines.range(&file.text, span)))
+            })
+            .collect()
+    }
+
+    pub(crate) fn document_highlights(
+        &self,
+        path: &Path,
+        position: Position,
+    ) -> Option<Vec<DocumentHighlight>> {
+        let file = self.file(path)?;
+        let symbol = self.symbol_at(path, position)?;
+        Some(
+            self.reference_spans(file, symbol, true)
+                .into_iter()
+                .map(|span| DocumentHighlight {
+                    range: file.lines.range(&file.text, span),
+                    kind: None,
+                })
+                .collect(),
+        )
+    }
+
+    fn reference_spans(&self, file: &File, symbol: Symbol, declaration: bool) -> Vec<Span> {
         let field = match symbol {
             Symbol::Global(id) => self
                 .defs
@@ -807,32 +858,22 @@ impl Analysis {
                 .map(|_| id),
             _ => None,
         };
-        for file in self.files.values() {
-            let mut previous = None;
-            for item in &file.occurrences {
-                if item.symbol == symbol
-                    && (declaration || !item.declaration)
-                    && previous != Some(item.span)
-                {
-                    locations.push(Location::new(
-                        file.uri.clone(),
-                        file.lines.range(&file.text, item.span),
-                    ));
-                    previous = Some(item.span);
-                }
-            }
-            if let Some(field) = field {
-                for &(span, target) in self.field_uses(file) {
-                    if target == field {
-                        locations.push(Location::new(
-                            file.uri.clone(),
-                            file.lines.range(&file.text, span),
-                        ));
-                    }
-                }
-            }
+        let mut spans: Vec<_> = file
+            .occurrences
+            .iter()
+            .filter(|item| item.symbol == symbol && (declaration || !item.declaration))
+            .map(|item| item.span)
+            .collect();
+        if let Some(field) = field {
+            spans.extend(
+                self.field_uses(file)
+                    .iter()
+                    .filter_map(|&(span, target)| (target == field).then_some(span)),
+            );
         }
-        locations
+        spans.sort_unstable();
+        spans.dedup();
+        spans
     }
 
     pub(crate) fn diagnostics(&self, path: &Path, document: &Document) -> Vec<Diagnostic> {
@@ -890,6 +931,94 @@ fn type_name_span(tokens: &[LosslessToken], span: Span) -> Option<Span> {
         }
     }
     name
+}
+
+fn index_method_calls(
+    node: &GreenNode,
+    targets: &mut HashMap<Span, GlobalDefId>,
+    occurrences: &mut Vec<Occurrence>,
+) {
+    if targets.is_empty() {
+        return;
+    }
+    if node.kind() == &SyntaxKind::CallExpr
+        && let Some(span) = node.token_span()
+        && let Some(id) = targets.remove(&span)
+        && let Some(name) = method_callee_name(node)
+    {
+        occurrences.push(Occurrence {
+            span: name,
+            symbol: Symbol::Global(id),
+            declaration: false,
+        });
+    }
+    for child in node.child_nodes() {
+        index_method_calls(child, targets, occurrences);
+    }
+}
+
+fn method_callee_name(call: &GreenNode) -> Option<Span> {
+    let mut callee = call.child_nodes().find(|child| child.kind().is_expr())?;
+    while callee.kind() == &SyntaxKind::BracketExpr {
+        callee = callee.child_nodes().find(|child| child.kind().is_expr())?;
+    }
+    if matches!(
+        callee.kind(),
+        SyntaxKind::FieldExpr | SyntaxKind::QualifiedExpr | SyntaxKind::OmittedMemberExpr
+    ) {
+        return callee.token(&TokenKind::Ident).map(|token| token.span());
+    }
+    None
+}
+
+fn visit_using_names(selector: &UsingSelector, visit: &mut impl FnMut(&UsingName)) {
+    match selector {
+        UsingSelector::Single(name) => visit(name),
+        UsingSelector::Group(items) => {
+            for item in items {
+                match item {
+                    UsingGroupItem::Name(name) => visit(name),
+                    UsingGroupItem::Nested { selector, .. } => visit_using_names(selector, visit),
+                }
+            }
+        }
+        UsingSelector::Wildcard { .. } | UsingSelector::SelfName => {}
+    }
+}
+
+fn index_using_name(
+    name: &UsingName,
+    directive: Span,
+    imports: &ModuleUsingScope,
+    occurrences: &mut Vec<Occurrence>,
+) {
+    let alias = name.alias.unwrap_or(name.name);
+    let binding_span = name.alias_span.unwrap_or(name.name_span);
+    let mut targets = [&imports.types, &imports.values]
+        .into_iter()
+        .filter_map(|items| {
+            let item = items.get(&alias)?;
+            (item.directive_span == directive && item.name_span == binding_span).then_some(
+                GlobalDefId {
+                    module_id: item.target_module,
+                    def_id: item.target_def_id,
+                },
+            )
+        });
+    let Some(target) = targets.next() else {
+        return;
+    };
+    // One selector can introduce names in multiple namespaces.
+    if targets.any(|other| other != target) {
+        return;
+    }
+    for span in std::iter::once(name.name_span).chain(name.alias_span) {
+        occurrences.push(Occurrence {
+            span,
+            symbol: Symbol::Global(target),
+            declaration: false,
+        });
+    }
 }
 
 pub(crate) struct VisibleName {
@@ -1118,6 +1247,68 @@ mod tests {
                 "{name}"
             );
         }
+        let target = analysis.definition(&main, Position::new(3, 25)).unwrap();
+        assert_eq!(target.uri, uri(&child).unwrap());
+        assert_eq!(target.range.start, Position::new(0, 11));
+        let references = analysis.references(&child, target.range.start, true);
+        assert_eq!(references.len(), 4);
+        for column in [20, 29] {
+            assert_eq!(
+                analysis.definition(&main, Position::new(1, column)),
+                Some(target.clone())
+            );
+        }
+        assert!(
+            references
+                .iter()
+                .any(|reference| reference.uri == uri(&main).unwrap()
+                    && reference.range.start == Position::new(3, 22))
+        );
+    }
+
+    #[test]
+    fn method_references_use_the_callee_token_even_when_the_receiver_has_the_same_name() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let entry = test_dir("lsp-method-references").join("main.nia");
+        let source = concat!(
+            "struct Counter { value: i32 }\n",
+            "extend Counter { fun read[T](&self, value: T) T { value } }\n",
+            "fun main(read: Counter) i32 { read.read[i32](read.value) }\n",
+        );
+        let documents: Documents = [(
+            entry.clone(),
+            OpenDocument {
+                uri: uri(&entry).unwrap(),
+                document: Document::new(1, source.into()),
+            },
+        )]
+        .into_iter()
+        .collect();
+        let analysis = test_session().analyze(&documents, &entry).unwrap();
+        assert!(
+            analysis
+                .diagnostics(&entry, &documents[&entry].document)
+                .is_empty()
+        );
+        let method = Position::new(2, 35);
+        let target = analysis.definition(&entry, method).unwrap();
+        assert_eq!(target.range.start, Position::new(1, 21));
+        assert_eq!(
+            analysis
+                .definition(&entry, Position::new(2, 30))
+                .unwrap()
+                .range
+                .start,
+            Position::new(2, 9)
+        );
+        let highlights = analysis.document_highlights(&entry, method).unwrap();
+        assert_eq!(
+            highlights
+                .iter()
+                .map(|highlight| highlight.range.start)
+                .collect::<Vec<_>>(),
+            [Position::new(1, 21), Position::new(2, 35)]
+        );
     }
 
     #[test]

@@ -55,6 +55,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "textDocumentSync": { "openClose": true, "change": 2, "save": true },
                 "definitionProvider": true,
                 "referencesProvider": true,
+                "documentHighlightProvider": true,
                 "hoverProvider": true,
                 "documentSymbolProvider": true,
                 "foldingRangeProvider": true,
@@ -219,6 +220,8 @@ fn query(
                 params.context.include_declaration,
             ))
         }),
+        "textDocument/documentHighlight" => decode::<lsp_types::TextDocumentPositionParams>(params)
+            .map(|params| json!(analysis.document_highlights(path, params.position))),
         COMPLETION => decode::<lsp_types::CompletionParams>(params)
             .map(|params| json!(complete(params.text_document_position.position))),
         "textDocument/signatureHelp" => {
@@ -307,6 +310,7 @@ impl Server {
             request.method.as_str(),
             "textDocument/definition"
                 | "textDocument/references"
+                | "textDocument/documentHighlight"
                 | "textDocument/hover"
                 | COMPLETION
                 | "textDocument/signatureHelp"
