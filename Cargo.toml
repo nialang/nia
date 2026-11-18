@@ -76,7 +76,6 @@ members = [
     "crates/nia-flow-check",
     "crates/nia-opt",
     "crates/nia-cli",
-    "crates/nia-editor",
     "maintain",
 ]
 

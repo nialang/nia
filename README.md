@@ -105,9 +105,6 @@ and the `nia build`, `nia check`, and `nia emit` commands. Run
 `nia help <command>` for a command's options, or `nia help emit --exe` for one
 emit kind.
 
-[Editor support](editors/README.md) covers syntax highlighting, folding, and
-file icons in VS Code, Vim, and Neovim.
-
 ## Documentation
 
 The [documentation index](docs/README.md) lists everything by reader. The main

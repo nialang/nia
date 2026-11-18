@@ -161,11 +161,11 @@ jobs:
           test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version)" = 23.1.2
           test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --shared-mode)" = static
           cd nia-source
+          cargo build --release -p nia-cli --no-default-features --features llvm-static
           LLVM_SYS_231_PREFIX="${LLVM_SYS_231_PREFIX}" NIA_REPO_ROOT="$GITHUB_WORKSPACE/nia-source" \
             NIA_RELEASE_PLATFORM='${{ matrix.platform }}' ../release-tools/tools/release/package.sh
           archive_root="target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}"
           "${archive_root}/bin/nia" --resource-root "${archive_root}/lib" --version
-          printf '%s\n' '{"id":1,"text":"fun f() {}"}' | "${archive_root}/bin/nia-editor" | grep -q '"error":null'
       - name: Verify LLVM and build compiler on Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -174,7 +174,7 @@ jobs:
           if ((& $llvmConfig --version).Trim() -ne '23.1.2') { throw 'unexpected LLVM version' }
           if ((& $llvmConfig --shared-mode).Trim() -ne 'static') { throw 'release LLVM must be static' }
           Push-Location nia-source
-          cargo build --locked --release -p nia-cli -p nia-editor --no-default-features --features llvm-static --target x86_64-pc-windows-msvc
+          cargo build --release -p nia-cli --no-default-features --features llvm-static --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw 'Windows release compiler build failed' }
           Pop-Location
           $env:NIA_REPO_ROOT = "$env:GITHUB_WORKSPACE\nia-source"
@@ -182,9 +182,6 @@ jobs:
           & .\release-tools\tools\release\package.ps1
           & ".\nia-source\target\release-package\nia-${{ needs.validate.outputs.version }}-windows-x86_64\bin\nia.exe" --resource-root ".\nia-source\target\release-package\nia-${{ needs.validate.outputs.version }}-windows-x86_64\lib" --version
           if ($LASTEXITCODE -ne 0) { throw 'packaged Windows compiler failed to start' }
-          $editor = ".\nia-source\target\release-package\nia-${{ needs.validate.outputs.version }}-windows-x86_64\bin\nia-editor.exe"
-          $reply = '{"id":1,"text":"fun f() {}"}' | & $editor | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or $reply.id -ne 1 -or $null -eq $reply.result) { throw 'packaged editor helper failed' }
       - name: Verify Unix archive layout
         if: runner.os != 'Windows'
         shell: bash
@@ -192,9 +189,6 @@ jobs:
           archive="nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.tar.gz"
           entries="$(tar -tzf "${archive}")"
           grep -Eq '/bin/nia$' <<<"${entries}"
-          grep -Eq '/bin/nia-editor$' <<<"${entries}"
-          grep -Eq '/editors/vscode/extension.js$' <<<"${entries}"
-          grep -Eq '/editors/vim/plugin/nia.vim$' <<<"${entries}"
           grep -Eq '/lib/toolchain.meta$' <<<"${entries}"
           grep -Eq '/libexec/ld.lld$' <<<"${entries}"
       - name: Verify Windows archive layout
@@ -203,7 +197,7 @@ jobs:
         run: |
           $archive = "nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.zip"
           $entries = @(tar -tf $archive)
-          foreach ($suffix in @('/bin/nia.exe', '/bin/nia-editor.exe', '/editors/vscode/extension.js', '/editors/vim/plugin/nia.vim', '/lib/toolchain.meta', '/libexec/ld.lld.exe')) {
+          foreach ($suffix in @('/bin/nia.exe', '/lib/toolchain.meta', '/libexec/ld.lld.exe')) {
             if (-not ($entries -match [regex]::Escape($suffix) + '$')) { throw "archive is missing $suffix" }
           }
       - name: Upload platform release assets

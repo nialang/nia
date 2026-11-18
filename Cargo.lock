@@ -1128,18 +1128,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nia-editor"
-version = "0.3.0-dev"
-dependencies = [
- "nia-ids",
- "nia-lexer",
- "nia-span",
- "nia-syntax",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "nia-escape-check"
 version = "0.3.0-dev"
 dependencies = [

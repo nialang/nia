@@ -30,9 +30,6 @@ pub(crate) fn block(p: &mut Parser<'_>) -> Option<Parsed> {
     let parsed = p.node(|p| {
         let start = p.expect(TokenKind::LBrace, "expected `{`")?.start;
         while !p.at(TokenKind::RBrace) && !p.at(TokenKind::Eof) {
-            if starts_outer_declaration(p) {
-                break;
-            }
             if starts_stmt(p) || p.at_attribute_start() {
                 let checkpoint = p.checkpoint();
                 if stmt(p).is_none() {
@@ -50,22 +47,6 @@ pub(crate) fn block(p: &mut Parser<'_>) -> Option<Parsed> {
     })?;
     p.record_block(parsed.span, prefix_read_end);
     Some(parsed)
-}
-
-pub(super) fn starts_outer_declaration(p: &Parser<'_>) -> bool {
-    p.at_const_fn()
-        || matches!(
-            p.kind(),
-            TokenKind::Fun
-                | TokenKind::Extern
-                | TokenKind::Module
-                | TokenKind::Struct
-                | TokenKind::Union
-                | TokenKind::Enum
-                | TokenKind::Trait
-                | TokenKind::Extend
-                | TokenKind::Type
-        )
 }
 
 /// Parses a block expression statement or the block's tail expression.

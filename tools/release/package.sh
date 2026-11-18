@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Assemble a relocatable Unix release archive after building the compiler.
-# LLVM's build tree remains a release-build input.
+# The archive intentionally contains the compiler, Nia resources, and bundled
+# linker only; LLVM's build tree remains a release-build input.
 repo_root="${NIA_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 repo_root="$(cd "${repo_root}" && pwd)"
 output_root="${NIA_RELEASE_OUTPUT:-${repo_root}/target/release-package}"
@@ -52,11 +53,10 @@ fi
 "${repo_root}/tools/release/build.sh"
 
 binary="${repo_root}/target/release/nia"
-editor_binary="${repo_root}/target/release/nia-editor"
 lld_name=ld.lld
 lld="${LLVM_SYS_231_PREFIX:-${repo_root}/target/llvm-static/install}/bin/${lld_name}"
 resource_root="${repo_root}/lib"
-for required in "${binary}" "${editor_binary}" "${lld}" "${resource_root}/toolchain.meta" \
+for required in "${binary}" "${lld}" "${resource_root}/toolchain.meta" \
     "${resource_root}/std/nia.toml" "${resource_root}/runtime/nia.toml"; do
     if [[ ! -f "${required}" || ! -r "${required}" ]]; then
         printf 'release input is missing: %s\n' "${required}" >&2
@@ -70,9 +70,7 @@ rm -rf "${stage_root}" "${archive}" "${checksums}"
 mkdir -p "${stage_root}/bin" "${stage_root}/lib" "${stage_root}/libexec"
 
 install -m 0755 "${binary}" "${stage_root}/bin/nia"
-install -m 0755 "${editor_binary}" "${stage_root}/bin/nia-editor"
 cp -a "${resource_root}/." "${stage_root}/lib/"
-cp -a "${repo_root}/editors" "${stage_root}/editors"
 install -m 0755 "${lld}" "${stage_root}/libexec/${lld_name}"
 install -m 0644 "${repo_root}/README.md" "${stage_root}/README.md"
 install -m 0644 "${repo_root}/LICENSE.md" "${stage_root}/LICENSE.md"

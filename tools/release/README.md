@@ -31,10 +31,11 @@ NIA_RELEASE_PLATFORM=darwin-aarch64 tools/release/package.sh
 
 `package.ps1` assembles the matching `windows-x86_64` ZIP archive on a Windows
 MSVC host. It does not build the compiler; build
-`nia.exe` and `nia-editor.exe` first with the static LLVM prefix:
+`target\x86_64-pc-windows-msvc\release\nia.exe` first with the static LLVM
+prefix:
 
 ```powershell
-cargo build --locked --release -p nia-cli -p nia-editor --no-default-features --features llvm-static --target x86_64-pc-windows-msvc
+cargo build --release -p nia-cli --no-default-features --features llvm-static --target x86_64-pc-windows-msvc
 tools\release\package.ps1
 ```
 
@@ -55,8 +56,6 @@ nia-<version>-<platform>/
 ├── LICENSE.md
 ├── release-manifest.txt   version, Git revision, platform, LLVM version
 ├── bin/nia                (bin/nia.exe on Windows)
-├── bin/nia-editor         (bin/nia-editor.exe on Windows)
-├── editors/               (VS Code, Vim, and Neovim integrations)
 ├── lib/                   toolchain.meta, std/, runtime/, imports/
 └── libexec/ld.lld         (libexec/ld.lld.exe on Windows)
 ```

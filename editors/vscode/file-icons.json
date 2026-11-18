@@ -1,7 +1,0 @@
-{
-  "showLanguageModeIcons": true,
-  "iconDefinitions": {
-    "nia": { "iconPath": "./nia-file.svg" }
-  },
-  "fileExtensions": { "nia": "nia" }
-}
