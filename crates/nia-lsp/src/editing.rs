@@ -10,6 +10,7 @@ use lsp_types::{
 use nia_defs::DefKind;
 use nia_lexer::{LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_span::Span;
+use nia_symbol::SymbolId;
 use nia_syntax::{GreenNode, SyntaxKind};
 
 use crate::analysis::{Analysis, File, Symbol};
@@ -49,26 +50,35 @@ impl MemberCompletion {
         Some(text)
     }
 
-    pub(crate) fn candidates(&self, analysis: &Analysis, file: &File) -> Option<Vec<String>> {
+    pub(crate) fn candidates(
+        &self,
+        analysis: &Analysis,
+        file: &File,
+        names: &[SymbolId],
+    ) -> Option<Vec<(String, CompletionItemKind)>> {
         let root = file.syntax()?.tree.green_root();
         let receiver = receiver_at_dot(root, self.dot)?;
-        analysis.receiver_fields(file, receiver)
+        analysis.receiver_members(file, receiver, names)
+    }
+
+    pub(crate) fn prefix<'a>(&self, source: &'a str) -> &'a str {
+        &source[self.replace.start..self.cursor]
     }
 
     pub(crate) fn items(
         &self,
         source: &str,
         lines: &crate::document::Lines,
-        fields: Vec<String>,
+        candidates: Vec<(String, CompletionItemKind)>,
     ) -> Vec<CompletionItem> {
-        let prefix = &source[self.replace.start..self.cursor];
+        let prefix = self.prefix(source);
         let range = lines.range(source, self.replace);
-        let mut fields = fields;
-        fields.sort_unstable();
-        fields
+        let mut candidates = candidates;
+        candidates.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        candidates
             .into_iter()
-            .filter(|name| name.starts_with(prefix))
-            .map(|name| completion_item(name, Some(CompletionItemKind::FIELD), range))
+            .filter(|(name, _)| name.starts_with(prefix))
+            .map(|(name, kind)| completion_item(name, Some(kind), range))
             .collect()
     }
 }

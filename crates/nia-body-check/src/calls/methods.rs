@@ -104,6 +104,58 @@ mod trait_methods;
 mod type_patterns;
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn editor_method_candidates(
+        &mut self,
+        receiver: &Expr,
+        ty: InternedTyId,
+        names: &[SymbolId],
+    ) -> Vec<SymbolId> {
+        names
+            .iter()
+            .copied()
+            .filter(|name| {
+                let resolution = self.method_receiver_resolution(receiver, ty, name);
+                if resolution.candidates.is_empty()
+                    && resolution.trait_candidates.is_empty()
+                    && resolution.dynamic_candidates.is_empty()
+                {
+                    self.record_method_provider_demand(resolution.receiver_ty, *name);
+                }
+                resolution.candidates.iter().any(|candidate| {
+                    candidate.inaccessible_visibility.is_none()
+                        && self
+                            .resolved_function_signature(candidate.method.def_id)
+                            .is_some_and(|resolved| {
+                                self.editor_receiver_accepts(receiver, ty, &resolved.signature)
+                            })
+                }) || resolution.trait_candidates.iter().any(|candidate| {
+                    self.editor_receiver_accepts(receiver, ty, &candidate.signature)
+                }) || resolution.dynamic_candidates.iter().any(|candidate| {
+                    self.editor_receiver_accepts(receiver, ty, &candidate.signature)
+                })
+            })
+            .collect()
+    }
+
+    fn editor_receiver_accepts(
+        &mut self,
+        receiver: &Expr,
+        ty: InternedTyId,
+        signature: &FunctionSignature,
+    ) -> bool {
+        let Some(kind) = signature.params.first().and_then(|param| param.receiver) else {
+            return false;
+        };
+        if self.in_const_context() && !signature.is_const {
+            return false;
+        }
+        let before = self.diagnostics.len();
+        self.check_receiver_match(receiver, ty, kind);
+        let accepted = self.diagnostics.len() == before;
+        self.diagnostics.truncate(before);
+        accepted
+    }
+
     /// Returns a unique method candidate's value parameter and return types
     /// for the closure inference pre-pass. Resolution is shared with ordinary
     /// method calls; this helper only exposes the signature and does not

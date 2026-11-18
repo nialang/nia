@@ -99,6 +99,23 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
     input: BodyCheckInput<'a>,
     timings: nia_timing::TimingMode,
 ) -> BodyCheck {
+    check_bodies(input, timings, None)
+}
+
+/// Checks the selected source body with a receiver method lookup for the editor.
+pub fn check_editor_methods<'a>(
+    input: BodyCheckInput<'a>,
+    timings: nia_timing::TimingMode,
+    probe: &'a EditorMethodProbe<'a>,
+) -> BodyCheck {
+    check_bodies(input, timings, Some(probe))
+}
+
+fn check_bodies<'a>(
+    input: BodyCheckInput<'a>,
+    timings: nia_timing::TimingMode,
+    editor_methods: Option<&'a EditorMethodProbe<'a>>,
+) -> BodyCheck {
     let timing = timings.detail();
     let module_id = input.defs.module_id;
     let prechecked = input.prechecked;
@@ -136,6 +153,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts_with_timings<'a>(
         return body_check_internal_error(error);
     }
     let mut checker = time_body_stage(timing, "body_check.init", module_id, || BodyChecker {
+        editor_methods,
         failure,
         type_store: input.type_store,
         active_item_tree: input.active_item_tree,

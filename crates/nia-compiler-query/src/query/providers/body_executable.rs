@@ -1052,6 +1052,74 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
     db: &QueryDb<CompilerContext>,
     input: ExecutableBodyCheckInput<'_>,
 ) -> QueryResult<BodyCheckWithResolutionInputs> {
+    body_check_with_inputs(db, input, None)
+}
+
+pub(in crate::query) fn editor_receiver_methods(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    receiver: nia_span::Span,
+    names: &[SymbolId],
+) -> QueryResult<(Vec<SymbolId>, Vec<crate::ProviderDemand>)> {
+    let defs = full_module_defs_semantic(db, module_id)?;
+    let owner = defs
+        .defs
+        .iter()
+        .filter(|(_, def)| {
+            matches!(
+                def.kind,
+                nia_defs::DefKind::Function
+                    | nia_defs::DefKind::Method
+                    | nia_defs::DefKind::TraitMethod
+            ) && def.span.start <= receiver.start
+                && receiver.end <= def.span.end
+        })
+        .min_by_key(|(_, def)| def.span.len());
+    let functions: HashSet<_> = owner
+        .into_iter()
+        .map(|(def_id, _)| GlobalDefId { module_id, def_id })
+        .collect();
+    let filter = if functions.is_empty() {
+        nia_body_check::BodyCheckFilter::All
+    } else {
+        nia_body_check::BodyCheckFilter::ReachableFunctions(&functions)
+    };
+    let probe = nia_body_check::EditorMethodProbe::new(receiver, names);
+    let checked = body_check_with_inputs(
+        db,
+        ExecutableBodyCheckInput {
+            module_id,
+            filter,
+            layouts: None,
+            program_layouts_override: None,
+            fact_mode: ExecutableFactMode::full(),
+            resolution_inputs: None,
+            seed: None,
+            global_initializer_cache: None,
+            const_module_cache: None,
+            const_inputs: None,
+            program_function_signature_cache: None,
+            product: nia_body_check::BodyCheckProduct::FactsOnly,
+            prechecked: None,
+        },
+        Some(&probe),
+    )?;
+    Ok((
+        probe.into_candidates(),
+        checked
+            .body_check
+            .provider_demands
+            .iter()
+            .cloned()
+            .collect(),
+    ))
+}
+
+fn body_check_with_inputs(
+    db: &QueryDb<CompilerContext>,
+    input: ExecutableBodyCheckInput<'_>,
+    editor_methods: Option<&nia_body_check::EditorMethodProbe<'_>>,
+) -> QueryResult<BodyCheckWithResolutionInputs> {
     let ExecutableBodyCheckInput {
         module_id,
         filter,
@@ -1697,63 +1765,66 @@ pub(super) fn body_check_with_filter_and_layouts_with_inputs(
          const_module: &nia_const_ir::ResolvedConstModule,
          filter: nia_body_check::BodyCheckFilter<'_>,
          prechecked: Option<nia_body_check::PrecheckedBodyCheck>| {
-            nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
-                nia_body_check::BodyCheckInput {
-                    type_store: &db.context().type_store,
-                    source_version: Some(source_version),
-                    source_path: &source_path,
-                    source_text: &source_text,
-                    symbols: &db.context().symbols(),
-                    origins: &origins,
-                    active_item_tree: &inputs.active_item_tree,
-                    defs: &defs,
-                    values: &inputs.values,
-                    locals: &inputs.locals,
-                    semantic_uses: &inputs.semantic_uses,
-                    type_resolution: &type_resolution,
-                    lowered: &lowered,
-                    signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(
-                        &signatures,
-                    ),
-                    const_signatures: &signatures,
-                    normalization: &body_normalization,
-                    seed,
-                    target: target.as_ref(),
-                    cpu_features,
-                    const_eval: body_const,
-                    const_module,
-                    layouts: &layouts,
-                    extensions: &empty_extensions,
-                    lazy_extensions: Some(&lazy_extensions),
-                    program_extension_methods,
-                    program: nia_body_check::BodyProgramContext {
-                        defs: Some(&program_defs),
-                        module_source_path: Some(&program_module_source_path),
-                        module_path: Some(&program_module_path),
-                        module_source_text: Some(&program_module_source_text),
-                        type_normalizations: Some(&program_type_normalization),
-                        extension_type_normalizations: Some(&extension_method_normalization),
-                        signatures: Some(&item_signatures_for_module),
-                        layouts: Some(&program_layouts),
-                        type_layout: Some(&type_layout),
-                        visible_extensions: Some(&program_visible_extensions),
-                        extension_method_by_id: Some(&program_extension_method_by_id),
-                        extension_methods_named: Some(&program_extension_methods_named),
-                        member_visibility_allows: Some(&member_visibility_allows),
-                    },
-                    program_signatures,
-                    function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
-                    program_const: nia_body_check::ProgramConstMaps {
-                        values: &program_const_values,
-                        array_lengths: &program_const_array_lengths,
-                        module: &program_const_module,
-                    },
-                    filter,
-                    product,
-                    prechecked,
+            let input = nia_body_check::BodyCheckInput {
+                type_store: &db.context().type_store,
+                source_version: Some(source_version),
+                source_path: &source_path,
+                source_text: &source_text,
+                symbols: &db.context().symbols(),
+                origins: &origins,
+                active_item_tree: &inputs.active_item_tree,
+                defs: &defs,
+                values: &inputs.values,
+                locals: &inputs.locals,
+                semantic_uses: &inputs.semantic_uses,
+                type_resolution: &type_resolution,
+                lowered: &lowered,
+                signatures: nia_body_check::BodyLocalSignatures::from_item_signatures(&signatures),
+                const_signatures: &signatures,
+                normalization: &body_normalization,
+                seed,
+                target: target.as_ref(),
+                cpu_features,
+                const_eval: body_const,
+                const_module,
+                layouts: &layouts,
+                extensions: &empty_extensions,
+                lazy_extensions: Some(&lazy_extensions),
+                program_extension_methods,
+                program: nia_body_check::BodyProgramContext {
+                    defs: Some(&program_defs),
+                    module_source_path: Some(&program_module_source_path),
+                    module_path: Some(&program_module_path),
+                    module_source_text: Some(&program_module_source_text),
+                    type_normalizations: Some(&program_type_normalization),
+                    extension_type_normalizations: Some(&extension_method_normalization),
+                    signatures: Some(&item_signatures_for_module),
+                    layouts: Some(&program_layouts),
+                    type_layout: Some(&type_layout),
+                    visible_extensions: Some(&program_visible_extensions),
+                    extension_method_by_id: Some(&program_extension_method_by_id),
+                    extension_methods_named: Some(&program_extension_methods_named),
+                    member_visibility_allows: Some(&member_visibility_allows),
                 },
-                db.context().timings(),
-            )
+                program_signatures,
+                function_scope: nia_body_check::FunctionCheckScope::ProgramSignatures,
+                program_const: nia_body_check::ProgramConstMaps {
+                    values: &program_const_values,
+                    array_lengths: &program_const_array_lengths,
+                    module: &program_const_module,
+                },
+                filter,
+                product,
+                prechecked,
+            };
+            let timings = db.context().timings();
+            if let Some(probe) = editor_methods {
+                nia_body_check::check_editor_methods(input, timings, probe)
+            } else {
+                nia_body_check::check_module_bodies_with_program_signatures_and_layouts_with_timings(
+                    input, timings,
+                )
+            }
         };
     let body_check = run_body_check(inputs, body_const, const_module, filter, prechecked);
     if let Some(error) = body_check.internal_error.clone() {

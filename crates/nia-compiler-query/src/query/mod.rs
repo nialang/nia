@@ -247,6 +247,24 @@ impl CompilerDatabase {
         full_module_defs_semantic(&self.db, module)
     }
 
+    /// Resolves methods for a source receiver in an isolated editor database.
+    pub fn source_receiver_methods(
+        &self,
+        module: ModuleId,
+        receiver: nia_span::Span,
+        names: &[SymbolId],
+    ) -> QueryResult<Vec<SymbolId>> {
+        if names.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (candidates, _) = self.settle_provider_worklist(
+            false,
+            |database| editor_receiver_methods(&database.db, module, receiver, names),
+            |(_, demands)| demands.clone(),
+        )?;
+        Ok(candidates)
+    }
+
     /// Checks every loaded module after settling provider-demand fixed points.
     pub fn check_program(&self) -> QueryResult<CheckedProgram> {
         self.check_report(FrontendCheckScope::AllModules)

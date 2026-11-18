@@ -4,9 +4,10 @@
 semantic queries. Its current editor features are live diagnostics,
 definition navigation, hover at resolved names, references within the current
 analysis graph, completion for local names, module members, and receiver
-fields, signature help for source functions and resolved methods, document
-outline, folding, and semantic highlighting. Named field accesses also
-support definition navigation and references.
+fields and methods, signature help for source functions and resolved methods,
+document outline, folding, and semantic highlighting. Named field accesses
+also support definition navigation and references. Receiver completion
+checks method names from declarations in the current analysis graph.
 Outline and folding use the current buffer's syntax tree, including unsaved
 changes. Folds include bodies, aggregate members, multiline parameter lists
 and constraints, grouped imports, and consecutive line comments.
@@ -15,8 +16,8 @@ Clients that support semantic token refresh can show syntax highlights while
 the compiler resolves symbols. Colors follow the editor theme.
 
 The server reads the nearest `nia.toml` for a library root and declared test
-entry points. Workspace dependency resolution, generated modules, receiver
-method completion, and rename are future work.
+entry points. Workspace dependency resolution, generated modules, and
+rename are future work.
 
 Build from the repository root with `cargo build --locked -p nia-lsp`.
 On Windows, use an x64 Developer PowerShell with the configured LLVM

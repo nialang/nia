@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+/// One editor-only receiver lookup in the lexical context of its expression.
+pub struct EditorMethodProbe<'a> {
+    pub(crate) receiver: Span,
+    pub(crate) names: &'a [SymbolId],
+    pub(crate) result: RefCell<Option<Vec<SymbolId>>>,
+}
+
+impl<'a> EditorMethodProbe<'a> {
+    pub fn new(receiver: Span, names: &'a [SymbolId]) -> Self {
+        Self {
+            receiver,
+            names,
+            result: RefCell::new(None),
+        }
+    }
+
+    pub fn into_candidates(self) -> Vec<SymbolId> {
+        self.result.into_inner().unwrap_or_default()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 /// Const products made available while checking function bodies.
 pub struct BodyConst<'a> {

@@ -87,6 +87,15 @@ impl<'a> BodyChecker<'a> {
                 return error;
             }
         }
+        if let Some(probe) = self.editor_methods
+            && probe.receiver == expr.span
+            && !self.is_error_recovery_ty(ty)
+            && probe.result.borrow().is_none()
+        {
+            probe
+                .result
+                .replace(Some(self.editor_method_candidates(expr, ty, probe.names)));
+        }
         ty
     }
 

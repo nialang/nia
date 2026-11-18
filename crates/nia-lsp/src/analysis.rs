@@ -5,7 +5,9 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use lsp_types::{Diagnostic, DiagnosticSeverity, Location, NumberOrString, Position, Uri};
+use lsp_types::{
+    CompletionItemKind, Diagnostic, DiagnosticSeverity, Location, NumberOrString, Position, Uri,
+};
 use nia_compiler_query::{CheckedProgramAnalysis, CompilerDatabase};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope};
 use nia_diagnostic::LabelStyle;
@@ -119,15 +121,24 @@ impl Session {
         let Some(member) = MemberCompletion::at(&file.text, offset) else {
             return analysis.complete(path, position);
         };
-        let fields = member.candidates(analysis, file).or_else(|| {
-            let text = member.probe(&file.text)?;
+        let names = analysis.method_names(member.prefix(&file.text));
+        let fields = member.candidates(analysis, file, &[]);
+        let candidates = if names.is_empty() && fields.is_some() {
+            fields
+        } else {
             let mut overlay = documents.clone();
-            let document = &mut overlay.get_mut(path)?.document;
-            *document = Document::new(document.version, text);
-            let checked = self.analyze(&overlay, path).ok()?;
-            member.candidates(&checked, checked.file(path)?)
-        });
-        Some(member.items(&file.text, &file.lines, fields.unwrap_or_default()))
+            if fields.is_none()
+                && let Some(text) = member.probe(&file.text)
+            {
+                let document = &mut overlay.get_mut(path)?.document;
+                *document = Document::new(document.version, text);
+            }
+            self.analyze(&overlay, path)
+                .ok()
+                .and_then(|checked| member.candidates(&checked, checked.file(path)?, &names))
+                .or(fields)
+        };
+        Some(member.items(&file.text, &file.lines, candidates.unwrap_or_default()))
     }
 }
 
@@ -453,7 +464,48 @@ impl Analysis {
         Some(&scope.fields)
     }
 
-    pub(crate) fn receiver_fields(&self, file: &File, receiver: Span) -> Option<Vec<String>> {
+    pub(crate) fn receiver_members(
+        &self,
+        file: &File,
+        receiver: Span,
+        names: &[SymbolId],
+    ) -> Option<Vec<(String, CompletionItemKind)>> {
+        let mut members: Vec<_> = self
+            .receiver_fields(file, receiver)?
+            .into_iter()
+            .map(|name| (name, CompletionItemKind::FIELD))
+            .collect();
+        if let Ok(methods) = self
+            .db
+            .source_receiver_methods(file.module, receiver, names)
+        {
+            members.extend(methods.into_iter().filter_map(|name| {
+                Some((
+                    self.db.source_symbol_text(name)?.to_string(),
+                    CompletionItemKind::METHOD,
+                ))
+            }));
+        }
+        Some(members)
+    }
+
+    fn method_names(&self, prefix: &str) -> Vec<SymbolId> {
+        let mut names: Vec<_> = self
+            .defs
+            .values()
+            .flat_map(|defs| defs.defs.iter())
+            .filter_map(|(_, def)| {
+                (matches!(def.kind, DefKind::Method | DefKind::TraitMethod)
+                    && self.db.source_symbol_text(def.name)?.starts_with(prefix))
+                .then_some(def.name)
+            })
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
+    fn receiver_fields(&self, file: &File, receiver: Span) -> Option<Vec<String>> {
         Some(match self.receiver_type(file, receiver)? {
             TyKind::Nominal { def_id, .. } => self
                 .nominal_fields(*def_id)
@@ -1112,6 +1164,88 @@ mod tests {
                     .map(|item| item.label.as_str())
                     .collect::<Vec<_>>(),
                 expected
+            );
+        }
+    }
+
+    #[test]
+    fn receiver_methods_follow_visibility_mutability_and_trait_bounds() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-receiver-methods");
+        let main = root.join("main.nia");
+        std::fs::write(
+            root.join("counters.nia"),
+            concat!(
+                "pub struct Counter { value: i32 }\n",
+                "pub trait Scored { fun score(&self) i32; }\n",
+                "extend Counter : Scored { fun score(&self) i32 { self.value } }\n",
+                "extend Counter {\n",
+                "    pub fun read(&self, extra: i32) i32 { self.value + extra }\n",
+                "    pub fun reset(&mut self) { self.value = 0; }\n",
+                "    pub fun create() i32 { 0 }\n",
+                "    fun hidden(&self) i32 { self.value }\n",
+                "}\n",
+                "pub struct Other {}\n",
+                "extend Other { pub fun unrelated(&self) {} }\n",
+            ),
+        )
+        .unwrap();
+        let mut session = test_session();
+        let mut probe = test_session();
+        for (line, suffix, prefix, expected) in [
+            (
+                "fun inspect(value: &counters::Counter) { _ = value.",
+                "",
+                0,
+                &[
+                    ("read", CompletionItemKind::METHOD),
+                    ("score", CompletionItemKind::METHOD),
+                    ("value", CompletionItemKind::FIELD),
+                ][..],
+            ),
+            (
+                "fun inspect(value: &mut counters::Counter) { _ = value.",
+                "reXX",
+                2,
+                &[
+                    ("read", CompletionItemKind::METHOD),
+                    ("reset", CompletionItemKind::METHOD),
+                ][..],
+            ),
+            (
+                "fun inspect[T](value: T) where T: counters::Scored { _ = value.",
+                "",
+                0,
+                &[("score", CompletionItemKind::METHOD)][..],
+            ),
+            ("fun inspect[T](value: T) { _ = value.", "", 0, &[][..]),
+        ] {
+            let source = format!("module counters;\n{line}{suffix}; }}\n");
+            let documents = [(
+                main.clone(),
+                OpenDocument {
+                    uri: uri(&main).unwrap(),
+                    document: Document::new(1, source),
+                },
+            )]
+            .into_iter()
+            .collect();
+            let analysis = session.analyze(&documents, &main).unwrap();
+            let items = probe
+                .complete(
+                    &analysis,
+                    &documents,
+                    &main,
+                    Position::new(1, line.len() as u32 + prefix),
+                )
+                .unwrap();
+            assert_eq!(
+                items
+                    .iter()
+                    .map(|item| (item.label.as_str(), item.kind.unwrap()))
+                    .collect::<Vec<_>>(),
+                expected,
+                "{line}{suffix}"
             );
         }
     }

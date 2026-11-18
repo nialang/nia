@@ -125,11 +125,12 @@ use signature_scope::ProgramSignatureScope;
 
 pub use inputs::{
     BodyCheckFilter, BodyCheckInput, BodyCheckSeed, BodyCheckWithProgramSignaturesInput, BodyConst,
-    BodyLocalSignatures, BodyProgramContext, BodyVisibleExtensions, FunctionCheckScope,
-    ProgramConstMaps,
+    BodyLocalSignatures, BodyProgramContext, BodyVisibleExtensions, EditorMethodProbe,
+    FunctionCheckScope, ProgramConstMaps,
 };
 pub use orchestration::{
-    check_module_bodies_with_layouts, check_module_bodies_with_program_signatures,
+    check_editor_methods, check_module_bodies_with_layouts,
+    check_module_bodies_with_program_signatures,
     check_module_bodies_with_program_signatures_and_layouts,
     check_module_bodies_with_program_signatures_and_layouts_with_timings,
 };
@@ -203,6 +204,7 @@ impl<'a> BodyTypeCx<'a> {
 }
 
 struct BodyChecker<'a> {
+    editor_methods: Option<&'a EditorMethodProbe<'a>>,
     failure: BodyFailure,
     type_store: &'a nia_ty::TypeStore,
     active_item_tree: &'a ActiveModuleItemTree,

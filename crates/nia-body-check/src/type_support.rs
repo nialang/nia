@@ -2523,6 +2523,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn clone_for_type_compare(&self) -> BodyChecker<'a> {
         BodyChecker {
+            editor_methods: None,
             failure: self.failure.clone(),
             type_store: self.type_store,
             active_item_tree: self.active_item_tree,
