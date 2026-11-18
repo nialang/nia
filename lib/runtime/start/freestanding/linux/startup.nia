@@ -13,38 +13,25 @@ extern fun niaStartStack(stack: &usize, header: usize, dynamic: usize) () {
     let wordSize = std::builtin::size[usize]();
     let argvAddress = match startupAddress(stack, wordSize) {
         ?address => address,
-        null => {
-            process::exit(process::ExitCode(127));
-            0
-        },
+        null => process::exit(process::ExitCode(127)),
     };
     let envWordCount = match argc.checkedAdd(2) {
         ?count => count,
-        null => {
-            process::exit(process::ExitCode(127));
-            0
-        },
+        null => process::exit(process::ExitCode(127)),
     };
     let envOffset = match wordSize.checkedMul(envWordCount) {
         ?offset => offset,
-        null => {
-            process::exit(process::ExitCode(127));
-            0
-        },
+        null => process::exit(process::ExitCode(127)),
     };
     let envAddress = match startupAddress(stack, envOffset) {
         ?address => address,
-        null => {
-            process::exit(process::ExitCode(127));
-            0
-        },
+        null => process::exit(process::ExitCode(127)),
     };
     let argv = argvAddress as &&u8;
     let envp = envAddress as &&u8;
     let init = process::Init::init(argc, argv, envp);
     let exit = callUserMain(init);
     process::exit(exit);
-    loop {}
 }
 
 fun startupAddress(stack: &usize, offset: usize) ?usize {

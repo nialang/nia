@@ -37,7 +37,6 @@ extern fun niaWindowsStart() () {
 
     let init = process::Init::init(argc, &argumentPointers[0], envp);
     process::exit(callUserMain(init));
-    loop {}
 }
 
 // The environment block has no fixed size limit, so its UTF-8 copy is sized

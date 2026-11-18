@@ -24,7 +24,8 @@ extend Init {
     }
 }
 
-// Ends the process with `code`. Startup calls this with `main`'s result.
-pub fun exit(code: types::ExitCode) () {
-    root::os::exit(code.0);
+// Ends the process and all its threads with `code`.
+// Startup calls this with `main`'s result.
+pub fun exit(code: types::ExitCode) never {
+    root::os::exit(code.0)
 }

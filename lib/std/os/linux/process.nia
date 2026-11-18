@@ -96,8 +96,7 @@ fun spawnWithResources(
         }
         let execError = executePath(path, argv, envp);
         reportSpawnError(&resources.error, .Exec, execError);
-        exit(127);
-        .failure(.Setup(.Io))
+        exit(127)
     } else {
         resources.stdin.closeRead();
         resources.stdout.closeWrite();
@@ -496,9 +495,9 @@ fun wait4(pid: ProcessId, status: &mut i32, options: usize) isize {
     ret
 }
 
-pub fun exit(code: i32) () {
-    _ = syscall::syscall1(syscall::exit, code as usize);
-    loop {}
+pub fun exit(code: i32) never {
+    _ = syscall::syscall1(syscall::exit_group, code as usize);
+    root::builtin::trap()
 }
 
 extend SpawnErrorRecord {

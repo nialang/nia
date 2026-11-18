@@ -658,7 +658,10 @@ extend SpawnResources {
     fun init() SpawnResources { .{ stdin: .closed(), stdout: .closed(), stderr: .closed(), error: .closed() } }
     fun closeAll(&mut self) () { self.stdin.closeAll(); self.stdout.closeAll(); self.stderr.closeAll(); self.error.closeAll(); }
 }
-pub fun exit(code: i32) () { bindings::exit(code); loop {} }
+pub fun exit(code: i32) never {
+    bindings::exit(code);
+    root::builtin::trap()
+}
 
 const statTypeMask: u16 = 0o170000;
 const statFifo: u16 = 0o010000;

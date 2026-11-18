@@ -201,6 +201,6 @@ pub fun killWith(pid: ProcessId, signal: i32) Errno!() {
     process::killWith(pid, signal)
 }
 
-pub fun exit(code: i32) () {
-    process::exit(code);
+pub fun exit(code: i32) never {
+    process::exit(code)
 }

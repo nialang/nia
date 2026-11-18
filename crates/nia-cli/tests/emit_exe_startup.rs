@@ -608,3 +608,42 @@ pub fun main(init: process::Init) process::ExitCode!() {
         }
     }
 }
+
+#[test]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn linux_process_exit_terminates_live_worker_threads() {
+    let root = temp_dir("linux_process_exit");
+    let main = root.join("main.nia");
+    std::fs::write(&main, include_str!("fixtures/linux_process_exit.nia"))
+        .expect("write threaded process source");
+    let targets: &[&str] = if cfg!(target_arch = "x86_64") {
+        &["x86_64-unknown-linux", "x86-unknown-linux"]
+    } else {
+        &["aarch64-unknown-linux"]
+    };
+    for target in targets {
+        let exe = root.join(target);
+        let output = support::nia_command()
+            .args(["--target", target, "-O0", "emit", "--exe"])
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output_timeout_for_build("emit threaded process executable");
+        assert!(
+            output.status.success(),
+            "{target}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        for (args, expected) in [(&[][..], 42), (&["explicit"][..], 43)] {
+            let status = Command::new("timeout")
+                .args(["--kill-after=2s", "5s"])
+                .arg(&exe)
+                .args(args)
+                .status_timeout("run threaded process executable");
+            assert_eq!(status.code(), Some(expected), "{target}, args {args:?}");
+        }
+    }
+}

@@ -80,6 +80,11 @@ impl<'a> BodyChecker<'a> {
         let Some(actual) = self.expr_ty(expr) else {
             return Some(forced_ty);
         };
+        // A diverging expression can inhabit any expected type without
+        // producing a value. Preserve that fact for call ABI and control flow.
+        if self.is_never(actual) {
+            return Some(self.never());
+        }
         self.materialize_inferred_array_type(forced_ty, actual)
             .or(Some(forced_ty))
     }

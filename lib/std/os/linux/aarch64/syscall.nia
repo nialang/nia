@@ -11,6 +11,7 @@ pub const munmap: usize = 215;
 pub const clone: usize = 220;
 pub const execve: usize = 221;
 pub const exit: usize = 93;
+pub const exit_group: usize = 94;
 pub const wait4: usize = 260;
 pub const kill: usize = 129;
 pub const fchmod: usize = 52;

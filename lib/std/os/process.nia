@@ -30,8 +30,8 @@ pub fun killWith(pid: ProcessId, signal: i32) Error!() {
 }
 
 // Public runtime primitive used by the toolchain-owned startup template.
-pub fun exit(code: i32) () {
-    platform::exit(code);
+pub fun exit(code: i32) never {
+    platform::exit(code)
 }
 
 

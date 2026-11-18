@@ -182,7 +182,7 @@ pub fun killWith(pid: ProcessId, signal: i32) Errno!() {
     !()
 }
 
-pub fun exit(code: i32) () {
+pub fun exit(code: i32) never {
     ExitProcess(code as u32);
-    loop {}
+    root::builtin::trap()
 }

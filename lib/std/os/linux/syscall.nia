@@ -12,7 +12,6 @@ pub using platform::{
     dup3,
     execve,
     fdatasync,
-    exit,
     fchmod,
     clone,
     fcntl,
@@ -43,3 +42,7 @@ pub using platform::{
     unlinkat,
     write,
 };
+
+// Linux terminates the calling thread with exit and the whole thread group
+// with exit_group. std::process::exit uses the latter.
+pub using platform::{exit, exit_group};

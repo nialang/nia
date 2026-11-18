@@ -1,0 +1,85 @@
+using std::process;
+
+static mut workerStack: [u8; 4096] = [0; 4096];
+
+// CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD |
+// CLONE_SYSVSEM also works under QEMU's Linux user-mode thread emulation.
+const threadFlags: usize = 0x50f00;
+
+// The child stays in assembly on its new stack and blocks indefinitely.
+// Once clone succeeds, the parent can exit without a handshake.
+@[if arch == "x86_64"]
+@[inlineNever]
+fun startWorker(stackTop: usize) isize {
+    let mut result: isize = 0;
+    std::builtin::asm(.{
+        code: b"syscall\n"
+              b"test rax, rax\n"
+              b"jne .Lexit_worker_parent\n"
+              b".Lexit_worker_wait: mov eax, 34\n" // pause
+              b"syscall\n"
+              b"jmp .Lexit_worker_wait\n"
+              b".Lexit_worker_parent:",
+        outputs: .{ rax: result },
+        inputs: .{ rax: 56usize, rdi: threadFlags, rsi: stackTop },
+        clobbers: [b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
+    });
+    result
+}
+
+@[if arch == "x86"]
+@[inlineNever]
+fun startWorker(stackTop: usize) isize {
+    let mut result: isize = 0;
+    std::builtin::asm(.{
+        code: b"int 0x80\n"
+              b"test eax, eax\n"
+              b"jne .Lexit_worker_parent\n"
+              b".Lexit_worker_wait: mov eax, 29\n" // pause
+              b"int 0x80\n"
+              b"jmp .Lexit_worker_wait\n"
+              b".Lexit_worker_parent:",
+        outputs: .{ eax: result },
+        inputs: .{ eax: 120usize, ebx: threadFlags, ecx: stackTop },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    result
+}
+
+@[if arch == "aarch64"]
+@[inlineNever]
+fun startWorker(stackTop: usize) isize {
+    let mut result: isize = 0;
+    std::builtin::asm(.{
+        code: b"svc #0\n"
+              b"cbnz x0, 2f\n"
+              b"1: mov x0, xzr\n"
+              b"mov x1, xzr\n"
+              b"mov x2, xzr\n"
+              b"mov x3, xzr\n"
+              b"mov x4, xzr\n"
+              b"mov x8, #73\n" // ppoll with no descriptors or timeout
+              b"svc #0\n"
+              b"b 1b\n"
+              b"2:",
+        outputs: .{ x0: result },
+        inputs: .{ x8: 220usize, x0: threadFlags, x1: stackTop },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    result
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    let stack = &mut workerStack[0] as usize;
+    let stackTop = (stack + workerStack.len()) & ~15usize;
+    if startWorker(stackTop) <= 0 {
+        return process::ExitCode(125)!;
+    }
+    if init.argc() > 1 {
+        process::exit(process::ExitCode(43));
+    }
+    process::ExitCode(42)!
+}
