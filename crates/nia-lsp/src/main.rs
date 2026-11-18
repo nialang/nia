@@ -6,6 +6,7 @@ mod document;
 mod editing;
 mod highlight;
 mod project;
+mod rename;
 mod server;
 mod structure;
 

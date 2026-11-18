@@ -269,6 +269,8 @@ pub struct UsingEntry {
 pub struct ModuleUsingScope {
     /// Imported modules by local name.
     pub modules: SymbolMap<ModuleId>,
+    /// Directive and binding spans for explicitly imported module names.
+    pub module_origins: SymbolMap<(Span, Span)>,
     /// Imported values by local name.
     pub values: SymbolMap<UsingEntry>,
     /// Imported types by local name.

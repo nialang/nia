@@ -10,9 +10,7 @@ use lsp_types::{
     NumberOrString, Position, Uri,
 };
 use nia_compiler_query::{CheckedProgramAnalysis, CompilerDatabase};
-use nia_defs::{
-    DefCollection, DefKind, ModuleUsingScope, UsingGroupItem, UsingName, UsingSelector,
-};
+use nia_defs::{DefCollection, DefKind, ModuleUsingScope};
 use nia_diagnostic::LabelStyle;
 use nia_driver::{CheckRequest, Driver};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
@@ -31,6 +29,9 @@ use crate::document::{Document, Lines};
 use crate::editing::{MemberCompletion, field_accesses};
 use crate::highlight::{Class, Kind, Resolved};
 use crate::project::Projects;
+
+mod imports;
+use imports::ImportOccurrences;
 
 pub(crate) type Documents = BTreeMap<PathBuf, OpenDocument>;
 
@@ -56,7 +57,7 @@ pub(crate) struct Session {
     toolchain: Arc<ToolchainLayout>,
     driver: Driver,
     overlays: BTreeMap<PathBuf, Arc<str>>,
-    projects: Projects,
+    pub(crate) projects: Projects,
 }
 
 impl Session {
@@ -74,6 +75,28 @@ impl Session {
         documents: &Documents,
         entry: &Path,
     ) -> Result<Analysis, String> {
+        self.install_documents(documents)?;
+        let analyze = |request| analyze_request(&self.driver, request);
+        let Some(package) = self.projects.package(entry)? else {
+            return analyze(CheckRequest::new(normalized(entry)));
+        };
+        let entries = package.entries(entry);
+        let entry_path = normalized(entry);
+        let mut entries = entries.into_iter().peekable();
+        while let Some((path, context)) = entries.next() {
+            let analysis = package.request(&path, context).and_then(analyze);
+            if entries.peek().is_none()
+                || analysis
+                    .as_ref()
+                    .is_ok_and(|analysis| analysis.files.contains_key(&entry_path))
+            {
+                return analysis;
+            }
+        }
+        unreachable!("editor requests always include the current source")
+    }
+
+    pub(crate) fn install_documents(&mut self, documents: &Documents) -> Result<(), String> {
         // A fresh source database lets closed files return to disk ownership.
         if self
             .overlays
@@ -96,30 +119,11 @@ impl Session {
                 })?;
             self.overlays.insert(path.clone(), text.clone());
         }
-        let analyze = |request| {
-            self.driver
-                .analyze_for_editor(request, |db, program| {
-                    Analysis::from_program(&self.driver, db, program)
-                })
-                .map_err(|error| error.to_string())
-        };
-        let Some(package) = self.projects.package(entry)? else {
-            return analyze(CheckRequest::new(normalized(entry)));
-        };
-        let entries = package.entries(entry);
-        let entry_path = normalized(entry);
-        let mut entries = entries.into_iter().peekable();
-        while let Some((path, context)) = entries.next() {
-            let analysis = package.request(&path, context).and_then(analyze);
-            if entries.peek().is_none()
-                || analysis
-                    .as_ref()
-                    .is_ok_and(|analysis| analysis.files.contains_key(&entry_path))
-            {
-                return analysis;
-            }
-        }
-        unreachable!("editor requests always include the current source")
+        Ok(())
+    }
+
+    pub(crate) fn analyze_request(&self, request: CheckRequest) -> Result<Analysis, String> {
+        analyze_request(&self.driver, request)
     }
 
     pub(crate) fn reload(&mut self) {
@@ -159,10 +163,20 @@ impl Session {
     }
 }
 
+fn analyze_request(driver: &Driver, request: CheckRequest) -> Result<Analysis, String> {
+    driver
+        .analyze_for_editor(request, |db, program| {
+            Analysis::from_program(driver, db, program)
+        })
+        .map_err(|error| error.to_string())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Symbol {
     Global(GlobalDefId),
     Local(ModuleId, LocalId),
+    ModuleAlias(ModuleId, Span),
+    ItemAlias(ModuleId, Span),
 }
 
 struct Occurrence {
@@ -173,7 +187,7 @@ struct Occurrence {
 
 pub(crate) struct File {
     module: ModuleId,
-    uri: Uri,
+    pub(crate) uri: Uri,
     pub(crate) text: Arc<str>,
     pub(crate) lines: Lines,
     occurrences: Vec<Occurrence>,
@@ -182,6 +196,7 @@ pub(crate) struct File {
     expr_types: HashMap<Span, InternedTyId>,
     syntax: OnceLock<Option<nia_syntax::Parse>>,
     field_uses: OnceLock<Vec<(Span, GlobalDefId)>>,
+    rename_aliases: HashMap<Span, Symbol>,
 }
 
 impl File {
@@ -193,8 +208,8 @@ impl File {
 }
 
 pub(crate) struct Analysis {
-    files: BTreeMap<String, File>,
-    definitions: HashMap<Symbol, (String, Span)>,
+    pub(crate) files: BTreeMap<String, File>,
+    pub(crate) definitions: HashMap<Symbol, (String, Span)>,
     diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
     db: CompilerDatabase,
     graph: ModuleGraphSnapshot,
@@ -266,6 +281,7 @@ impl Analysis {
             let mut type_highlights = Resolved::new();
             let mut expr_types = HashMap::new();
             let syntax = OnceLock::new();
+            let mut rename_aliases = HashMap::new();
             let mut declare = |symbol, span| {
                 result.definitions.insert(symbol, (path.to_owned(), span));
                 occurrences.push(Occurrence {
@@ -390,12 +406,28 @@ impl Analysis {
                         &mut occurrences,
                     );
                 }
-                if !defs.module_usings.is_empty() {
-                    let imports = db.source_imports(module.id, 0)?;
-                    for directive in &defs.module_usings {
-                        visit_using_names(&directive.selector, &mut |name| {
-                            index_using_name(name, directive.span, &imports, &mut occurrences);
-                        });
+                if tokens
+                    .iter()
+                    .any(|token| token.kind == LosslessTokenKind::Token(TokenKind::Using))
+                    && let Some(parsed) =
+                        syntax.get_or_init(|| nia_syntax::parse(&file.text, None).ok())
+                {
+                    let mut imports = ImportOccurrences {
+                        graph: &program.graph,
+                        module: module.id,
+                        text: &file.text,
+                        tokens: &tokens,
+                        occurrences: &mut occurrences,
+                        aliases: &mut rename_aliases,
+                        bindings: HashMap::new(),
+                    };
+                    imports.index(
+                        parsed.tree.green_root(),
+                        &defs,
+                        &db.source_import_scopes(module.id)?,
+                    );
+                    for (span, symbol) in imports.bindings {
+                        result.definitions.insert(symbol, (path.to_owned(), span));
                     }
                 }
             }
@@ -413,6 +445,7 @@ impl Analysis {
                     expr_types,
                     syntax,
                     field_uses: OnceLock::new(),
+                    rename_aliases,
                 },
             );
         }
@@ -427,6 +460,112 @@ impl Analysis {
 
     pub(crate) fn file(&self, path: &Path) -> Option<&File> {
         self.files.get(&normalized(path))
+    }
+
+    pub(crate) fn rename_symbol_at(&self, file: &File, offset: usize) -> Option<(Symbol, Span)> {
+        let symbol = self.symbol_at_offset(file, offset)?;
+        let span = self
+            .reference_spans(file, symbol, true)
+            .into_iter()
+            .find(|span| span.start <= offset && offset < span.end)?;
+        Some((
+            file.rename_aliases.get(&span).copied().unwrap_or(symbol),
+            span,
+        ))
+    }
+
+    pub(crate) fn rename_supported(&self, symbol: Symbol) -> bool {
+        match symbol {
+            Symbol::Local(..) => true,
+            Symbol::Global(id) => self
+                .defs
+                .get(&id.module_id)
+                .and_then(|defs| defs.defs.get(id.def_id))
+                .is_some_and(|def| {
+                    let Some((source, name)) = self.declaration_source(symbol) else {
+                        return false;
+                    };
+                    def.parent.is_none()
+                        && !matches!(&source[name.start..name.end], "main" | "build")
+                        && !nia_lexer::tokenize(&source[def.span.start..name.start])
+                            .iter()
+                            .any(|token| token.kind == TokenKind::Extern)
+                        && matches!(
+                            def.kind,
+                            DefKind::Function
+                                | DefKind::Global
+                                | DefKind::Const
+                                | DefKind::Struct
+                                | DefKind::Union
+                                | DefKind::Enum
+                                | DefKind::Trait
+                                | DefKind::TypeAlias
+                        )
+                }),
+            Symbol::ModuleAlias(module, span) | Symbol::ItemAlias(module, span) => {
+                self.defs.get(&module).is_some_and(|defs| {
+                    !defs.module_usings.iter().any(|directive| {
+                        directive.visibility != nia_ids::Visibility::Private
+                            && directive.span.start <= span.start
+                            && span.end <= directive.span.end
+                    })
+                })
+            }
+        }
+    }
+
+    pub(crate) fn rename_scope(&self, symbol: Symbol) -> Option<Span> {
+        if matches!(symbol, Symbol::Global(_)) {
+            return None;
+        }
+        let (source, span) = self.definitions.get(&symbol)?;
+        let root = self.files.get(source)?.syntax()?.tree.green_root();
+        let item = root.child_nodes().find(|node| {
+            let item = node.span();
+            item.start <= span.start && span.end <= item.end
+        })?;
+        if matches!(symbol, Symbol::Local(..)) {
+            return Some(item.span());
+        }
+        let mut enclosing = item;
+        let mut block = None;
+        while let Some(child) = enclosing.child_nodes().find(|node| {
+            let region = node.span();
+            region.start <= span.start && span.end <= region.end
+        }) {
+            if child.kind() == &SyntaxKind::Block {
+                block = Some(child.span());
+            }
+            enclosing = child;
+        }
+        block
+    }
+
+    pub(crate) fn first_error(&self) -> Option<&str> {
+        self.diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.is_error())
+            .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+    }
+
+    pub(crate) fn rename_occurrences<'a>(
+        &self,
+        file: &'a File,
+    ) -> impl Iterator<Item = (Span, Symbol, Option<Symbol>)> + 'a {
+        file.occurrences
+            .iter()
+            .map(|item| {
+                (
+                    item.span,
+                    item.symbol,
+                    file.rename_aliases.get(&item.span).copied(),
+                )
+            })
+            .chain(
+                self.field_uses(file)
+                    .iter()
+                    .map(|&(span, field)| (span, Symbol::Global(field), None)),
+            )
     }
 
     fn receiver_type(&self, file: &File, receiver: Span) -> Option<&TyKind> {
@@ -559,6 +698,8 @@ impl Analysis {
                 continue;
             }
             let kind = match item.symbol {
+                Symbol::ModuleAlias(..) => Some((Kind::Namespace, false)),
+                Symbol::ItemAlias(..) => None,
                 Symbol::Local(_, id) => file.locals.get(&id).copied(),
                 Symbol::Global(id) => self
                     .defs
@@ -971,56 +1112,6 @@ fn method_callee_name(call: &GreenNode) -> Option<Span> {
     None
 }
 
-fn visit_using_names(selector: &UsingSelector, visit: &mut impl FnMut(&UsingName)) {
-    match selector {
-        UsingSelector::Single(name) => visit(name),
-        UsingSelector::Group(items) => {
-            for item in items {
-                match item {
-                    UsingGroupItem::Name(name) => visit(name),
-                    UsingGroupItem::Nested { selector, .. } => visit_using_names(selector, visit),
-                }
-            }
-        }
-        UsingSelector::Wildcard { .. } | UsingSelector::SelfName => {}
-    }
-}
-
-fn index_using_name(
-    name: &UsingName,
-    directive: Span,
-    imports: &ModuleUsingScope,
-    occurrences: &mut Vec<Occurrence>,
-) {
-    let alias = name.alias.unwrap_or(name.name);
-    let binding_span = name.alias_span.unwrap_or(name.name_span);
-    let mut targets = [&imports.types, &imports.values]
-        .into_iter()
-        .filter_map(|items| {
-            let item = items.get(&alias)?;
-            (item.directive_span == directive && item.name_span == binding_span).then_some(
-                GlobalDefId {
-                    module_id: item.target_module,
-                    def_id: item.target_def_id,
-                },
-            )
-        });
-    let Some(target) = targets.next() else {
-        return;
-    };
-    // One selector can introduce names in multiple namespaces.
-    if targets.any(|other| other != target) {
-        return;
-    }
-    for span in std::iter::once(name.name_span).chain(name.alias_span) {
-        occurrences.push(Occurrence {
-            span,
-            symbol: Symbol::Global(target),
-            declaration: false,
-        });
-    }
-}
-
 pub(crate) struct VisibleName {
     pub(crate) name: Arc<str>,
     pub(crate) kind: Option<DefKind>,
@@ -1040,6 +1131,197 @@ mod tests {
         ))
         .unwrap();
         Session::new(Arc::new(toolchain))
+    }
+
+    #[test]
+    fn rename_tracks_nested_import_bindings_and_unsaved_utf16_positions() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-rename-imports");
+        let entry = root.join("root.nia");
+        let math = root.join("math.nia");
+        let other = root.join("other.nia");
+        std::fs::write(&math, "pub fun amount() i32 { 1 }\n").unwrap();
+        std::fs::write(&other, "pub fun amount() i32 { 2 }\n").unwrap();
+        std::fs::write(&entry, "").unwrap();
+        let source = concat!(
+            "module math;\n",
+            "module other;\n",
+            "using root::math as calc;\n",
+            "fun run() i32 {\n",
+            "    using calc::{amount as picked};\n",
+            "    { using root::other::{amount as picked}; _ = picked(); };\n",
+            "    _ = \"🦀\"; picked() + calc::amount()\n",
+            "}\n",
+        );
+        let documents = Documents::from([(
+            entry.clone(),
+            OpenDocument {
+                uri: uri(&entry).unwrap(),
+                document: Document::new(7, source.into()),
+            },
+        )]);
+        let analysis = test_session().analyze(&documents, &entry).unwrap();
+        assert_eq!(analysis.first_error(), None);
+        let position = Position::new(6, 15);
+        assert_eq!(
+            analysis.definition(&entry, position).unwrap().uri,
+            uri(&math).unwrap()
+        );
+        assert_eq!(
+            analysis
+                .definition(&entry, Position::new(5, 51))
+                .unwrap()
+                .uri,
+            uri(&other).unwrap()
+        );
+        assert_eq!(
+            analysis
+                .definition(&entry, Position::new(6, 26))
+                .unwrap()
+                .range
+                .start,
+            Position::new(2, 20)
+        );
+        let rename = |position, new_name| {
+            test_session().rename(
+                &analysis,
+                &documents,
+                crate::rename::Rename {
+                    path: &entry,
+                    position,
+                    new_name,
+                    folders: &[],
+                    versioned: true,
+                },
+            )
+        };
+        for (position, name, positions) in [
+            (
+                position,
+                "chosen",
+                vec![Position::new(4, 27), Position::new(6, 14)],
+            ),
+            (
+                Position::new(6, 26),
+                "numbers",
+                vec![
+                    Position::new(2, 20),
+                    Position::new(4, 10),
+                    Position::new(6, 25),
+                ],
+            ),
+        ] {
+            assert!(analysis.prepare_rename(&entry, position).is_some());
+            let edit = rename(position, name).unwrap();
+            let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
+                panic!("expected versioned edits");
+            };
+            assert_eq!(edits.len(), 1);
+            assert_eq!(edits[0].text_document.version, Some(7));
+            assert_eq!(
+                edits[0]
+                    .edits
+                    .iter()
+                    .map(|edit| match edit {
+                        lsp_types::OneOf::Left(edit) => edit.range.start,
+                        _ => panic!("expected text edit"),
+                    })
+                    .collect::<Vec<_>>(),
+                positions
+            );
+        }
+        assert!(
+            rename(position, "using")
+                .unwrap_err()
+                .contains("identifier")
+        );
+        assert_eq!(std::fs::read_to_string(&entry).unwrap(), "");
+    }
+
+    #[test]
+    fn rename_checks_unopened_workspace_members_and_preserves_explicit_aliases() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-rename-workspace");
+        let write = |relative: &str, text: &str| {
+            let path = root.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, text).unwrap();
+            path
+        };
+        write("nia.toml", "[workspace]\nmembers = [\"lib\", \"app\"]\n");
+        write(
+            "lib/nia.toml",
+            "[package]\nname = \"lib\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+        );
+        write(
+            "app/nia.toml",
+            concat!(
+                "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+                "[[test]]\nname = \"suite\"\npath = \"checks.nia\"\n",
+                "[dependencies]\nlib = { path = \"../lib\" }\n",
+            ),
+        );
+        let source = "pub fun amount() i32 { 42 }\npub fun other() i32 { 1 }\n";
+        let declaration = write("lib/root.nia", source);
+        let test_source =
+            "using lib::amount as selected;\nfun check() i32 { selected() + lib::amount() }\n";
+        let test = write("app/checks.nia", test_source);
+        let documents = Documents::new();
+        let analysis = test_session().analyze(&documents, &declaration).unwrap();
+        let rename = |new_name| {
+            test_session().rename(
+                &analysis,
+                &documents,
+                crate::rename::Rename {
+                    path: &declaration,
+                    position: Position::new(0, 9),
+                    new_name,
+                    folders: &[root.to_path_buf()],
+                    versioned: false,
+                },
+            )
+        };
+        let edit = rename("quantity").unwrap();
+        let Some(ref changes) = edit.changes else {
+            panic!("expected unversioned edits");
+        };
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[&uri(&declaration).unwrap()].len(), 1);
+        assert_eq!(
+            changes[&uri(&test).unwrap()]
+                .iter()
+                .map(|edit| edit.range.start)
+                .collect::<Vec<_>>(),
+            [Position::new(0, 11), Position::new(1, 36)]
+        );
+        assert!(rename("other").is_err());
+        assert_eq!(std::fs::read_to_string(&test).unwrap(), test_source);
+        assert_eq!(std::fs::read_to_string(&declaration).unwrap(), source);
+    }
+
+    #[test]
+    fn rename_rejects_capture_even_when_the_rewritten_program_compiles() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-rename-capture");
+        let entry = root.join("root.nia");
+        let source = "fun compute() i32 { let first = 1; { let second = 2; first + second } }\n";
+        std::fs::write(&entry, source).unwrap();
+        let documents = Documents::new();
+        let analysis = test_session().analyze(&documents, &entry).unwrap();
+        assert_eq!(analysis.first_error(), None);
+        let request = |name| crate::rename::Rename {
+            path: &entry,
+            position: Position::new(0, 25),
+            new_name: name,
+            folders: &[],
+            versioned: false,
+        };
+        let result = test_session().rename(&analysis, &documents, request("second"));
+        assert!(result.unwrap_err().contains("change name resolution"));
+        let edit = test_session()
+            .rename(&analysis, &documents, request("value"))
+            .unwrap();
+        assert_eq!(edit.changes.unwrap()[&uri(&entry).unwrap()].len(), 2);
     }
 
     #[test]

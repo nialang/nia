@@ -78,8 +78,9 @@ pub use nia_backend_ir::BackendFunctionStats;
 pub use nia_backend_lower::{BackendOptimizationChange, BackendOptimizationReport};
 pub use nia_timing::TimingMode;
 pub use query::{
-    CompileRequest, CompilerDatabase, StableDefinitionIndex, StableDefinitionPackageResolver,
-    StableDefinitionResolver, StableModuleIdentity, StableModuleIndex, StableModulePackageResolver,
+    CompileRequest, CompilerDatabase, LexicalUsingScopes, StableDefinitionIndex,
+    StableDefinitionPackageResolver, StableDefinitionResolver, StableModuleIdentity,
+    StableModuleIndex, StableModulePackageResolver,
 };
 
 pub use nia_loader_contract::RuntimeSpec;

@@ -20,6 +20,7 @@ struct BlockUsingScope {
 pub struct LexicalUsingScopes {
     module: Arc<ModuleUsingScope>,
     blocks: Vec<BlockUsingScope>,
+    module_uses_in_directives: HashMap<Span, Span>,
 }
 
 impl LexicalUsingScopes {
@@ -28,7 +29,18 @@ impl LexicalUsingScopes {
         Self {
             module: scope,
             blocks: Vec::new(),
+            module_uses_in_directives: HashMap::new(),
         }
+    }
+
+    /// Returns the resolved imports at a source span, including module imports.
+    pub fn effective_scope(&self, span: Span) -> &ModuleUsingScope {
+        self.scope_at(span).unwrap_or(&self.module)
+    }
+
+    /// Returns the binding used by a block import's leading module segment.
+    pub fn module_binding_in_directive(&self, segment: Span) -> Option<Span> {
+        self.module_uses_in_directives.get(&segment).copied()
     }
 
     /// Visits failure evidence so the query owner can attach actual loader roots.
@@ -113,6 +125,7 @@ pub fn compute_lexical_using_scopes_with_symbols<D: Borrow<DefCollection>>(
         current,
         stack: vec![Arc::clone(&module)],
         blocks: Vec::new(),
+        module_uses_in_directives: HashMap::new(),
         diagnostics: Vec::new(),
     };
     for item in items.items.iter() {
@@ -122,6 +135,7 @@ pub fn compute_lexical_using_scopes_with_symbols<D: Borrow<DefCollection>>(
         LexicalUsingScopes {
             module,
             blocks: resolver.blocks,
+            module_uses_in_directives: resolver.module_uses_in_directives,
         },
         resolver.diagnostics,
     )
@@ -132,6 +146,7 @@ struct LexicalResolver<'a> {
     current: &'a DefCollection,
     stack: Vec<Arc<ModuleUsingScope>>,
     blocks: Vec<BlockUsingScope>,
+    module_uses_in_directives: HashMap<Span, Span>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -152,7 +167,6 @@ impl<'ast> Visitor<'ast> for LexicalResolver<'_> {
             .as_ref()
             .clone();
         let mut local = ModuleUsingScope::default();
-        let mut module_origins = HashMap::new();
         let mut namespace_names = self
             .blocks
             .iter()
@@ -173,6 +187,15 @@ impl<'ast> Visitor<'ast> for LexicalResolver<'_> {
                 ..self.context
             };
             let expansion = expand_using(&context, self.current, &using, &scope.modules);
+            if let Some(first) = using.host.first()
+                && let PathSegmentKind::Name(name) = first.kind
+                && (namespace_names.contains(&name)
+                    || root_module_for_segment(context.graph, self.current.module_id, first)
+                        .is_none())
+                && let Some(&(_, binding)) = scope.module_origins.get(&name)
+            {
+                self.module_uses_in_directives.insert(first.span, binding);
+            }
             for failure in &expansion.failures {
                 let root = using_failure_diagnostic(&using, failure, self.context.symbols);
                 let cause = root.as_ref().and_then(|diagnostic| {
@@ -195,7 +218,10 @@ impl<'ast> Visitor<'ast> for LexicalResolver<'_> {
             }
             for entry in expansion.entries {
                 let previous = match &entry.kind {
-                    ResolvedEntryKind::Module(_) => module_origins.get(&entry.name).copied(),
+                    ResolvedEntryKind::Module(_) => local
+                        .module_origins
+                        .get(&entry.name)
+                        .map(|&(directive, name)| (name, directive)),
                     ResolvedEntryKind::Item(item) => match item.namespace {
                         PublicNamespace::Value => local.values.get(&entry.name),
                         PublicNamespace::Type => local.types.get(&entry.name),
@@ -222,7 +248,9 @@ impl<'ast> Visitor<'ast> for LexicalResolver<'_> {
                     ResolvedEntryKind::Module(module) => {
                         local.module_scopes.insert(entry.name, entry.scope);
                         local.modules.insert(entry.name, module);
-                        module_origins.insert(entry.name, (entry.name_span, using.span));
+                        local
+                            .module_origins
+                            .insert(entry.name, (using.span, entry.name_span));
                     }
                     ResolvedEntryKind::Item(item) => {
                         local
@@ -248,6 +276,7 @@ impl<'ast> Visitor<'ast> for LexicalResolver<'_> {
             }
             for name in local.unresolved_usings.keys() {
                 scope.modules.remove(name);
+                scope.module_origins.remove(name);
                 scope.values.remove(name);
                 scope.types.remove(name);
                 scope.module_scopes.remove(name);
@@ -255,6 +284,7 @@ impl<'ast> Visitor<'ast> for LexicalResolver<'_> {
                 scope.item_scopes.remove(&(PublicNamespace::Value, *name));
             }
             scope.modules.extend(local.modules.clone());
+            scope.module_origins.extend(local.module_origins.clone());
             scope.module_scopes.extend(local.module_scopes.clone());
             scope.item_scopes.extend(local.item_scopes.clone());
             namespace_names.extend(local.modules.keys().copied());

@@ -634,6 +634,9 @@ pub fn compute_using_scopes_from_surfaces_with_symbols<D: Borrow<DefCollection>>
                             continue;
                         }
                         scope.module_scopes.insert(entry.name, entry.scope);
+                        scope
+                            .module_origins
+                            .insert(entry.name, (using.span, entry.name_span));
                         scope.modules.insert(entry.name, target_module);
                     }
                     ResolvedEntryKind::Item(item) => {

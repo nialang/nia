@@ -9,8 +9,8 @@ source functions and resolved methods,
 document outline, folding, and semantic highlighting. Named field accesses
 also support definition navigation and references. Receiver completion
 checks method names from declarations in the current analysis graph.
-Definition and reference lookup cover resolved type names and explicit
-module-level `using` selectors for types and values, including aliases.
+Definition and reference lookup cover resolved type names, module and block
+`using` selectors for types and values, and module alias bindings.
 Outline and folding use the current buffer's syntax tree, including unsaved
 changes. Folds include bodies, aggregate members, multiline parameter lists
 and constraints, grouped imports, and consecutive line comments.
@@ -26,8 +26,20 @@ installation and lockfile updates are handled by the build tools.
 
 Clients with watched-file support trigger reanalysis when Nia sources,
 manifests, or lockfiles change on disk. Open buffers take precedence over
-disk contents. Generated modules, build-script imports, and workspace-wide
-rename are future work.
+disk contents.
+
+Rename supports local variables, parameters, private explicit import aliases,
+and top-level Nia functions, values, and types. Renaming a declaration also
+updates its import selectors while preserving explicit aliases. Renaming an
+alias updates the references to that binding, including those in nested blocks.
+The server checks the workspace's declared library, executable, test, and
+build-script entries, including unopened files. It rejects edits that break
+compilation, change a name's binding, or require editing sources outside the
+workspace. Projects with unresolved references or compilation errors can
+also require fixes before a rename can be verified.
+
+Generated modules, build-script imports, and rename support for members,
+public re-export aliases, module files, and foreign symbols are future work.
 
 Build from the repository root with `cargo build --locked -p nia-lsp`.
 On Windows, use an x64 Developer PowerShell with the configured LLVM

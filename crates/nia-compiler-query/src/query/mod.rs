@@ -41,6 +41,7 @@ use nia_program_signatures::{
     collect_extension_method_diagnostics_for_module, collect_extension_method_index_for_module,
     visible_extensions_for_module, visible_trait_impls_for_module,
 };
+pub use nia_public_surface::LexicalUsingScopes;
 use nia_public_surface::{
     TypeExposureIndex, compute_exported_public_surfaces_with_symbols,
     compute_using_scopes_from_surfaces_with_symbols,
@@ -183,6 +184,14 @@ impl CompilerDatabase {
         module: ModuleId,
         position: usize,
     ) -> QueryResult<ModuleUsingScope> {
+        Ok(self
+            .source_import_scopes(module)?
+            .effective_scope(Span::new(position, position))
+            .clone())
+    }
+
+    /// Returns module and block import scopes from one source snapshot.
+    pub fn source_import_scopes(&self, module: ModuleId) -> QueryResult<LexicalUsingScopes> {
         let errors = self.db.get(ModuleParseErrorsQuery(module))?;
         if !errors.is_empty() {
             let current = self.source_definitions(module)?;
@@ -208,21 +217,10 @@ impl CompilerDatabase {
                 &scope,
                 &symbols,
             );
-            return Ok(lexical
-                .scope_at(nia_span::Span::new(position, position))
-                .cloned()
-                .unwrap_or(scope));
+            return Ok(lexical);
         }
         let lexical = self.db.get(ModuleLexicalUsingScopesQuery(module))?;
-        if let Some(scope) = lexical
-            .scopes
-            .scope_at(nia_span::Span::new(position, position))
-        {
-            return Ok(scope.clone());
-        }
-        self.db
-            .get(ModuleUsingScopeQuery(module))
-            .map(Arc::unwrap_or_clone)
+        Ok(lexical.scopes.clone())
     }
 
     /// Returns the exported namespaces of a module.

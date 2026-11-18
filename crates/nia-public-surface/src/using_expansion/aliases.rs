@@ -29,6 +29,9 @@ pub(crate) fn collect_module_aliases(
                         scope.modules.entry(entry.name)
                     {
                         target.insert(module);
+                        scope
+                            .module_origins
+                            .insert(entry.name, (using.span, entry.name_span));
                         scope.module_scopes.insert(entry.name, entry.scope);
                     }
                 }

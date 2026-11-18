@@ -21,18 +21,41 @@ use crate::{
     analysis::{self, Analysis, Documents, OpenDocument, Session},
     document::Document,
     highlight::{self, Resolved},
+    rename::Rename,
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 const SEMANTIC_FULL: &str = "textDocument/semanticTokens/full";
 const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
 const COMPLETION: &str = "textDocument/completion";
+const RENAME: &str = "textDocument/rename";
+const PREPARE_RENAME: &str = "textDocument/prepareRename";
 
 pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error> {
     let (connection, io) = Connection::stdio();
     let (id, params) = connection.initialize_start()?;
     let params = decode::<lsp_types::InitializeParams>(params)?;
+    #[allow(deprecated)]
+    let folders: Vec<_> = params.workspace_folders.map_or_else(
+        || {
+            params
+                .root_uri
+                .into_iter()
+                .filter_map(|uri| analysis::path(&uri))
+                .collect()
+        },
+        |folders| {
+            folders
+                .into_iter()
+                .filter_map(|folder| analysis::path(&folder.uri))
+                .collect()
+        },
+    );
     let workspace = params.capabilities.workspace.unwrap_or_default();
+    let versioned_edits = workspace
+        .workspace_edit
+        .and_then(|edit| edit.document_changes)
+        .unwrap_or_default();
     let watch_files = workspace
         .did_change_watched_files
         .and_then(|watched| watched.dynamic_registration)
@@ -56,6 +79,8 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "definitionProvider": true,
                 "referencesProvider": true,
                 "documentHighlightProvider": true,
+                "renameProvider": { "prepareProvider": true },
+                "workspace": { "workspaceFolders": { "supported": true, "changeNotifications": true } },
                 "hoverProvider": true,
                 "documentSymbolProvider": true,
                 "foldingRangeProvider": true,
@@ -92,6 +117,8 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         fold_limit: folding.range_limit.map(|limit| limit as usize),
         line_folding_only: folding.line_folding_only.unwrap_or_default(),
         semantic_refresh,
+        folders,
+        versioned_edits,
         ..Server::default()
     }
     .serve(&connection, &work_tx, &reply_rx);
@@ -108,6 +135,8 @@ struct Work {
     documents: Documents,
     path: PathBuf,
     request: Option<Request>,
+    folders: Vec<PathBuf>,
+    versioned_edits: bool,
 }
 
 struct Reply {
@@ -156,6 +185,35 @@ fn analyze(
                 return semantic_response(request, document, Some(highlights));
             }
             match analysis {
+                Ok(analysis) if request.method == RENAME => {
+                    let params = match decode::<lsp_types::RenameParams>(request.params) {
+                        Ok(params) => params,
+                        Err(error) => {
+                            return Response::new_err(
+                                request.id,
+                                ErrorCode::InvalidParams as i32,
+                                error.to_string(),
+                            );
+                        }
+                    };
+                    let result = Session::new(toolchain.clone()).rename(
+                        analysis,
+                        &work.documents,
+                        Rename {
+                            path: &work.path,
+                            position: params.text_document_position.position,
+                            new_name: &params.new_name,
+                            folders: &work.folders,
+                            versioned: work.versioned_edits,
+                        },
+                    );
+                    match result {
+                        Ok(edit) => Response::new_ok(request.id, edit),
+                        Err(error) => {
+                            Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
+                        }
+                    }
+                }
                 Ok(analysis) => query(analysis, &work.path, request, |position| {
                     let probe =
                         completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()));
@@ -222,6 +280,8 @@ fn query(
         }),
         "textDocument/documentHighlight" => decode::<lsp_types::TextDocumentPositionParams>(params)
             .map(|params| json!(analysis.document_highlights(path, params.position))),
+        PREPARE_RENAME => decode::<lsp_types::TextDocumentPositionParams>(params)
+            .map(|params| json!(analysis.prepare_rename(path, params.position))),
         COMPLETION => decode::<lsp_types::CompletionParams>(params)
             .map(|params| json!(complete(params.text_document_position.position))),
         "textDocument/signatureHelp" => {
@@ -243,6 +303,8 @@ fn decode<T: DeserializeOwned>(value: Value) -> serde_json::Result<T> {
 
 #[derive(Default)]
 struct Server {
+    folders: Vec<PathBuf>,
+    versioned_edits: bool,
     hierarchical_symbols: bool,
     fold_limit: Option<usize>,
     line_folding_only: bool,
@@ -311,6 +373,8 @@ impl Server {
             "textDocument/definition"
                 | "textDocument/references"
                 | "textDocument/documentHighlight"
+                | RENAME
+                | PREPARE_RENAME
                 | "textDocument/hover"
                 | COMPLETION
                 | "textDocument/signatureHelp"
@@ -445,6 +509,24 @@ impl Server {
                     Err(error) => Err(error),
                 }
             }
+            "workspace/didChangeWorkspaceFolders" => decode::<
+                lsp_types::DidChangeWorkspaceFoldersParams,
+            >(notification.params)
+            .map(|params| {
+                for folder in params.event.removed {
+                    if let Some(path) = analysis::path(&folder.uri) {
+                        self.folders.retain(|folder| *folder != path);
+                    }
+                }
+                self.folders.extend(
+                    params
+                        .event
+                        .added
+                        .into_iter()
+                        .filter_map(|folder| analysis::path(&folder.uri)),
+                );
+                self.invalidate();
+            }),
             "$/cancelRequest" => match decode::<Cancel>(notification.params) {
                 Ok(params) => {
                     if self.active_request.as_ref() == Some(&params.id) {
@@ -540,6 +622,8 @@ impl Server {
             documents: self.documents.clone(),
             path,
             request,
+            folders: self.folders.clone(),
+            versioned_edits: self.versioned_edits,
         })?;
         Ok(())
     }

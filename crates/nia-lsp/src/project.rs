@@ -10,6 +10,7 @@ use nia_driver::CheckRequest;
 use nia_imports::ModuleMap;
 use nia_package_metadata::{
     ArtifactKind, BuildLayout, DependencyScope, InstalledDependencies, PackageManifest,
+    WorkspaceManifest,
 };
 use nia_source::{SourceIdentity, SourcePath};
 use nia_target_config::CompilationMode;
@@ -21,7 +22,87 @@ pub(crate) struct Projects {
     packages: HashMap<PathBuf, Package>,
 }
 
+pub(crate) struct WorkspaceRequests {
+    pub(crate) entries: Vec<CheckRequest>,
+    pub(crate) standalone: Vec<CheckRequest>,
+    pub(crate) editable: BTreeSet<PathBuf>,
+}
+
 impl Projects {
+    pub(crate) fn workspace_requests(
+        &mut self,
+        entry: &Path,
+        open: impl Iterator<Item = PathBuf>,
+        folders: &[PathBuf],
+    ) -> Result<WorkspaceRequests, String> {
+        let mut entries = BTreeSet::new();
+        let mut standalone = BTreeSet::new();
+        let mut roots = BTreeSet::new();
+        let mut editable = BTreeSet::new();
+        for folder in folders {
+            if folder.join("nia.toml").is_file() {
+                roots.insert(folder.canonicalize().map_err(|error| error.to_string())?);
+            }
+        }
+        for path in std::iter::once(entry.to_path_buf()).chain(open) {
+            standalone.insert(PathBuf::from(normalized(&path)));
+            let Some(package) = self.package(&path)? else {
+                if let Some(parent) = path.parent() {
+                    editable.insert(PathBuf::from(normalized(parent)));
+                }
+                continue;
+            };
+            roots.insert(package.layout.state_root().to_path_buf());
+            roots.insert(package.layout.package_root().to_path_buf());
+        }
+        let mut visited = BTreeSet::new();
+        while let Some(root) = roots.pop_first() {
+            if !visited.insert(root.clone()) {
+                continue;
+            }
+            if let Some(workspace) =
+                WorkspaceManifest::discover(&root).map_err(|error| error.to_string())?
+                && root == workspace.root
+            {
+                let members = workspace
+                    .member_packages()
+                    .map_err(|error| error.to_string())?;
+                let is_package = members.iter().any(|member| member.root == root);
+                roots.extend(members.into_iter().map(|member| member.root));
+                if !is_package {
+                    continue;
+                }
+            }
+            let package = self
+                .package(&root.join("nia.toml"))?
+                .ok_or("Workspace package disappeared")?;
+            editable.insert(PathBuf::from(normalized(package.layout.package_root())));
+            entries.extend(package.declared_entries());
+        }
+        let entries = entries
+            .into_iter()
+            .map(|(path, context)| (PathBuf::from(normalized(&path)), context))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|(path, context)| match self.package(&path)? {
+                Some(package) => package.request(&path, context),
+                None => Ok(CheckRequest::new(normalized(&path))),
+            })
+            .collect::<Result<_, _>>()?;
+        let standalone = standalone
+            .into_iter()
+            .map(|path| match self.package(&path)? {
+                Some(package) => package.request(&path, Context::Executable),
+                None => Ok(CheckRequest::new(normalized(&path))),
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(WorkspaceRequests {
+            entries,
+            standalone,
+            editable,
+        })
+    }
+
     pub(crate) fn package(&mut self, entry: &Path) -> Result<Option<&mut Package>, String> {
         let Some(root) = entry
             .ancestors()
@@ -44,7 +125,7 @@ pub(crate) struct Package {
     maps: HashMap<Context, ModuleMap>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum Context {
     Library,
     Executable,
@@ -53,6 +134,25 @@ pub(crate) enum Context {
 }
 
 impl Package {
+    fn declared_entries(&self) -> Vec<(PathBuf, Context)> {
+        let root = self.layout.package_root();
+        let mut entries = Vec::new();
+        if let Some(library) = &self.manifest.library_path {
+            entries.push((root.join(library), Context::Library));
+        }
+        let build = root.join("build.nia");
+        if build.is_file() {
+            entries.push((build, Context::Build));
+        }
+        entries.extend(self.manifest.artifacts.iter().map(|artifact| {
+            let context = match artifact.kind {
+                ArtifactKind::Executable => Context::Executable,
+                ArtifactKind::Test => Context::Test,
+            };
+            (root.join(&artifact.path), context)
+        }));
+        entries
+    }
     fn load(root: &Path) -> Result<Self, String> {
         let error = |error: std::io::Error| format!("{}: {error}", root.join("nia.toml").display());
         let layout = BuildLayout::for_package(root).map_err(error)?;
