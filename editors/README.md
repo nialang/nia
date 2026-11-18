@@ -32,8 +32,10 @@ imports, including generated modules that the build has materialized.
 
 Rename supports local bindings, top-level items, explicit import and
 re-export aliases, named fields, enum variants, inherent methods, and
-source trait methods. Trait method rename includes the corresponding
-implementations. Field rename expands shorthand initializers and patterns
+source trait members. Renaming a trait member updates its implementations.
+Associated type and constant renames also cover projections, and associated
+type renames update named bindings in trait bounds.
+Field rename expands shorthand initializers and patterns
 when their local variable keeps its original name. Renaming the Nia name
 of an `extern` function or static preserves its native symbol with
 `linkName` or `exportName`.
@@ -45,8 +47,7 @@ library, executable, test, and build-script entries, including unopened
 files. It rejects edits that would break compilation, change binding, or
 require changing a generated file or a source outside the workspace.
 Generated files are read-only to the LSP and their producer owns changes
-to the generated declarations. Associated type projections currently
-require manual refactoring.
+to the generated declarations.
 
 Build from the repository root with `cargo build --locked -p nia-lsp`.
 On Windows, use an x64 Developer PowerShell with the configured LLVM

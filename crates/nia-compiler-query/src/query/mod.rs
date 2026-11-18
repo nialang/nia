@@ -245,8 +245,8 @@ impl CompilerDatabase {
         full_module_defs_semantic(&self.db, module)
     }
 
-    /// Returns local methods paired with the source trait members they implement.
-    pub fn source_trait_method_bindings(
+    /// Returns local definitions paired with the source trait members they implement.
+    pub fn source_trait_member_bindings(
         &self,
         module: &CheckedModule,
     ) -> QueryResult<Vec<(DefId, GlobalDefId)>> {
@@ -276,6 +276,34 @@ impl CompilerDatabase {
                     },
                 ))
             }));
+            bindings.extend(implementation.associated_values.iter().filter_map(|value| {
+                Some((
+                    value.def_id,
+                    GlobalDefId {
+                        module_id: trait_id.module_id,
+                        def_id: members.values.get(&value.name)?,
+                    },
+                ))
+            }));
+            bindings.extend(
+                implementation
+                    .associated_types
+                    .iter()
+                    .filter_map(|associated| {
+                        let (local, _) = module.defs.defs.iter().find(|(_, def)| {
+                            def.kind == nia_defs::DefKind::TraitAssociatedType
+                                && def.name == associated.name
+                                && def.span == associated.span
+                        })?;
+                        Some((
+                            local,
+                            GlobalDefId {
+                                module_id: trait_id.module_id,
+                                def_id: members.fields.get(&associated.name)?,
+                            },
+                        ))
+                    }),
+            );
         }
         Ok(bindings)
     }

@@ -4,6 +4,47 @@ use nia_test_support::{TestWorkload, acquire_test_resources, test_dir};
 
 use super::{tests::test_session, *};
 
+#[test]
+fn rename_updates_associated_types_in_implementations_projections_and_bounds() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-rename-associated-types");
+    let path = root.join("root.nia");
+    std::fs::write(&path, concat!(
+        "trait Source { type Item; fun get(&self) [Self as Source]::Item; }\n",
+        "struct Value {}\n",
+        "extend Value : Source { type Item = i32; fun get(&self) i32 { 1 } }\n",
+        "fun read[T](source: &T) [T as Source]::Item where T: Source[Item = i32] { source.get() }\n",
+    )).unwrap();
+    let edit = rename_at(&path, "Item;", "Output").unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
+        panic!("expected text edits");
+    };
+    assert_eq!(edits[0].edits.len(), 5);
+}
+
+#[test]
+fn rename_updates_trait_constants_in_implementations_and_projections() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-rename-associated-constants");
+    let path = root.join("root.nia");
+    std::fs::write(
+        &path,
+        concat!(
+            "trait Lanes { const COUNT: usize; }\n",
+            "struct Value {}\n",
+            "extend Value : Lanes { const COUNT: usize = 1; }\n",
+            "fun count[T]() usize where T: Lanes { [T as Lanes]::COUNT }\n",
+            "fun count_value() usize { Value::COUNT }\n",
+        ),
+    )
+    .unwrap();
+    let edit = rename_at(&path, "COUNT:", "SIZE").unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
+        panic!("expected text edits");
+    };
+    assert_eq!(edits[0].edits.len(), 4);
+}
+
 fn rename_at(path: &Path, token: &str, new_name: &str) -> Result<lsp_types::WorkspaceEdit, String> {
     let documents = Documents::new();
     let analysis = test_session().analyze(&documents, path)?;
@@ -122,6 +163,40 @@ fn rename_follows_a_public_alias_through_an_explicit_import() {
             .map(|edit| edit.edits.len())
             .collect::<Vec<_>>(),
         [1, 2]
+    );
+}
+
+#[test]
+fn rename_follows_a_public_module_alias_through_chained_imports() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-rename-public-module-alias");
+    let path = root.join("root.nia");
+    std::fs::write(&path, concat!(
+        "module origin;\nmodule aliases;\nmodule forward;\n",
+        "using forward::visible;\n",
+        "fun value() i32 { visible::amount() + aliases::visible::amount() + origin::amount() }\n",
+    )).unwrap();
+    std::fs::write(root.join("origin.nia"), "pub fun amount() i32 { 1 }\n").unwrap();
+    std::fs::write(
+        root.join("aliases.nia"),
+        "pub using super::origin as visible;\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("forward.nia"),
+        "pub using super::aliases::visible;\n",
+    )
+    .unwrap();
+    let edit = rename_at(&path, "visible;", "renamed").unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
+        panic!("expected text edits");
+    };
+    assert_eq!(
+        edits
+            .iter()
+            .map(|edit| edit.edits.len())
+            .collect::<Vec<_>>(),
+        [1, 1, 3]
     );
 }
 

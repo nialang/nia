@@ -384,7 +384,8 @@ impl Analysis {
             .map(|module| (module.id, module))
             .collect();
         let mut import_scopes = HashMap::new();
-        let mut trait_methods = HashMap::new();
+        let mut trait_members = HashMap::new();
+        let mut projections = Vec::new();
         for node in program.graph.modules() {
             let path = node.path.as_str();
             let Some(file) = driver.sources().source_for_id(node.source_id) else {
@@ -453,7 +454,7 @@ impl Analysis {
             }
             if let Some(module) = module {
                 if file.text.contains("extend") {
-                    trait_methods.extend(db.source_trait_method_bindings(module)?.into_iter().map(
+                    trait_members.extend(db.source_trait_member_bindings(module)?.into_iter().map(
                         |(definition, member)| {
                             (
                                 GlobalDefId {
@@ -505,6 +506,37 @@ impl Analysis {
                         && ty != result.types.error()
                     {
                         expr_types.insert(span, module.type_normalization.normalize(ty));
+                    }
+                    if let Some(ty) = module.type_lowering.ty_for_key(&key)
+                        && let Some(TyKind::Projection {
+                            trait_id: nia_ty::TraitId::Source(trait_id),
+                            name,
+                            ..
+                        }) = result.types.get(ty)
+                        && let Some(token) = type_name_span(&tokens, span)
+                        && name_matches(&token, *name)
+                    {
+                        projections.push((
+                            path.to_owned(),
+                            token,
+                            *trait_id,
+                            *name,
+                            DefKind::TraitAssociatedType,
+                        ));
+                    }
+                    if let Some(projection) =
+                        module.semantic_uses.node_associated_const_projection(&key)
+                        && let nia_ty::TraitId::Source(trait_id) = projection.trait_id
+                        && let Some(token) = type_name_span(&tokens, span)
+                        && name_matches(&token, projection.name)
+                    {
+                        projections.push((
+                            path.to_owned(),
+                            token,
+                            trait_id,
+                            projection.name,
+                            DefKind::Const,
+                        ));
                     }
                     if let Some(resolution) = module.type_resolution.node_type_names.get(key.site())
                         && let Some(name) = type_name_span(&tokens, span)
@@ -607,11 +639,25 @@ impl Analysis {
                 },
             );
         }
+        for (path, span, trait_id, name, kind) in projections {
+            if let Some(id) = result.associated_member(trait_id, name, kind)
+                && let Some(file) = result.files.get_mut(&path)
+            {
+                file.occurrences.push(Occurrence {
+                    span,
+                    symbol: Symbol::Global(id),
+                    declaration: false,
+                });
+            }
+        }
+        result.index_named_associated_types();
         result.index_namespaces(&import_scopes)?;
         for file in result.files.values_mut() {
+            file.occurrences
+                .sort_by_key(|item| (item.span, !item.declaration));
             for occurrence in &file.occurrences {
                 if let Symbol::Global(id) = occurrence.symbol
-                    && let Some(&member) = trait_methods.get(&id)
+                    && let Some(&member) = trait_members.get(&id)
                 {
                     file.rename_aliases
                         .insert(occurrence.span, Symbol::Global(member));
@@ -672,12 +718,103 @@ impl Analysis {
                                 | DefKind::EnumVariantField
                                 | DefKind::Method
                                 | DefKind::TraitMethod
+                                | DefKind::TraitAssociatedType
                         )
                 }),
             Symbol::Module(module) => self.graph.get(module).is_some_and(|node| {
                 node.parent.is_some() && self.files.contains_key(node.path.as_str())
             }),
             Symbol::ModuleAlias(..) | Symbol::ItemAlias(..) => true,
+        }
+    }
+
+    fn associated_member(
+        &self,
+        trait_id: GlobalDefId,
+        name: SymbolId,
+        kind: DefKind,
+    ) -> Option<GlobalDefId> {
+        let defs = self.defs.get(&trait_id.module_id)?;
+        if defs.defs.get(trait_id.def_id)?.kind != DefKind::Trait {
+            return None;
+        }
+        let members = defs.scopes.struct_members.get(&trait_id.def_id)?;
+        let table = if kind == DefKind::Const {
+            &members.values
+        } else {
+            &members.fields
+        };
+        Some(GlobalDefId {
+            module_id: trait_id.module_id,
+            def_id: table.get(&name)?,
+        })
+    }
+
+    fn index_named_associated_types(&mut self) {
+        let mut additions = Vec::new();
+        for (source, file) in &self.files {
+            if !file.text.contains('=') || !file.text.contains('[') {
+                continue;
+            }
+            if let Some(syntax) = file.syntax() {
+                let mut indexed = Vec::new();
+                self.named_associated_types(file, syntax.tree.green_root(), &mut indexed);
+                additions.push((source.clone(), indexed));
+            }
+        }
+        for (source, indexed) in additions {
+            let file = self.files.get_mut(&source).expect("indexed source");
+            file.occurrences.extend(indexed);
+        }
+    }
+
+    fn named_associated_types(
+        &self,
+        file: &File,
+        node: &GreenNode,
+        occurrences: &mut Vec<Occurrence>,
+    ) {
+        if node.kind() == &SyntaxKind::PathSegment
+            && let Some(arguments) = node.child(&SyntaxKind::TypeArgList)
+            && let Some(owner) = node.token(&TokenKind::Ident)
+        {
+            for binding in arguments
+                .child_nodes()
+                .filter(|node| node.kind() == &SyntaxKind::AssocBindingArg)
+            {
+                let Some(key) = binding.child_nodes().find(|node| node.kind().is_type()) else {
+                    continue;
+                };
+                if key.kind() != &SyntaxKind::PathType {
+                    continue;
+                }
+                let Some(key) = key
+                    .child(&SyntaxKind::PathSegment)
+                    .and_then(|node| node.token(&TokenKind::Ident))
+                else {
+                    continue;
+                };
+                let name = SymbolId::from_stable_hash(stable_hash(key.text()));
+                if let Some(target) = file.occurrences.iter().find_map(|occurrence| {
+                    let Symbol::Global(trait_id) = occurrence.symbol else {
+                        return None;
+                    };
+                    (occurrence.span == owner.span() && !occurrence.declaration)
+                        .then(|| {
+                            self.associated_member(trait_id, name, DefKind::TraitAssociatedType)
+                        })
+                        .flatten()
+                }) {
+                    occurrences.push(Occurrence {
+                        span: key.span(),
+                        symbol: Symbol::Global(target),
+                        declaration: false,
+                    });
+                }
+            }
+        }
+        for child in node.child_nodes() {
+            self.named_associated_types(file, child, occurrences);
         }
     }
 
