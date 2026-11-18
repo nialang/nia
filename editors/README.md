@@ -2,12 +2,13 @@
 
 `nia-lsp` is a Rust language server that uses the compiler's loader and
 semantic queries. Its current editor features are live diagnostics,
-definition navigation, hover at resolved names, and references within the
-current analysis graph.
+definition navigation, hover at resolved names, references within the current
+analysis graph, completion for local names and module members, and signature
+help for source functions and resolved methods.
 
 The server reads the nearest `nia.toml` for a library root and declared test
-entry points. Workspace dependency resolution, generated modules, completion,
-rename, semantic highlighting, and folding are future work.
+entry points. Workspace dependency resolution, generated modules, receiver
+member completion, rename, semantic highlighting, and folding are future work.
 
 Build from the repository root with `cargo build --locked -p nia-lsp`.
 On Windows, use an x64 Developer PowerShell with the configured LLVM

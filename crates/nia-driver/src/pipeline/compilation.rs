@@ -56,7 +56,7 @@ impl Driver {
         &self,
         request: &CheckRequest,
     ) -> DriverOutput<SourceInputManifest> {
-        let loader = match self.loader_database(request) {
+        let loader = match self.loader_database(request, false) {
             Ok(loader) => loader,
             Err(error) => {
                 return DriverOutput::from_error(DriverError::InternalDiagnostic(
@@ -122,7 +122,7 @@ impl Driver {
             nia_compiler_query::CheckedProgramAnalysis,
         ) -> nia_query::QueryResult<T>,
     ) -> nia_query::QueryResult<T> {
-        let database = self.compiler_database(&request, RootScope::Tree)?;
+        let (database, _) = self.compilation_databases(&request, RootScope::Tree, true)?;
         let analysis = database.analyze_entry_program()?;
         consume(&database, analysis)
     }
@@ -239,7 +239,7 @@ impl Driver {
         T: ProviderDemandOutput,
     {
         let timings = request.timings;
-        let (database, loader) = self.compilation_databases(&request, root_scope)?;
+        let (database, loader) = self.compilation_databases(&request, root_scope, false)?;
         let output = compile(&database)?;
         let source_manifest = loader.source_input_manifest()?;
         let loader_trace = self.loader_query_trace()?;
@@ -259,7 +259,7 @@ impl Driver {
         request: &CheckRequest,
         root_scope: RootScope,
     ) -> nia_query::QueryResult<CompilerDatabase> {
-        self.compilation_databases(request, root_scope)
+        self.compilation_databases(request, root_scope, false)
             .map(|(compiler, _)| compiler)
     }
 
@@ -267,10 +267,16 @@ impl Driver {
         &self,
         request: &CheckRequest,
         root_scope: RootScope,
+        recover_declarations: bool,
     ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
-        let loader = self.loader_database(request)?;
+        let loader = self.loader_database(request, recover_declarations)?;
         loader.load_program()?;
         let query_session = loader.query_session();
+        let frontend_cache = self
+            .config
+            .artifact_cache_dir
+            .clone()
+            .filter(|_| !recover_declarations);
         let mut compiler_guard = self.compiler.lock().map_err(|_| {
             nia_query::QueryError::internal("driver compiler state lock is poisoned")
         })?;
@@ -283,7 +289,7 @@ impl Driver {
                     .with_timings(request.timings)
                     .with_root_scope(root_scope)
                     .with_current_package(request.current_package.clone())
-                    .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
+                    .with_frontend_cache_dir(frontend_cache)
                     .with_frontend_cache_verification(self.config.verify_frontend_cache),
             )?;
             compiler.database.clone()
@@ -294,7 +300,7 @@ impl Driver {
                     .with_timings(request.timings)
                     .with_root_scope(root_scope)
                     .with_current_package(request.current_package.clone())
-                    .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
+                    .with_frontend_cache_dir(frontend_cache)
                     .with_frontend_cache_verification(self.config.verify_frontend_cache),
             )?;
             *compiler_guard = Some(SessionCompiler {

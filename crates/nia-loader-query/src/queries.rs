@@ -735,7 +735,7 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
         let parsed = db.get(ParsedModuleQuery(self.0))?;
         let mut declaration_diagnostics = Vec::new();
         let (declarations, used_modules) = if parsed.read_error.is_none()
-            && parsed.semantic.parse_errors.is_empty()
+            && (parsed.semantic.parse_errors.is_empty() || db.context().recover_declarations)
             && parsed.prune_diagnostics.is_empty()
         {
             let declarations = resolve_module_declarations_from_active_item_tree_with_symbols(

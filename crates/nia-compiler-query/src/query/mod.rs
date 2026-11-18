@@ -177,6 +177,76 @@ impl CompilerDatabase {
         self.db.context().module_origins(&self.db, module)
     }
 
+    /// Returns the effective import scope at a source position.
+    pub fn source_imports(
+        &self,
+        module: ModuleId,
+        position: usize,
+    ) -> QueryResult<ModuleUsingScope> {
+        let errors = self.db.get(ModuleParseErrorsQuery(module))?;
+        if !errors.is_empty() {
+            let current = self.source_definitions(module)?;
+            let mut defs = shared_public_surface_defs_by_module(&self.db)?;
+            defs.push((*current).clone());
+            let graph = self.current_graph()?;
+            let symbols = self.db.context().symbols();
+            let surfaces = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
+            let mut resolved = compute_using_scopes_from_surfaces_with_symbols(
+                &defs,
+                &graph,
+                &surfaces.surfaces,
+                &symbols,
+            );
+            let scope = resolved.using_scopes.remove(&module).unwrap_or_default();
+            let items = self.db.get(FullActiveModuleItemTreeQuery(module))?;
+            let (lexical, _) = nia_public_surface::compute_lexical_using_scopes_with_symbols(
+                &items,
+                &current,
+                &defs,
+                &graph,
+                &surfaces.surfaces,
+                &scope,
+                &symbols,
+            );
+            return Ok(lexical
+                .scope_at(nia_span::Span::new(position, position))
+                .cloned()
+                .unwrap_or(scope));
+        }
+        let lexical = self.db.get(ModuleLexicalUsingScopesQuery(module))?;
+        if let Some(scope) = lexical
+            .scopes
+            .scope_at(nia_span::Span::new(position, position))
+        {
+            return Ok(scope.clone());
+        }
+        self.db
+            .get(ModuleUsingScopeQuery(module))
+            .map(Arc::unwrap_or_clone)
+    }
+
+    /// Returns the exported namespaces of a module.
+    pub fn source_exports(
+        &self,
+        module: ModuleId,
+    ) -> QueryResult<Option<Arc<ModulePublicSurface>>> {
+        Ok(self
+            .db
+            .get(ModulePublicSurfaceQuery(module))?
+            .as_ref()
+            .clone())
+    }
+
+    /// Returns the spelling of a name in the current session.
+    pub fn source_symbol_text(&self, name: SymbolId) -> Option<Arc<str>> {
+        self.db.context().symbols().resolve(name)
+    }
+
+    /// Returns the active declarations, including those in a module with body errors.
+    pub fn source_definitions(&self, module: ModuleId) -> QueryResult<Arc<DefCollection>> {
+        full_module_defs_semantic(&self.db, module)
+    }
+
     /// Checks every loaded module after settling provider-demand fixed points.
     pub fn check_program(&self) -> QueryResult<CheckedProgram> {
         self.check_report(FrontendCheckScope::AllModules)

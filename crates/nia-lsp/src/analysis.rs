@@ -7,10 +7,11 @@ use std::{
 
 use lsp_types::{Diagnostic, DiagnosticSeverity, Location, NumberOrString, Position, Uri};
 use nia_compiler_query::{CheckedProgramAnalysis, CompilerDatabase};
+use nia_defs::{DefCollection, DefKind, ModuleUsingScope};
 use nia_diagnostic::LabelStyle;
 use nia_driver::{CheckRequest, Driver};
 use nia_ids::{GlobalDefId, LocalId, ModuleId};
-use nia_imports::ModuleMap;
+use nia_imports::{ModuleGraphSnapshot, ModuleMap, ModuleRootSegment};
 use nia_lexer::{LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_package_metadata::{ArtifactKind, PackageManifest};
 use nia_sema_ir::{ResolvedCall, SemanticValueUse};
@@ -155,7 +156,7 @@ fn request_for(entry: &Path) -> Result<(CheckRequest, Option<CheckRequest>), Str
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum Symbol {
+pub(crate) enum Symbol {
     Global(GlobalDefId),
     Local(ModuleId, LocalId),
 }
@@ -166,10 +167,11 @@ struct Occurrence {
     declaration: bool,
 }
 
-struct File {
+pub(crate) struct File {
+    module: ModuleId,
     uri: Uri,
-    text: Arc<str>,
-    lines: Lines,
+    pub(crate) text: Arc<str>,
+    pub(crate) lines: Lines,
     occurrences: Vec<Occurrence>,
 }
 
@@ -177,6 +179,9 @@ pub(crate) struct Analysis {
     files: BTreeMap<String, File>,
     definitions: HashMap<Symbol, (String, Span)>,
     diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
+    db: CompilerDatabase,
+    graph: ModuleGraphSnapshot,
+    defs: HashMap<ModuleId, Arc<DefCollection>>,
 }
 
 impl Analysis {
@@ -189,24 +194,33 @@ impl Analysis {
             files: BTreeMap::new(),
             definitions: HashMap::new(),
             diagnostics: program.diagnostics,
+            db: db.clone(),
+            graph: program.graph.clone(),
+            defs: program
+                .modules
+                .iter()
+                .map(|module| (module.id, module.defs.clone()))
+                .collect(),
         };
         let modules: HashMap<_, _> = program
             .modules
             .iter()
             .map(|module| (module.id, module))
             .collect();
-        for module in &program.modules {
-            let path = module.path.as_str();
-            let Some(file) = program
-                .graph
-                .get(module.id)
-                .and_then(|module| driver.sources().source_for_id(module.source_id))
-            else {
+        for node in program.graph.modules() {
+            let path = node.path.as_str();
+            let Some(file) = driver.sources().source_for_id(node.source_id) else {
                 continue;
             };
             let Some(file_uri) = uri(Path::new(path)) else {
                 continue;
             };
+            let module = modules.get(&node.id).copied();
+            let defs = match module {
+                Some(module) => module.defs.clone(),
+                None => db.source_definitions(node.id)?,
+            };
+            result.defs.insert(node.id, defs.clone());
             let names: Vec<_> = tokenize_lossless(&file.text)
                 .into_iter()
                 .filter(|token| {
@@ -236,69 +250,76 @@ impl Analysis {
                     declaration: true,
                 });
             };
-            for (id, def) in module.defs.defs.iter() {
+            for (id, def) in defs.defs.iter() {
                 if let Some(&span) = tokens_in(def.span)
                     .iter()
                     .find(|span| name_matches(span, def.name))
                 {
                     declare(
                         Symbol::Global(GlobalDefId {
-                            module_id: module.id,
+                            module_id: node.id,
                             def_id: id,
                         }),
                         span,
                     );
                 }
             }
-            for (id, local) in module.local_resolution.locals.iter() {
-                if let Some(&span) = tokens_in(local.span).first() {
-                    declare(Symbol::Local(module.id, id), span);
+            if let Some(module) = module {
+                for (id, local) in module.local_resolution.locals.iter() {
+                    if let Some(&span) = tokens_in(local.span).first() {
+                        declare(Symbol::Local(module.id, id), span);
+                    }
                 }
-            }
-            let call_targets: HashMap<_, _> = module
-                .semantic_facts
-                .iter_node_resolved_calls()
-                .filter_map(|(key, call)| match call {
-                    ResolvedCall::Method { def_id, .. } => Some((key, *def_id)),
-                    _ => None,
-                })
-                .collect();
-            for (span, key) in db.source_origins(module.id)?.entries() {
-                let names = tokens_in(span);
-                let target = match module.semantic_uses.node_value_use(&key) {
-                    Some(SemanticValueUse::Local(id)) => Some(Symbol::Local(module.id, id)),
-                    Some(SemanticValueUse::Global(id)) => Some(Symbol::Global(id)),
-                    None => module
-                        .semantic_uses
-                        .node_type_prefix(&key)
-                        .map(Symbol::Global),
-                };
-                if let Some(symbol) = target
-                    && let Some(&span) = names.last()
-                {
-                    occurrences.push(Occurrence {
-                        span,
-                        symbol,
-                        declaration: false,
-                    });
-                }
-                if let Some(id) = call_targets.get(&key)
-                    && let Some(def) = modules
-                        .get(&id.module_id)
-                        .and_then(|module| module.defs.defs.get(id.def_id))
-                    && let Some(&span) = names.iter().find(|span| name_matches(span, def.name))
-                {
-                    occurrences.push(Occurrence {
-                        span,
-                        symbol: Symbol::Global(*id),
-                        declaration: false,
-                    });
+                let call_targets: HashMap<_, _> = module
+                    .semantic_facts
+                    .iter_node_resolved_calls()
+                    .filter_map(|(key, call)| match call {
+                        ResolvedCall::Method { def_id, .. } => Some((key, *def_id)),
+                        ResolvedCall::TraitMethod { method_id, .. }
+                        | ResolvedCall::DynamicTraitMethod { method_id, .. } => {
+                            Some((key, *method_id))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                for (span, key) in db.source_origins(module.id)?.entries() {
+                    let names = tokens_in(span);
+                    let target = match module.semantic_uses.node_value_use(&key) {
+                        Some(SemanticValueUse::Local(id)) => Some(Symbol::Local(module.id, id)),
+                        Some(SemanticValueUse::Global(id)) => Some(Symbol::Global(id)),
+                        None => module
+                            .semantic_uses
+                            .node_type_prefix(&key)
+                            .map(Symbol::Global),
+                    };
+                    if let Some(symbol) = target
+                        && let Some(&span) = names.last()
+                    {
+                        occurrences.push(Occurrence {
+                            span,
+                            symbol,
+                            declaration: false,
+                        });
+                    }
+                    if let Some(id) = call_targets.get(&key)
+                        && let Some(def) = modules
+                            .get(&id.module_id)
+                            .and_then(|module| module.defs.defs.get(id.def_id))
+                        && let Some(&span) = names.iter().find(|span| name_matches(span, def.name))
+                    {
+                        occurrences.push(Occurrence {
+                            span,
+                            symbol: Symbol::Global(*id),
+                            declaration: false,
+                        });
+                    }
                 }
             }
             occurrences.sort_by_key(|occurrence| (occurrence.span, !occurrence.declaration));
             result.files.insert(
                 path.to_owned(),
                 File {
+                    module: node.id,
                     uri: file_uri,
                     lines: Lines::new(&file.text),
                     text: file.text,
@@ -310,12 +331,216 @@ impl Analysis {
     }
 
     fn symbol_at(&self, path: &Path, position: Position) -> Option<Symbol> {
-        let file = self.files.get(&normalized(path))?;
+        let file = self.file(path)?;
         let offset = file.lines.offset(&file.text, position)?;
-        file.occurrences
+        self.symbol_at_offset(file, offset)
+    }
+
+    pub(crate) fn file(&self, path: &Path) -> Option<&File> {
+        self.files.get(&normalized(path))
+    }
+
+    pub(crate) fn symbol_at_offset(&self, file: &File, offset: usize) -> Option<Symbol> {
+        let end = file
+            .occurrences
+            .partition_point(|item| item.span.start <= offset);
+        file.occurrences[..end]
             .iter()
-            .find(|item| item.span.start <= offset && offset < item.span.end)
+            .rev()
+            .take_while(|item| item.span.end > offset)
+            .filter(|item| item.span.start <= offset)
+            .min_by_key(|item| (item.span.len(), !item.declaration))
             .map(|item| item.symbol)
+    }
+
+    pub(crate) fn declaration_source(&self, symbol: Symbol) -> Option<(&str, Span)> {
+        let (source, span) = self.definitions.get(&symbol)?;
+        Some((&self.files.get(source)?.text, *span))
+    }
+
+    pub(crate) fn names(
+        &self,
+        file: &File,
+        offset: usize,
+        qualifier: &[&str],
+    ) -> nia_query::QueryResult<Vec<VisibleName>> {
+        let module = file.module;
+        let imports = self.db.source_imports(module, offset)?;
+        if !qualifier.is_empty() {
+            let Some(target) = self.resolve_namespace(module, &imports, qualifier)? else {
+                return Ok(Vec::new());
+            };
+            return self.namespace_names(module, target);
+        }
+        let mut names = self.direct_names(module, module);
+        for (name, item) in imports.values.iter().chain(&imports.types) {
+            if let Some(name) = self.db.source_symbol_text(*name) {
+                names.push(self.item_name(name, item.target_module, item.target_def_id));
+            }
+        }
+        for name in imports.modules.keys().chain(
+            self.graph
+                .get(module)
+                .into_iter()
+                .flat_map(|node| node.children.keys()),
+        ) {
+            if let Some(name) = self.db.source_symbol_text(*name) {
+                names.push(VisibleName {
+                    name,
+                    kind: Some(DefKind::Module),
+                    symbol: None,
+                });
+            }
+        }
+        Ok(names)
+    }
+
+    fn resolve_namespace(
+        &self,
+        current: ModuleId,
+        imports: &ModuleUsingScope,
+        qualifier: &[&str],
+    ) -> nia_query::QueryResult<Option<ModuleId>> {
+        let root = match qualifier[0] {
+            "self" => ModuleRootSegment::Current,
+            "root" => ModuleRootSegment::Root,
+            "super" => ModuleRootSegment::Parent,
+            name => ModuleRootSegment::Named(SymbolId::from_stable_hash(stable_hash(name))),
+        };
+        let initial = match root {
+            ModuleRootSegment::Named(name) => imports
+                .lookup_module(&name)
+                .or_else(|| self.graph.root_module_for_segment(current, root)),
+            _ => self.graph.root_module_for_segment(current, root),
+        };
+        let Some(mut target) = initial else {
+            return Ok(None);
+        };
+        for name in &qualifier[1..] {
+            let id = SymbolId::from_stable_hash(stable_hash(name));
+            let child = self.visible_child(current, target, id);
+            let exported = if child.is_none() {
+                self.db.source_exports(target)?.and_then(|surface| {
+                    surface.lookup_module(&id).filter(|_| {
+                        surface.module_scopes.get(&id).is_none_or(|scope| {
+                            scope.allows(&|restriction| {
+                                nia_imports::access_restriction_allows(
+                                    restriction,
+                                    &self.graph,
+                                    current,
+                                )
+                            })
+                        })
+                    })
+                })
+            } else {
+                None
+            };
+            let Some(next) = child.or(exported) else {
+                return Ok(None);
+            };
+            target = next;
+        }
+        Ok(Some(target))
+    }
+
+    fn visible_child(
+        &self,
+        current: ModuleId,
+        parent: ModuleId,
+        name: SymbolId,
+    ) -> Option<ModuleId> {
+        let node = self.graph.get(parent)?;
+        let declaration = node.declarations.iter().find(|item| item.name == name)?;
+        nia_imports::module_declaration_visibility_allows(
+            declaration.visibility,
+            &self.graph,
+            parent,
+            current,
+        )
+        .then(|| node.children.get(&name).copied())
+        .flatten()
+    }
+
+    fn direct_names(&self, current: ModuleId, target: ModuleId) -> Vec<VisibleName> {
+        let Some(defs) = self.defs.get(&target) else {
+            return Vec::new();
+        };
+        defs.module_scope
+            .values
+            .entries()
+            .chain(defs.module_scope.types.entries())
+            .filter_map(|(name, id)| {
+                let def = defs.defs.get(id)?;
+                nia_imports::visibility_allows(def.visibility, &self.graph, target, current)
+                    .then(|| self.db.source_symbol_text(*name))?
+                    .map(|name| self.item_name(name, target, id))
+            })
+            .collect()
+    }
+
+    fn namespace_names(
+        &self,
+        current: ModuleId,
+        target: ModuleId,
+    ) -> nia_query::QueryResult<Vec<VisibleName>> {
+        let mut names = self.direct_names(current, target);
+        if let Some(node) = self.graph.get(target) {
+            names.extend(node.children.keys().filter_map(|&name| {
+                self.visible_child(current, target, name)?;
+                Some(VisibleName {
+                    name: self.db.source_symbol_text(name)?,
+                    kind: Some(DefKind::Module),
+                    symbol: None,
+                })
+            }));
+        }
+        if let Some(surface) = self.db.source_exports(target)? {
+            let allowed = |scope: &nia_defs::ExportScope| {
+                scope.allows(&|restriction| {
+                    nia_imports::access_restriction_allows(restriction, &self.graph, current)
+                })
+            };
+            for (&name, item) in surface.values.iter().chain(&surface.types) {
+                if surface
+                    .item_scopes
+                    .get(&(item.namespace, name))
+                    .is_none_or(allowed)
+                    && let Some(name) = self.db.source_symbol_text(name)
+                {
+                    names.push(self.item_name(name, item.target_module, item.target_def_id));
+                }
+            }
+            names.extend(surface.modules.keys().filter_map(|name| {
+                if !surface.module_scopes.get(name).is_none_or(allowed) {
+                    return None;
+                }
+                Some(VisibleName {
+                    name: self.db.source_symbol_text(*name)?,
+                    kind: Some(DefKind::Module),
+                    symbol: None,
+                })
+            }));
+        }
+        Ok(names)
+    }
+
+    fn item_name(
+        &self,
+        name: Arc<str>,
+        module_id: ModuleId,
+        def_id: nia_ids::DefId,
+    ) -> VisibleName {
+        let kind = self
+            .defs
+            .get(&module_id)
+            .and_then(|defs| defs.defs.get(def_id))
+            .map(|def| def.kind);
+        VisibleName {
+            name,
+            kind,
+            symbol: Some(Symbol::Global(GlobalDefId { module_id, def_id })),
+        }
     }
 
     pub(crate) fn definition(&self, path: &Path, position: Position) -> Option<Location> {
@@ -413,11 +638,26 @@ impl Analysis {
     }
 }
 
+pub(crate) struct VisibleName {
+    pub(crate) name: Arc<str>,
+    pub(crate) kind: Option<DefKind>,
+    pub(crate) symbol: Option<Symbol>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use nia_test_support::{TestWorkload, acquire_test_resources, test_dir, workspace_root};
     use nia_toolchain::ToolchainLayoutRequest;
+
+    fn test_session() -> Session {
+        let toolchain = ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
+            std::env::current_exe().unwrap(),
+            workspace_root().join("lib"),
+        ))
+        .unwrap();
+        Session::new(Arc::new(toolchain))
+    }
 
     #[test]
     fn compiler_queries_follow_unsaved_cross_module_changes() {
@@ -442,12 +682,7 @@ mod tests {
                 )
             })
             .collect();
-        let toolchain = ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
-            std::env::current_exe().unwrap(),
-            workspace_root().join("lib"),
-        ))
-        .unwrap();
-        let mut session = Session::new(Arc::new(toolchain));
+        let mut session = test_session();
         let first = session.analyze(&documents, &main).unwrap();
         assert!(
             first
@@ -480,5 +715,86 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(restored.definition(&main, imported), Some(target));
+    }
+
+    #[test]
+    fn completion_and_signature_help_follow_the_current_buffer() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-editing");
+        let main = root.join("main.nia");
+        let math = root.join("math.nia");
+        std::fs::write(
+            &math,
+            "pub fun add(a: i32, b: i32) i32 { a + b }\nfun hidden() i32 { 0 }\n",
+        )
+        .unwrap();
+        let mut session = test_session();
+        let use_buffer = |session: &mut Session, text: &str| {
+            let documents = [(
+                main.clone(),
+                OpenDocument {
+                    uri: uri(&main).unwrap(),
+                    document: Document::new(1, text.to_owned()),
+                },
+            )]
+            .into_iter()
+            .collect();
+            session.analyze(&documents, &main).unwrap()
+        };
+        let text = concat!(
+            "module math;\n",
+            "using root::math as calc;\n",
+            "fun run(param: i32) i32 {\n",
+            "    let prior = 1;\n",
+            "    { let private = 2; _ = private; };\n",
+            "    _ = priXX;\n",
+            "    let later = 3;\n",
+            "    param + prior + later\n",
+            "}\n",
+        );
+        std::fs::write(&main, "module math;\n").unwrap();
+        let analysis = use_buffer(&mut session, text);
+        let file = analysis.file(&main).expect("main buffer in analysis");
+        analysis.names(file, 0, &[]).expect("visible names of main");
+        let completion = analysis.complete(&main, Position::new(5, 11)).unwrap();
+        assert_eq!(
+            completion
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>(),
+            ["prior"]
+        );
+        let Some(lsp_types::CompletionTextEdit::Edit(edit)) = &completion[0].text_edit else {
+            panic!("completion must replace the entire identifier");
+        };
+        assert_eq!(
+            edit.range,
+            lsp_types::Range::new(Position::new(5, 8), Position::new(5, 13))
+        );
+
+        let incomplete = "module math;\nusing root::math as calc;\nfun run() i32 { calc:: }\n";
+        let analysis = use_buffer(&mut session, incomplete);
+        let completion = analysis.complete(&main, Position::new(2, 22)).unwrap();
+        assert_eq!(
+            completion
+                .iter()
+                .map(|item| item.label.as_str())
+                .collect::<Vec<_>>(),
+            ["add"]
+        );
+
+        let incomplete =
+            "module math;\nusing root::math as calc;\nfun run() i32 { calc::add((1, 2).0, \n";
+        let analysis = use_buffer(&mut session, incomplete);
+        let help = analysis
+            .signature_help(&main, Position::new(2, 35))
+            .unwrap();
+        assert_eq!(help.active_parameter, Some(1));
+        assert_eq!(help.signatures[0].label, "fun add(a: i32, b: i32) i32");
+        let params = help.signatures[0].parameters.as_ref().unwrap();
+        assert_eq!(
+            params[1].label,
+            lsp_types::ParameterLabel::Simple("b: i32".into())
+        );
     }
 }

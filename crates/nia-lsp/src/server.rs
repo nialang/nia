@@ -34,7 +34,9 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "textDocumentSync": { "openClose": true, "change": 2, "save": true },
                 "definitionProvider": true,
                 "referencesProvider": true,
-                "hoverProvider": true
+                "hoverProvider": true,
+                "completionProvider": { "triggerCharacters": [":"] },
+                "signatureHelpProvider": { "triggerCharacters": ["(", ","], "retriggerCharacters": [","] }
             },
             "serverInfo": { "name": "nia-lsp", "version": nia_compat::COMPILER_VERSION },
         }),
@@ -127,6 +129,13 @@ fn query(analysis: &Analysis, path: &std::path::Path, request: Request) -> Respo
                 params.context.include_declaration,
             ))
         }),
+        "textDocument/completion" => decode::<lsp_types::CompletionParams>(params)
+            .map(|params| json!(analysis.complete(path, params.text_document_position.position))),
+        "textDocument/signatureHelp" => {
+            decode::<lsp_types::SignatureHelpParams>(params).map(|params| {
+                json!(analysis.signature_help(path, params.text_document_position_params.position))
+            })
+        }
         _ => return Response::new_err(id, ErrorCode::MethodNotFound as i32, method),
     };
     match result {
@@ -189,7 +198,11 @@ impl Server {
     fn request(&mut self, connection: &Connection, request: Request) -> Result<(), Error> {
         if !matches!(
             request.method.as_str(),
-            "textDocument/definition" | "textDocument/references" | "textDocument/hover"
+            "textDocument/definition"
+                | "textDocument/references"
+                | "textDocument/hover"
+                | "textDocument/completion"
+                | "textDocument/signatureHelp"
         ) {
             connection.sender.send(
                 Response::new_err(request.id, ErrorCode::MethodNotFound as i32, request.method)

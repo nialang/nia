@@ -202,7 +202,11 @@ impl Driver {
         }
     }
 
-    fn loader_database(&self, request: &CheckRequest) -> nia_query::QueryResult<LoaderDatabase> {
+    fn loader_database(
+        &self,
+        request: &CheckRequest,
+        recover_declarations: bool,
+    ) -> nia_query::QueryResult<LoaderDatabase> {
         let cpu_features = self.cpu_features().map_err(|error| {
             nia_query::QueryError::internal(format!(
                 "could not determine the CPU features of the target: {error:?}"
@@ -216,6 +220,7 @@ impl Driver {
             profile: request.profile,
             compilation_mode: request.compilation_mode,
             runtime: request.runtime.clone(),
+            recover_declarations,
         };
         let mut loader_guard = self
             .loader
@@ -232,6 +237,7 @@ impl Driver {
                     .with_profile(key.profile)
                     .with_compilation_mode(key.compilation_mode)
                     .with_runtime(key.runtime.clone())
+                    .with_declaration_recovery(key.recover_declarations)
                     .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache);

@@ -274,6 +274,7 @@ impl LoaderDatabase {
         let symbols = SymbolTable::new();
         let frontend_cache = request
             .frontend_cache_dir
+            .filter(|_| !request.recover_declarations)
             .map(|root| Arc::new(frontend_cache::PersistentFrontendCache::new(root)));
         let toolchain_identity = request
             .toolchain
@@ -349,6 +350,7 @@ impl LoaderDatabase {
                 frontend_cache_namespace: namespace,
                 package_roots_with_used_paths,
                 package_root_used_paths: request.package_root_used_paths,
+                recover_declarations: request.recover_declarations,
                 provider_facts,
                 frontend_cache,
                 verify_frontend_cache: request.verify_frontend_cache,
@@ -845,6 +847,8 @@ pub struct LoadRequest {
     pub runtime: RuntimeSpec,
     /// Whether package-root `using` paths participate in the source manifest.
     pub package_root_used_paths: bool,
+    /// Whether to discover modules from declarations surviving syntax recovery.
+    pub recover_declarations: bool,
     /// Optional persistent frontend cache root.
     pub frontend_cache_dir: Option<PathBuf>,
     /// Whether semantically valid cache products must be recomputed and verified.
@@ -871,6 +875,7 @@ impl LoadRequest {
             compilation_mode: CompilationMode::default(),
             runtime: RuntimeSpec::Bare,
             package_root_used_paths: false,
+            recover_declarations: false,
             frontend_cache_dir: None,
             verify_frontend_cache: false,
             toolchain: None,
@@ -886,6 +891,12 @@ impl LoadRequest {
     /// Supplies an initial source database, useful for in-memory compilation.
     pub fn with_sources(mut self, sources: SourceDatabase) -> Self {
         self.sources = sources;
+        self
+    }
+
+    /// Enables declaration discovery in an incomplete editor buffer.
+    pub fn with_declaration_recovery(mut self, enabled: bool) -> Self {
+        self.recover_declarations = enabled;
         self
     }
 
@@ -1002,6 +1013,7 @@ fn load_program_trace(
             ),
             package_roots_with_used_paths: HashSet::new(),
             package_root_used_paths: false,
+            recover_declarations: false,
             provider_facts: ProviderFactStore::default(),
             frontend_cache: None,
             verify_frontend_cache: false,
@@ -1059,6 +1071,7 @@ pub(crate) struct LoaderContext {
     frontend_cache_namespace: FrontendCacheNamespace,
     pub(crate) package_roots_with_used_paths: HashSet<nia_symbol::SymbolId>,
     pub(crate) package_root_used_paths: bool,
+    pub(crate) recover_declarations: bool,
     pub(crate) provider_facts: ProviderFactStore,
     pub(crate) frontend_cache: Option<Arc<frontend_cache::PersistentFrontendCache>>,
     pub(crate) verify_frontend_cache: bool,

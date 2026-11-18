@@ -235,6 +235,7 @@ fn test_loader_context(
         ),
         package_roots_with_used_paths: HashSet::new(),
         package_root_used_paths: false,
+        recover_declarations: false,
         provider_facts: ProviderFactStore::default(),
         frontend_cache: None,
         verify_frontend_cache: false,
