@@ -2189,15 +2189,11 @@ A structural target is named in a path by wrapping it in brackets:
 `[&u8]::is_null`, `[&[char]]::name`. This is only a path to the target's
 members; it neither captures a receiver nor creates a short name.
 
-A trait implementation for a nominal type may be declared only in the package
-that defines the type or in the package that defines the trait;
-[built-in traits](#built-in-traits) belong to `std`. Primitive and structural
-types have no defining package, so their implementations must be declared in
-the trait's package. An implementation applies wherever its trait is visible,
-whatever the current module imports: trait methods such as `xs.len()` and loops
-such as `for i in 0..3` need no `using`, and an import cannot add an
-implementation from a third package. A `pub(root)` or
-private trait's implementations apply only where the trait is visible.
+[Where Implementations Live](#where-implementations-live) specifies which
+packages may declare a trait implementation. Trait method lookup follows the
+trait's visibility, including the restrictions on `pub(root)` and private
+traits. Calls such as `xs.len()` and loops such as `for i in 0..3` need no
+`using` for their trait implementations.
 Extension methods declared without a trait are different: they are scoped and
 need a `using` of their module, or of a module that
 [re-exports](#re-exports) it. An extension block's `where` clause limits the

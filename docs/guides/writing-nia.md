@@ -87,8 +87,8 @@ fun parsePort(text: &[char]) PortError!u16 {
 no closure, and the expected type lets it be written without its enum.
 
 **Convert where the conversion is always the same.** When every error of one
-type becomes the same variant of another, implement `IntoError` on the
-receiving side once and let `.?` convert:
+type becomes the same variant of another, implement `IntoError` once and let
+`.?` convert:
 
 ```nia continued
 // Every port error ends the program with status 2.
@@ -101,9 +101,9 @@ extend PortError : std::builtin::IntoError[process::ExitCode] {
 ```
 
 Use `mapError` where the variant depends on the call, and `IntoError` where
-it does not. The implementation belongs to the package that owns the target
-type, which may implement it for any source error, including one from
-another package.
+it does not. A package can use `IntoError` to convert a dependency's error to
+its own error type. See [Where Implementations Live](../reference/language.md#where-implementations-live)
+for the full rule.
 
 **Examine failures at the boundary.** Functions in the middle pass errors on
 with `.?`. The place that decides what a failure means, usually `main` or a
