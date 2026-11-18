@@ -19,10 +19,11 @@ if (-not $version) { throw 'failed to determine nia-cli version' }
 
 $llvmPrefix = if ($env:LLVM_SYS_231_PREFIX) { $env:LLVM_SYS_231_PREFIX } else { Join-Path $repoRoot 'target\llvm-static\install' }
 $binary = Join-Path $repoRoot 'target\x86_64-pc-windows-msvc\release\nia.exe'
+$editorBinary = Join-Path $repoRoot 'target\x86_64-pc-windows-msvc\release\nia-editor.exe'
 $lld = Join-Path $llvmPrefix 'bin\ld.lld.exe'
 $resourceRoot = Join-Path $repoRoot 'lib'
 if (-not (Test-Path $llvmPrefix -PathType Container)) { throw "release input is missing: $llvmPrefix" }
-foreach ($required in @($binary, $lld, (Join-Path $resourceRoot 'toolchain.meta'), (Join-Path $resourceRoot 'std\nia.toml'), (Join-Path $resourceRoot 'runtime\nia.toml'))) {
+foreach ($required in @($binary, $editorBinary, $lld, (Join-Path $resourceRoot 'toolchain.meta'), (Join-Path $resourceRoot 'std\nia.toml'), (Join-Path $resourceRoot 'runtime\nia.toml'))) {
     if (-not (Test-Path $required -PathType Leaf)) { throw "release input is missing: $required" }
 }
 
@@ -35,7 +36,9 @@ Remove-Item -Force -ErrorAction SilentlyContinue $archive, $checksums
 New-Item -ItemType Directory -Force -Path (Join-Path $stageRoot 'bin'), (Join-Path $stageRoot 'lib'), (Join-Path $stageRoot 'libexec') | Out-Null
 
 Copy-Item $binary (Join-Path $stageRoot 'bin\nia.exe')
+Copy-Item $editorBinary (Join-Path $stageRoot 'bin\nia-editor.exe')
 Copy-Item (Join-Path $resourceRoot '*') (Join-Path $stageRoot 'lib') -Recurse
+Copy-Item (Join-Path $repoRoot 'editors') $stageRoot -Recurse
 Copy-Item $lld (Join-Path $stageRoot 'libexec\ld.lld.exe')
 Copy-Item (Join-Path $repoRoot 'README.md'), (Join-Path $repoRoot 'LICENSE.md') $stageRoot
 

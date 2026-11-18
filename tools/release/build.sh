@@ -35,7 +35,7 @@ fi
 
 cd "${repo_root}"
 LLVM_SYS_231_PREFIX="${llvm_prefix}" \
-    cargo build --release -p nia-cli --no-default-features --features llvm-static
+    cargo build --locked --release -p nia-cli -p nia-editor --no-default-features --features llvm-static
 
 if [[ ! -x "${binary}" ]]; then
     printf 'release compiler was not produced: %s\n' "${binary}" >&2

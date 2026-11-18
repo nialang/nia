@@ -1,0 +1,65 @@
+{
+  "name": "nia",
+  "displayName": "Nia",
+  "description": "Syntax highlighting and folding for Nia",
+  "version": "0.3.0",
+  "publisher": "nialang",
+  "repository": { "type": "git", "url": "https://github.com/nialang/nia.git" },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "files": ["extension.js", "language-configuration.json", "nia-file.svg", "file-icons.json", "syntaxes"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:nia"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "nia",
+        "aliases": ["Nia", "nia"],
+        "extensions": [".nia"],
+        "configuration": "./language-configuration.json",
+        "icon": { "light": "./nia-file.svg", "dark": "./nia-file.svg" }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nia",
+        "scopeName": "source.nia",
+        "path": "./syntaxes/nia.tmLanguage.json"
+      }
+    ],
+    "iconThemes": [
+      { "id": "nia-file-icons", "label": "Nia File Icons", "path": "./file-icons.json" }
+    ],
+    "configuration": {
+      "title": "Nia",
+      "properties": {
+        "nia.editorPath": {
+          "type": "string",
+          "default": "nia-editor",
+          "scope": "machine",
+          "description": "Path to the nia-editor executable, or a command on PATH."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[nia]": { "editor.semanticHighlighting.enabled": true }
+    },
+    "semanticTokenTypes": [
+      { "id": "primitive", "superType": "type", "description": "Primitive type" },
+      { "id": "propagation", "superType": "operator", "description": "Error or optional propagation" },
+      { "id": "dereference", "superType": "operator", "description": "Pointer dereference" }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "nia",
+        "scopes": {
+          "primitive": ["storage.type.primitive.nia"],
+          "constant": ["constant.language.nia"],
+          "propagation": ["keyword.operator.propagation.nia"],
+          "dereference": ["keyword.operator.dereference.nia"],
+          "decorator": ["entity.name.function.decorator.nia"]
+        }
+      }
+    ]
+  }
+}

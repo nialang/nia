@@ -1,0 +1,41 @@
+{
+  "name": "Nia",
+  "scopeName": "source.nia",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#attributes" },
+    { "include": "#keywords" },
+    { "include": "#numbers" },
+    { "include": "#types" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [{ "match": "//.*$", "name": "comment.line.double-slash.nia" }]
+    },
+    "strings": {
+      "patterns": [
+        { "name": "string.quoted.double.nia", "begin": "b?\\\"", "end": "\\\"|$", "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.nia" }] },
+        { "name": "string.quoted.single.nia", "begin": "b?'", "end": "'|$", "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.nia" }] }
+      ]
+    },
+    "attributes": {
+      "patterns": [{ "match": "@\\[[^\\]]*\\]", "name": "entity.name.function.decorator.nia" }]
+    },
+    "keywords": {
+      "patterns": [{ "match": "\\b(and|as|bool|break|const|continue|defer|else|enum|extern|extend|false|for|fun|if|in|is|let|loop|match|module|mut|never|not|null|opaque|or|pub|return|self|Self|static|struct|super|trait|true|type|union|using|where|while)\\b", "name": "keyword.control.nia" }]
+    },
+    "numbers": {
+      "patterns": [{ "match": "\\b(0[xX][0-9A-Fa-f_]+|0[bB][01_]+|0[oO][0-7_]+|[0-9][0-9_]*(\\.[0-9_]+)?([eE][+-]?[0-9_]+)?)(i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64)?\\b", "name": "constant.numeric.nia" }]
+    },
+    "types": {
+      "patterns": [
+        { "match": "\\b(i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|char|never|bool)\\b", "name": "storage.type.primitive.nia" }
+      ]
+    },
+    "operators": {
+      "patterns": [{ "match": "(\\.\\?|\\.\\*|==|!=|<=|>=|<<|>>|\\+=|-=|\\*=|/=|%=|[+*/%&|^~!=<>?-])", "name": "keyword.operator.nia" }]
+    }
+  }
+}

@@ -238,6 +238,9 @@ pub(crate) fn recover_to_stmt_boundary(p: &mut Parser<'_>, checkpoint: Checkpoin
                 continue;
             }
             if depth.top() {
+                if stmts::starts_outer_declaration(p) {
+                    break;
+                }
                 match kind {
                     TokenKind::RBrace => break,
                     TokenKind::Semicolon => {
@@ -249,7 +252,9 @@ pub(crate) fn recover_to_stmt_boundary(p: &mut Parser<'_>, checkpoint: Checkpoin
             }
             p.bump();
         }
-        p.ensure_progress(checkpoint);
+        if !stmts::starts_outer_declaration(p) {
+            p.ensure_progress(checkpoint);
+        }
     });
 }
 
