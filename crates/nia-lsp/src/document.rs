@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use lsp_types::{Position, Range, TextDocumentContentChangeEvent};
 use nia_span::Span;
@@ -9,6 +9,7 @@ pub(crate) struct Document {
     pub(crate) version: i32,
     pub(crate) text: Arc<str>,
     pub(crate) lines: Lines,
+    syntax: Arc<OnceLock<Option<nia_syntax::Parse>>>,
 }
 
 impl Document {
@@ -17,7 +18,14 @@ impl Document {
             version,
             lines: Lines::new(&text),
             text: text.into(),
+            syntax: Arc::default(),
         }
+    }
+
+    pub(crate) fn syntax(&self) -> Option<&nia_syntax::Parse> {
+        self.syntax
+            .get_or_init(|| nia_syntax::parse(&self.text, None).ok())
+            .as_ref()
     }
 
     pub(crate) fn changed(
@@ -45,6 +53,7 @@ impl Document {
             version,
             text: text.into(),
             lines,
+            syntax: Arc::default(),
         })
     }
 }
@@ -82,12 +91,20 @@ impl Lines {
         (column <= target).then_some(start + line_text.len())
     }
 
-    fn position(&self, text: &str, offset: usize) -> Position {
+    pub(crate) fn line_index(&self, offset: usize) -> usize {
+        self.0.partition_point(|start| *start <= offset) - 1
+    }
+
+    pub(crate) fn line_start(&self, line: usize) -> usize {
+        self.0[line]
+    }
+
+    pub(crate) fn position(&self, text: &str, offset: usize) -> Position {
         let mut offset = offset.min(text.len());
         while !text.is_char_boundary(offset) {
             offset -= 1;
         }
-        let line = self.0.partition_point(|start| *start <= offset) - 1;
+        let line = self.line_index(offset);
         let prefix = text[self.0[line]..offset].trim_end_matches(['\r', '\n']);
         Position::new(line as u32, prefix.encode_utf16().count() as u32)
     }

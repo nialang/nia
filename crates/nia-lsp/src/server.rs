@@ -25,7 +25,14 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 
 pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error> {
     let (connection, io) = Connection::stdio();
-    let (id, _) = connection.initialize_start()?;
+    let (id, params) = connection.initialize_start()?;
+    let params = decode::<lsp_types::InitializeParams>(params)?;
+    let client = params.capabilities.text_document.unwrap_or_default();
+    let hierarchical_symbols = client
+        .document_symbol
+        .and_then(|symbols| symbols.hierarchical_document_symbol_support)
+        .unwrap_or_default();
+    let folding = client.folding_range.unwrap_or_default();
     connection.initialize_finish(
         id,
         json!({
@@ -35,6 +42,8 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "definitionProvider": true,
                 "referencesProvider": true,
                 "hoverProvider": true,
+                "documentSymbolProvider": true,
+                "foldingRangeProvider": true,
                 "completionProvider": { "triggerCharacters": [":"] },
                 "signatureHelpProvider": { "triggerCharacters": ["(", ","], "retriggerCharacters": [","] }
             },
@@ -44,7 +53,13 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
     let (work_tx, work_rx) = unbounded();
     let (reply_tx, reply_rx) = unbounded();
     let worker = thread::spawn(move || analyze(Arc::new(toolchain), work_rx, reply_tx));
-    let result = Server::default().serve(&connection, &work_tx, &reply_rx);
+    let result = Server {
+        hierarchical_symbols,
+        fold_limit: folding.range_limit.map(|limit| limit as usize),
+        line_folding_only: folding.line_folding_only.unwrap_or_default(),
+        ..Server::default()
+    }
+    .serve(&connection, &work_tx, &reply_rx);
     drop(connection);
     drop(work_tx);
     worker.join().map_err(|_| "Nia analysis thread panicked")?;
@@ -150,6 +165,9 @@ fn decode<T: DeserializeOwned>(value: Value) -> serde_json::Result<T> {
 
 #[derive(Default)]
 struct Server {
+    hierarchical_symbols: bool,
+    fold_limit: Option<usize>,
+    line_folding_only: bool,
     documents: Documents,
     dirty: BTreeSet<PathBuf>,
     pending: VecDeque<(PathBuf, u64, Request)>,
@@ -203,6 +221,8 @@ impl Server {
                 | "textDocument/hover"
                 | "textDocument/completion"
                 | "textDocument/signatureHelp"
+                | "textDocument/documentSymbol"
+                | "textDocument/foldingRange"
         ) {
             connection.sender.send(
                 Response::new_err(request.id, ErrorCode::MethodNotFound as i32, request.method)
@@ -216,9 +236,9 @@ impl Server {
             .and_then(Value::as_str)
             .and_then(|text| text.parse::<Uri>().ok())
             .and_then(|uri| analysis::path(&uri));
-        if let Some(path) = path.filter(|path| self.documents.contains_key(path)) {
-            self.pending.push_back((path, self.revision, request));
-        } else {
+        let Some((path, open)) =
+            path.and_then(|path| self.documents.get(&path).map(|open| (path, open)))
+        else {
             connection.sender.send(
                 Response::new_err(
                     request.id,
@@ -227,7 +247,26 @@ impl Server {
                 )
                 .into(),
             )?;
-        }
+            return Ok(());
+        };
+        let value = match request.method.as_str() {
+            "textDocument/documentSymbol" => {
+                json!(open.document.symbols(&open.uri, self.hierarchical_symbols))
+            }
+            "textDocument/foldingRange" => {
+                json!(
+                    open.document
+                        .folding_ranges(self.line_folding_only, self.fold_limit)
+                )
+            }
+            _ => {
+                self.pending.push_back((path, self.revision, request));
+                return Ok(());
+            }
+        };
+        connection
+            .sender
+            .send(Response::new_ok(request.id, value).into())?;
         Ok(())
     }
 

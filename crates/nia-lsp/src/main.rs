@@ -5,6 +5,7 @@ mod analysis;
 mod document;
 mod editing;
 mod server;
+mod structure;
 
 nia_alloc::global_allocator!();
 

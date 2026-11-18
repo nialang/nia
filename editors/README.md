@@ -3,12 +3,15 @@
 `nia-lsp` is a Rust language server that uses the compiler's loader and
 semantic queries. Its current editor features are live diagnostics,
 definition navigation, hover at resolved names, references within the current
-analysis graph, completion for local names and module members, and signature
-help for source functions and resolved methods.
+analysis graph, completion for local names and module members, signature help
+for source functions and resolved methods, document outline, and folding.
+Outline and folding use the current buffer's syntax tree, including unsaved
+changes. Folds include bodies, aggregate members, multiline parameter lists
+and constraints, grouped imports, and consecutive line comments.
 
 The server reads the nearest `nia.toml` for a library root and declared test
 entry points. Workspace dependency resolution, generated modules, receiver
-member completion, rename, semantic highlighting, and folding are future work.
+member completion, rename, and semantic highlighting are future work.
 
 Build from the repository root with `cargo build --locked -p nia-lsp`.
 On Windows, use an x64 Developer PowerShell with the configured LLVM
@@ -42,6 +45,18 @@ vim.lsp.config("nia", {
   root_markers = { "nia.toml", ".git" },
 })
 vim.lsp.enable("nia")
+
+vim.api.nvim_create_autocmd("LspAttach", {
+  callback = function(event)
+    local client = vim.lsp.get_client_by_id(event.data.client_id)
+    if client and client.name == "nia" and client:supports_method("textDocument/foldingRange") then
+      for _, win in ipairs(vim.fn.win_findbuf(event.buf)) do
+        vim.wo[win].foldmethod = "expr"
+        vim.wo[win].foldexpr = "v:lua.vim.lsp.foldexpr()"
+      end
+    end
+  end,
+})
 ```
 
 ## Vim
