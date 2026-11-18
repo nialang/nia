@@ -23,6 +23,9 @@
     "iconThemes": [
       { "id": "nia", "label": "Nia File Icons", "path": "./assets/file-icons.json" }
     ],
+    "configurationDefaults": {
+      "[nia]": { "editor.semanticHighlighting.enabled": true }
+    },
     "configuration": {
       "title": "Nia",
       "properties": {

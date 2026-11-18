@@ -10,6 +10,7 @@ pub(crate) struct Document {
     pub(crate) text: Arc<str>,
     pub(crate) lines: Lines,
     syntax: Arc<OnceLock<Option<nia_syntax::Parse>>>,
+    pub(crate) highlights: Arc<OnceLock<Vec<crate::highlight::Highlight>>>,
 }
 
 impl Document {
@@ -19,6 +20,7 @@ impl Document {
             lines: Lines::new(&text),
             text: text.into(),
             syntax: Arc::default(),
+            highlights: Arc::default(),
         }
     }
 
@@ -54,6 +56,7 @@ impl Document {
             text: text.into(),
             lines,
             syntax: Arc::default(),
+            highlights: Arc::default(),
         })
     }
 }
@@ -97,6 +100,10 @@ impl Lines {
 
     pub(crate) fn line_start(&self, line: usize) -> usize {
         self.0[line]
+    }
+
+    pub(crate) fn next_line_start(&self, line: usize) -> Option<usize> {
+        self.0.get(line + 1).copied()
     }
 
     pub(crate) fn position(&self, text: &str, offset: usize) -> Position {

@@ -12,7 +12,7 @@ use nia_diagnostic::LabelStyle;
 use nia_driver::{CheckRequest, Driver};
 use nia_ids::{GlobalDefId, LocalId, ModuleId};
 use nia_imports::{ModuleGraphSnapshot, ModuleMap, ModuleRootSegment};
-use nia_lexer::{LosslessTokenKind, TokenKind, tokenize_lossless};
+use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_package_metadata::{ArtifactKind, PackageManifest};
 use nia_sema_ir::{ResolvedCall, SemanticValueUse};
 use nia_source::SourcePath;
@@ -20,9 +20,11 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
 use nia_target_config::CompilationMode;
 use nia_toolchain::ToolchainLayout;
+use nia_type_resolve::TypeNameResolution;
 use url::Url;
 
 use crate::document::{Document, Lines};
+use crate::highlight::{Class, Kind, Resolved};
 
 pub(crate) type Documents = BTreeMap<PathBuf, OpenDocument>;
 
@@ -173,6 +175,8 @@ pub(crate) struct File {
     pub(crate) text: Arc<str>,
     pub(crate) lines: Lines,
     occurrences: Vec<Occurrence>,
+    locals: HashMap<LocalId, (Kind, bool)>,
+    type_highlights: Resolved,
 }
 
 pub(crate) struct Analysis {
@@ -221,8 +225,9 @@ impl Analysis {
                 None => db.source_definitions(node.id)?,
             };
             result.defs.insert(node.id, defs.clone());
-            let names: Vec<_> = tokenize_lossless(&file.text)
-                .into_iter()
+            let tokens = tokenize_lossless(&file.text);
+            let names: Vec<_> = tokens
+                .iter()
                 .filter(|token| {
                     matches!(
                         token.kind,
@@ -242,6 +247,8 @@ impl Analysis {
                 SymbolId::from_stable_hash(stable_hash(&file.text[span.start..span.end])) == name
             };
             let mut occurrences = Vec::new();
+            let mut locals = HashMap::new();
+            let mut type_highlights = Resolved::new();
             let mut declare = |symbol, span| {
                 result.definitions.insert(symbol, (path.to_owned(), span));
                 occurrences.push(Occurrence {
@@ -266,7 +273,23 @@ impl Analysis {
             }
             if let Some(module) = module {
                 for (id, local) in module.local_resolution.locals.iter() {
-                    if let Some(&span) = tokens_in(local.span).first() {
+                    use nia_local_resolve::LocalKind;
+                    let kind = match local.kind {
+                        LocalKind::Param => Kind::Parameter,
+                        _ => Kind::Variable,
+                    };
+                    locals.insert(id, (kind, local.kind == LocalKind::ConstBinding));
+                    let names = tokens_in(local.span);
+                    let name = if let Some(name) = local.name.symbol() {
+                        names.iter().find(|span| name_matches(span, name))
+                    } else if local.name.is_self_value() {
+                        names
+                            .iter()
+                            .find(|span| &file.text[span.start..span.end] == "self")
+                    } else {
+                        None
+                    };
+                    if let Some(&span) = name {
                         declare(Symbol::Local(module.id, id), span);
                     }
                 }
@@ -283,6 +306,27 @@ impl Analysis {
                     })
                     .collect();
                 for (span, key) in db.source_origins(module.id)?.entries() {
+                    let type_class = match module.type_resolution.node_type_names.get(key.site()) {
+                        Some(TypeNameResolution::GenericParam) => {
+                            Some(Class::new(Kind::TypeParameter))
+                        }
+                        Some(TypeNameResolution::BuiltinTrait(_)) => {
+                            Some(Class::builtin(Kind::Interface))
+                        }
+                        Some(TypeNameResolution::Def(id)) => {
+                            defs.defs.get(*id).map(|def| Class::new(def.kind.into()))
+                        }
+                        Some(TypeNameResolution::External(id)) => modules
+                            .get(&id.module_id)
+                            .and_then(|owner| owner.defs.defs.get(id.def_id))
+                            .map(|def| Class::new(def.kind.into())),
+                        _ => None,
+                    };
+                    if let Some(class) = type_class
+                        && let Some(name) = type_name_span(&tokens, span)
+                    {
+                        type_highlights.insert(name, class);
+                    }
                     let names = tokens_in(span);
                     let target = match module.semantic_uses.node_value_use(&key) {
                         Some(SemanticValueUse::Local(id)) => Some(Symbol::Local(module.id, id)),
@@ -324,6 +368,8 @@ impl Analysis {
                     lines: Lines::new(&file.text),
                     text: file.text,
                     occurrences,
+                    locals,
+                    type_highlights,
                 },
             );
         }
@@ -338,6 +384,33 @@ impl Analysis {
 
     pub(crate) fn file(&self, path: &Path) -> Option<&File> {
         self.files.get(&normalized(path))
+    }
+
+    pub(crate) fn semantic_highlights(&self, path: &Path) -> Resolved {
+        let Some(file) = self.file(path) else {
+            return Resolved::new();
+        };
+        let mut resolved = file.type_highlights.clone();
+        let mut previous = None;
+        resolved.reserve(file.occurrences.len());
+        for item in &file.occurrences {
+            if previous == Some(item.span) {
+                continue;
+            }
+            let kind = match item.symbol {
+                Symbol::Local(_, id) => file.locals.get(&id).copied(),
+                Symbol::Global(id) => self
+                    .defs
+                    .get(&id.module_id)
+                    .and_then(|defs| defs.defs.get(id.def_id))
+                    .map(|def| (Kind::from(def.kind), def.kind == DefKind::Const)),
+            };
+            if let Some((kind, readonly)) = kind {
+                resolved.insert(item.span, Class::symbol(kind, item.declaration, readonly));
+                previous = Some(item.span);
+            }
+        }
+        resolved
     }
 
     pub(crate) fn symbol_at_offset(&self, file: &File, offset: usize) -> Option<Symbol> {
@@ -638,6 +711,24 @@ impl Analysis {
     }
 }
 
+fn type_name_span(tokens: &[LosslessToken], span: Span) -> Option<Span> {
+    let start = tokens.partition_point(|token| token.span.start < span.start);
+    let mut depth = 0_u32;
+    let mut name = None;
+    for token in tokens[start..]
+        .iter()
+        .take_while(|token| token.span.end <= span.end)
+    {
+        match token.kind {
+            LosslessTokenKind::Token(TokenKind::LBracket) => depth += 1,
+            LosslessTokenKind::Token(TokenKind::RBracket) => depth = depth.saturating_sub(1),
+            LosslessTokenKind::Token(TokenKind::Ident) if depth == 0 => name = Some(token.span),
+            _ => {}
+        }
+    }
+    name
+}
+
 pub(crate) struct VisibleName {
     pub(crate) name: Arc<str>,
     pub(crate) kind: Option<DefKind>,
@@ -715,6 +806,55 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(restored.definition(&main, imported), Some(target));
+    }
+
+    #[test]
+    fn highlights_resolve_imported_symbols_and_nested_generic_types() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-highlights");
+        let main = root.join("main.nia");
+        let child = root.join("shapes.nia");
+        let source = concat!(
+            "module shapes;\n",
+            "using root::shapes::Boxed as Imported;\n",
+            "using root::shapes::amount as imported_amount;\n",
+            "fun combine[T](value: Imported[T], count: i32) i32 {\n",
+            "    let callback = imported_amount;\n",
+            "    count + callback()\n",
+            "}\n",
+        );
+        std::fs::write(&main, source).unwrap();
+        std::fs::write(
+            &child,
+            "pub struct Boxed[T] { item: T }\npub fun amount() i32 { 1 }\n",
+        )
+        .unwrap();
+        let mut documents = Documents::new();
+        documents.insert(
+            main.clone(),
+            OpenDocument {
+                uri: uri(&main).unwrap(),
+                document: Document::new(1, source.into()),
+            },
+        );
+        let analysis = test_session().analyze(&documents, &main).unwrap();
+        let diagnostics = analysis.diagnostics(&main, &documents[&main].document);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        let resolved = analysis.semantic_highlights(&main);
+        for (name, kind) in [
+            ("Imported", Kind::Struct),
+            ("T", Kind::TypeParameter),
+            ("imported_amount", Kind::Function),
+            ("count", Kind::Parameter),
+            ("callback", Kind::Variable),
+        ] {
+            let start = source.rfind(name).unwrap();
+            assert_eq!(
+                resolved.get(&Span::new(start, start + name.len())),
+                Some(&Class::new(kind)),
+                "{name}"
+            );
+        }
     }
 
     #[test]

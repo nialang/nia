@@ -23,6 +23,7 @@ nia-driver.workspace = true
 nia-ids.workspace = true
 nia-imports.workspace = true
 nia-lexer.workspace = true
+nia-local-resolve.workspace = true
 nia-package-metadata.workspace = true
 nia-query.workspace = true
 nia-sema-ir.workspace = true
@@ -32,6 +33,8 @@ nia-symbol.workspace = true
 nia-syntax.workspace = true
 nia-target-config.workspace = true
 nia-toolchain.workspace = true
+nia-ty.workspace = true
+nia-type-resolve.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

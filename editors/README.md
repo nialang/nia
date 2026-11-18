@@ -4,14 +4,18 @@
 semantic queries. Its current editor features are live diagnostics,
 definition navigation, hover at resolved names, references within the current
 analysis graph, completion for local names and module members, signature help
-for source functions and resolved methods, document outline, and folding.
+for source functions and resolved methods, document outline, folding, and
+semantic highlighting.
 Outline and folding use the current buffer's syntax tree, including unsaved
 changes. Folds include bodies, aggregate members, multiline parameter lists
 and constraints, grouped imports, and consecutive line comments.
+Highlighting uses both the current syntax tree and compiler symbol resolution.
+Clients that support semantic token refresh can show syntax highlights while
+the compiler resolves symbols. Colors follow the editor theme.
 
 The server reads the nearest `nia.toml` for a library root and declared test
 entry points. Workspace dependency resolution, generated modules, receiver
-member completion, rename, and semantic highlighting are future work.
+member completion, and rename are future work.
 
 Build from the repository root with `cargo build --locked -p nia-lsp`.
 On Windows, use an x64 Developer PowerShell with the configured LLVM
@@ -32,10 +36,12 @@ repository license is in [LICENSE.md](../LICENSE.md).
 
 The extension uses the existing Nia square brand icon. Select **Nia File Icons**
 from **Preferences: File Icon Theme** to enable it for `.nia` files.
+The extension enables semantic highlighting for Nia by default.
 
 ## Neovim
 
 With Neovim 0.11 or later, register the file type and use the built-in client.
+Neovim uses its `@lsp.type.*` and `@lsp.mod.*` highlight groups.
 
 ```lua
 vim.filetype.add({ extension = { nia = "nia" } })
@@ -64,3 +70,5 @@ vim.api.nvim_create_autocmd("LspAttach", {
 Use an LSP client such as vim-lsp or coc.nvim. Register `.nia` as file type
 `nia` and configure the client to launch
 `nia-lsp --resource-root /path/to/nia/lib` over standard input and output.
+Semantic highlighting requires a client with LSP semantic token support, such
+as coc.nvim.

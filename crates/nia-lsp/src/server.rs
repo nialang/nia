@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeSet, HashMap, VecDeque},
     path::PathBuf,
     sync::Arc,
     thread,
@@ -19,14 +19,23 @@ use serde_json::{Value, json};
 use crate::{
     analysis::{self, Analysis, Documents, OpenDocument, Session},
     document::Document,
+    highlight::{self, Resolved},
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
+const SEMANTIC_FULL: &str = "textDocument/semanticTokens/full";
+const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
 
 pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error> {
     let (connection, io) = Connection::stdio();
     let (id, params) = connection.initialize_start()?;
     let params = decode::<lsp_types::InitializeParams>(params)?;
+    let semantic_refresh = params
+        .capabilities
+        .workspace
+        .and_then(|workspace| workspace.semantic_tokens)
+        .and_then(|semantic| semantic.refresh_support)
+        .unwrap_or_default();
     let client = params.capabilities.text_document.unwrap_or_default();
     let hierarchical_symbols = client
         .document_symbol
@@ -44,6 +53,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "hoverProvider": true,
                 "documentSymbolProvider": true,
                 "foldingRangeProvider": true,
+                "semanticTokensProvider": { "legend": highlight::legend(), "full": true },
                 "completionProvider": { "triggerCharacters": [":"] },
                 "signatureHelpProvider": { "triggerCharacters": ["(", ","], "retriggerCharacters": [","] }
             },
@@ -57,6 +67,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         hierarchical_symbols,
         fold_limit: folding.range_limit.map(|limit| limit as usize),
         line_folding_only: folding.line_folding_only.unwrap_or_default(),
+        semantic_refresh,
         ..Server::default()
     }
     .serve(&connection, &work_tx, &reply_rx);
@@ -78,6 +89,7 @@ struct Reply {
     revision: u64,
     path: PathBuf,
     diagnostics: Result<Vec<Diagnostic>, String>,
+    highlights: Arc<Resolved>,
     response: Option<Response>,
 }
 
@@ -92,23 +104,30 @@ fn analyze(
         let key = (work.revision, &work.path);
         if !cached
             .as_ref()
-            .is_some_and(|(revision, path, _)| (*revision, path) == key)
+            .is_some_and(|(revision, path, _, _)| (*revision, path) == key)
         {
-            cached = Some((
-                work.revision,
-                work.path.clone(),
-                session.analyze(&work.documents, &work.path),
+            let analysis = session.analyze(&work.documents, &work.path);
+            let highlights = Arc::new(analysis.as_ref().map_or_else(
+                |_| Resolved::new(),
+                |analysis| analysis.semantic_highlights(&work.path),
             ));
+            cached = Some((work.revision, work.path.clone(), analysis, highlights));
         }
-        let analysis = &cached.as_ref().expect("analysis cache filled").2;
+        let (_, _, analysis, highlights) = cached.as_ref().expect("analysis cache filled");
+        let document = &work.documents[&work.path].document;
         let diagnostics = analysis
             .as_ref()
-            .map(|analysis| analysis.diagnostics(&work.path, &work.documents[&work.path].document))
+            .map(|analysis| analysis.diagnostics(&work.path, document))
             .map_err(Clone::clone);
-        let response = work.request.map(|request| match analysis {
-            Ok(analysis) => query(analysis, &work.path, request),
-            Err(error) => {
-                Response::new_err(request.id, ErrorCode::RequestFailed as i32, error.clone())
+        let response = work.request.map(|request| {
+            if request.method == SEMANTIC_FULL {
+                return semantic_response(request, document, Some(highlights));
+            }
+            match analysis {
+                Ok(analysis) => query(analysis, &work.path, request),
+                Err(error) => {
+                    Response::new_err(request.id, ErrorCode::RequestFailed as i32, error.clone())
+                }
             }
         });
         if output
@@ -116,12 +135,28 @@ fn analyze(
                 revision: work.revision,
                 path: work.path,
                 diagnostics,
+                highlights: highlights.clone(),
                 response,
             })
             .is_err()
         {
             break;
         }
+    }
+}
+
+fn semantic_response(
+    request: Request,
+    document: &Document,
+    resolved: Option<&Resolved>,
+) -> Response {
+    match decode::<lsp_types::SemanticTokensParams>(request.params) {
+        Ok(_) => Response::new_ok(request.id, document.semantic_tokens(resolved)),
+        Err(error) => Response::new_err(
+            request.id,
+            ErrorCode::InvalidParams as i32,
+            error.to_string(),
+        ),
     }
 }
 
@@ -168,6 +203,12 @@ struct Server {
     hierarchical_symbols: bool,
     fold_limit: Option<usize>,
     line_folding_only: bool,
+    semantic_refresh: bool,
+    highlights: HashMap<PathBuf, Arc<Resolved>>,
+    syntax_sent: BTreeSet<PathBuf>,
+    refresh_needed: bool,
+    refresh_request: Option<RequestId>,
+    refresh_sequence: u64,
     documents: Documents,
     dirty: BTreeSet<PathBuf>,
     pending: VecDeque<(PathBuf, u64, Request)>,
@@ -201,13 +242,20 @@ impl Server {
                         }
                         self.notification(connection, notification)?;
                     }
-                    Message::Response(_) => {}
+                    Message::Response(response) => {
+                        if self.refresh_request.as_ref() == Some(&response.id) {
+                            self.refresh_request = None;
+                        }
+                    }
                 },
                 recv(replies) -> reply => {
                     self.reply(connection, reply?)?;
                     self.schedule(connection, work, false)?;
                 },
-                recv(idle) -> _ => self.schedule(connection, work, true)?,
+                recv(idle) -> _ => {
+                    self.schedule(connection, work, true)?;
+                    self.refresh_highlights(connection)?;
+                },
             }
         }
         Ok(())
@@ -223,6 +271,7 @@ impl Server {
                 | "textDocument/signatureHelp"
                 | "textDocument/documentSymbol"
                 | "textDocument/foldingRange"
+                | SEMANTIC_FULL
         ) {
             connection.sender.send(
                 Response::new_err(request.id, ErrorCode::MethodNotFound as i32, request.method)
@@ -249,6 +298,20 @@ impl Server {
             )?;
             return Ok(());
         };
+        if request.method == SEMANTIC_FULL {
+            let resolved = self.highlights.get(&path);
+            if resolved.is_some() || self.semantic_refresh {
+                let response =
+                    semantic_response(request, &open.document, resolved.map(Arc::as_ref));
+                if resolved.is_none() && response.response_result.is_ok() {
+                    self.syntax_sent.insert(path);
+                }
+                connection.sender.send(response.into())?;
+            } else {
+                self.pending.push_back((path, self.revision, request));
+            }
+            return Ok(());
+        }
         let value = match request.method.as_str() {
             "textDocument/documentSymbol" => {
                 json!(open.document.symbols(&open.uri, self.hierarchical_symbols))
@@ -356,6 +419,22 @@ impl Server {
     fn invalidate(&mut self) {
         self.revision += 1;
         self.dirty = self.documents.keys().cloned().collect();
+        self.highlights.clear();
+        self.syntax_sent.clear();
+        self.refresh_needed = false;
+    }
+
+    fn refresh_highlights(&mut self, connection: &Connection) -> Result<(), Error> {
+        if self.refresh_needed && self.refresh_request.is_none() {
+            self.refresh_sequence += 1;
+            let id = RequestId::from(format!("nia-semantic-refresh-{}", self.refresh_sequence));
+            connection
+                .sender
+                .send(Request::new(id.clone(), SEMANTIC_REFRESH.to_owned(), ()).into())?;
+            self.refresh_request = Some(id);
+            self.refresh_needed = false;
+        }
+        Ok(())
     }
 
     fn schedule(
@@ -405,6 +484,12 @@ impl Server {
             && let Some(open) = self.documents.get(&reply.path)
         {
             self.dirty.remove(&reply.path);
+            if self.syntax_sent.remove(&reply.path)
+                && open.document.has_refinements(&reply.highlights)
+            {
+                self.refresh_needed = true;
+            }
+            self.highlights.insert(reply.path, reply.highlights);
             let diagnostics = reply.diagnostics.unwrap_or_else(|error| {
                 vec![Diagnostic {
                     source: Some("nia-lsp".into()),
