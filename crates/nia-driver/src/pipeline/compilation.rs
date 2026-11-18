@@ -110,6 +110,23 @@ impl Driver {
         DriverOutput::success(program)
     }
 
+    /// Runs editor analysis against the same module scope as `check`.
+    ///
+    /// The consumer runs against the checked revision, including when the
+    /// program contains user errors, so it can resolve source origins.
+    pub fn analyze_for_editor<T>(
+        &self,
+        request: CheckRequest,
+        consume: impl FnOnce(
+            &CompilerDatabase,
+            nia_compiler_query::CheckedProgramAnalysis,
+        ) -> nia_query::QueryResult<T>,
+    ) -> nia_query::QueryResult<T> {
+        let database = self.compiler_database(&request, RootScope::Tree)?;
+        let analysis = database.analyze_entry_program()?;
+        consume(&database, analysis)
+    }
+
     /// Checks the requested roots and returns the exact source manifest alongside.
     /// Cache discovery must use the same roots as the action consuming it.
     pub fn check_with_source_manifest(

@@ -1,0 +1,48 @@
+{
+  "name": "nia",
+  "displayName": "Nia",
+  "description": "Nia language support",
+  "version": "0.3.0",
+  "publisher": "nialang",
+  "license": "GPL-3.0-or-later",
+  "repository": { "type": "git", "url": "https://github.com/nialang/nia.git" },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:nia"],
+  "main": "./extension.js",
+  "dependencies": { "vscode-languageclient": "^9.0.1" },
+  "contributes": {
+    "languages": [
+      {
+        "id": "nia",
+        "aliases": ["Nia"],
+        "extensions": [".nia"],
+        "icon": { "light": "./assets/nia-icon.svg", "dark": "./assets/nia-icon.svg" }
+      }
+    ],
+    "iconThemes": [
+      { "id": "nia", "label": "Nia File Icons", "path": "./assets/file-icons.json" }
+    ],
+    "configuration": {
+      "title": "Nia",
+      "properties": {
+        "nia.server.path": {
+          "type": "string",
+          "default": "nia-lsp",
+          "scope": "machine",
+          "description": "Command or absolute path to the Nia language server."
+        },
+        "nia.server.resourceRoot": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Optional lib directory for a Nia checkout or custom toolchain layout."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run copy-icon",
+    "copy-icon": "node -e \"require('node:fs').copyFileSync('../../assets/brand/nia-icon.svg', 'assets/nia-icon.svg')\""
+  }
+}

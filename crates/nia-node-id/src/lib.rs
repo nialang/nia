@@ -874,6 +874,13 @@ impl NodeOriginTable {
             .and_then(|node_id| self.revisions.locator(node_id.index))
     }
 
+    /// Iterates syntax origins paired with their source spans.
+    pub fn entries(&self) -> impl Iterator<Item = (Span, VersionedNodeKey)> + '_ {
+        self.nodes
+            .iter()
+            .filter_map(|((_, span), id)| self.revisions.locator(id.index).map(|key| (*span, key)))
+    }
+
     /// Returns the identity of the backing node store.
     pub fn store_id(&self) -> NodeStoreId {
         self.store.id()

@@ -1,0 +1,128 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use std::sync::Arc;
+
+use lsp_types::{Position, Range, TextDocumentContentChangeEvent};
+use nia_span::Span;
+
+#[derive(Debug, Clone)]
+pub(crate) struct Document {
+    pub(crate) version: i32,
+    pub(crate) text: Arc<str>,
+    pub(crate) lines: Lines,
+}
+
+impl Document {
+    pub(crate) fn new(version: i32, text: String) -> Self {
+        Self {
+            version,
+            lines: Lines::new(&text),
+            text: text.into(),
+        }
+    }
+
+    pub(crate) fn changed(
+        &self,
+        version: i32,
+        changes: Vec<TextDocumentContentChangeEvent>,
+    ) -> Option<Self> {
+        if version <= self.version {
+            return None;
+        }
+        let mut text = self.text.to_string();
+        let mut lines = self.lines.clone();
+        for change in changes {
+            if let Some(range) = change.range {
+                let start = lines.offset(&text, range.start)?;
+                let end = lines.offset(&text, range.end)?;
+                text.get(start..end)?;
+                text.replace_range(start..end, &change.text);
+            } else {
+                text = change.text;
+            }
+            lines = Lines::new(&text);
+        }
+        Some(Self {
+            version,
+            text: text.into(),
+            lines,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Lines(Vec<usize>);
+
+impl Lines {
+    pub(crate) fn new(text: &str) -> Self {
+        let mut starts = vec![0];
+        let mut bytes = text.bytes().enumerate().peekable();
+        while let Some((index, byte)) = bytes.next() {
+            match byte {
+                b'\r' if matches!(bytes.peek(), Some((_, b'\n'))) => {}
+                b'\n' | b'\r' => starts.push(index + 1),
+                _ => {}
+            }
+        }
+        Self(starts)
+    }
+
+    pub(crate) fn offset(&self, text: &str, position: Position) -> Option<usize> {
+        let line = position.line as usize;
+        let start = *self.0.get(line)?;
+        let end = self.0.get(line + 1).copied().unwrap_or(text.len());
+        let line_text = text[start..end].trim_end_matches(['\r', '\n']);
+        let target = position.character as usize;
+        let mut column = 0;
+        for (index, ch) in line_text.char_indices() {
+            if column >= target {
+                return (column == target).then_some(start + index);
+            }
+            column += ch.len_utf16();
+        }
+        (column <= target).then_some(start + line_text.len())
+    }
+
+    fn position(&self, text: &str, offset: usize) -> Position {
+        let mut offset = offset.min(text.len());
+        while !text.is_char_boundary(offset) {
+            offset -= 1;
+        }
+        let line = self.0.partition_point(|start| *start <= offset) - 1;
+        let prefix = text[self.0[line]..offset].trim_end_matches(['\r', '\n']);
+        Position::new(line as u32, prefix.encode_utf16().count() as u32)
+    }
+
+    pub(crate) fn range(&self, text: &str, span: Span) -> Range {
+        Range::new(
+            self.position(text, span.start),
+            self.position(text, span.end),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn applies_utf16_edits_in_order_and_preserves_unedited_lines() {
+        let document = Document::new(7, "a😀b\r\nlast\rnext".to_owned());
+        let replace = |range, text: &str| TextDocumentContentChangeEvent {
+            range: Some(range),
+            range_length: None,
+            text: text.to_owned(),
+        };
+        let changes = vec![
+            replace(Range::new(Position::new(0, 1), Position::new(0, 3)), "x"),
+            replace(Range::new(Position::new(0, 2), Position::new(0, 3)), "y"),
+            replace(Range::new(Position::new(2, 0), Position::new(2, 4)), "end"),
+        ];
+        let changed = document.changed(8, changes).unwrap();
+        assert_eq!(&*changed.text, "axy\r\nlast\rend");
+        assert_eq!(
+            document.lines.offset(&document.text, Position::new(0, 2)),
+            None
+        );
+        assert!(document.changed(7, vec![]).is_none());
+    }
+}

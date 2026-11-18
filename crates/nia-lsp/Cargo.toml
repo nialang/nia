@@ -1,0 +1,37 @@
+[package]
+name = "nia-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["llvm-dynamic"]
+llvm-dynamic = ["nia-driver/llvm-dynamic"]
+llvm-static = ["nia-driver/llvm-static"]
+
+[dependencies]
+crossbeam-channel = "0.5"
+lsp-server = "0.10.0"
+lsp-types = "0.97.0"
+url = "2.5"
+nia-alloc.workspace = true
+nia-compat.workspace = true
+nia-compiler-query.workspace = true
+nia-diagnostic.workspace = true
+nia-driver.workspace = true
+nia-ids.workspace = true
+nia-imports.workspace = true
+nia-lexer.workspace = true
+nia-package-metadata.workspace = true
+nia-query.workspace = true
+nia-sema-ir.workspace = true
+nia-source.workspace = true
+nia-span.workspace = true
+nia-symbol.workspace = true
+nia-target-config.workspace = true
+nia-toolchain.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+nia-test-support.workspace = true

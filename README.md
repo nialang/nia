@@ -105,6 +105,9 @@ and the `nia build`, `nia check`, and `nia emit` commands. Run
 `nia help <command>` for a command's options, or `nia help emit --exe` for one
 emit kind.
 
+[Editor setup](editors/README.md) explains how to try the Rust language server
+in VS Code, Neovim, and Vim.
+
 ## Documentation
 
 The [documentation index](docs/README.md) lists everything by reader. The main

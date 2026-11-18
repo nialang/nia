@@ -172,6 +172,11 @@ impl CompilerDatabase {
         self.current_graph()
     }
 
+    /// Returns source spans for the semantic node identities in a loaded module.
+    pub fn source_origins(&self, module: ModuleId) -> QueryResult<nia_node_id::NodeOriginTable> {
+        self.db.context().module_origins(&self.db, module)
+    }
+
     /// Checks every loaded module after settling provider-demand fixed points.
     pub fn check_program(&self) -> QueryResult<CheckedProgram> {
         self.check_report(FrontendCheckScope::AllModules)
