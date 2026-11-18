@@ -13,14 +13,11 @@ use nia_defs::{DefCollection, DefKind, ModuleUsingScope};
 use nia_diagnostic::LabelStyle;
 use nia_driver::{CheckRequest, Driver};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
-use nia_imports::{ModuleGraphSnapshot, ModuleMap, ModuleRootSegment};
+use nia_imports::{ModuleGraphSnapshot, ModuleRootSegment};
 use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
-use nia_package_metadata::{ArtifactKind, PackageManifest};
 use nia_sema_ir::{ResolvedCall, SemanticValueUse};
-use nia_source::SourcePath;
 use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
-use nia_target_config::CompilationMode;
 use nia_toolchain::ToolchainLayout;
 use nia_ty::{TyKind, TypeStore};
 use nia_type_resolve::TypeNameResolution;
@@ -29,6 +26,7 @@ use url::Url;
 use crate::document::{Document, Lines};
 use crate::editing::{MemberCompletion, field_accesses};
 use crate::highlight::{Class, Kind, Resolved};
+use crate::project::Projects;
 
 pub(crate) type Documents = BTreeMap<PathBuf, OpenDocument>;
 
@@ -46,7 +44,7 @@ fn uri(path: &Path) -> Option<Uri> {
     Url::from_file_path(path).ok()?.as_str().parse().ok()
 }
 
-fn normalized(path: &Path) -> String {
+pub(crate) fn normalized(path: &Path) -> String {
     nia_source::normalize_path(&path.to_string_lossy())
 }
 
@@ -54,6 +52,7 @@ pub(crate) struct Session {
     toolchain: Arc<ToolchainLayout>,
     driver: Driver,
     overlays: BTreeMap<PathBuf, Arc<str>>,
+    projects: Projects,
 }
 
 impl Session {
@@ -62,6 +61,7 @@ impl Session {
             driver: Driver::new(toolchain.clone()),
             toolchain,
             overlays: BTreeMap::new(),
+            projects: Projects::default(),
         }
     }
 
@@ -92,7 +92,6 @@ impl Session {
                 })?;
             self.overlays.insert(path.clone(), text.clone());
         }
-        let (request, fallback) = request_for(entry)?;
         let analyze = |request| {
             self.driver
                 .analyze_for_editor(request, |db, program| {
@@ -100,13 +99,27 @@ impl Session {
                 })
                 .map_err(|error| error.to_string())
         };
-        let analysis = analyze(request)?;
-        if let Some(fallback) = fallback
-            && !analysis.files.contains_key(&normalized(entry))
-        {
-            return analyze(fallback);
+        let Some(package) = self.projects.package(entry)? else {
+            return analyze(CheckRequest::new(normalized(entry)));
+        };
+        let entries = package.entries(entry);
+        let entry_path = normalized(entry);
+        let mut entries = entries.into_iter().peekable();
+        while let Some((path, context)) = entries.next() {
+            let analysis = package.request(&path, context).and_then(analyze);
+            if entries.peek().is_none()
+                || analysis
+                    .as_ref()
+                    .is_ok_and(|analysis| analysis.files.contains_key(&entry_path))
+            {
+                return analysis;
+            }
         }
-        Ok(analysis)
+        unreachable!("editor requests always include the current source")
+    }
+
+    pub(crate) fn reload(&mut self) {
+        *self = Self::new(self.toolchain.clone());
     }
 
     pub(crate) fn complete(
@@ -139,57 +152,6 @@ impl Session {
                 .or(fields)
         };
         Some(member.items(&file.text, &file.lines, candidates.unwrap_or_default()))
-    }
-}
-
-fn request_for(entry: &Path) -> Result<(CheckRequest, Option<CheckRequest>), String> {
-    let Some(directory) = entry
-        .ancestors()
-        .skip(1)
-        .find(|directory| directory.join("nia.toml").is_file())
-    else {
-        return Ok((CheckRequest::new(normalized(entry)), None));
-    };
-    let manifest = PackageManifest::read(directory).map_err(|error| error.to_string())?;
-    let library = manifest
-        .library_path
-        .as_deref()
-        .map(|path| directory.join(path));
-    let artifact = manifest
-        .artifacts
-        .iter()
-        .find(|artifact| directory.join(&artifact.path) == entry);
-    let mode = if artifact.is_some_and(|artifact| artifact.kind == ArtifactKind::Test) {
-        CompilationMode::Test
-    } else {
-        CompilationMode::Normal
-    };
-    let mut modules = ModuleMap::new();
-    if let Some(library) = &library
-        && library != entry
-    {
-        modules.insert(
-            manifest.package.name.clone(),
-            SourcePath::new(normalized(library)),
-        )?;
-    }
-    let request = |path| {
-        CheckRequest::new(normalized(path))
-            .with_compilation_mode(mode)
-            .with_module_map(modules.clone())
-    };
-    let primary = library.as_deref().filter(|library| {
-        artifact.is_none() && *library != entry && entry != directory.join("build.nia")
-    });
-    match primary {
-        Some(library) => {
-            let fallback = request(entry);
-            Ok((
-                request(library).with_module_map(ModuleMap::new()),
-                Some(fallback),
-            ))
-        }
-        None => Ok((request(entry), None)),
     }
 }
 
@@ -1007,6 +969,106 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(restored.definition(&main, imported), Some(target));
+    }
+
+    #[test]
+    fn workspace_members_resolve_inherited_and_package_local_aliases() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-workspace");
+        let write = |relative: &str, text: &str| {
+            let path = root.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, text).unwrap();
+            path
+        };
+        write(
+            "nia.toml",
+            "[workspace]\nmembers = [\"app\", \"middle\", \"leaf\"]\n\
+             [workspace.package]\nversion = \"0.1.0\"\n\
+             [workspace.dependencies]\ndep = { path = \"middle\" }\n",
+        );
+        write(
+            "app/nia.toml",
+            "[package]\nname = \"app\"\nversion.workspace = true\n\
+             [library]\npath = \"root.nia\"\n\
+             [[test]]\nname = \"suite\"\npath = \"tests/root.nia\"\n\
+             [dependencies]\ndep.workspace = true\n\
+             [dev-dependencies]\nfixture = { path = \"../leaf\" }\n",
+        );
+        write(
+            "middle/nia.toml",
+            "[package]\nname = \"middle\"\nversion.workspace = true\n\
+             [library]\npath = \"root.nia\"\n\
+             [dependencies]\ndep = { path = \"../leaf\" }\n",
+        );
+        write(
+            "leaf/nia.toml",
+            "[package]\nname = \"leaf\"\nversion.workspace = true\n\
+             [library]\npath = \"root.nia\"\n",
+        );
+        let app_source = "fun run() i32 { dep::amount() }\n";
+        let middle_source = "pub fun amount() i32 { dep::leaf_amount() }\n";
+        let app = write("app/root.nia", app_source);
+        let middle = write("middle/root.nia", middle_source);
+        let leaf = write("leaf/root.nia", "pub fun leaf_amount() i32 { 42 }\n");
+        write("app/tests/root.nia", "module checks;\n");
+        let test_source = "fun check() i32 { fixture::leaf_amount() }\n";
+        let test = write("app/tests/checks.nia", test_source);
+        let mut documents: Documents = [
+            (&app, app_source),
+            (&middle, middle_source),
+            (&test, test_source),
+        ]
+        .into_iter()
+        .map(|(path, text)| {
+            (
+                path.clone(),
+                OpenDocument {
+                    uri: uri(path).unwrap(),
+                    document: Document::new(1, text.to_owned()),
+                },
+            )
+        })
+        .collect();
+        let mut session = test_session();
+        let analysis = session.analyze(&documents, &app).unwrap();
+        for (source, position, target) in [
+            (&app, Position::new(0, 23), &middle),
+            (&middle, Position::new(0, 29), &leaf),
+        ] {
+            let diagnostics = analysis.diagnostics(source, &documents[source].document);
+            assert!(diagnostics.is_empty(), "{source:?}: {diagnostics:?}");
+            let definition = analysis.definition(source, position).unwrap();
+            assert_eq!(definition.uri, uri(target).unwrap());
+        }
+        let tests = session.analyze(&documents, &test).unwrap();
+        assert!(
+            tests
+                .diagnostics(&test, &documents[&test].document)
+                .is_empty()
+        );
+        assert_eq!(
+            tests.definition(&test, Position::new(0, 30)).unwrap().uri,
+            uri(&leaf).unwrap()
+        );
+
+        documents.get_mut(&middle).unwrap().document =
+            Document::new(2, "pub fun amount() bool { true }\n".into());
+        let changed = session.analyze(&documents, &app).unwrap();
+        assert!(
+            !changed
+                .diagnostics(&app, &documents[&app].document)
+                .is_empty()
+        );
+        documents.remove(&middle);
+        let restored = session.analyze(&documents, &app).unwrap();
+        assert!(
+            restored
+                .diagnostics(&app, &documents[&app].document)
+                .is_empty()
+        );
+        assert!(!root.join("nia.lock").exists());
+        assert!(!root.join("build").exists());
     }
 
     #[test]

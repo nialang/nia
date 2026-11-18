@@ -10,8 +10,9 @@ use std::{
 use crossbeam_channel::{Receiver, Sender, select, tick, unbounded};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
-    Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, PublishDiagnosticsParams, Uri,
+    Diagnostic, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    PublishDiagnosticsParams, Uri,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -31,10 +32,13 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
     let (connection, io) = Connection::stdio();
     let (id, params) = connection.initialize_start()?;
     let params = decode::<lsp_types::InitializeParams>(params)?;
-    let semantic_refresh = params
-        .capabilities
-        .workspace
-        .and_then(|workspace| workspace.semantic_tokens)
+    let workspace = params.capabilities.workspace.unwrap_or_default();
+    let watch_files = workspace
+        .did_change_watched_files
+        .and_then(|watched| watched.dynamic_registration)
+        .unwrap_or_default();
+    let semantic_refresh = workspace
+        .semantic_tokens
         .and_then(|semantic| semantic.refresh_support)
         .unwrap_or_default();
     let client = params.capabilities.text_document.unwrap_or_default();
@@ -61,6 +65,24 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
             "serverInfo": { "name": "nia-lsp", "version": nia_compat::COMPILER_VERSION },
         }),
     )?;
+    if watch_files {
+        connection.sender.send(
+            Request::new(
+                RequestId::from("nia-watch-files".to_owned()),
+                "client/registerCapability".to_owned(),
+                json!({ "registrations": [{
+                    "id": "nia-watch-files",
+                    "method": "workspace/didChangeWatchedFiles",
+                    "registerOptions": { "watchers": [
+                        { "globPattern": "**/*.nia" },
+                        { "globPattern": "**/nia.toml" },
+                        { "globPattern": "**/nia.lock" }
+                    ]}
+                }]}),
+            )
+            .into(),
+        )?;
+    }
     let (work_tx, work_rx) = unbounded();
     let (reply_tx, reply_rx) = unbounded();
     let worker = thread::spawn(move || analyze(Arc::new(toolchain), work_rx, reply_tx));
@@ -81,6 +103,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
 
 struct Work {
     revision: u64,
+    disk_revision: u64,
     documents: Documents,
     path: PathBuf,
     request: Option<Request>,
@@ -102,7 +125,13 @@ fn analyze(
     let mut session = Session::new(toolchain.clone());
     let mut completion_probe = None;
     let mut cached = None;
+    let mut disk_revision = 0;
     for work in queue {
+        if disk_revision != work.disk_revision {
+            session.reload();
+            completion_probe = None;
+            disk_revision = work.disk_revision;
+        }
         let key = (work.revision, &work.path);
         if !cached
             .as_ref()
@@ -227,6 +256,7 @@ struct Server {
     active_request: Option<RequestId>,
     canceled: bool,
     revision: u64,
+    disk_revision: u64,
 }
 
 impl Server {
@@ -377,8 +407,24 @@ impl Server {
                         self.invalidate();
                     }
                 }),
-            "textDocument/didSave" => {
-                decode::<DidSaveTextDocumentParams>(notification.params).map(|_| self.invalidate())
+            "textDocument/didSave" => decode::<DidSaveTextDocumentParams>(notification.params)
+                .map(|_| self.disk_changed()),
+            "workspace/didChangeWatchedFiles" => {
+                decode::<DidChangeWatchedFilesParams>(notification.params).map(|params| {
+                    if params
+                        .changes
+                        .iter()
+                        .filter_map(|event| analysis::path(&event.uri))
+                        .any(|path| {
+                            path.extension().is_some_and(|extension| extension == "nia")
+                                || path
+                                    .file_name()
+                                    .is_some_and(|name| name == "nia.toml" || name == "nia.lock")
+                        })
+                    {
+                        self.disk_changed();
+                    }
+                })
             }
             "textDocument/didClose" => {
                 match decode::<DidCloseTextDocumentParams>(notification.params) {
@@ -435,6 +481,12 @@ impl Server {
         self.refresh_needed = false;
     }
 
+    fn disk_changed(&mut self) {
+        self.disk_revision += 1;
+        self.invalidate();
+        self.refresh_needed = self.semantic_refresh && !self.documents.is_empty();
+    }
+
     fn refresh_highlights(&mut self, connection: &Connection) -> Result<(), Error> {
         if self.refresh_needed && self.refresh_request.is_none() {
             self.refresh_sequence += 1;
@@ -480,6 +532,7 @@ impl Server {
         self.active_request = request.as_ref().map(|request| request.id.clone());
         worker.send(Work {
             revision: self.revision,
+            disk_revision: self.disk_revision,
             documents: self.documents.clone(),
             path,
             request,

@@ -15,8 +15,15 @@ Highlighting uses both the current syntax tree and compiler symbol resolution.
 Clients that support semantic token refresh can show syntax highlights while
 the compiler resolves symbols. Colors follow the editor theme.
 
-The server reads the nearest `nia.toml` for a library root and declared test
-entry points. Workspace dependency resolution, generated modules, and
+The server uses the nearest package manifest and its workspace settings to
+select library, executable, test, and build-script sources. Each package gets
+its own dependency aliases. The editor reads local path dependencies and
+installed Git and registry sources recorded in `nia.lock`. Dependency
+installation and lockfile updates are handled by the build tools.
+
+Clients with watched-file support trigger reanalysis when Nia sources,
+manifests, or lockfiles change on disk. Open buffers take precedence over
+disk contents. Generated modules, build-script imports, and workspace-wide
 rename are future work.
 
 Build from the repository root with `cargo build --locked -p nia-lsp`.

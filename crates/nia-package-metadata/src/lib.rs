@@ -3402,6 +3402,100 @@ pub struct BuildLayout {
     package_root: PathBuf,
 }
 
+/// Read-only access to path dependencies and installed, locked package sources.
+pub struct InstalledDependencies {
+    packages: PathBuf,
+    lock: PackageLock,
+}
+
+impl InstalledDependencies {
+    /// Reads the lockfile shared by this package and its workspace, if present.
+    pub fn read(layout: &BuildLayout) -> io::Result<Self> {
+        Ok(Self {
+            packages: layout.packages_dir(),
+            lock: PackageLock::read(&layout.state_root().join("nia.lock"))?,
+        })
+    }
+
+    /// Finds a materialized dependency without changing package state.
+    pub fn source_root(
+        &self,
+        owner: &Path,
+        dependency: &PackageDependency,
+    ) -> io::Result<Option<PathBuf>> {
+        let fingerprint = match &dependency.source {
+            DependencySource::Path(path) => {
+                return match canonical_real_directory(&owner.join(path)) {
+                    Ok(root) => Ok(Some(root)),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+                    Err(error) => Err(error),
+                };
+            }
+            DependencySource::Git {
+                url,
+                rev,
+                tag,
+                branch,
+            } => {
+                let url = canonical_git_source(url)?;
+                let selector = git_lock_selector(rev, tag, branch);
+                self.lock
+                    .package
+                    .iter()
+                    .find_map(|entry| match &entry.source {
+                        LockedSource::Git {
+                            url: locked_url,
+                            selector: locked_selector,
+                            source_fingerprint,
+                            ..
+                        } if entry.name == dependency.name
+                            && *locked_url == url
+                            && *locked_selector == selector =>
+                        {
+                            Some(source_fingerprint)
+                        }
+                        _ => None,
+                    })
+            }
+            DependencySource::Registry {
+                registry,
+                package,
+                requirement,
+            } => self
+                .lock
+                .package
+                .iter()
+                .find_map(|entry| match &entry.source {
+                    LockedSource::Registry {
+                        registry: locked_registry,
+                        namespace,
+                        package: name,
+                        version,
+                        source_fingerprint,
+                        ..
+                    } if locked_registry == registry
+                        && namespace == &package.namespace
+                        && name == &package.name
+                        && PackageVersion::parse(version)
+                            .is_ok_and(|version| requirement.matches(&version)) =>
+                    {
+                        Some(source_fingerprint)
+                    }
+                    _ => None,
+                }),
+        };
+        let Some(fingerprint) = fingerprint else {
+            return Ok(None);
+        };
+        let root = self.packages.join(&fingerprint[7..]);
+        match canonical_real_directory(&root) {
+            Ok(root) => Ok(Some(root)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+}
+
 impl BuildLayout {
     /// Finds the nearest package at or above `start`: the first directory with
     /// a `nia.toml` or a `build.nia`.

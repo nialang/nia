@@ -5,6 +5,7 @@ mod analysis;
 mod document;
 mod editing;
 mod highlight;
+mod project;
 mod server;
 mod structure;
 
