@@ -25,6 +25,7 @@ use crate::{
 type Error = Box<dyn std::error::Error + Send + Sync>;
 const SEMANTIC_FULL: &str = "textDocument/semanticTokens/full";
 const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
+const COMPLETION: &str = "textDocument/completion";
 
 pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error> {
     let (connection, io) = Connection::stdio();
@@ -54,7 +55,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "documentSymbolProvider": true,
                 "foldingRangeProvider": true,
                 "semanticTokensProvider": { "legend": highlight::legend(), "full": true },
-                "completionProvider": { "triggerCharacters": [":"] },
+                "completionProvider": { "triggerCharacters": [":", "."] },
                 "signatureHelpProvider": { "triggerCharacters": ["(", ","], "retriggerCharacters": [","] }
             },
             "serverInfo": { "name": "nia-lsp", "version": nia_compat::COMPILER_VERSION },
@@ -98,7 +99,8 @@ fn analyze(
     queue: Receiver<Work>,
     output: Sender<Reply>,
 ) {
-    let mut session = Session::new(toolchain);
+    let mut session = Session::new(toolchain.clone());
+    let mut completion_probe = None;
     let mut cached = None;
     for work in queue {
         let key = (work.revision, &work.path);
@@ -124,7 +126,11 @@ fn analyze(
                 return semantic_response(request, document, Some(highlights));
             }
             match analysis {
-                Ok(analysis) => query(analysis, &work.path, request),
+                Ok(analysis) => query(analysis, &work.path, request, |position| {
+                    let probe =
+                        completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()));
+                    probe.complete(analysis, &work.documents, &work.path, position)
+                }),
                 Err(error) => {
                     Response::new_err(request.id, ErrorCode::RequestFailed as i32, error.clone())
                 }
@@ -160,7 +166,12 @@ fn semantic_response(
     }
 }
 
-fn query(analysis: &Analysis, path: &std::path::Path, request: Request) -> Response {
+fn query(
+    analysis: &Analysis,
+    path: &std::path::Path,
+    request: Request,
+    complete: impl FnOnce(lsp_types::Position) -> Option<Vec<lsp_types::CompletionItem>>,
+) -> Response {
     let Request { id, method, params } = request;
     let result = match method.as_str() {
         "textDocument/definition" | "textDocument/hover" => {
@@ -179,8 +190,8 @@ fn query(analysis: &Analysis, path: &std::path::Path, request: Request) -> Respo
                 params.context.include_declaration,
             ))
         }),
-        "textDocument/completion" => decode::<lsp_types::CompletionParams>(params)
-            .map(|params| json!(analysis.complete(path, params.text_document_position.position))),
+        COMPLETION => decode::<lsp_types::CompletionParams>(params)
+            .map(|params| json!(complete(params.text_document_position.position))),
         "textDocument/signatureHelp" => {
             decode::<lsp_types::SignatureHelpParams>(params).map(|params| {
                 json!(analysis.signature_help(path, params.text_document_position_params.position))
@@ -267,7 +278,7 @@ impl Server {
             "textDocument/definition"
                 | "textDocument/references"
                 | "textDocument/hover"
-                | "textDocument/completion"
+                | COMPLETION
                 | "textDocument/signatureHelp"
                 | "textDocument/documentSymbol"
                 | "textDocument/foldingRange"

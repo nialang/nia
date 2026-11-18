@@ -2,7 +2,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use lsp_types::{Diagnostic, DiagnosticSeverity, Location, NumberOrString, Position, Uri};
@@ -10,7 +10,7 @@ use nia_compiler_query::{CheckedProgramAnalysis, CompilerDatabase};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope};
 use nia_diagnostic::LabelStyle;
 use nia_driver::{CheckRequest, Driver};
-use nia_ids::{GlobalDefId, LocalId, ModuleId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_imports::{ModuleGraphSnapshot, ModuleMap, ModuleRootSegment};
 use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_package_metadata::{ArtifactKind, PackageManifest};
@@ -20,10 +20,12 @@ use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
 use nia_target_config::CompilationMode;
 use nia_toolchain::ToolchainLayout;
+use nia_ty::{TyKind, TypeStore};
 use nia_type_resolve::TypeNameResolution;
 use url::Url;
 
 use crate::document::{Document, Lines};
+use crate::editing::{MemberCompletion, field_accesses};
 use crate::highlight::{Class, Kind, Resolved};
 
 pub(crate) type Documents = BTreeMap<PathBuf, OpenDocument>;
@@ -104,6 +106,29 @@ impl Session {
         }
         Ok(analysis)
     }
+
+    pub(crate) fn complete(
+        &mut self,
+        analysis: &Analysis,
+        documents: &Documents,
+        path: &Path,
+        position: Position,
+    ) -> Option<Vec<lsp_types::CompletionItem>> {
+        let file = analysis.file(path)?;
+        let offset = file.lines.offset(&file.text, position)?;
+        let Some(member) = MemberCompletion::at(&file.text, offset) else {
+            return analysis.complete(path, position);
+        };
+        let fields = member.candidates(analysis, file).or_else(|| {
+            let text = member.probe(&file.text)?;
+            let mut overlay = documents.clone();
+            let document = &mut overlay.get_mut(path)?.document;
+            *document = Document::new(document.version, text);
+            let checked = self.analyze(&overlay, path).ok()?;
+            member.candidates(&checked, checked.file(path)?)
+        });
+        Some(member.items(&file.text, &file.lines, fields.unwrap_or_default()))
+    }
 }
 
 fn request_for(entry: &Path) -> Result<(CheckRequest, Option<CheckRequest>), String> {
@@ -177,6 +202,17 @@ pub(crate) struct File {
     occurrences: Vec<Occurrence>,
     locals: HashMap<LocalId, (Kind, bool)>,
     type_highlights: Resolved,
+    expr_types: HashMap<Span, InternedTyId>,
+    syntax: OnceLock<Option<nia_syntax::Parse>>,
+    field_uses: OnceLock<Vec<(Span, GlobalDefId)>>,
+}
+
+impl File {
+    pub(crate) fn syntax(&self) -> Option<&nia_syntax::Parse> {
+        self.syntax
+            .get_or_init(|| nia_syntax::parse(&self.text, None).ok())
+            .as_ref()
+    }
 }
 
 pub(crate) struct Analysis {
@@ -186,6 +222,7 @@ pub(crate) struct Analysis {
     db: CompilerDatabase,
     graph: ModuleGraphSnapshot,
     defs: HashMap<ModuleId, Arc<DefCollection>>,
+    types: Arc<TypeStore>,
 }
 
 impl Analysis {
@@ -205,6 +242,7 @@ impl Analysis {
                 .iter()
                 .map(|module| (module.id, module.defs.clone()))
                 .collect(),
+            types: db.type_store(),
         };
         let modules: HashMap<_, _> = program
             .modules
@@ -249,6 +287,7 @@ impl Analysis {
             let mut occurrences = Vec::new();
             let mut locals = HashMap::new();
             let mut type_highlights = Resolved::new();
+            let mut expr_types = HashMap::new();
             let mut declare = |symbol, span| {
                 result.definitions.insert(symbol, (path.to_owned(), span));
                 occurrences.push(Occurrence {
@@ -306,6 +345,11 @@ impl Analysis {
                     })
                     .collect();
                 for (span, key) in db.source_origins(module.id)?.entries() {
+                    if let Some(ty) = module.semantic_facts.node_expr_type(&key)
+                        && ty != result.types.error()
+                    {
+                        expr_types.insert(span, module.type_normalization.normalize(ty));
+                    }
                     let type_class = match module.type_resolution.node_type_names.get(key.site()) {
                         Some(TypeNameResolution::GenericParam) => {
                             Some(Class::new(Kind::TypeParameter))
@@ -370,6 +414,9 @@ impl Analysis {
                     occurrences,
                     locals,
                     type_highlights,
+                    expr_types,
+                    syntax: OnceLock::new(),
+                    field_uses: OnceLock::new(),
                 },
             );
         }
@@ -384,6 +431,83 @@ impl Analysis {
 
     pub(crate) fn file(&self, path: &Path) -> Option<&File> {
         self.files.get(&normalized(path))
+    }
+
+    fn receiver_type(&self, file: &File, receiver: Span) -> Option<&TyKind> {
+        let mut ty = *file.expr_types.get(&receiver)?;
+        loop {
+            match self.types.get(ty)? {
+                TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. } => ty = *elem,
+                kind => return Some(kind),
+            }
+        }
+    }
+
+    fn nominal_fields(&self, id: GlobalDefId) -> Option<&nia_defs::NameTable> {
+        let defs = self.defs.get(&id.module_id)?;
+        let scope = defs
+            .scopes
+            .struct_members
+            .get(&id.def_id)
+            .or_else(|| defs.scopes.union_members.get(&id.def_id))?;
+        Some(&scope.fields)
+    }
+
+    pub(crate) fn receiver_fields(&self, file: &File, receiver: Span) -> Option<Vec<String>> {
+        Some(match self.receiver_type(file, receiver)? {
+            TyKind::Nominal { def_id, .. } => self
+                .nominal_fields(*def_id)
+                .into_iter()
+                .flat_map(nia_defs::NameTable::entries)
+                .filter_map(|(name, _)| {
+                    self.db
+                        .source_symbol_text(*name)
+                        .map(|name| name.to_string())
+                })
+                .collect(),
+            TyKind::Tuple(elems) => (0..elems.len()).map(|index| index.to_string()).collect(),
+            _ => Vec::new(),
+        })
+    }
+
+    fn field_uses<'a>(&self, file: &'a File) -> &'a [(Span, GlobalDefId)] {
+        file.field_uses.get_or_init(|| {
+            let mut uses = Vec::new();
+            if file.expr_types.is_empty() || !file.text.contains('.') {
+                return uses;
+            }
+            if let Some(syntax) = file.syntax() {
+                field_accesses(syntax.tree.green_root(), &mut |name, receiver| {
+                    // A dot may introduce a resolved method call instead of a field access.
+                    if file
+                        .occurrences
+                        .binary_search_by_key(&name, |item| item.span)
+                        .is_ok()
+                    {
+                        return;
+                    }
+                    let Some(TyKind::Nominal { def_id, .. }) = self.receiver_type(file, receiver)
+                    else {
+                        return;
+                    };
+                    let symbol =
+                        SymbolId::from_stable_hash(stable_hash(&file.text[name.start..name.end]));
+                    if let Some(field) = self
+                        .nominal_fields(*def_id)
+                        .and_then(|fields| fields.get(&symbol))
+                    {
+                        uses.push((
+                            name,
+                            GlobalDefId {
+                                module_id: def_id.module_id,
+                                def_id: field,
+                            },
+                        ));
+                    }
+                });
+            }
+            uses
+        })
     }
 
     pub(crate) fn semantic_highlights(&self, path: &Path) -> Resolved {
@@ -424,6 +548,12 @@ impl Analysis {
             .filter(|item| item.span.start <= offset)
             .min_by_key(|item| (item.span.len(), !item.declaration))
             .map(|item| item.symbol)
+            .or_else(|| {
+                let fields = self.field_uses(file);
+                let end = fields.partition_point(|(name, _)| name.start <= offset);
+                let (span, field) = fields.get(end.checked_sub(1)?)?;
+                (offset < span.end).then_some(Symbol::Global(*field))
+            })
     }
 
     pub(crate) fn declaration_source(&self, symbol: Symbol) -> Option<(&str, Span)> {
@@ -654,6 +784,15 @@ impl Analysis {
             return Vec::new();
         };
         let mut locations = Vec::new();
+        let field = match symbol {
+            Symbol::Global(id) => self
+                .defs
+                .get(&id.module_id)
+                .and_then(|defs| defs.defs.get(id.def_id))
+                .filter(|def| matches!(def.kind, DefKind::StructField | DefKind::UnionField))
+                .map(|_| id),
+            _ => None,
+        };
         for file in self.files.values() {
             let mut previous = None;
             for item in &file.occurrences {
@@ -666,6 +805,16 @@ impl Analysis {
                         file.lines.range(&file.text, item.span),
                     ));
                     previous = Some(item.span);
+                }
+            }
+            if let Some(field) = field {
+                for &(span, target) in self.field_uses(file) {
+                    if target == field {
+                        locations.push(Location::new(
+                            file.uri.clone(),
+                            file.lines.range(&file.text, span),
+                        ));
+                    }
                 }
             }
         }
@@ -853,6 +1002,116 @@ mod tests {
                 resolved.get(&Span::new(start, start + name.len())),
                 Some(&Class::new(kind)),
                 "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn receiver_fields_complete_in_unsaved_buffers_and_link_to_the_right_declaration() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-fields");
+        let main = root.join("main.nia");
+        let types = root.join("shapes.nia");
+        std::fs::write(
+            &types,
+            "pub struct Point { width: i32, weight: i32 }\npub struct Other { width: i32 }\n",
+        )
+        .unwrap();
+        let source = concat!(
+            "module shapes;\n",
+            "fun measure(p: &shapes::Point, other: shapes::Other) i32 {\n",
+            "    _ = other.width;\n",
+            "    p.width\n",
+            "}\n",
+        );
+        std::fs::write(&main, source).unwrap();
+        let mut documents = [(
+            main.clone(),
+            OpenDocument {
+                uri: uri(&main).unwrap(),
+                document: Document::new(1, source.into()),
+            },
+        )]
+        .into_iter()
+        .collect::<Documents>();
+        let mut session = test_session();
+        let mut probe = test_session();
+        let checked = session.analyze(&documents, &main).unwrap();
+        assert!(
+            checked
+                .diagnostics(&main, &documents[&main].document)
+                .is_empty()
+        );
+        let target = checked.definition(&main, Position::new(3, 8)).unwrap();
+        assert_eq!(target.uri, uri(&types).unwrap());
+        assert_eq!(target.range.start, Position::new(0, 19));
+        let references = checked.references(&main, Position::new(3, 8), true);
+        assert_eq!(references.len(), 2);
+        assert!(references.contains(&target));
+        assert!(
+            references
+                .iter()
+                .any(|reference| reference.range.start == Position::new(3, 6))
+        );
+
+        for (version, typed, cursor) in [(2, "", 6), (3, "weXX", 8)] {
+            let text = source.replace("p.width", &format!("p.{typed}"));
+            documents.get_mut(&main).unwrap().document = Document::new(version, text);
+            let checked = session.analyze(&documents, &main).unwrap();
+            let completion = probe
+                .complete(&checked, &documents, &main, Position::new(3, cursor))
+                .unwrap();
+            let labels: Vec<_> = completion.iter().map(|item| item.label.as_str()).collect();
+            let expected: &[&str] = if typed.is_empty() {
+                &["weight", "width"]
+            } else {
+                &["weight"]
+            };
+            assert_eq!(labels, expected, "{typed:?}");
+            let Some(lsp_types::CompletionTextEdit::Edit(edit)) = &completion[0].text_edit else {
+                panic!("expected replacement edit");
+            };
+            assert_eq!(edit.range.start, Position::new(3, 6));
+            assert_eq!(edit.range.end, Position::new(3, 6 + typed.len() as u32));
+        }
+        assert_eq!(std::fs::read_to_string(&main).unwrap(), source);
+    }
+
+    #[test]
+    fn receiver_fields_complete_after_an_inferred_projection() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-field-projection");
+        let main = root.join("main.nia");
+        let mut session = test_session();
+        let mut probe = test_session();
+        for (version, receiver, expected) in [
+            (1, "shape.point", &["width"][..]),
+            (2, "shape.pair", &["0", "1"][..]),
+        ] {
+            let source = format!(
+                "struct Point {{ width: i32 }}\nstruct Shape {{ point: Point, pair: (i32, i32) }}\n\
+                 fun inspect(shape: Shape) {{ _ = {receiver}.; }}\n"
+            );
+            let column = source.lines().nth(2).unwrap().find(".;").unwrap() as u32 + 1;
+            let documents = [(
+                main.clone(),
+                OpenDocument {
+                    uri: uri(&main).unwrap(),
+                    document: Document::new(version, source),
+                },
+            )]
+            .into_iter()
+            .collect::<Documents>();
+            let analysis = session.analyze(&documents, &main).unwrap();
+            let items = probe
+                .complete(&analysis, &documents, &main, Position::new(2, column))
+                .unwrap();
+            assert_eq!(
+                items
+                    .iter()
+                    .map(|item| item.label.as_str())
+                    .collect::<Vec<_>>(),
+                expected
             );
         }
     }

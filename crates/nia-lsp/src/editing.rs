@@ -14,6 +14,98 @@ use nia_syntax::{GreenNode, SyntaxKind};
 
 use crate::analysis::{Analysis, File, Symbol};
 
+pub(crate) struct MemberCompletion {
+    dot: usize,
+    replace: Span,
+    cursor: usize,
+}
+
+impl MemberCompletion {
+    pub(crate) fn at(source: &str, cursor: usize) -> Option<Self> {
+        let start = name_start(source, cursor);
+        let before = source[..start].trim_end_matches([' ', '\t']);
+        let dot = before.strip_suffix('.')?.len();
+        if before[..dot].ends_with('.') || inside_literal_or_comment(source, cursor) {
+            return None;
+        }
+        let end = cursor
+            + source[cursor..]
+                .bytes()
+                .take_while(|&byte| is_name_byte(byte))
+                .count();
+        Some(Self {
+            dot,
+            replace: Span::new(start, end),
+            cursor,
+        })
+    }
+
+    pub(crate) fn probe(&self, source: &str) -> Option<String> {
+        if !self.replace.is_empty() {
+            return None;
+        }
+        let mut text = source.to_owned();
+        text.insert_str(self.cursor, "__nia_lsp_member");
+        Some(text)
+    }
+
+    pub(crate) fn candidates(&self, analysis: &Analysis, file: &File) -> Option<Vec<String>> {
+        let root = file.syntax()?.tree.green_root();
+        let receiver = receiver_at_dot(root, self.dot)?;
+        analysis.receiver_fields(file, receiver)
+    }
+
+    pub(crate) fn items(
+        &self,
+        source: &str,
+        lines: &crate::document::Lines,
+        fields: Vec<String>,
+    ) -> Vec<CompletionItem> {
+        let prefix = &source[self.replace.start..self.cursor];
+        let range = lines.range(source, self.replace);
+        let mut fields = fields;
+        fields.sort_unstable();
+        fields
+            .into_iter()
+            .filter(|name| name.starts_with(prefix))
+            .map(|name| completion_item(name, Some(CompletionItemKind::FIELD), range))
+            .collect()
+    }
+}
+
+fn receiver_at_dot(node: &GreenNode, dot: usize) -> Option<Span> {
+    if matches!(
+        node.kind(),
+        SyntaxKind::FieldExpr | SyntaxKind::TupleFieldExpr
+    ) && node
+        .token(&TokenKind::Dot)
+        .is_some_and(|token| token.span().start == dot)
+    {
+        return field_receiver(node);
+    }
+    node.child_nodes()
+        .find(|child| child.span().start <= dot && dot < child.span().end)
+        .and_then(|child| receiver_at_dot(child, dot))
+}
+
+fn field_receiver(node: &GreenNode) -> Option<Span> {
+    node.child_nodes()
+        .find(|child| child.kind().is_expr())?
+        .token_span()
+}
+
+pub(crate) fn field_accesses(node: &GreenNode, visit: &mut impl FnMut(Span, Span)) {
+    for child in node.child_nodes() {
+        field_accesses(child, visit);
+    }
+    if node.kind() == &SyntaxKind::FieldExpr
+        && let Some(name) = node.token(&TokenKind::Ident)
+        && let Some(receiver) = field_receiver(node)
+    {
+        visit(name.span(), receiver);
+    }
+}
+
 impl Analysis {
     pub(crate) fn complete(&self, path: &Path, position: Position) -> Option<Vec<CompletionItem>> {
         let file = self.file(path)?;
@@ -39,7 +131,7 @@ impl Analysis {
                 .or_insert(name.kind.map(completion_kind));
         }
         if qualifier.is_empty()
-            && let Ok(parsed) = nia_syntax::parse(&file.text, None)
+            && let Some(parsed) = file.syntax()
         {
             for name in local_names(parsed.tree.green_root(), &file.text, start) {
                 candidates.insert(name.to_owned(), Some(CompletionItemKind::VARIABLE));
@@ -50,12 +142,8 @@ impl Analysis {
             candidates
                 .into_iter()
                 .filter_map(|(name, kind)| {
-                    name.starts_with(prefix).then(|| CompletionItem {
-                        label: name.clone(),
-                        kind,
-                        text_edit: Some(CompletionTextEdit::Edit(TextEdit::new(range, name))),
-                        ..CompletionItem::default()
-                    })
+                    name.starts_with(prefix)
+                        .then(|| completion_item(name, kind, range))
                 })
                 .collect(),
         )
@@ -135,6 +223,19 @@ impl Analysis {
                 *candidate.name == *name && candidate.kind == Some(DefKind::Function)
             })?
             .symbol
+    }
+}
+
+fn completion_item(
+    name: String,
+    kind: Option<CompletionItemKind>,
+    range: lsp_types::Range,
+) -> CompletionItem {
+    CompletionItem {
+        label: name.clone(),
+        kind,
+        text_edit: Some(CompletionTextEdit::Edit(TextEdit::new(range, name))),
+        ..CompletionItem::default()
     }
 }
 
