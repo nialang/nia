@@ -277,6 +277,7 @@ fn analyze(
             cached = None;
             completion_probe = None;
             session.reload();
+            nia_alloc::collect_unused();
             continue;
         };
         if disk_revision != work.disk_revision {

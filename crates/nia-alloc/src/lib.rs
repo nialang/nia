@@ -52,6 +52,12 @@ pub fn register_counting() {
     nia_timing::register_allocation_instrumentation();
 }
 
+/// Returns unused pages after a long-lived thread drops its working state.
+pub fn collect_unused() {
+    // The collector operates on the calling thread's allocator state.
+    unsafe { libmimalloc_sys::mi_collect(true) }
+}
+
 /// Installs the Nia allocator as this binary's global allocator.
 #[macro_export]
 macro_rules! global_allocator {
