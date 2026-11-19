@@ -31,7 +31,7 @@ def smoke(server, root):
         "    _ = init;\n"
         '    _ = "😀"; shape.width\n'
         "}\n"
-        'fun measure(low: i32) i32 { _ = "\U0001f34e"; shapes::distance(low, 10) }\n'
+        'fun measure(low: i32) i32 { _="\U0001f34e"; shapes::distance(low, 10) }\n'
     )
     (root / "nia.toml").write_text(manifest, encoding="utf-8")
     main = root / "root.nia"
@@ -101,11 +101,14 @@ def smoke(server, root):
             assert request(client, "textDocument/semanticTokens/full", params)["data"]
             assert request(client, "textDocument/foldingRange", params)
             formatting = dict(**params, options={"tabSize": 2, "insertSpaces": True})
+            before_eq = position(source, '="')
+            after_eq = dict(before_eq, character=before_eq["character"] + 1)
             assert request(client, "textDocument/formatting", formatting) == [
                 {"range": {"start": {"line": line, "character": 0},
                            "end": {"line": line, "character": 4}}, "newText": "  "}
                 for line in (3, 4)
-            ]
+            ] + [{"range": {"start": point, "end": point}, "newText": " "}
+                 for point in (before_eq, after_eq)]
             shape = dict(**params, position=position(source, "shape.width"))
             target = request(client, "textDocument/typeDefinition", shape)
             assert target["uri"] == shapes.as_uri(), target

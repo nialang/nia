@@ -100,8 +100,9 @@ analysis and stop at the next cancellation checkpoint when the input changes.
 Workspace symbol searches accept names and qualifiers such as
 `app::geometry::Point` and include declarations in unsaved buffers.
 
-Formatting uses the lossless syntax tree and preserves comments, literals, and
-existing line breaks. The editor sends its indentation setting. The CLI
+Formatting uses the lossless syntax tree to normalize indentation, operator
+spacing, and trailing whitespace. It preserves comments, literals, and existing
+line breaks. The editor sends its indentation setting. The CLI
 command `nia fmt path/to/file.nia` prints the formatted text to stdout with
 four-space indentation.
 

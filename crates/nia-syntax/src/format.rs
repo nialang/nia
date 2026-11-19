@@ -37,11 +37,11 @@ pub enum FormatError {
 pub struct FormattedSource {
     /// Source text after applying the edits.
     pub text: String,
-    /// Replacements for leading indentation and horizontal whitespace.
+    /// Replacements for indentation, operator spacing and trailing whitespace.
     pub edits: Vec<TextEdit>,
 }
 
-/// Normalizes indentation and horizontal whitespace at the ends of lines.
+/// Normalizes indentation, infix operator spacing and trailing whitespace.
 ///
 /// Existing line breaks, comments and literals are preserved. The formatted
 /// source is reparsed to verify both the grammar and alternate readings.
@@ -55,12 +55,34 @@ pub fn format_source(
     }
     let mut constraints = Vec::new();
     let mut tokens = Vec::new();
-    layout_inputs(parsed.tree.green_root(), &mut constraints, &mut tokens);
+    let mut operators = Vec::new();
+    layout_inputs(
+        parsed.tree.green_root(),
+        &mut constraints,
+        &mut tokens,
+        &mut operators,
+    );
     let unit = match indentation {
         Indentation::Spaces(width) => " ".repeat(width.get().into()),
         Indentation::Tabs => "\t".to_owned(),
     };
-    let edits = layout_edits(source, &unit, &constraints, &tokens);
+    let mut edits = layout_edits(source, &unit, &constraints, &tokens);
+    for [left, operator, right] in tokens.array_windows() {
+        if operators.binary_search(&operator.span()).is_err() {
+            continue;
+        }
+        for gap in [
+            Span::new(left.span().end, operator.span().start),
+            Span::new(operator.span().end, right.span().start),
+        ] {
+            let whitespace = &source[gap.start..gap.end];
+            if whitespace != " " && whitespace.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
+                edits.push(TextEdit::replace(gap, " "));
+            }
+        }
+    }
+    edits.sort_unstable_by_key(|edit| edit.span);
+    edits.dedup();
     let mut text = String::with_capacity(source.len());
     let mut copied = 0;
     for edit in &edits {
@@ -78,7 +100,12 @@ pub fn format_source(
     Ok(FormattedSource { text, edits })
 }
 
-fn layout_inputs<'a>(node: &'a GreenNode, spans: &mut Vec<Span>, tokens: &mut Vec<&'a GreenToken>) {
+fn layout_inputs<'a>(
+    node: &'a GreenNode,
+    spans: &mut Vec<Span>,
+    tokens: &mut Vec<&'a GreenToken>,
+    operators: &mut Vec<Span>,
+) {
     if node.kind() == &SyntaxKind::WhereClause
         && let Some(keyword) = node.first_token()
         && let Some(last) = node.last_token()
@@ -87,17 +114,37 @@ fn layout_inputs<'a>(node: &'a GreenNode, spans: &mut Vec<Span>, tokens: &mut Ve
     }
     for child in node.children() {
         match child {
-            GreenElement::Node(node) => layout_inputs(node, spans, tokens),
+            GreenElement::Node(node) => layout_inputs(node, spans, tokens, operators),
             GreenElement::Token(token)
                 if !matches!(
                     token.kind(),
                     SyntaxKind::Whitespace | SyntaxKind::Token(TokenKind::Eof)
                 ) =>
             {
+                if spaced_operator(node.kind(), token.kind()) {
+                    operators.push(token.span());
+                }
                 tokens.push(token);
             }
             GreenElement::Token(_) => {}
         }
+    }
+}
+
+fn spaced_operator(node: &SyntaxKind, token: &SyntaxKind) -> bool {
+    let SyntaxKind::Token(token) = token else {
+        return false;
+    };
+    match node {
+        SyntaxKind::BinaryExpr | SyntaxKind::AssignExpr => true,
+        SyntaxKind::LetStmt
+        | SyntaxKind::BindingDecl
+        | SyntaxKind::TypeAliasDecl
+        | SyntaxKind::AssocTypeDecl
+        | SyntaxKind::AssocConstDecl
+        | SyntaxKind::AssocBindingArg => *token == TokenKind::Eq,
+        SyntaxKind::MatchArm => *token == TokenKind::FatArrow,
+        _ => false,
     }
 }
 
@@ -200,6 +247,38 @@ mod tests {
         assert_eq!(formatted.text, expected);
         assert!(
             format_source(expected, Indentation::Tabs)
+                .unwrap()
+                .edits
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn spaces_infix_operators_without_reflowing_lines_or_prefix_operators() {
+        let source = concat!(
+            "const base: i32=2;\r\n",
+            "fun apply(x: i32) i32 {\r\n",
+            "    let mut value=x*-base;\r\n",
+            "    value+=// increment\r\n",
+            "    1+2;\r\n",
+            "    value\r\n",
+            "}\r\n",
+        );
+        let expected = concat!(
+            "const base: i32 = 2;\r\n",
+            "fun apply(x: i32) i32 {\r\n",
+            "    let mut value = x * -base;\r\n",
+            "    value += // increment\r\n",
+            "    1 + 2;\r\n",
+            "    value\r\n",
+            "}\r\n",
+        );
+        assert_eq!(
+            format_source(source, Indentation::default()).unwrap().text,
+            expected
+        );
+        assert!(
+            format_source(expected, Indentation::default())
                 .unwrap()
                 .edits
                 .is_empty()
