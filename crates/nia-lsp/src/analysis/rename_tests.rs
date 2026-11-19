@@ -554,6 +554,48 @@ fn rename_preserves_earlier_diagnostics_and_rejects_new_ones() {
 }
 
 #[test]
+fn rename_only_requires_bindings_in_entries_that_can_reach_the_declaration() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-rename-reachable-entries");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[workspace]\nmembers = [\"api\", \"client\"]\n",
+    )
+    .unwrap();
+    for name in ["api", "client"] {
+        let package = root.join(name);
+        std::fs::create_dir(&package).unwrap();
+        std::fs::write(
+            package.join("nia.toml"),
+            format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\n[library]\npath = \"root.nia\"\n"),
+        )
+        .unwrap();
+    }
+    let entry = root.join("api/root.nia");
+    std::fs::write(&entry, "pub fun amount() i32 { 42 }\n").unwrap();
+    std::fs::write(root.join("client/root.nia"), "fun run() i32 { amount() }\n").unwrap();
+    let edit = rename_at(&entry, "amount()", "quantity").unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
+        panic!("expected text edits");
+    };
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].text_document.uri, uri(&entry).unwrap());
+
+    let manifest = root.join("client/nia.toml");
+    let text = std::fs::read_to_string(&manifest).unwrap();
+    std::fs::write(
+        &manifest,
+        format!("{text}\n[dependencies]\napi = {{ path = \"../api\" }}\n"),
+    )
+    .unwrap();
+    let error = rename_at(&entry, "amount()", "quantity").unwrap_err();
+    assert!(
+        error.contains("Cannot determine every use") && error.contains("client/root.nia"),
+        "{error}"
+    );
+}
+
+#[test]
 fn rename_moves_a_module_and_its_child_directory() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-rename-module");

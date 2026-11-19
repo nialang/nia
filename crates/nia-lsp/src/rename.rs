@@ -464,6 +464,9 @@ fn collect_rename(
     };
     for entry in &workspace.entries {
         cancel.check()?;
+        if !workspace.entry_may_reach(entry, source) {
+            continue;
+        }
         if let Coverage::Unavailable(error) = &entry.coverage {
             return Err(format!(
                 "Cannot check rename in {} ({error})",

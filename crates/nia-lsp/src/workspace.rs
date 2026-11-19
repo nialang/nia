@@ -110,6 +110,7 @@ pub(crate) struct WorkspaceIndex {
     pub(crate) files: BTreeMap<String, (Uri, Arc<str>)>,
     pub(crate) editable: BTreeSet<PathBuf>,
     managed: BTreeSet<PathBuf>,
+    toolchain_sources: PathBuf,
     pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
     folders: Vec<PathBuf>,
     anchor: Option<String>,
@@ -196,6 +197,7 @@ impl Session {
             files: BTreeMap::new(),
             editable: workspace.editable,
             managed: workspace.managed,
+            toolchain_sources: PathBuf::from(normalized(self.toolchain.resource_root())),
             unavailable_plans: workspace.unavailable_plans,
             folders: folders.to_vec(),
             anchor,
@@ -409,6 +411,29 @@ impl Entry {
 }
 
 impl WorkspaceIndex {
+    pub(crate) fn entry_may_reach(&self, entry: &Entry, source: &str) -> bool {
+        let path = Path::new(source);
+        if entry.depends_on(source) || path.starts_with(&self.toolchain_sources) {
+            return true;
+        }
+        // A damaged entry may omit an import from the observed graph. Its
+        // explicit roots bound which source trees could have been reached.
+        std::iter::once(&entry.request.check.entry_path)
+            .chain(
+                entry
+                    .request
+                    .check
+                    .module_map
+                    .all_entries()
+                    .map(|(_, root)| root),
+            )
+            .any(|root| {
+                Path::new(root.as_str())
+                    .parent()
+                    .is_some_and(|directory| path.starts_with(directory))
+            })
+    }
+
     pub(crate) fn has_resolved_binding(&self, source: &str, span: Span) -> bool {
         self.entries.iter().any(|entry| {
             entry
