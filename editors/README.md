@@ -161,6 +161,18 @@ The extension uses the existing Nia square brand icon. Select **Nia File Icons**
 from **Preferences: File Icon Theme** to enable it for `.nia` files.
 The extension enables semantic highlighting for Nia by default.
 
+To run the client smoke test, pass the VS Code desktop executable, the
+language server from an unpacked release, and the VSIX. The test installs
+the VSIX in a temporary profile and verifies language detection, the brand
+asset, semantic tokens, folding, and a module move with its child directory.
+
+```sh
+python tools/lsp-vscode-smoke.py --code /path/to/Code /path/to/bin/nia-lsp /path/to/nia.vsix
+```
+
+Use `--cli` to select the VS Code CLI when `code` is outside `PATH`. Run
+the test in a desktop session.
+
 ## Neovim
 
 With Neovim 0.11 or later, add the client package to your runtime path and

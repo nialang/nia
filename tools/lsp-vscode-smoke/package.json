@@ -1,0 +1,6 @@
+{
+  "name": "nia-vscode-smoke",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": { "vscode": "^1.85.0" }
+}
