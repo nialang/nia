@@ -50,8 +50,14 @@ pub(crate) struct WorkspaceRequests {
 pub(crate) struct EditorRequest {
     pub(crate) check: CheckRequest,
     pub(crate) context: CompilerContext,
-    module: Option<ModuleKey>,
-    manifest_context: Option<Context>,
+    origin: RequestOrigin,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum RequestOrigin {
+    Standalone,
+    Manifest(Context),
+    Configured { owner: PathBuf, module: ModuleKey },
 }
 
 impl EditorRequest {
@@ -59,10 +65,15 @@ impl EditorRequest {
         Self::manifest(
             CheckRequest::new(normalized(path)),
             *toolchain.artifact_target(),
+            RequestOrigin::Standalone,
         )
     }
 
-    fn manifest(check: CheckRequest, target: nia_target::TargetConfig) -> Self {
+    fn manifest(
+        check: CheckRequest,
+        target: nia_target::TargetConfig,
+        origin: RequestOrigin,
+    ) -> Self {
         let context = CompilerContext {
             target,
             cpu: nia_target::CpuLevel::default(),
@@ -76,8 +87,7 @@ impl EditorRequest {
         Self {
             check,
             context,
-            module: None,
-            manifest_context: None,
+            origin,
         }
     }
 
@@ -85,22 +95,34 @@ impl EditorRequest {
         &self,
         projects: &mut Projects,
         edits: &BTreeMap<PathBuf, String>,
+        toolchain: &nia_toolchain::ToolchainLayout,
     ) -> Result<Self, String> {
-        let Some(context) = self.manifest_context else {
-            if self.module.is_some() {
-                return Err(
-                    "An affected build plan must be regenerated to change its dependencies".into(),
-                );
+        match &self.origin {
+            RequestOrigin::Standalone => Ok(self.clone()),
+            RequestOrigin::Manifest(context) => {
+                let entry = Path::new(self.check.entry_path.as_str());
+                let package = projects
+                    .package(entry)?
+                    .ok_or("Compilation package is unavailable")?;
+                let mut request = self.clone();
+                request.check.module_map = package.module_map_with_manifests(*context, edits)?;
+                Ok(request)
             }
-            return Ok(self.clone());
-        };
-        let entry = Path::new(self.check.entry_path.as_str());
-        let package = projects
-            .package(entry)?
-            .ok_or("Compilation package is unavailable")?;
-        let mut request = self.clone();
-        request.check.module_map = package.module_map_with_manifests(context, edits)?;
-        Ok(request)
+            RequestOrigin::Configured { owner, .. } => {
+                let package = projects
+                    .package(&owner.join("nia.toml"))?
+                    .ok_or("Configured compilation package is unavailable")?;
+                package
+                    .read_configured_requests(toolchain, edits)?
+                    .into_iter()
+                    .find(|request| {
+                        request.origin == self.origin
+                            && request.context == self.context
+                            && request.check.entry_path == self.check.entry_path
+                    })
+                    .ok_or_else(|| format!("Cannot recover configured module for {self}"))
+            }
+        }
     }
 }
 
@@ -108,7 +130,7 @@ impl fmt::Display for EditorRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let context = self.context;
         write!(f, "`{}` (", self.check.entry_path.as_str())?;
-        if let Some(module) = &self.module {
+        if let RequestOrigin::Configured { module, .. } = &self.origin {
             write!(
                 f,
                 "module `{}::{}`, ",
@@ -519,9 +541,11 @@ impl Package {
             self.build_request(path, toolchain)
         } else {
             let check = self.request(path, context)?;
-            let mut request = EditorRequest::manifest(check, *toolchain.artifact_target());
-            request.manifest_context = Some(context);
-            Ok(request)
+            Ok(EditorRequest::manifest(
+                check,
+                *toolchain.artifact_target(),
+                RequestOrigin::Manifest(context),
+            ))
         }
     }
 
@@ -561,13 +585,30 @@ impl Package {
             .request(path, Context::Build)?
             .with_profile(profile)
             .with_optimization(nia_driver::NiaOptimizationLevel::O0);
-        let mut request = EditorRequest::manifest(check, target);
-        request.manifest_context = Some(Context::Build);
-        Ok(request)
+        Ok(EditorRequest::manifest(
+            check,
+            target,
+            RequestOrigin::Manifest(Context::Build),
+        ))
     }
 
     fn module_map(&self, context: Context) -> Result<ModuleMap, String> {
         self.module_map_with_manifests(context, &BTreeMap::new())
+    }
+
+    fn manifest_with_edits(
+        &self,
+        root: &Path,
+        edits: &BTreeMap<PathBuf, String>,
+    ) -> Result<PackageManifest, String> {
+        let manifest = if let Some(text) = edits.get(Path::new(&normalized(root))) {
+            PackageManifest::read_with_text(root, text)
+        } else if root == self.layout.package_root() {
+            Ok(self.manifest.clone())
+        } else {
+            PackageManifest::read(root)
+        };
+        manifest.map_err(|error| format!("{}: {error}", root.join("nia.toml").display()))
     }
 
     fn module_map_with_manifests(
@@ -584,19 +625,7 @@ impl Package {
         })?;
         let mut modules = ModuleMap::new();
         let mut seen = BTreeSet::new();
-        let read = |root: &Path| {
-            if let Some(text) = edits.get(Path::new(&normalized(root))) {
-                PackageManifest::read_with_text(root, text)
-            } else if root == self.layout.package_root() {
-                Ok(self.manifest.clone())
-            } else {
-                PackageManifest::read(root)
-            }
-        };
-        let mut pending = vec![(
-            root.to_path_buf(),
-            read(root).map_err(|error| error.to_string())?,
-        )];
+        let mut pending = vec![(root.to_path_buf(), self.manifest_with_edits(root, edits)?)];
         while let Some((owner, manifest)) = pending.pop() {
             if !seen.insert(owner.clone()) {
                 continue;
@@ -633,13 +662,14 @@ impl Package {
                 else {
                     continue;
                 };
-                let target_manifest = read(&target).map_err(|error| {
-                    format!(
-                        "{}: dependency `{}`: {error}",
-                        owner.display(),
-                        dependency.name
-                    )
-                })?;
+                let target_manifest =
+                    self.manifest_with_edits(&target, edits).map_err(|error| {
+                        format!(
+                            "{}: dependency `{}`: {error}",
+                            owner.display(),
+                            dependency.name
+                        )
+                    })?;
                 if let Some(library_path) = &target_manifest.library_path {
                     modules.insert_scoped(
                         &scope,

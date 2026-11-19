@@ -13,13 +13,14 @@ impl Package {
         toolchain: &nia_toolchain::ToolchainLayout,
     ) -> Result<Vec<EditorRequest>, String> {
         self.planned_requests
-            .get_or_init(|| self.read_configured_requests(toolchain))
+            .get_or_init(|| self.read_configured_requests(toolchain, &BTreeMap::new()))
             .clone()
     }
 
-    fn read_configured_requests(
+    pub(super) fn read_configured_requests(
         &self,
         toolchain: &nia_toolchain::ToolchainLayout,
+        edits: &BTreeMap<PathBuf, String>,
     ) -> Result<Vec<EditorRequest>, String> {
         let Some((plan, configuration)) = self.plan.as_deref() else {
             if let Some(message) = self.configuration_message() {
@@ -30,13 +31,13 @@ impl Package {
         let installed =
             InstalledDependencies::read(&self.layout).map_err(|error| error.to_string())?;
         let root = self.layout.package_root();
+        let manifest = self.manifest_with_edits(root, edits)?;
         let mut package_roots = HashMap::new();
         for package in plan.packages() {
             let path = match &package.source {
                 PlanPackageSource::Local(path) => root.join(path),
                 PlanPackageSource::Dependency(alias) => {
-                    let dependency = self
-                        .manifest
+                    let dependency = manifest
                         .dependencies
                         .iter()
                         .find(|dependency| &dependency.name == alias)
@@ -50,7 +51,7 @@ impl Package {
             package_roots.insert(&package.key, path);
         }
         let dependency_scopes = self
-            .plan_dependency_scopes(plan, &installed)
+            .plan_dependency_scopes(plan, &installed, manifest, edits)
             .classify(plan, |package| package_roots.get(&package.key).cloned());
         let output = self.layout.out_dir();
         let cache = self.layout.cache_dir();
@@ -108,7 +109,7 @@ impl Package {
             } else {
                 Context::Executable
             };
-            let mut modules = self.module_map(manifest_context)?;
+            let mut modules = self.module_map_with_manifests(manifest_context, edits)?;
             let directory = match module.root_source.root() {
                 LogicalPathRoot::Package(package) => &package_roots[package],
                 LogicalPathRoot::Build => &output,
@@ -143,8 +144,10 @@ impl Package {
                     .with_profile(context.profile)
                     .with_module_map(modules),
                 context,
-                module: Some(module.key.clone()),
-                manifest_context: None,
+                origin: RequestOrigin::Configured {
+                    owner: self.source_root(),
+                    module: module.key.clone(),
+                },
             });
         }
         Ok(requests)
@@ -154,6 +157,8 @@ impl Package {
         &self,
         plan: &BuildPlan,
         installed: &InstalledDependencies,
+        manifest: PackageManifest,
+        edits: &BTreeMap<PathBuf, String>,
     ) -> PlanDependencyScopes {
         let mut scopes = PlanDependencyScopes::default();
         let needs_directories = plan.packages().iter().any(|package| {
@@ -161,7 +166,7 @@ impl Package {
                 && matches!(package.source, PlanPackageSource::Local(_))
         });
         let root = self.layout.package_root();
-        let mut pending = vec![(root.to_path_buf(), self.manifest.clone())];
+        let mut pending = vec![(root.to_path_buf(), manifest)];
         let mut seen = BTreeSet::from([root.to_path_buf()]);
         while let Some((owner, manifest)) = pending.pop() {
             let is_root = owner == root;
@@ -186,7 +191,7 @@ impl Package {
                 if !development_only
                     && let Some(directory) = directory
                     && seen.insert(directory.clone())
-                    && let Ok(manifest) = PackageManifest::read(&directory)
+                    && let Ok(manifest) = self.manifest_with_edits(&directory, edits)
                 {
                     pending.push((directory, manifest));
                 }

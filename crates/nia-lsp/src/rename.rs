@@ -492,9 +492,11 @@ impl Session {
             let request = if manifest_edits.proposed.is_empty() {
                 &entry.request
             } else {
-                proposed = entry
-                    .request
-                    .with_manifest_edits(&mut verification.projects, &manifest_edits.proposed)?;
+                proposed = entry.request.with_manifest_edits(
+                    &mut verification.projects,
+                    &manifest_edits.proposed,
+                    &verification.toolchain,
+                )?;
                 &proposed
             };
             let after = verification

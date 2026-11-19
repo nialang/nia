@@ -696,7 +696,7 @@ def smoke_module_move(server, root):
                 process.kill()
 
 
-def smoke_package_move(server, root, retain_original=False, add_dependency=False):
+def smoke_package_move(server, root, retain_original=False, add_dependency=False, configured=False):
     add_caller = add_dependency and not retain_original
     members = '["api", "kit", "client"]' if add_caller else '["api", "kit"]'
     (root / "nia.toml").write_text(f"[workspace]\nmembers = {members}\n", encoding="utf-8")
@@ -732,8 +732,31 @@ def smoke_package_move(server, root, retain_original=False, add_dependency=False
             '[dependencies]\nkit = { path = "../api" } # Existing alias for api\n'
         )
         sources[downstream] = "fun run() i32 { kit::data::value() + kit::base() }\n"
+    if configured:
+        extra = api.with_name("extra.nia")
+        sources[extra] = "pub fun offset() i32 { 3 }\n"
+        sources[api] = sources[api].replace("data::value()", "data::value() + extra::offset()")
+        sources[api.with_name("build.nia")] = """using std::build;
+using std::fs;
+pub fun build(b: &mut build::Build) build::Error!() {
+    let imports = [build::ModuleImport::init("extra", fs::PathView::init("extra.nia"))];
+    let library = b.addModule(build::ModuleOptions::init("package_check", fs::PathView::init("root.nia")).withImports(imports)).?;
+    _ = b.addCheckModuleStep("check", library).?;
+    !()
+}
+"""
     for file, source in sources.items():
         file.write_text(source, encoding="utf-8", newline="\n")
+
+    def check():
+        compiler = server.with_name("nia" + server.suffix)
+        result = subprocess.run([str(compiler), "build", "check"], cwd=api.parent,
+                                capture_output=True, text=True, encoding="utf-8", timeout=180)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert (root / "build/out/api/build-plan.bin").is_file()
+
+    if configured:
+        check()
     manifest = (kit if retain_original else api).with_name("nia.toml")
     if add_dependency:
         sources[manifest] = manifest.read_text(encoding="utf-8")
@@ -785,6 +808,8 @@ def smoke_package_move(server, root, retain_original=False, add_dependency=False
                 assert "root::reading::local()" in sources[old], sources[old]
             old.rename(new)
             sources[new] = sources.pop(old)
+            if configured:
+                check()
             client.notify("workspace/didRenameFiles", move)
             lookups = [(new, "base()", api)] if retain_original else [(api, "value()", new)]
             if add_caller:
@@ -798,6 +823,12 @@ def smoke_package_move(server, root, retain_original=False, add_dependency=False
                     "textDocument": {"uri": caller.as_uri()}, "position": position(sources[caller], needle),
                 })
                 assert target["uri"] == declaration.as_uri(), target
+            if configured:
+                target = request(client, "textDocument/definition", {
+                    "textDocument": {"uri": api.as_uri()},
+                    "position": position(sources[api], "offset()"),
+                })
+                assert target["uri"] == extra.as_uri(), target
             request(client, "shutdown", None)
             client.notify("exit", None)
             process.stdin.close()
@@ -976,6 +1007,8 @@ def main():
         smoke_package_move(server, Path(directory).resolve(), retain_original=True, add_dependency=True)
     with tempfile.TemporaryDirectory(prefix="nia-lsp-package-move-caller-dependency-smoke-") as directory:
         smoke_package_move(server, Path(directory).resolve(), add_dependency=True)
+    with tempfile.TemporaryDirectory(prefix="nia-lsp-configured-package-move-smoke-") as directory:
+        smoke_package_move(server, Path(directory).resolve(), add_dependency=True, configured=True)
     with tempfile.TemporaryDirectory(prefix="nia-lsp-build-smoke-") as directory:
         smoke_build_context(server, Path(directory).resolve())
 
