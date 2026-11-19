@@ -775,7 +775,23 @@ pub fun main(init: process::Init) process::ExitCode!() {
             assert definition(app, app_src, 'marker();')['uri'] == generated.as_uri()
             assert opened(build, build_src) == []
             assert definition(build, build_src, 'marker();')['uri'] == flags.as_uri()
+            selected = {
+                'textDocument': {'uri': app.as_uri()},
+                'position': position(app_src, 'selected();'),
+                'context': {'includeDeclaration': True},
+            }
+            rename = {'textDocument': selected['textDocument'],
+                      'position': position(app_src, 'init:'), 'newName': 'context'}
+            initial = request(client, 'textDocument/rename', rename)
+            assert len(initial['changes'][app.as_uri()]) == 2, initial
+            references = request(client, 'textDocument/references', selected)
+            assert {item['range']['start']['line'] for item in references} == {2, 6}, references
             run('check', '--release', '--cpu', 'x86_64-v3', '--target', 'x86_64-unknown-linux')
+            _, rejected = client.wait(client.request('textDocument/rename', rename))
+            assert 'configuration changed' in rejected['error']['message'], rejected
+            references = request(client, 'textDocument/references', selected)
+            assert {item['range']['start']['line'] for item in references} == {3, 6}, references
+            assert request(client, 'textDocument/rename', rename) == initial
             changed(plan)
             assert definition(app, app_src, 'selected();')['range']['start']['line'] == 3
             assert definition(app, app_src, 'marker();')['uri'] == generated.as_uri()

@@ -375,9 +375,11 @@ fn analyze(
             }
             continue;
         }
-        let cached_for_path = cached
-            .as_ref()
-            .filter(|cached| cached.revision == work.revision && cached.path == work.path);
+        let cached_for_path = cached.as_ref().filter(|cached| {
+            cached.revision == work.revision
+                && cached.source_revision == session.source_revision()
+                && cached.path == work.path
+        });
         if cached_for_path.is_none()
             && let Some(response) =
                 complete_declarations(&mut session, &mut completion_probe, &mut work)
