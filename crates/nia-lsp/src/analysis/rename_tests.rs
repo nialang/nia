@@ -889,7 +889,23 @@ pub fun build(b: &mut build::Build) build::Error!() {
     let generated = root.join("build/out/generated.nia");
     let generated_text = "@[release]\npub fun amount() i32 { 42 }\n";
     let documents = Documents::new();
+    let completions = session
+        .complete_names(
+            &documents,
+            &path,
+            Position::new(1, 22),
+            &Cancellation::default(),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(completions.len(), 1);
+    assert_eq!(completions[0].label, "local");
+    assert_eq!(completions[0].detail.as_deref(), Some("fun amount() i32"));
     let analyzed = session.analyze(&documents, &path).unwrap();
+    assert_eq!(
+        analyzed.complete(&path, Position::new(1, 22)),
+        Some(completions)
+    );
     assert_eq!(analyzed.first_error(), None);
     assert_eq!(
         analyzed

@@ -136,9 +136,7 @@ def smoke(server, root):
                 "textDocument": dict(**document, version=3),
                 "contentChanges": [{"text": typo}],
             })
-            _, diagnostics = client.wait_diagnostics(main.as_uri(), 3, lambda items: any(
-                "unknown value `weigth`" in diagnostic["message"] for diagnostic in items
-            ))
+            tokens = request(client, "textDocument/semanticTokens/full", params)
             start = position(typo, "weigth")
             end = dict(start, character=start["character"] + len("weigth"))
             completions = request(client, "textDocument/completion", dict(
@@ -151,6 +149,10 @@ def smoke(server, root):
             assert completion["textEdit"] == {
                 "range": {"start": start, "end": end}, "newText": "weight",
             }, completion
+            _, diagnostics = client.wait_diagnostics(main.as_uri(), 3, lambda items: any(
+                "unknown value `weigth`" in diagnostic["message"] for diagnostic in items
+            ))
+            assert request(client, "textDocument/semanticTokens/full", params) != tokens
             code_action = dict(**params, range={"start": start, "end": end})
             actions = request(client, "textDocument/codeAction", dict(
                 **code_action, context={"diagnostics": diagnostics, "only": ["quickfix"]},

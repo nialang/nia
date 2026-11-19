@@ -10,7 +10,7 @@ use lsp_types::{
     CompletionItemKind, Diagnostic, DiagnosticSeverity, DocumentHighlight, Location,
     NumberOrString, Position, Uri,
 };
-use nia_compiler_query::{CheckedProgramAnalysis, CompilerDatabase};
+use nia_compiler_query::{CheckedModule, CompilerDatabase, ProgramDiagnostic};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope};
 use nia_diagnostic::LabelStyle;
 use nia_driver::{CheckRequest, Driver, DriverConfig};
@@ -86,6 +86,12 @@ pub(crate) struct Session {
     pub(crate) workspace_index: Option<Arc<crate::workspace::WorkspaceIndex>>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnalysisMode {
+    Full,
+    Declarations,
+}
+
 impl Session {
     pub(crate) fn new(toolchain: Arc<ToolchainLayout>) -> Self {
         Self {
@@ -113,6 +119,31 @@ impl Session {
         entry: &Path,
         cancel: Option<&Cancellation>,
     ) -> Result<Analysis, String> {
+        self.analyze_mode(documents, entry, cancel, AnalysisMode::Full)
+    }
+
+    pub(crate) fn complete_names(
+        &mut self,
+        documents: &Documents,
+        path: &Path,
+        position: Position,
+        cancel: &Cancellation,
+    ) -> Result<Option<Vec<lsp_types::CompletionItem>>, String> {
+        let analysis =
+            self.analyze_mode(documents, path, Some(cancel), AnalysisMode::Declarations)?;
+        nia_query::with_cancellation(Some(cancel.token()), || {
+            Ok(analysis.complete(path, position))
+        })
+        .map_err(|error| error.to_string())
+    }
+
+    fn analyze_mode(
+        &mut self,
+        documents: &Documents,
+        entry: &Path,
+        cancel: Option<&Cancellation>,
+        mode: AnalysisMode,
+    ) -> Result<Analysis, String> {
         if let Some(cancel) = cancel {
             cancel.check()?;
         }
@@ -132,6 +163,7 @@ impl Session {
                 &self.overlays,
                 request,
                 cancel,
+                mode,
             )
         };
         let Some(package) = self.projects.package(entry)? else {
@@ -214,6 +246,7 @@ impl Session {
             &self.overlays,
             request,
             Some(cancel),
+            AnalysisMode::Full,
         )
     }
 
@@ -265,7 +298,11 @@ impl Session {
         let file = analysis.file(path)?;
         let offset = file.lines.offset(&file.text, position)?;
         let Some(member) = MemberCompletion::at(&file.text, offset) else {
-            return analysis.complete(path, position);
+            return nia_query::with_cancellation(Some(cancel.token()), || {
+                Ok(analysis.complete(path, position))
+            })
+            .ok()
+            .flatten();
         };
         let names = analysis.method_names(member.prefix(&file.text));
         let fields = member.candidates(analysis, file, &[], cancel);
@@ -303,9 +340,10 @@ fn analyze_editor_request(
     overlays: &BTreeMap<PathBuf, Arc<str>>,
     request: EditorRequest,
     cancel: Option<&Cancellation>,
+    mode: AnalysisMode,
 ) -> Result<Analysis, String> {
     let Some(context) = request.target else {
-        return analyze_request(driver, request.check, cancel);
+        return analyze_request(driver, request.check, cancel, mode);
     };
     let mut drivers = drivers.borrow_mut();
     let configured = match drivers.entry((context.target, context.cpu)) {
@@ -341,6 +379,7 @@ fn analyze_editor_request(
                 nia_build_plan::CompilationMode::Test => nia_target_config::CompilationMode::Test,
             }),
         cancel,
+        mode,
     )
 }
 
@@ -374,17 +413,58 @@ fn analyze_request(
     driver: &Driver,
     request: CheckRequest,
     cancel: Option<&Cancellation>,
+    mode: AnalysisMode,
 ) -> Result<Analysis, String> {
     let cancel = cancel.map(Cancellation::token);
-    driver
-        .analyze_for_editor(
-            request.with_timings(crate::timing_mode()),
-            cancel,
-            |db, program, loader| {
-                Analysis::from_program(driver, db, program, loader.consulted_sources()?, cancel)
-            },
-        )
-        .map_err(|error| error.to_string())
+    let request = request.with_timings(crate::timing_mode());
+    let result = match mode {
+        AnalysisMode::Full => driver.analyze_for_editor(request, cancel, |db, program, loader| {
+            Analysis::from_program(
+                driver,
+                db,
+                ProgramSources {
+                    graph: program.graph,
+                    modules: program.modules,
+                    diagnostics: program.diagnostics,
+                    consulted_sources: loader.consulted_sources()?,
+                    mode,
+                },
+                cancel,
+            )
+        }),
+        AnalysisMode::Declarations => driver.inspect_for_editor(request, cancel, |db, loader| {
+            nia_timing::time_stage(
+                crate::timing_mode(),
+                nia_timing::TimingLevel::Summary,
+                "lsp.completion_declarations",
+                || {
+                    nia_query::with_cancellation(cancel, || {
+                        Analysis::from_program(
+                            driver,
+                            db,
+                            ProgramSources {
+                                graph: loader.module_graph()?,
+                                modules: Vec::new(),
+                                diagnostics: Vec::new(),
+                                consulted_sources: loader.consulted_sources()?,
+                                mode,
+                            },
+                            cancel,
+                        )
+                    })
+                },
+            )
+        }),
+    };
+    result.map_err(|error| error.to_string())
+}
+
+struct ProgramSources {
+    graph: ModuleGraphSnapshot,
+    modules: Vec<Arc<CheckedModule>>,
+    diagnostics: Vec<ProgramDiagnostic>,
+    consulted_sources: Arc<BTreeSet<String>>,
+    mode: AnalysisMode,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -503,15 +583,14 @@ impl Analysis {
     fn from_program(
         driver: &Driver,
         db: &CompilerDatabase,
-        program: CheckedProgramAnalysis,
-        consulted_sources: Arc<BTreeSet<String>>,
+        program: ProgramSources,
         cancel: Option<&nia_query::CancellationToken>,
     ) -> nia_query::QueryResult<Self> {
         let checkpoint = || cancel.map_or(Ok(()), nia_query::CancellationToken::check);
         let mut result = Self {
             files: BTreeMap::new(),
             definitions: HashMap::new(),
-            consulted_sources,
+            consulted_sources: program.consulted_sources,
             diagnostics: program.diagnostics,
             configuration_warning: None,
             trait_implementations: Vec::new(),
@@ -764,9 +843,10 @@ impl Analysis {
                     );
                 }
             }
-            if tokens
-                .iter()
-                .any(|token| token.kind == LosslessTokenKind::Token(TokenKind::Using))
+            if program.mode == AnalysisMode::Full
+                && tokens
+                    .iter()
+                    .any(|token| token.kind == LosslessTokenKind::Token(TokenKind::Using))
                 && let Some(parsed) =
                     syntax.get_or_init(|| nia_syntax::parse(&file.text, None).ok())
             {
@@ -803,6 +883,9 @@ impl Analysis {
                     rename_aliases,
                 },
             );
+        }
+        if program.mode == AnalysisMode::Declarations {
+            return Ok(result);
         }
         for (path, span, trait_id, name, kind) in projections {
             if let Some(id) = result.associated_member(trait_id, name, kind)
@@ -2843,8 +2926,8 @@ mod tests {
         )
         .unwrap();
         let mut session = test_session();
-        let use_buffer = |session: &mut Session, text: &str| {
-            let documents = [(
+        let buffer = |text: &str| {
+            [(
                 main.clone(),
                 OpenDocument {
                     uri: uri(&main).unwrap(),
@@ -2852,8 +2935,7 @@ mod tests {
                 },
             )]
             .into_iter()
-            .collect();
-            session.analyze(&documents, &main).unwrap()
+            .collect()
         };
         let text = concat!(
             "module math;\n",
@@ -2867,7 +2949,7 @@ mod tests {
             "}\n",
         );
         std::fs::write(&main, "module math;\n").unwrap();
-        let analysis = use_buffer(&mut session, text);
+        let analysis = session.analyze(&buffer(text), &main).unwrap();
         let file = analysis.file(&main).expect("main buffer in analysis");
         analysis.names(file, 0, &[]).expect("visible names of main");
         let completion = analysis.complete(&main, Position::new(5, 11)).unwrap();
@@ -2886,9 +2968,16 @@ mod tests {
             lsp_types::Range::new(Position::new(5, 8), Position::new(5, 13))
         );
 
-        let incomplete = "module math;\nusing root::math as calc;\nfun run() i32 { calc:: }\n";
-        let analysis = use_buffer(&mut session, incomplete);
-        let completion = analysis.complete(&main, Position::new(2, 22)).unwrap();
+        let incomplete =
+            "module math;\nfun run() i32 {\n    using root::math as calc;\n    calc::\n}\n";
+        let documents = buffer(incomplete);
+        let cursor = Position::new(3, 10);
+        let completion = session
+            .complete_names(&documents, &main, cursor, &Cancellation::default())
+            .unwrap()
+            .unwrap();
+        let analysis = session.analyze(&documents, &main).unwrap();
+        assert_eq!(analysis.complete(&main, cursor).as_ref(), Some(&completion));
         assert_eq!(
             completion
                 .iter()
@@ -2905,7 +2994,7 @@ mod tests {
 
         let incomplete =
             "module math;\nusing root::math as calc;\nfun run() i32 { calc::add((1, 2).0, \n";
-        let analysis = use_buffer(&mut session, incomplete);
+        let analysis = session.analyze(&buffer(incomplete), &main).unwrap();
         let help = analysis
             .signature_help(&main, Position::new(2, 35))
             .unwrap();

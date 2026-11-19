@@ -196,10 +196,14 @@ struct Reply {
     lane: Lane,
     revision: u64,
     path: PathBuf,
-    diagnostics: Result<Vec<Diagnostic>, String>,
-    highlights: Arc<Resolved>,
+    publication: Option<Publication>,
     response: Option<Response>,
     reference_coverage: Option<String>,
+}
+
+struct Publication {
+    diagnostics: Result<Vec<Diagnostic>, String>,
+    highlights: Arc<Resolved>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -257,8 +261,7 @@ fn analyze(
                     lane,
                     revision: work.revision,
                     path: work.path,
-                    diagnostics: Ok(Vec::new()),
-                    highlights: Arc::new(Resolved::new()),
+                    publication: None,
                     response,
                     reference_coverage: None,
                 })
@@ -281,8 +284,27 @@ fn analyze(
                     lane,
                     revision: work.revision,
                     path: work.path,
-                    diagnostics: Ok(Vec::new()),
-                    highlights: Arc::new(Resolved::new()),
+                    publication: None,
+                    response: Some(response),
+                    reference_coverage: None,
+                })
+                .is_err()
+            {
+                break;
+            }
+            continue;
+        }
+        if !cached
+            .as_ref()
+            .is_some_and(|(revision, path, _)| (*revision, path) == (work.revision, &work.path))
+            && let Some(response) = complete_declarations(&mut session, &mut work)
+        {
+            if output
+                .send(Reply {
+                    lane,
+                    revision: work.revision,
+                    path: work.path,
+                    publication: None,
                     response: Some(response),
                     reference_coverage: None,
                 })
@@ -318,16 +340,13 @@ fn analyze(
         };
         let (analysis, highlights) = current.as_ref();
         let document = &work.documents[&work.path].document;
-        let diagnostics = analysis
-            .as_ref()
-            .map(|analysis| {
-                if lane == Lane::Editor {
-                    analysis.diagnostics(&work.path, document)
-                } else {
-                    Vec::new()
-                }
-            })
-            .map_err(Clone::clone);
+        let publication = (lane == Lane::Editor).then(|| Publication {
+            diagnostics: analysis
+                .as_ref()
+                .map(|analysis| analysis.diagnostics(&work.path, document))
+                .map_err(Clone::clone),
+            highlights: highlights.clone(),
+        });
         let mut reference_coverage = None;
         let response = work.request.take().map(|request| {
             if work.cancel.check().is_err() {
@@ -466,8 +485,7 @@ fn analyze(
                 lane,
                 revision: work.revision,
                 path: work.path,
-                diagnostics,
-                highlights: highlights.clone(),
+                publication,
                 response,
                 reference_coverage,
             })
@@ -476,6 +494,24 @@ fn analyze(
             break;
         }
     }
+}
+
+fn complete_declarations(session: &mut Session, work: &mut Work) -> Option<Response> {
+    let request = work
+        .request
+        .as_ref()
+        .filter(|request| request.method == COMPLETION)?;
+    let params = decode::<lsp_types::CompletionParams>(request.params.clone()).ok()?;
+    let position = params.text_document_position.position;
+    let doc = &work.documents.get(&work.path)?.document;
+    let offset = doc.lines.offset(&doc.text, position)?;
+    if crate::editing::MemberCompletion::at(&doc.text, offset).is_some() {
+        return None;
+    }
+    let result = session.complete_names(&work.documents, &work.path, position, &work.cancel);
+    let items = result.ok().flatten()?;
+    let request = work.request.take().expect("completion request");
+    Some(Response::new_ok(request.id, items))
 }
 
 fn workspace_query(session: &mut Session, work: &Work, request: Request) -> Response {
@@ -722,6 +758,12 @@ impl Server {
             )?;
             return Ok(());
         };
+        if request.method == COMPLETION
+            && let Some(active) = &self.editor
+            && active.request.is_none()
+        {
+            active.cancel.cancel();
+        }
         if request.method == SEMANTIC_FULL {
             let resolved = self.highlights.get(&path);
             if resolved.is_some() || self.semantic_refresh {
@@ -1012,20 +1054,31 @@ impl Server {
             Lane::Editor => self.editor.take(),
             Lane::Workspace => self.workspace.take(),
         };
-        let canceled = active.is_some_and(|active| active.cancel.check().is_err());
+        let canceled = active
+            .as_ref()
+            .is_some_and(|active| active.cancel.check().is_err());
+        if reply.lane == Lane::Editor
+            && canceled
+            && reply.revision == self.revision
+            && active.is_some_and(|active| active.request.is_none())
+            && self.documents.contains_key(&reply.path)
+        {
+            self.dirty.insert(reply.path.clone());
+        }
         if reply.lane == Lane::Editor
             && !canceled
             && reply.revision == self.revision
             && let Some(open) = self.documents.get(&reply.path)
+            && let Some(publication) = reply.publication
         {
             self.dirty.remove(&reply.path);
             if self.syntax_sent.remove(&reply.path)
-                && open.document.has_refinements(&reply.highlights)
+                && open.document.has_refinements(&publication.highlights)
             {
                 self.refresh_needed = true;
             }
-            self.highlights.insert(reply.path, reply.highlights);
-            let diagnostics = reply.diagnostics.unwrap_or_else(|error| {
+            self.highlights.insert(reply.path, publication.highlights);
+            let diagnostics = publication.diagnostics.unwrap_or_else(|error| {
                 vec![Diagnostic {
                     source: Some("nia-lsp".into()),
                     severity: Some(lsp_types::DiagnosticSeverity::ERROR),
@@ -1219,8 +1272,10 @@ mod tests {
                     lane: Lane::Editor,
                     revision: active.revision,
                     path,
-                    diagnostics: Ok(Vec::new()),
-                    highlights: Arc::default(),
+                    publication: Some(Publication {
+                        diagnostics: Ok(Vec::new()),
+                        highlights: Arc::default(),
+                    }),
                     response: Some(Response::new_ok(1.into(), ())),
                     reference_coverage: None,
                 },
@@ -1235,6 +1290,94 @@ mod tests {
             ErrorCode::ContentModified as i32
         );
         assert!(server.highlights.is_empty());
+    }
+
+    #[test]
+    fn completion_reschedules_interrupted_diagnostics_for_the_same_revision() {
+        let (connection, client) = Connection::memory();
+        let (editor, editor_work) = unbounded();
+        let (workspace, _) = unbounded();
+        let mut server = Server::default();
+        let uri = analysis::uri(&std::env::current_dir().unwrap().join("root.nia")).unwrap();
+        server
+            .notification(
+                &connection,
+                Notification::new(
+                    "textDocument/didOpen".into(),
+                    json!({
+                        "textDocument": {"uri": uri, "version": 1, "languageId": "nia", "text": ""}
+                    }),
+                ),
+            )
+            .unwrap();
+        server
+            .schedule(&connection, &editor, &workspace, true)
+            .unwrap();
+        let WorkerMessage::Analyze(diagnosing) = editor_work.try_recv().unwrap() else {
+            panic!("expected background diagnostics");
+        };
+        assert!(diagnosing.request.is_none());
+
+        server
+            .request(
+                &connection,
+                Request::new(
+                    1.into(),
+                    COMPLETION.into(),
+                    json!({"textDocument": {"uri": uri}, "position": {"line": 0, "character": 0}}),
+                ),
+            )
+            .unwrap();
+        assert!(diagnosing.cancel.check().is_err());
+        server
+            .reply(
+                &connection,
+                Reply {
+                    lane: Lane::Editor,
+                    revision: diagnosing.revision,
+                    path: diagnosing.path,
+                    publication: None,
+                    response: None,
+                    reference_coverage: None,
+                },
+            )
+            .unwrap();
+        server
+            .schedule(&connection, &editor, &workspace, true)
+            .unwrap();
+        let WorkerMessage::Analyze(completing) = editor_work.try_recv().unwrap() else {
+            panic!("expected completion work");
+        };
+        assert_eq!(completing.request.unwrap().id, 1.into());
+        server
+            .reply(
+                &connection,
+                Reply {
+                    lane: Lane::Editor,
+                    revision: completing.revision,
+                    path: completing.path.clone(),
+                    publication: None,
+                    response: Some(Response::new_ok(1.into(), Vec::<Value>::new())),
+                    reference_coverage: None,
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            client.receiver.try_recv().unwrap(),
+            Message::Response(_)
+        ));
+        assert!(client.receiver.is_empty());
+        assert!(server.highlights.is_empty());
+        server
+            .schedule(&connection, &editor, &workspace, true)
+            .unwrap();
+        let WorkerMessage::Analyze(retry) = editor_work.try_recv().unwrap() else {
+            panic!("expected diagnostics to be rescheduled");
+        };
+        assert!(retry.request.is_none());
+        assert_eq!(retry.path, completing.path);
+        assert_eq!(retry.revision, completing.revision);
+        assert!(retry.cancel.check().is_ok());
     }
 
     #[test]
@@ -1277,8 +1420,7 @@ mod tests {
                     lane: Lane::Workspace,
                     revision: 0,
                     path,
-                    diagnostics: Ok(Vec::new()),
-                    highlights: Arc::default(),
+                    publication: None,
                     response: Some(Response::new_ok(1.into(), ())),
                     reference_coverage: None,
                 },

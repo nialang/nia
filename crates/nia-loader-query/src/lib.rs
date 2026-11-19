@@ -386,6 +386,13 @@ impl LoaderDatabase {
         nia_query::with_cancellation(cancel, || self.db.get(graph::ModuleGraphQuery).map(drop))
     }
 
+    /// Returns the tracked module graph used by compiler queries.
+    pub fn module_graph(&self) -> QueryResult<nia_imports::ModuleGraphSnapshot> {
+        self.db
+            .get(graph::ModuleGraphQuery)
+            .map(|graph| graph.semantic.clone())
+    }
+
     /// Physical paths consulted by the settled graph, including missing sources
     /// and provider candidates that did not become modules.
     pub fn consulted_sources(&self) -> QueryResult<Arc<std::collections::BTreeSet<String>>> {
@@ -644,9 +651,7 @@ impl LoaderFactProvider for LoaderDatabase {
     }
 
     fn module_graph(&self) -> QueryResult<nia_imports::ModuleGraphSnapshot> {
-        self.db
-            .get(graph::ModuleGraphQuery)
-            .map(|graph| graph.semantic.clone())
+        LoaderDatabase::module_graph(self)
     }
 
     fn loaded_module_source_identities(&self) -> QueryResult<Vec<nia_source::SourceIdentity>> {

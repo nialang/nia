@@ -132,8 +132,37 @@ impl Driver {
             &LoaderDatabase,
         ) -> nia_query::QueryResult<T>,
     ) -> nia_query::QueryResult<T> {
-        let checkpoint = || cancel.map_or(Ok(()), nia_query::CancellationToken::check);
-        checkpoint()?;
+        let timings = request.timings;
+        self.inspect_for_editor(request, cancel, |database, loader| {
+            let analysis = nia_timing::time_stage(
+                timings,
+                nia_timing::TimingLevel::Summary,
+                "editor.semantic_queries",
+                || database.analyze_entry_program_with_cancellation(cancel),
+            )?;
+            if let Some(cancel) = cancel {
+                cancel.check()?;
+            }
+            nia_timing::time_stage(
+                timings,
+                nia_timing::TimingLevel::Summary,
+                "editor.consume_analysis",
+                || consume(database, analysis, loader),
+            )
+        })
+    }
+
+    /// Supplies the current editor graph to a consumer of individual compiler
+    /// queries. Declaration-only consumers can avoid checking program bodies.
+    pub fn inspect_for_editor<T>(
+        &self,
+        request: CheckRequest,
+        cancel: Option<&nia_query::CancellationToken>,
+        consume: impl FnOnce(&CompilerDatabase, &LoaderDatabase) -> nia_query::QueryResult<T>,
+    ) -> nia_query::QueryResult<T> {
+        if let Some(cancel) = cancel {
+            cancel.check()?;
+        }
         let timings = request.timings;
         let (database, loader) = nia_timing::time_stage(
             timings,
@@ -141,19 +170,7 @@ impl Driver {
             "editor.load_graph",
             || self.compilation_databases(&request, RootScope::Tree, true, cancel),
         )?;
-        let analysis = nia_timing::time_stage(
-            timings,
-            nia_timing::TimingLevel::Summary,
-            "editor.semantic_queries",
-            || database.analyze_entry_program_with_cancellation(cancel),
-        )?;
-        checkpoint()?;
-        nia_timing::time_stage(
-            timings,
-            nia_timing::TimingLevel::Summary,
-            "editor.consume_analysis",
-            || consume(&database, analysis, &loader),
-        )
+        consume(&database, &loader)
     }
 
     /// Checks the requested roots and returns the exact source manifest alongside.
