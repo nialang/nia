@@ -84,6 +84,63 @@ fn unreadable_plan_keeps_manifest_navigation_available() {
 }
 
 #[test]
+fn rename_checks_workspace_configuration_without_file_notifications() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-rename-changed-configuration");
+    let entry = root.join("root.nia");
+    let manifest =
+        "[package]\nname = \"example\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n";
+    std::fs::write(root.join("nia.toml"), manifest).unwrap();
+    std::fs::write(
+        &entry,
+        "fun amount() i32 { 1 }\nfun run() i32 { amount() }\n",
+    )
+    .unwrap();
+    let mut session = test_session();
+    let documents = Documents::new();
+    let cancel = Cancellation::default();
+    let analysis = session.analyze(&documents, &entry).unwrap();
+    let rename = |session: &mut Session| {
+        session.rename(
+            &analysis,
+            &documents,
+            crate::rename::Rename {
+                path: &entry,
+                position: Position::new(0, 4),
+                new_name: "quantity",
+                folders: &[],
+                versioned: true,
+                resource_rename: false,
+            },
+            &cancel,
+        )
+    };
+    assert!(rename(&mut session).is_ok());
+
+    let output = root.join("build/out");
+    std::fs::create_dir_all(&output).unwrap();
+    let plan = output.join("build-plan.bin");
+    std::fs::write(&plan, b"invalid plan").unwrap();
+    let error = rename(&mut session).unwrap_err();
+    assert!(
+        error.contains("build plan is corrupt") && error.contains("build-plan.bin"),
+        "{error}"
+    );
+    std::fs::remove_file(&plan).unwrap();
+    assert!(rename(&mut session).is_ok());
+
+    std::fs::write(root.join("checks.nia"), "fun check() i32 { 42 }\n").unwrap();
+    let updated = format!("{manifest}\n[[test]]\nname = \"check\"\npath = \"checks.nia\"\n");
+    std::fs::write(root.join("nia.toml"), updated).unwrap();
+    let error = rename(&mut session).unwrap_err();
+    assert!(
+        error.contains("Workspace build configuration changed"),
+        "{error}"
+    );
+    assert!(rename(&mut session).is_ok());
+}
+
+#[test]
 fn build_named_library_module_keeps_its_owner_in_navigation_and_rename() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-build-module-owner");

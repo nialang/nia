@@ -16,7 +16,7 @@ use crate::{
     analysis::{Analysis, Documents, Session, Symbol, normalized},
     document::Lines,
     editing::CallableDeclaration,
-    project::{EditorRequest, declares_build_hook},
+    project::{EditorRequest, Projects, WorkspaceRequests, declares_build_hook},
 };
 
 #[derive(Clone, Default)]
@@ -110,11 +110,8 @@ impl Coverage {
 pub(crate) struct WorkspaceIndex {
     pub(crate) entries: Vec<Arc<Entry>>,
     pub(crate) files: BTreeMap<String, (Uri, Arc<str>)>,
-    pub(crate) editable: BTreeSet<PathBuf>,
-    managed: BTreeSet<PathBuf>,
+    pub(crate) configuration: Arc<WorkspaceRequests>,
     toolchain_sources: PathBuf,
-    pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
-    package_names: BTreeMap<PathBuf, String>,
     symbol_packages: OnceLock<HashMap<String, Option<String>>>,
     implementations: BTreeMap<Site, BTreeSet<Site>>,
     pub(crate) module_declarations: BTreeMap<String, BTreeSet<Site>>,
@@ -123,6 +120,7 @@ pub(crate) struct WorkspaceIndex {
 
 pub(crate) struct WorkspaceSnapshot {
     state: WorkspaceIndexState,
+    configuration: Arc<WorkspaceRequests>,
     folders: Vec<PathBuf>,
     anchor: Option<String>,
     overlays: BTreeMap<String, Arc<str>>,
@@ -180,6 +178,40 @@ impl Session {
         cancel: &Cancellation,
     ) -> Result<Arc<WorkspaceIndex>, String> {
         self.index_workspace(Some(path), documents, folders, cancel)
+    }
+
+    pub(crate) fn verify_workspace_configuration(
+        &mut self,
+        documents: &Documents,
+        cancel: &Cancellation,
+    ) -> Result<(), String> {
+        cancel.check()?;
+        let snapshot = self
+            .workspace_index
+            .as_ref()
+            .ok_or("Workspace index is unavailable")?;
+        let current = Projects::default().workspace_requests(
+            snapshot.anchor.as_deref().map(Path::new),
+            documents.keys().cloned(),
+            &snapshot.folders,
+            &self.toolchain,
+        );
+        cancel.check()?;
+        let problem = match current {
+            Ok(current) if current == *snapshot.configuration => return Ok(()),
+            Ok(current) => current.unavailable_plans.first().map_or_else(
+                || "Workspace build configuration changed during rename".to_owned(),
+                |(package, error)| {
+                    format!(
+                        "Cannot verify rename in package `{}` ({error})",
+                        package.display()
+                    )
+                },
+            ),
+            Err(error) => format!("Cannot verify workspace build configuration ({error})"),
+        };
+        self.reload();
+        Err(problem)
     }
 
     pub(crate) fn index_workspace(
@@ -254,29 +286,29 @@ impl Session {
                     .push(entry);
             }
         }
-        let workspace = self.projects.workspace_requests(
+        let workspace = Arc::new(self.projects.workspace_requests(
             path,
             documents.keys().cloned(),
             folders,
             &self.toolchain,
-        )?;
+        )?);
         let mut entries: Vec<Arc<Entry>> = Vec::new();
         let mut reused = 0;
         let mut analyzed = 0;
         let mut requests = workspace
             .entries
-            .into_iter()
+            .iter()
             .map(|request| (request, EntryKind::Declared))
             .chain(
                 workspace
                     .build_candidates
-                    .into_iter()
+                    .iter()
                     .map(|request| (request, EntryKind::BuildCandidate)),
             )
             .chain(
                 workspace
                     .standalone
-                    .into_iter()
+                    .iter()
                     .map(|request| (request, EntryKind::Standalone)),
             );
         let reusable = |request: &EditorRequest| {
@@ -304,14 +336,14 @@ impl Session {
                 {
                     continue;
                 }
-                let entry = if let Some(entry) = reusable(&request) {
+                let entry = if let Some(entry) = reusable(request) {
                     reused += 1;
                     Arc::clone(entry)
                 } else {
                     analyzed += 1;
                     let analysis = analyze(self, request.clone(), cancel);
                     cancel.check()?;
-                    Arc::new(Entry::new(request, analysis, cancel)?)
+                    Arc::new(Entry::new(request.clone(), analysis, cancel)?)
                 };
                 entries.push(entry);
             }
@@ -321,12 +353,22 @@ impl Session {
             nia_timing::emit_counter("lsp.workspace_entries_reused", reused);
             nia_timing::emit_counter("lsp.workspace_entries_analyzed", analyzed);
         }
+        let remaining = collected.is_err().then(|| {
+            let mut retained: HashSet<_> = entries.iter().map(Arc::as_ptr).collect();
+            requests
+                .filter_map(|(request, _)| {
+                    reusable(request)
+                        .filter(|entry| retained.insert(Arc::as_ptr(entry)))
+                        .cloned()
+                })
+                .collect::<Vec<_>>()
+        });
         let merged = collected.and_then(|()| {
             if let Some(index) = previous.and_then(|previous| previous.state.index())
-                && index.editable == workspace.editable
-                && index.managed == workspace.managed
-                && index.unavailable_plans == workspace.unavailable_plans
-                && index.package_names == workspace.package_names
+                && index.configuration.editable == workspace.editable
+                && index.configuration.managed == workspace.managed
+                && index.configuration.unavailable_plans == workspace.unavailable_plans
+                && index.configuration.package_names == workspace.package_names
                 && index.entries.len() == entries.len()
                 && index
                     .entries
@@ -343,11 +385,8 @@ impl Session {
             let mut index = WorkspaceIndex {
                 entries: Vec::new(),
                 files: BTreeMap::new(),
-                editable: workspace.editable,
-                managed: workspace.managed,
+                configuration: workspace.clone(),
                 toolchain_sources: PathBuf::from(normalized(self.toolchain.resource_root())),
-                unavailable_plans: workspace.unavailable_plans,
-                package_names: workspace.package_names,
                 symbol_packages: OnceLock::new(),
                 implementations: BTreeMap::new(),
                 module_declarations: BTreeMap::new(),
@@ -365,12 +404,7 @@ impl Session {
             Err(_) if cancel.check().is_err() => {
                 // Keep current entries that the canceled scan had yet to reach.
                 // Only retain requests from this scan's workspace plan.
-                let mut retained: HashSet<_> = entries.iter().map(Arc::as_ptr).collect();
-                entries.extend(requests.filter_map(|(request, _)| {
-                    reusable(&request)
-                        .filter(|entry| retained.insert(Arc::as_ptr(entry)))
-                        .cloned()
-                }));
+                entries.extend(remaining.into_iter().flatten());
                 if entries.is_empty() {
                     return merged;
                 }
@@ -380,6 +414,7 @@ impl Session {
         };
         self.workspace_index = Some(WorkspaceSnapshot {
             state,
+            configuration: workspace,
             folders: folders.to_vec(),
             anchor,
             overlays,
@@ -739,7 +774,7 @@ impl WorkspaceIndex {
             if self.editable_source(path) {
                 let package = path
                     .ancestors()
-                    .find_map(|directory| self.package_names.get(directory));
+                    .find_map(|directory| self.configuration.package_names.get(directory));
                 packages.insert(source.clone(), package.cloned());
             }
         }
@@ -854,7 +889,7 @@ impl WorkspaceIndex {
     }
 
     pub(crate) fn reference_coverage_warning(&self, source: &str) -> Option<String> {
-        let problem = if let Some((package, error)) = self.unavailable_plans.first() {
+        let problem = if let Some((package, error)) = self.configuration.unavailable_plans.first() {
             format!("`{}`. {error}", package.display())
         } else {
             let (entry, error) = self
@@ -870,7 +905,8 @@ impl WorkspaceIndex {
     }
 
     pub(crate) fn contains_build_state(&self, path: &Path) -> bool {
-        self.managed
+        self.configuration
+            .managed
             .iter()
             .any(|directory| directory.starts_with(path) && directory.exists())
     }
@@ -880,6 +916,7 @@ impl WorkspaceIndex {
             return false;
         }
         let Some(root) = self
+            .configuration
             .editable
             .iter()
             .filter(|root| path.starts_with(root))
@@ -899,7 +936,8 @@ impl WorkspaceIndex {
     }
 
     pub(crate) fn managed_source(&self, path: &Path) -> bool {
-        self.managed
+        self.configuration
+            .managed
             .iter()
             .any(|directory| path.starts_with(directory))
     }

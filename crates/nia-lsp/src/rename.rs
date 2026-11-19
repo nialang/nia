@@ -279,7 +279,7 @@ impl Session {
                 return Err(format!("Overlapping module moves at {}", old.display()));
             }
         }
-        if let Some((package, error)) = workspace.unavailable_plans.first() {
+        if let Some((package, error)) = workspace.configuration.unavailable_plans.first() {
             return Err(format!(
                 "Cannot verify rename in package `{}` ({error})",
                 package.display()
@@ -408,6 +408,7 @@ impl Session {
             );
             let workspace_file = |source: &str| {
                 workspace
+                    .configuration
                     .editable
                     .iter()
                     .any(|root| Path::new(source).starts_with(root))
@@ -438,6 +439,7 @@ impl Session {
         for (old, new) in &moves {
             check_destination(old, new)?;
         }
+        self.verify_workspace_configuration(documents, cancel)?;
         if resource_rename && !moves.is_empty() {
             let mut operations: Vec<_> = changes
                 .into_iter()

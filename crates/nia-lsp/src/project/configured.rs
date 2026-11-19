@@ -21,7 +21,7 @@ impl Package {
         &self,
         toolchain: &nia_toolchain::ToolchainLayout,
     ) -> Result<Vec<EditorRequest>, String> {
-        let Some((plan, configuration)) = self.plan.as_ref() else {
+        let Some((plan, configuration)) = self.plan.as_deref() else {
             if let Some(message) = self.configuration_message() {
                 return Err(message);
             }

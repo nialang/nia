@@ -5,7 +5,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 use nia_build::compiler_inputs::CompilerContext;
@@ -34,6 +34,7 @@ pub(crate) struct Projects {
     packages: HashMap<PathBuf, Package>,
 }
 
+#[derive(PartialEq, Eq)]
 pub(crate) struct WorkspaceRequests {
     pub(crate) entries: Vec<EditorRequest>,
     pub(crate) build_candidates: Vec<EditorRequest>,
@@ -42,6 +43,7 @@ pub(crate) struct WorkspaceRequests {
     pub(crate) managed: BTreeSet<PathBuf>,
     pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
     pub(crate) package_names: BTreeMap<PathBuf, String>,
+    pub(crate) plans: BTreeMap<PathBuf, Arc<(BuildPlan, PlanConfiguration)>>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -115,6 +117,7 @@ impl Projects {
         let mut build_candidates = Vec::new();
         let mut unavailable_plans = Vec::new();
         let mut package_names = BTreeMap::new();
+        let mut plans = BTreeMap::new();
         for folder in folders {
             if folder.join("nia.toml").is_file() {
                 roots.insert(folder.canonicalize().map_err(|error| error.to_string())?);
@@ -152,10 +155,11 @@ impl Projects {
             let package = self
                 .package(&root.join("nia.toml"))?
                 .ok_or("Workspace package disappeared")?;
-            package_names.insert(
-                PathBuf::from(normalized(package.layout.package_root())),
-                package.manifest.package.name.clone(),
-            );
+            let package_root = package.source_root();
+            package_names.insert(package_root.clone(), package.manifest.package.name.clone());
+            if let Some(plan) = &package.plan {
+                plans.insert(package_root.clone(), plan.clone());
+            }
             editable.insert(PathBuf::from(normalized(package.layout.package_root())));
             managed.extend(
                 package
@@ -216,6 +220,7 @@ impl Projects {
             managed,
             unavailable_plans,
             package_names,
+            plans,
         })
     }
 
@@ -260,7 +265,7 @@ pub(crate) struct Package {
     layout: BuildLayout,
     manifest: PackageManifest,
     maps: HashMap<Context, ModuleMap>,
-    plan: Option<(BuildPlan, PlanConfiguration)>,
+    plan: Option<Arc<(BuildPlan, PlanConfiguration)>>,
     configuration: ConfigurationStatus,
     planned_requests: OnceLock<Result<Vec<EditorRequest>, String>>,
 }
@@ -319,7 +324,7 @@ impl Package {
         generated: &Path,
         text: &'a str,
     ) -> std::io::Result<Option<nia_build::source_map::GeneratedSourceMap<'a>>> {
-        let Some((plan, _)) = self.plan.as_ref() else {
+        let Some((plan, _)) = self.plan.as_deref() else {
             return Ok(None);
         };
         nia_build::source_map::GeneratedSourceMap::read(plan, &self.output_root(), generated, text)
@@ -334,7 +339,7 @@ impl Package {
     }
 
     pub(crate) fn generated_outputs_reading(&self, source: &Path) -> Vec<PathBuf> {
-        let Some((plan, _)) = &self.plan else {
+        let Some((plan, _)) = self.plan.as_deref() else {
             return Vec::new();
         };
         let Some(relative) = source.strip_prefix(self.source_root()).ok().map(normalized) else {
@@ -386,9 +391,10 @@ impl Package {
                     )),
                 ),
                 Ok(observations) => match observations.validate_filesystem(layout.package_root()) {
-                    ObservationValidation::Match => {
-                        (Some((draft.plan, config)), ConfigurationStatus::Ready)
-                    }
+                    ObservationValidation::Match => (
+                        Some(Arc::new((draft.plan, config))),
+                        ConfigurationStatus::Ready,
+                    ),
                     ObservationValidation::Changed { path, kind } => (
                         None,
                         ConfigurationStatus::Stale(format!(
@@ -523,7 +529,7 @@ impl Package {
         let target = *toolchain.host_target();
         let profile = self
             .plan
-            .as_ref()
+            .as_deref()
             .map_or_else(Default::default, |(_, config)| config.profile);
         let check = self
             .request(path, Context::Build)?
