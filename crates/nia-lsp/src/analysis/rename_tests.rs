@@ -72,7 +72,7 @@ fn unreadable_plan_keeps_manifest_navigation_available() {
     );
     assert!(
         index
-            .reference_coverage_warning()
+            .reference_coverage_warning(&normalized(&entry))
             .unwrap()
             .contains("build-plan.bin")
     );
@@ -180,7 +180,9 @@ fn build_hook_still_contributes_its_independent_context() {
         build_entry.request.context.runtime,
         nia_build_plan::Runtime::Bare
     );
-    let warning = index.reference_coverage_warning().unwrap();
+    let warning = index
+        .reference_coverage_warning(&normalized(&entry))
+        .unwrap();
     assert!(warning.contains("no configured build plan"), "{warning}");
     let documents = Documents::new();
     let analysis = session.analyze(&documents, &entry).unwrap();
@@ -574,6 +576,13 @@ fn rename_only_requires_bindings_in_entries_that_can_reach_the_declaration() {
     let entry = root.join("api/root.nia");
     std::fs::write(&entry, "pub fun amount() i32 { 42 }\n").unwrap();
     std::fs::write(root.join("client/root.nia"), "fun run() i32 { amount() }\n").unwrap();
+    let coverage = || {
+        test_session()
+            .workspace_index(&entry, &Documents::new(), &[], &Cancellation::default())
+            .unwrap()
+            .reference_coverage_warning(&normalized(&entry))
+    };
+    assert_eq!(coverage(), None);
     let edit = rename_at(&entry, "amount()", "quantity").unwrap();
     let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
         panic!("expected text edits");
@@ -588,6 +597,7 @@ fn rename_only_requires_bindings_in_entries_that_can_reach_the_declaration() {
         format!("{text}\n[dependencies]\napi = {{ path = \"../api\" }}\n"),
     )
     .unwrap();
+    assert!(coverage().is_some_and(|warning| warning.contains("client/root.nia")));
     let error = rename_at(&entry, "amount()", "quantity").unwrap_err();
     assert!(
         error.contains("Cannot determine every use") && error.contains("client/root.nia"),
@@ -1041,7 +1051,11 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
         .workspace_index(&entry, &documents, &[], &cancel)
         .unwrap();
     assert_eq!(index.entries.len(), 2);
-    assert!(index.reference_coverage_warning().is_none());
+    assert!(
+        index
+            .reference_coverage_warning(&normalized(&entry))
+            .is_none()
+    );
     let mut rename = |new_name| {
         session.rename(
             &analysis,
@@ -1078,7 +1092,9 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
     let index = session
         .workspace_index(&entry, &documents, &[], &cancel)
         .unwrap();
-    let warning = index.reference_coverage_warning().unwrap();
+    let warning = index
+        .reference_coverage_warning(&normalized(&entry))
+        .unwrap();
     assert!(
         warning.contains(&native_context) && warning.contains("missing"),
         "{warning}"

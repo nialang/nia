@@ -2983,7 +2983,11 @@ mod tests {
             .index_workspace(None, &Documents::new(), &folders, &cancel)
             .unwrap();
         assert!(deleted.symbols("DiskValue", &cancel).unwrap().is_empty());
-        assert!(deleted.reference_coverage_warning().is_some());
+        assert!(
+            deleted
+                .reference_coverage_warning(&normalized(&path))
+                .is_some()
+        );
         assert!(
             deleted
                 .entries
@@ -2997,7 +3001,11 @@ mod tests {
             .index_workspace(None, &Documents::new(), &folders, &cancel)
             .unwrap();
         assert_eq!(created.symbols("NewValue", &cancel).unwrap().len(), 1);
-        assert!(created.reference_coverage_warning().is_none());
+        assert!(
+            created
+                .reference_coverage_warning(&normalized(&path))
+                .is_none()
+        );
         assert!(
             created
                 .entries

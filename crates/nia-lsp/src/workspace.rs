@@ -687,13 +687,14 @@ impl WorkspaceIndex {
             .collect()
     }
 
-    pub(crate) fn reference_coverage_warning(&self) -> Option<String> {
+    pub(crate) fn reference_coverage_warning(&self, source: &str) -> Option<String> {
         let problem = if let Some((package, error)) = self.unavailable_plans.first() {
             format!("`{}`. {error}", package.display())
         } else {
             let (entry, error) = self
                 .entries
                 .iter()
+                .filter(|entry| self.entry_may_reach(entry, source))
                 .find_map(|entry| Some((entry, entry.coverage.problem()?)))?;
             format!("{}. {error}", entry.request)
         };

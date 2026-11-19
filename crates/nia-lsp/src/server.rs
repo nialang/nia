@@ -529,10 +529,10 @@ fn analyze(
                             Ok(params) => {
                                 let position = params.text_document_position.position;
                                 let include_declaration = params.context.include_declaration;
-                                if analysis
+                                let Some(symbol) = analysis
                                     .reference_symbol(&work.path, position)
-                                    .is_none_or(|symbol| !analysis.rename_workspace_symbol(symbol))
-                                {
+                                    .filter(|&symbol| analysis.rename_workspace_symbol(symbol))
+                                else {
                                     return Response::new_ok(
                                         request.id,
                                         analysis.references(
@@ -541,7 +541,7 @@ fn analyze(
                                             include_declaration,
                                         ),
                                     );
-                                }
+                                };
                                 let result = session
                                     .workspace_index(
                                         &work.path,
@@ -557,7 +557,11 @@ fn analyze(
                                             include_declaration,
                                             &work.cancel,
                                         )?;
-                                        reference_coverage = index.reference_coverage_warning();
+                                        reference_coverage =
+                                            crate::workspace::symbol_site(analysis, symbol)
+                                                .and_then(|target| {
+                                                    index.reference_coverage_warning(&target.source)
+                                                });
                                         Ok(references)
                                     });
                                 match result {
