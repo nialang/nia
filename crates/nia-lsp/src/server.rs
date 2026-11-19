@@ -29,6 +29,7 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 const SEMANTIC_FULL: &str = "textDocument/semanticTokens/full";
 const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
 const COMPLETION: &str = "textDocument/completion";
+const INLAY_HINT: &str = "textDocument/inlayHint";
 const CODE_ACTION: &str = "textDocument/codeAction";
 const FORMATTING: &str = "textDocument/formatting";
 const RENAME: &str = "textDocument/rename";
@@ -112,6 +113,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                     "fileOperations": file_rename
                 },
                 "hoverProvider": true,
+                "inlayHintProvider": true,
                 "documentSymbolProvider": true,
                 "workspaceSymbolProvider": true,
                 "foldingRangeProvider": true,
@@ -604,6 +606,8 @@ fn query(
                 &work.cancel,
             ))
         }),
+        INLAY_HINT => decode::<lsp_types::InlayHintParams>(params)
+            .map(|params| json!(analysis.inlay_hints(path, params.range, &work.cancel))),
         CODE_ACTION => decode::<lsp_types::CodeActionParams>(params).map(|params| {
             json!(probe.expect("code action probe").code_actions(
                 analysis,
@@ -726,6 +730,7 @@ impl Server {
                 | PREPARE_RENAME
                 | "textDocument/hover"
                 | COMPLETION
+                | INLAY_HINT
                 | CODE_ACTION
                 | FORMATTING
                 | "textDocument/signatureHelp"

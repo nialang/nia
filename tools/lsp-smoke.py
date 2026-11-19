@@ -30,6 +30,7 @@ def smoke(server, root):
         "    _ = init;\n"
         '    _ = "😀"; shape.width\n'
         "}\n"
+        'fun measure(low: i32) i32 { _ = "\U0001f34e"; shapes::distance(low, 10) }\n'
     )
     (root / "nia.toml").write_text(manifest, encoding="utf-8")
     main = root / "root.nia"
@@ -39,6 +40,7 @@ def smoke(server, root):
         "pub struct Shape { width: i32 }\n"
         "/// Returns the weight.\n"
         "pub fun weight() i32 { 1 }\n"
+        "pub fun distance(low: i32, high: i32) i32 { high - low }\n"
     )
     shapes.write_text(shapes_source, encoding="utf-8")
     with subprocess.Popen([str(server)], cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
@@ -62,6 +64,7 @@ def smoke(server, root):
             })["capabilities"]
             assert capabilities["positionEncoding"] == "utf-16"
             assert capabilities["documentFormattingProvider"]
+            assert capabilities["inlayHintProvider"]
             assert capabilities["workspaceSymbolProvider"] and capabilities["typeDefinitionProvider"]
             assert set(capabilities["workspace"]["fileOperations"]) == {"willRename", "didRename"}
             assert set(capabilities["codeActionProvider"]["codeActionKinds"]) == {
@@ -100,6 +103,14 @@ def smoke(server, root):
             target = request(client, "textDocument/definition", field)
             assert target["uri"] == shapes.as_uri(), target
             assert target["range"]["start"] == {"line": 0, "character": 19}, target
+            hint_position = position(source, "10)")
+            hints = request(client, "textDocument/inlayHint", dict(
+                **params, range={"start": {"line": 6, "character": 0},
+                                 "end": {"line": 7, "character": 0}},
+            ))
+            assert hints == [{
+                "label": "high:", "position": hint_position, "kind": 2, "paddingRight": True,
+            }], hints
 
             edit = request(client, "textDocument/rename", dict(**field, newName="height"))
             assert {item["textDocument"]["uri"] for item in edit["documentChanges"]} == {
@@ -290,16 +301,20 @@ def smoke(server, root):
                 change, = edit["documentChanges"]
                 assert change["textDocument"]["uri"] == main.as_uri(), change
                 assert [item["newText"] for item in change["edits"]] == [
-                    name for name in names.values() for _ in range(2)
+                    new for old, new in names.items()
+                    for _ in range(2 if old == "palette" else 3)
                 ], edit
                 lines = updated.splitlines(keepends=True)
                 for item in reversed(change["edits"]):
                     start, end = item["range"]["start"], item["range"]["end"]
                     assert start["line"] == end["line"]
                     line = lines[start["line"]]
-                    before = line[start["character"]:end["character"]]
+                    utf16 = line.encode("utf-16-le")
+                    left = len(utf16[:2 * start["character"]].decode("utf-16-le"))
+                    right = len(utf16[:2 * end["character"]].decode("utf-16-le"))
+                    before = line[left:right]
                     assert item["newText"] == names[before], item
-                    lines[start["line"]] = line[:start["character"]] + item["newText"] + line[end["character"]:]
+                    lines[start["line"]] = line[:left] + item["newText"] + line[right:]
                 updated = "".join(lines)
                 main.write_text(updated, encoding="utf-8")
                 for old, new in pairs:

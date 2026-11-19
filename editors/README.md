@@ -6,12 +6,15 @@ definition and type-definition navigation, workspace symbol search,
 trait implementation navigation, hover at resolved names, workspace references,
 occurrence highlighting in the current file, completion for
 local names, module members, receiver fields and methods, signature help for
-source functions and resolved methods,
+source functions and resolved methods, parameter name inlay hints,
 diagnostic quick fixes, document formatting, outline, folding, and semantic
 highlighting. Callable completions, hovers, and signature help include
 declaration signatures and adjacent triple-slash documentation. Named field accesses
 also support definition navigation and references. Receiver completion
 checks method names from declarations in the current analysis graph.
+When an unqualified name has no visible completion, the server can offer a
+unique import from the analyzed modules. It checks the completed name and
+the added `using` together against the compiler before returning the edits.
 Definition and reference lookup cover resolved type names, module and block
 `using` selectors for types and values, and module alias bindings.
 Outline and folding use the current buffer's syntax tree, including unsaved
@@ -54,8 +57,9 @@ files. It rejects edits that would break compilation, change binding, or
 require changing a generated file or a source outside the workspace.
 In clients that send file rename requests, renaming a declared module beside
 its original file also updates the declaration and bound references. Include
-the module's child directory in the same operation when present. Case-only
-renames follow the same checks.
+the module's child directory in the same operation when present. A batch
+can rename several independent modules in their respective directories.
+Case-only renames follow the same checks.
 Generated files are read-only to the LSP and their producer owns changes
 to the generated declarations.
 

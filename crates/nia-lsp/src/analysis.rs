@@ -28,7 +28,7 @@ use nia_type_resolve::TypeNameResolution;
 use url::Url;
 
 use crate::document::{Document, Lines};
-use crate::editing::{MemberCompletion, field_accesses};
+use crate::editing::{MemberCompletion, call_target, field_accesses};
 use crate::highlight::{Class, Kind, Resolved};
 use crate::project::{EditorRequest, Projects};
 use crate::workspace::Cancellation;
@@ -1958,7 +1958,7 @@ fn index_method_calls(
     if node.kind() == &SyntaxKind::CallExpr
         && let Some(span) = node.token_span()
         && let Some(id) = targets.remove(&span)
-        && let Some(name) = method_callee_name(node)
+        && let Some((name, _)) = call_target(node)
     {
         occurrences.push(Occurrence {
             span: name,
@@ -1969,20 +1969,6 @@ fn index_method_calls(
     for child in node.child_nodes() {
         index_method_calls(child, targets, occurrences);
     }
-}
-
-fn method_callee_name(call: &GreenNode) -> Option<Span> {
-    let mut callee = call.child_nodes().find(|child| child.kind().is_expr())?;
-    while callee.kind() == &SyntaxKind::BracketExpr {
-        callee = callee.child_nodes().find(|child| child.kind().is_expr())?;
-    }
-    if matches!(
-        callee.kind(),
-        SyntaxKind::FieldExpr | SyntaxKind::QualifiedExpr | SyntaxKind::OmittedMemberExpr
-    ) {
-        return callee.token(&TokenKind::Ident).map(|token| token.span());
-    }
-    None
 }
 
 pub(crate) struct VisibleName {
@@ -2651,6 +2637,17 @@ mod tests {
                 .collect::<Vec<_>>(),
             [Position::new(1, 21), Position::new(2, 35)]
         );
+        let argument = source.find("(read.value)").unwrap() + 1;
+        let lines = &documents[&entry].document.lines;
+        let range = lines.range(source, Span::new(argument, argument + 1));
+        let hints = analysis
+            .inlay_hints(&entry, range, &Cancellation::default())
+            .unwrap();
+        let [hint] = hints.as_slice() else {
+            panic!("expected a hint for the explicit argument");
+        };
+        assert_eq!(hint.position, range.start);
+        assert!(matches!(&hint.label, lsp_types::InlayHintLabel::String(name) if name == "value:"));
     }
 
     #[test]

@@ -4,8 +4,9 @@
 use std::{collections::BTreeMap, path::Path};
 
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionTextEdit, Documentation, ParameterInformation,
-    ParameterLabel, Position, SignatureHelp, SignatureInformation, TextEdit,
+    CompletionItem, CompletionItemKind, CompletionTextEdit, Documentation, InlayHint,
+    InlayHintKind, ParameterInformation, ParameterLabel, Position, Range, SignatureHelp,
+    SignatureInformation, TextEdit,
 };
 use nia_defs::DefKind;
 use nia_lexer::{LosslessTokenKind, TokenKind, tokenize_lossless};
@@ -123,7 +124,100 @@ pub(crate) fn field_accesses(node: &GreenNode, visit: &mut impl FnMut(Span, Span
     }
 }
 
+pub(crate) fn call_target(call: &GreenNode) -> Option<(Span, bool)> {
+    let mut callee = call.child_nodes().find(|child| child.kind().is_expr())?;
+    while callee.kind() == &SyntaxKind::BracketExpr {
+        callee = callee.child_nodes().find(|child| child.kind().is_expr())?;
+    }
+    match callee.kind() {
+        SyntaxKind::NameExpr
+        | SyntaxKind::FieldExpr
+        | SyntaxKind::QualifiedExpr
+        | SyntaxKind::OmittedMemberExpr => Some((
+            callee.token(&TokenKind::Ident)?.span(),
+            callee.kind() == &SyntaxKind::FieldExpr,
+        )),
+        _ => None,
+    }
+}
+
 impl Analysis {
+    pub(crate) fn inlay_hints(
+        &self,
+        path: &Path,
+        range: Range,
+        cancel: &Cancellation,
+    ) -> Option<Vec<InlayHint>> {
+        let file = self.file(path)?;
+        let start = file.lines.offset(&file.text, range.start)?;
+        let end = file.lines.offset(&file.text, range.end)?;
+        let syntax = file.syntax()?;
+        let mut pending = vec![syntax.tree.green_root()];
+        let mut hints = Vec::new();
+        while let Some(node) = pending.pop() {
+            cancel.check().ok()?;
+            let span = node.span();
+            if span.end <= start || span.start >= end {
+                continue;
+            }
+            pending.extend(node.child_nodes());
+            if node.kind() != &SyntaxKind::CallExpr
+                || syntax
+                    .errors
+                    .iter()
+                    .any(|error| span.start <= error.span.start && error.span.start < span.end)
+            {
+                continue;
+            }
+            let Some(arguments) = node.child(&SyntaxKind::ArgList) else {
+                continue;
+            };
+            let Some((callee, method)) = call_target(node) else {
+                continue;
+            };
+            let Some(parameters) = self
+                .symbol_at_offset(file, callee.start)
+                .and_then(|symbol| self.callable_declaration(symbol))
+                .and_then(|callable| callable.function.child(&SyntaxKind::ParamList))
+            else {
+                continue;
+            };
+            let parameters = parameters.child_nodes().filter(|param| {
+                param.kind() == &SyntaxKind::Param
+                    && !(method && param.token(&TokenKind::SelfValue).is_some())
+            });
+            let arguments = arguments
+                .child_nodes()
+                .filter(|argument| argument.kind().is_expr());
+            hints.extend(
+                arguments
+                    .zip(parameters)
+                    .filter_map(|(argument, parameter)| {
+                        let span = argument.token_span()?;
+                        let name = parameter.token(&TokenKind::Ident)?.text();
+                        if span.start < start
+                            || span.start >= end
+                            || &file.text[span.start..span.end] == name
+                        {
+                            return None;
+                        }
+                        Some(InlayHint {
+                            position: file.lines.position(&file.text, span.start),
+                            label: format!("{name}:").into(),
+                            kind: Some(InlayHintKind::PARAMETER),
+                            text_edits: None,
+                            tooltip: None,
+                            padding_left: None,
+                            padding_right: Some(true),
+                            data: None,
+                        })
+                    }),
+            );
+        }
+        hints.sort_by_key(|hint| hint.position);
+        Some(hints)
+    }
+
     pub(crate) fn complete(&self, path: &Path, position: Position) -> Option<Vec<CompletionItem>> {
         let file = self.file(path)?;
         let offset = file.lines.offset(&file.text, position)?;
