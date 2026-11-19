@@ -58,12 +58,15 @@ that have diagnostics. Workspace requests run independently of interactive
 analysis and stop at the next cancellation checkpoint when the input changes.
 
 For a repeatable latency sample, run the stdio benchmark with Python 3.9+
-and a release server binary. It reports request round-trip times in
-milliseconds and keeps edits in the editor session.
+and a release server binary. It reports request round trips, versioned
+diagnostic arrival, and a semantic highlight fetch after diagnostics. It
+also records rename, cancellation, and peak resident memory. Benchmark
+edits stay in the editor session.
 
 ```sh
 python tools/lsp-latency.py --server target/release/nia-lsp --resource-root lib \
-  --workspace lib/std --source lib/std/collections/array_list/list.nia --symbol ArrayList
+  --workspace lib/std --source lib/std/collections/array_list/list.nia --symbol ArrayList \
+  --configuration "release"
 ```
 
 Build from the repository root with `cargo build --locked -p nia-lsp`.

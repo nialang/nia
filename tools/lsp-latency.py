@@ -4,7 +4,9 @@
 import argparse
 import json
 import math
+import os
 from pathlib import Path
+import platform
 from queue import Queue
 import statistics
 import subprocess
@@ -19,6 +21,7 @@ class Client:
         self.messages = Queue()
         self.started = {}
         self.responses = {}
+        self.diagnostics = {}
         self.sequence = 0
         threading.Thread(target=self.read, daemon=True).start()
 
@@ -53,17 +56,31 @@ class Client:
         self.send(dict(id=ident, method=method, params=params))
         return ident
 
+    def receive(self, deadline):
+        item = self.messages.get(timeout=max(0, deadline - perf_counter()))
+        if isinstance(item, Exception):
+            raise item
+        timestamp, message = item
+        if message.get("method") == "textDocument/publishDiagnostics":
+            params = message["params"]
+            self.diagnostics[params["uri"], params.get("version")] = timestamp
+        elif "method" in message:
+            if "id" in message:
+                self.send(dict(id=message["id"], result=None))
+        elif "id" in message:
+            self.responses[message["id"]] = (timestamp, message)
+
+    def wait_diagnostics(self, uri, version):
+        key = (uri, version)
+        deadline = perf_counter() + self.timeout
+        while key not in self.diagnostics:
+            self.receive(deadline)
+        return self.diagnostics.pop(key)
+
     def wait(self, ident):
+        deadline = perf_counter() + self.timeout
         while ident not in self.responses:
-            item = self.messages.get(timeout=self.timeout)
-            if isinstance(item, Exception):
-                raise item
-            timestamp, message = item
-            if "method" in message:
-                if "id" in message:
-                    self.send(dict(id=message["id"], result=None))
-            elif "id" in message:
-                self.responses[message["id"]] = (timestamp, message)
+            self.receive(deadline)
         timestamp, response = self.responses.pop(ident)
         return 1000 * (timestamp - self.started.pop(ident)), response
 
@@ -91,7 +108,7 @@ def position(text, symbol):
 
 
 def benchmark(client, source, root, symbol, repeat):
-    client.measure("initialize", {
+    initialize = client.measure("initialize", {
         "processId": None,
         "rootUri": root.as_uri(),
         "capabilities": {"workspace": {"semanticTokens": {"refreshSupport": True}}},
@@ -99,15 +116,25 @@ def benchmark(client, source, root, symbol, repeat):
     client.notify("initialized", {})
     text = source.read_text(encoding="utf-8")
     document = dict(uri=source.as_uri())
+    opened = perf_counter()
     client.notify("textDocument/didOpen", {
         "textDocument": dict(**document, languageId="nia", version=1, text=text),
     })
     text_document = dict(textDocument=document)
     cursor = dict(**text_document, position=position(text, symbol))
     references = dict(**cursor, context=dict(includeDeclaration=True))
+    first_highlight = client.measure("textDocument/semanticTokens/full", text_document)
+    first_diagnostics = client.wait_diagnostics(document["uri"], 1)
+    client.measure("textDocument/semanticTokens/full", text_document)
+    cold_semantic = 1000 * (perf_counter() - opened)
     report = {
-        "first_highlight": summary([client.measure("textDocument/semanticTokens/full", text_document)]),
+        "initialize": summary([initialize]),
+        "first_highlight": summary([first_highlight]),
+        "cold_diagnostics": summary([1000 * (first_diagnostics - opened)]),
+        "cold_semantic_highlight": summary([cold_semantic]),
         "folding": summary([client.measure("textDocument/foldingRange", text_document) for _ in range(repeat)]),
+        "first_definition": summary([client.measure("textDocument/definition", cursor)]),
+        "warm_definition": summary([client.measure("textDocument/definition", cursor) for _ in range(repeat)]),
         "cold_references": summary([client.measure("textDocument/references", references)]),
         "warm_references": summary([client.measure("textDocument/references", references) for _ in range(repeat)]),
     }
@@ -131,9 +158,76 @@ def benchmark(client, source, root, symbol, repeat):
     report["rename"] = summary([rename_ms])
     if "error" in response:
         report["rename"]["error"] = response["error"]["message"]
+
+    diagnostics, semantic, canceled = [], [], []
+    completed_before_cancel = 0
+    for version in range(repeat + 2, 2 * repeat + 2):
+        started = perf_counter()
+        client.notify("textDocument/didChange", {
+            "textDocument": dict(**document, version=version),
+            "contentChanges": [dict(text=text + f"\n// diagnostics sample {version}\n")],
+        })
+        client.measure("textDocument/semanticTokens/full", text_document)
+        published = client.wait_diagnostics(document["uri"], version)
+        diagnostics.append(1000 * (published - started))
+        client.measure("textDocument/semanticTokens/full", text_document)
+        semantic.append(1000 * (perf_counter() - started))
+
+        request = client.request("textDocument/references", references)
+        client.notify("$/cancelRequest", {"id": request})
+        elapsed, response = client.wait(request)
+        if response.get("error", {}).get("code") == -32800:
+            canceled.append(elapsed)
+        elif "error" not in response:
+            completed_before_cancel += 1
+        else:
+            raise RuntimeError(f"Cancellation returned {response['error']}")
+    report["diagnostics_after_edit"] = summary(diagnostics)
+    report["semantic_highlight_after_edit"] = summary(semantic)
+    report["cancellation"] = summary(canceled) if canceled else {"samples": 0}
+    report["cancellation"]["completed_before_cancel"] = completed_before_cancel
+    if os.name == "nt":
+        report["peak_rss_bytes"] = windows_peak_rss(client.process.pid)
     client.measure("shutdown", None)
     client.notify("exit", None)
     return report
+
+
+def windows_peak_rss(pid):
+    import ctypes
+    from ctypes import wintypes
+
+    class ProcessMemoryCounters(ctypes.Structure):
+        _fields_ = [
+            ("size", wintypes.DWORD),
+            ("page_faults", wintypes.DWORD),
+            ("peak_working_set", ctypes.c_size_t),
+            ("working_set", ctypes.c_size_t),
+            ("peak_paged_pool", ctypes.c_size_t),
+            ("paged_pool", ctypes.c_size_t),
+            ("peak_nonpaged_pool", ctypes.c_size_t),
+            ("nonpaged_pool", ctypes.c_size_t),
+            ("pagefile_usage", ctypes.c_size_t),
+            ("peak_pagefile_usage", ctypes.c_size_t),
+        ]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel.K32GetProcessMemoryInfo.argtypes = (
+        wintypes.HANDLE, ctypes.POINTER(ProcessMemoryCounters), wintypes.DWORD
+    )
+    process = kernel.OpenProcess(0x0400 | 0x0010, False, pid)
+    if not process:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        counters = ProcessMemoryCounters(size=ctypes.sizeof(ProcessMemoryCounters))
+        if not kernel.K32GetProcessMemoryInfo(process, ctypes.byref(counters), counters.size):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return counters.peak_working_set
+    finally:
+        kernel.CloseHandle(process)
 
 
 def main():
@@ -145,6 +239,8 @@ def main():
     parser.add_argument("--symbol", required=True, help="first exact substring to use as the cursor")
     parser.add_argument("--repeat", type=int, default=15)
     parser.add_argument("--timeout", type=float, default=120, help="seconds to wait for each message")
+    parser.add_argument("--revision", help="commit used to build the server")
+    parser.add_argument("--configuration", help="target and build settings used for the sample")
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be positive")
@@ -158,9 +254,22 @@ def main():
             process.wait(timeout=args.timeout)
             if process.returncode:
                 raise RuntimeError(f"Nia LSP exited with status {process.returncode}")
+            if os.name != "nt":
+                import resource
+
+                rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+                report["peak_rss_bytes"] = rss if platform.system() == "Darwin" else rss * 1024
         finally:
             if process.poll() is None:
                 process.kill()
+    report["sample"] = dict(
+        platform=platform.platform(),
+        workspace=str(root),
+        source=str(source),
+        symbol=args.symbol,
+        revision=args.revision,
+        configuration=args.configuration,
+    )
     print(json.dumps(report, indent=2))
 
 
