@@ -710,11 +710,7 @@ impl WorkspaceIndex {
     }
 
     pub(crate) fn editable_source(&self, path: &Path) -> bool {
-        if self
-            .managed
-            .iter()
-            .any(|directory| path.starts_with(directory))
-        {
+        if self.managed_source(path) {
             return false;
         }
         let Some(root) = self
@@ -734,6 +730,12 @@ impl WorkspaceIndex {
                 .skip(1)
                 .take_while(|ancestor| *ancestor != root)
                 .all(|ancestor| !ancestor.join("nia.toml").is_file())
+    }
+
+    pub(crate) fn managed_source(&self, path: &Path) -> bool {
+        self.managed
+            .iter()
+            .any(|directory| path.starts_with(directory))
     }
 
     pub(crate) fn references(

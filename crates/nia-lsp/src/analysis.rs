@@ -386,9 +386,9 @@ impl Session {
         }
     }
 
-    pub(crate) fn generated_definition(
+    pub(crate) fn generated_location<'a>(
         &mut self,
-        analysis: &Analysis,
+        source: impl FnOnce(&Path) -> Option<&'a str>,
         documents: &Documents,
         location: Location,
     ) -> Location {
@@ -397,26 +397,63 @@ impl Session {
             if !generated.with_extension("nia.map").is_file() {
                 return None;
             }
-            let file = analysis.file(&generated)?;
-            let start = file.lines.offset(&file.text, location.range.start)?;
-            let end = file.lines.offset(&file.text, location.range.end)?;
+            let text = source(&generated)?;
+            let lines = Lines::new(text);
+            let start = lines.offset(text, location.range.start)?;
+            let end = lines.offset(text, location.range.end)?;
             let package = self.projects.package(&generated).ok()??;
-            let origin = package.generated_origin(
-                &generated,
-                &file.text,
-                Span::new(start, end),
-                |path| {
+            let origin =
+                package.generated_origin(&generated, text, Span::new(start, end), |path| {
                     if let Some(open) = documents.get(Path::new(&normalized(path))) {
                         Ok(open.document.text.clone())
                     } else {
                         nia_source::read_source_text(path).map(Arc::from)
                     }
-                },
-            )?;
+                })?;
             let range = Lines::new(&origin.text).range(&origin.text, origin.span);
             Some(Location::new(uri(&origin.path)?, range))
         })();
         projected.unwrap_or(location)
+    }
+
+    pub(crate) fn generated_workspace_locations(
+        &mut self,
+        index: &crate::workspace::WorkspaceIndex,
+        documents: &Documents,
+        mut locations: Vec<Location>,
+        cancel: &Cancellation,
+    ) -> Result<Vec<Location>, String> {
+        let mut projected = false;
+        for location in &mut locations {
+            cancel.check()?;
+            let Some(generated) = path(&location.uri).filter(|path| index.managed_source(path))
+            else {
+                continue;
+            };
+            let next = self.generated_location(
+                |_| {
+                    index
+                        .files
+                        .get(&normalized(&generated))
+                        .map(|(_, source)| source.as_ref())
+                },
+                documents,
+                location.clone(),
+            );
+            projected |= *location != next;
+            *location = next;
+        }
+        if projected {
+            let mut seen = BTreeSet::new();
+            locations.retain(|location| {
+                seen.insert((
+                    location.uri.as_str().to_owned(),
+                    location.range.start,
+                    location.range.end,
+                ))
+            });
+        }
+        Ok(locations)
     }
 
     pub(crate) fn complete(

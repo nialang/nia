@@ -508,10 +508,16 @@ fn analyze(
                                 &work.cancel,
                             )
                             .and_then(|index| {
-                                index.implementations(
+                                let locations = index.implementations(
                                     analysis,
                                     &work.path,
                                     params.position,
+                                    &work.cancel,
+                                )?;
+                                session.generated_workspace_locations(
+                                    &index,
+                                    &work.documents,
+                                    locations,
                                     &work.cancel,
                                 )
                             });
@@ -562,7 +568,12 @@ fn analyze(
                                                 .and_then(|target| {
                                                     index.reference_coverage_warning(&target.source)
                                                 });
-                                        Ok(references)
+                                        session.generated_workspace_locations(
+                                            &index,
+                                            &work.documents,
+                                            references,
+                                            &work.cancel,
+                                        )
                                     });
                                 match result {
                                     Ok(references) => Response::new_ok(request.id, references),
@@ -748,7 +759,11 @@ fn query(
         "textDocument/definition" => {
             decode::<lsp_types::TextDocumentPositionParams>(params).map(|params| {
                 json!(analysis.definition(path, params.position).map(|location| {
-                    session.generated_definition(analysis, &work.documents, location)
+                    session.generated_location(
+                        |source| analysis.file(source).map(|file| file.text.as_ref()),
+                        &work.documents,
+                        location,
+                    )
                 }))
             })
         }
@@ -758,7 +773,11 @@ fn query(
                     analysis
                         .type_definition(path, params.position)
                         .map(|location| {
-                            session.generated_definition(analysis, &work.documents, location)
+                            session.generated_location(
+                                |source| analysis.file(source).map(|file| file.text.as_ref()),
+                                &work.documents,
+                                location,
+                            )
                         })
                 )
             }),

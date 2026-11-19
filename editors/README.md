@@ -91,8 +91,8 @@ be disjoint.
 }
 ```
 
-Definition and type-definition navigation use the map when both snapshots
-match the producer's digests. Byte-identical ranges preserve the location
+Definition, type-definition, references, and implementation navigation use the
+map when both snapshots match the producer's digests. Byte-identical ranges preserve the location
 within the mapped text. Transformed ranges link to the entire input range.
 Unsaved changes to either file are checked against the same digests.
 
