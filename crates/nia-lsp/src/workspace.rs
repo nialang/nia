@@ -263,25 +263,40 @@ impl Session {
         let mut entries: Vec<Arc<Entry>> = Vec::new();
         let mut reused = 0;
         let mut analyzed = 0;
-        let collected = (|| {
-            for (request, kind) in workspace
-                .entries
+        let mut requests = workspace
+            .entries
+            .into_iter()
+            .map(|request| (request, EntryKind::Declared))
+            .chain(
+                workspace
+                    .build_candidates
+                    .into_iter()
+                    .map(|request| (request, EntryKind::BuildCandidate)),
+            )
+            .chain(
+                workspace
+                    .standalone
+                    .into_iter()
+                    .map(|request| (request, EntryKind::Standalone)),
+            );
+        let reusable = |request: &EditorRequest| {
+            previous_entries
+                .get(request.check.entry_path.as_str())
                 .into_iter()
-                .map(|request| (request, EntryKind::Declared))
-                .chain(
-                    workspace
-                        .build_candidates
-                        .into_iter()
-                        .map(|request| (request, EntryKind::BuildCandidate)),
-                )
-                .chain(
-                    workspace
-                        .standalone
-                        .into_iter()
-                        .map(|request| (request, EntryKind::Standalone)),
-                )
-            {
+                .flatten()
+                .copied()
+                .find(|entry| {
+                    entry.request == *request
+                        && entry.consulted_sources.is_some()
+                        && changed.iter().all(|path| !entry.depends_on(path))
+                })
+        };
+        let collected = (|| {
+            loop {
                 cancel.check()?;
+                let Some((request, kind)) = requests.next() else {
+                    break;
+                };
                 let path = request.check.entry_path.as_str();
                 if !matches!(kind, EntryKind::Declared)
                     && let Some((_, text)) = entries.iter().find_map(|entry| entry.files.get(path))
@@ -289,19 +304,7 @@ impl Session {
                 {
                     continue;
                 }
-                let cached = previous_entries
-                    .get(path)
-                    .into_iter()
-                    .flatten()
-                    .find(|entry| {
-                        entry.request == request
-                            && entry.consulted_sources.as_ref().is_some_and(|sources| {
-                                changed.iter().all(|path| {
-                                    !sources.contains(*path) && !entry.files.contains_key(*path)
-                                })
-                            })
-                    });
-                let entry = if let Some(entry) = cached {
+                let entry = if let Some(entry) = reusable(&request) {
                     reused += 1;
                     Arc::clone(entry)
                 } else {
@@ -312,7 +315,7 @@ impl Session {
                 };
                 entries.push(entry);
             }
-            cancel.check()
+            Ok(())
         })();
         if crate::timing_mode().enabled() {
             nia_timing::emit_counter("lsp.workspace_entries_reused", reused);
@@ -359,7 +362,18 @@ impl Session {
         });
         let state = match &merged {
             Ok(index) => WorkspaceIndexState::Complete(index.clone()),
-            Err(_) if cancel.check().is_err() && !entries.is_empty() => {
+            Err(_) if cancel.check().is_err() => {
+                // Keep current entries that the canceled scan had yet to reach.
+                // Only retain requests from this scan's workspace plan.
+                let mut retained: HashSet<_> = entries.iter().map(Arc::as_ptr).collect();
+                entries.extend(requests.filter_map(|(request, _)| {
+                    reusable(&request)
+                        .filter(|entry| retained.insert(Arc::as_ptr(entry)))
+                        .cloned()
+                }));
+                if entries.is_empty() {
+                    return merged;
+                }
                 WorkspaceIndexState::Interrupted(entries)
             }
             Err(_) => return merged,
@@ -1002,22 +1016,26 @@ mod tests {
         ))
         .unwrap();
         let root = test_dir("lsp-canceled-workspace-scan");
-        let mut documents: Documents = [("first.nia", "firstName"), ("second.nia", "secondName")]
-            .into_iter()
-            .map(|(filename, name)| {
-                let path = root.join(filename);
-                let text = format!("pub fun {name}() i32 {{ 42 }}\n");
-                std::fs::write(&path, &text).unwrap();
-                let uri = uri(&path).unwrap();
-                (
-                    path,
-                    OpenDocument {
-                        uri,
-                        document: Document::new(1, text),
-                    },
-                )
-            })
-            .collect();
+        let mut documents: Documents = [
+            ("first.nia", "firstName"),
+            ("second.nia", "secondName"),
+            ("third.nia", "thirdName"),
+        ]
+        .into_iter()
+        .map(|(filename, name)| {
+            let path = root.join(filename);
+            let text = format!("pub fun {name}() i32 {{ 42 }}\n");
+            std::fs::write(&path, &text).unwrap();
+            let uri = uri(&path).unwrap();
+            (
+                path,
+                OpenDocument {
+                    uri,
+                    document: Document::new(1, text),
+                },
+            )
+        })
+        .collect();
         let mut session = Session::new(Arc::new(toolchain));
         for edit_before_retry in [false, true] {
             session.reload();
@@ -1054,7 +1072,7 @@ mod tests {
             let index = session
                 .index_workspace(None, &documents, &[], &retry)
                 .unwrap();
-            assert_eq!(index.entries.len(), 2);
+            assert_eq!(index.entries.len(), 3);
             assert_eq!(Arc::ptr_eq(&first, &index.entries[0]), !edit_before_retry);
             let expected = if edit_before_retry {
                 "editedName"
@@ -1064,5 +1082,33 @@ mod tests {
             assert_eq!(index.symbols(expected, &retry).unwrap().len(), 1);
             assert_eq!(index.symbols("secondName", &retry).unwrap().len(), 1);
         }
+
+        let cancel = Cancellation::default();
+        let original = session
+            .index_workspace(None, &documents, &[], &cancel)
+            .unwrap();
+        documents
+            .get_mut(&root.join("second.nia"))
+            .unwrap()
+            .document = Document::new(2, "pub fun updatedSecondName() i32 { 42 }\n".into());
+        let interrupted =
+            session.index_workspace_with(None, &documents, &[], &cancel, |_, request, cancel| {
+                assert_eq!(
+                    request.check.entry_path.as_str(),
+                    normalized(&root.join("second.nia"))
+                );
+                cancel.cancel();
+                cancel.check()?;
+                unreachable!("the scan was canceled")
+            });
+        assert!(interrupted.is_err());
+        let retry = Cancellation::default();
+        let index = session
+            .index_workspace(None, &documents, &[], &retry)
+            .unwrap();
+        assert!(Arc::ptr_eq(&original.entries[0], &index.entries[0]));
+        assert!(!Arc::ptr_eq(&original.entries[1], &index.entries[1]));
+        assert!(Arc::ptr_eq(&original.entries[2], &index.entries[2]));
+        assert_eq!(index.symbols("updatedSecondName", &retry).unwrap().len(), 1);
     }
 }
