@@ -179,13 +179,24 @@ impl Session {
         let mut previous_entries = HashMap::<_, Vec<_>>::new();
         if let Some(previous) = previous {
             for (path, old) in &previous.overlays {
-                if overlays.get(path) != Some(old) {
+                let unchanged = overlays.get(path).map_or_else(
+                    || self.installed_source_matches(path, old),
+                    |open| open == old,
+                );
+                if !unchanged {
                     changed.insert(path.as_str());
                 }
             }
-            changed.extend(overlays.keys().filter_map(|path| {
-                (!previous.overlays.contains_key(path)).then_some(path.as_str())
-            }));
+            for (path, text) in &overlays {
+                if !previous.overlays.contains_key(path)
+                    && !previous
+                        .files
+                        .get(path)
+                        .is_some_and(|(_, indexed)| indexed == text)
+                {
+                    changed.insert(path.as_str());
+                }
+            }
             for entry in &previous.entries {
                 previous_entries
                     .entry(entry.request.check.entry_path.as_str())

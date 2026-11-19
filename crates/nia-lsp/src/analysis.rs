@@ -375,6 +375,13 @@ impl Session {
         Ok(())
     }
 
+    pub(crate) fn installed_source_matches(&self, path: &str, text: &str) -> bool {
+        self.driver
+            .sources()
+            .source_for_path(&SourcePath::new(path))
+            .is_some_and(|source| source.text.as_ref() == text)
+    }
+
     pub(crate) fn analyze_request(
         &self,
         request: EditorRequest,
@@ -2919,6 +2926,29 @@ mod tests {
             .workspace_index(&declaration, &documents, &folders, &cancel)
             .unwrap();
         assert!(Arc::ptr_eq(&reused, &index));
+        let clean = Documents::from([(
+            test.clone(),
+            OpenDocument {
+                uri: uri(&test).unwrap(),
+                document: Document::new(1, test_source.into()),
+            },
+        )]);
+        let opened = session
+            .workspace_index(&declaration, &clean, &folders, &cancel)
+            .unwrap();
+        let closed = session
+            .workspace_index(&declaration, &documents, &folders, &cancel)
+            .unwrap();
+        assert_eq!(opened.entries.len(), index.entries.len());
+        assert_eq!(closed.entries.len(), index.entries.len());
+        for (original, (opened, closed)) in index
+            .entries
+            .iter()
+            .zip(opened.entries.iter().zip(&closed.entries))
+        {
+            assert!(Arc::ptr_eq(original, opened));
+            assert!(Arc::ptr_eq(original, closed));
+        }
         let changed = Documents::from([(
             test.clone(),
             OpenDocument {
