@@ -464,8 +464,8 @@ impl Session {
                 return Err(format!("Source changed on disk ({source})"));
             }
         }
-        for (_, new) in &moves {
-            check_destination(new)?;
+        for (old, new) in &moves {
+            check_destination(old, new)?;
         }
         if !moves.is_empty() && client_moves.is_none() {
             let mut operations: Vec<_> = changes
@@ -538,21 +538,38 @@ fn module_moves(
                 old.display()
             ));
         }
-        check_destination(new)?;
+        check_destination(old, new)?;
     }
     Ok(moves)
 }
 
-fn check_destination(path: &Path) -> Result<(), String> {
-    match std::fs::symlink_metadata(path) {
+fn check_destination(source: &Path, destination: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(destination) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(metadata)
+            if !metadata.file_type().is_symlink()
+                && source != destination
+                && source.parent() == destination.parent()
+                && source
+                    .file_name()
+                    .zip(destination.file_name())
+                    .is_some_and(|(old, new)| {
+                        old.as_encoded_bytes()
+                            .eq_ignore_ascii_case(new.as_encoded_bytes())
+                    })
+                && destination
+                    .canonicalize()
+                    .is_ok_and(|path| normalized(&path) == normalized(source)) =>
+        {
+            Ok(())
+        }
         Ok(_) => Err(format!(
             "Module destination already exists ({})",
-            path.display()
+            destination.display()
         )),
         Err(error) => Err(format!(
             "Cannot inspect module destination ({}) ({error})",
-            path.display()
+            destination.display()
         )),
     }
 }

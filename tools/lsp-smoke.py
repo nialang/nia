@@ -154,27 +154,29 @@ def smoke(server, root):
 
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)
-            renamed = root / "geometry.nia"
-            move = {"files": [{"oldUri": shapes.as_uri(), "newUri": renamed.as_uri()}]}
-            edit = request(client, "workspace/willRenameFiles", move)
-            assert set(edit) == {"documentChanges"}, edit
-            change, = edit["documentChanges"]
-            assert change["textDocument"]["uri"] == main.as_uri(), change
-            assert [item["newText"] for item in change["edits"]] == [
-                "geometry", "geometry",
-            ], edit
-            lines = updated.splitlines(keepends=True)
-            for item in reversed(change["edits"]):
-                start, end = item["range"]["start"], item["range"]["end"]
-                assert start["line"] == end["line"]
-                line = lines[start["line"]]
-                assert line[start["character"]:end["character"]] == "shapes"
-                lines[start["line"]] = line[:start["character"]] + item["newText"] + line[end["character"]:]
-            main.write_text("".join(lines), encoding="utf-8")
-            shapes.rename(renamed)
-            client.notify("workspace/didRenameFiles", move)
-            symbols = request(client, "workspace/symbol", {"query": "fixture::geometry::Shape"})
-            assert [symbol["location"]["uri"] for symbol in symbols] == [renamed.as_uri()], symbols
+            for old_name, new_name in [("shapes", "geometry"), ("geometry", "Geometry")]:
+                old_file = root / f"{old_name}.nia"
+                renamed = root / f"{new_name}.nia"
+                move = {"files": [{"oldUri": old_file.as_uri(), "newUri": renamed.as_uri()}]}
+                edit = request(client, "workspace/willRenameFiles", move)
+                assert set(edit) == {"documentChanges"}, edit
+                change, = edit["documentChanges"]
+                assert change["textDocument"]["uri"] == main.as_uri(), change
+                assert [item["newText"] for item in change["edits"]] == [new_name, new_name], edit
+                lines = updated.splitlines(keepends=True)
+                for item in reversed(change["edits"]):
+                    start, end = item["range"]["start"], item["range"]["end"]
+                    assert start["line"] == end["line"]
+                    line = lines[start["line"]]
+                    assert line[start["character"]:end["character"]] == old_name
+                    lines[start["line"]] = line[:start["character"]] + item["newText"] + line[end["character"]:]
+                updated = "".join(lines)
+                main.write_text(updated, encoding="utf-8")
+                old_file.rename(renamed)
+                assert renamed.name in {entry.name for entry in root.iterdir()}
+                client.notify("workspace/didRenameFiles", move)
+                symbols = request(client, "workspace/symbol", {"query": f"fixture::{new_name}::Shape"})
+                assert [symbol["location"]["uri"] for symbol in symbols] == [renamed.as_uri()], symbols
 
             other = root / "next-workspace"
             other.mkdir()

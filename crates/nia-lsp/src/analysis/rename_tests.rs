@@ -598,6 +598,17 @@ fn file_rename_updates_the_live_module_declaration_and_imports() {
         .unwrap()
         .unwrap();
     assert_eq!(edit.changes.unwrap()[&entry_uri].len(), 2);
+    let case_only = request(
+        vec![rename("outer.nia", "Outer.nia"), rename("outer", "Outer")],
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(
+        case_only.changes.unwrap()[&entry_uri]
+            .iter()
+            .all(|edit| edit.new_text == "Outer")
+    );
     std::fs::write(root.join("moved.nia"), "").unwrap();
     assert!(
         request(vec![file, directory], true)
