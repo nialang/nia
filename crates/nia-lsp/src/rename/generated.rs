@@ -53,7 +53,7 @@ impl Session {
             .filter(|(source, _)| workspace.managed_source(Path::new(source)))
             .map(|(source, spans)| (source.clone(), spans.clone()))
             .collect();
-        if pending.is_empty() {
+        if pending.is_empty() && workspace.configuration.plans.is_empty() {
             return Ok(generated);
         }
 
@@ -164,9 +164,9 @@ impl Session {
             }
         }
 
-        // Every copy of an edited input needs a compiler-proven rename or
-        // a mapped path to one, including copies outside the active graph.
-        for (input, (_, input_text)) in &generated.sources {
+        // An edit can affect the generator even when the rename starts in a
+        // handwritten input and no generated binding was selected.
+        for (input, spans) in &projected {
             cancel.check()?;
             let input_path = Path::new(input);
             let mut outputs = BTreeSet::new();
@@ -175,6 +175,13 @@ impl Session {
                     outputs.extend(package.generated_outputs_reading(input_path));
                 }
             }
+            if outputs.is_empty() {
+                continue;
+            }
+            let input_text = match generated.sources.get(input) {
+                Some((_, text)) => text.clone(),
+                None => current_text(workspace, documents, input_path)?,
+            };
             for output in outputs {
                 cancel.check()?;
                 let output_key = normalized(&output);
@@ -190,13 +197,13 @@ impl Session {
                     })?
                     .ok_or_else(|| format!("Missing generated source map for {output_key}"))?;
                 GeneratedEdits::observe(&mut generated.snapshots, &output_key, map.snapshot())?;
-                for (&span, replacement) in &projected[input] {
+                for (&span, replacement) in spans {
                     let copies = map
                         .input_copies(
                             &package.source_root(),
                             &package.output_root(),
                             input_path,
-                            input_text,
+                            &input_text,
                             span,
                         )
                         .map_err(|error| {

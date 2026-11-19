@@ -1094,6 +1094,21 @@ pub fun build(b: &mut build::Build) build::Error!() {
             assert request(client, "textDocument/definition", definition)["uri"] == generated.as_uri()
             first_map.write_bytes(map_text)
             assert request(client, "textDocument/definition", definition) == target
+            origin_text = original.decode("utf-8")
+            origin_document = {"uri": origin.as_uri()}
+            client.notify("textDocument/didOpen", {"textDocument": {
+                **origin_document, "languageId": "nia", "version": 1, "text": origin_text,
+            }})
+            origin_rename = {
+                "textDocument": origin_document,
+                "position": position(origin_text, "amount"),
+                "newName": "total",
+            }
+            _, rejected = client.wait(client.request("textDocument/rename", origin_rename))
+            assert "error" in rejected, rejected
+            assert "another generated occurrence" in rejected["error"]["message"], rejected
+            assert "first.txt" in rejected["error"]["message"], rejected
+            client.notify("textDocument/didClose", {"textDocument": origin_document})
             rename = {**definition, "newName": "total"}
             sibling = generated.with_name("unused.txt")
             sibling_map = sibling.with_suffix(".txt.map")
