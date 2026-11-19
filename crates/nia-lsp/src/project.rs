@@ -253,6 +253,23 @@ pub(crate) enum Context {
 }
 
 impl Package {
+    pub(crate) fn generated_origin(
+        &self,
+        generated: &Path,
+        text: &str,
+        span: nia_span::Span,
+        load: impl FnOnce(&Path) -> std::io::Result<std::sync::Arc<str>>,
+    ) -> Option<nia_build::source_map::SourceOrigin> {
+        let (plan, _) = self.plan.as_ref()?;
+        let output = PathBuf::from(normalized(&self.layout.out_dir()));
+        let source_map =
+            nia_build::source_map::GeneratedSourceMap::read(plan, &output, generated, text)
+                .ok()??;
+        source_map
+            .origin(self.layout.package_root(), &output, span, load)
+            .ok()?
+    }
+
     fn build_candidate(&self) -> Option<PathBuf> {
         let source = build_script_path(self.layout.package_root());
         source.is_file().then_some(source)

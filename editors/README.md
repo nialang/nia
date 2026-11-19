@@ -59,6 +59,33 @@ renames follow the same checks.
 Generated files are read-only to the LSP and their producer owns changes
 to the generated declarations.
 
+A generator can publish a `.nia.map` file beside its generated `.nia` file
+in the package's build output directory. The configured command must declare
+both paths as outputs and list the mapped package-relative files as inputs.
+The map uses version 1 JSON. Both digests are lowercase BLAKE3 hex strings of
+the exact UTF-8 file bytes. Ranges are half-open UTF-8 byte offsets. Multiple
+generated ranges can point to the same input range. Generated ranges must
+be disjoint.
+
+```json
+{
+  "version": 1,
+  "generatedDigest": "<digest of generated.nia>",
+  "mappings": [
+    {
+      "generated": [20, 26],
+      "sourcePath": "input.nia",
+      "sourceDigest": "<digest of input.nia>",
+      "source": [8, 14]
+    }
+  ]
+}
+```
+
+Definition and type-definition navigation use the map when both snapshots
+match the producer's digests. Unsaved changes to either file are checked
+against the same digests.
+
 Workspace references and rename share an index for the current document
 revision. Reference results can include resolved sources from entries
 that have diagnostics. Workspace requests run independently of interactive

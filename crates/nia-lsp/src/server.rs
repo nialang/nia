@@ -454,7 +454,7 @@ fn analyze(
                         matches!(request.method.as_str(), COMPLETION | CODE_ACTION).then(|| {
                             completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()))
                         });
-                    query(analysis, &work, request, probe)
+                    query(analysis, &work, request, &mut session, probe)
                 }
                 Err(error) => {
                     Response::new_err(request.id, ErrorCode::RequestFailed as i32, error.clone())
@@ -529,15 +529,29 @@ fn query(
     analysis: &Analysis,
     work: &Work,
     request: Request,
+    session: &mut Session,
     probe: Option<&mut Session>,
 ) -> Response {
     let path = &work.path;
     let Request { id, method, params } = request;
     let result = match method.as_str() {
-        "textDocument/definition" => decode::<lsp_types::TextDocumentPositionParams>(params)
-            .map(|params| json!(analysis.definition(path, params.position))),
+        "textDocument/definition" => {
+            decode::<lsp_types::TextDocumentPositionParams>(params).map(|params| {
+                json!(analysis.definition(path, params.position).map(|location| {
+                    session.generated_definition(analysis, &work.documents, location)
+                }))
+            })
+        }
         "textDocument/typeDefinition" => decode::<lsp_types::TextDocumentPositionParams>(params)
-            .map(|params| json!(analysis.type_definition(path, params.position))),
+            .map(|params| {
+                json!(
+                    analysis
+                        .type_definition(path, params.position)
+                        .map(|location| {
+                            session.generated_definition(analysis, &work.documents, location)
+                        })
+                )
+            }),
         "textDocument/hover" => decode::<lsp_types::TextDocumentPositionParams>(params)
             .map(|params| json!(analysis.hover(path, params.position))),
         "textDocument/documentHighlight" => decode::<lsp_types::TextDocumentPositionParams>(params)

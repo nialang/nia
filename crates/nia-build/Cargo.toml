@@ -24,17 +24,18 @@ nia-package-metadata.workspace = true
 nia-linker.workspace = true
 nia-query.workspace = true
 nia-source.workspace = true
+nia-span.workspace = true
 nia-target-config.workspace = true
 nia-timing.workspace = true
 nia-toolchain.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 
 [dev-dependencies]
 nia-alloc.workspace = true
-nia-span.workspace = true
 nia-test-support.workspace = true
 nia-git = { workspace = true, features = ["test-support"] }
 

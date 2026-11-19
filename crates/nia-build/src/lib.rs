@@ -65,6 +65,7 @@ mod resources;
 mod runner_cache;
 mod runner_config;
 mod runner_observation;
+pub mod source_map;
 
 use nia_compat::{create_real_directory, is_link_or_reparse_point};
 

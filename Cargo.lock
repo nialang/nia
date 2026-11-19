@@ -1001,6 +1001,7 @@ dependencies = [
  "nia-test-support",
  "nia-timing",
  "nia-toolchain",
+ "serde",
  "serde_json",
  "windows-sys 0.61.2",
 ]
