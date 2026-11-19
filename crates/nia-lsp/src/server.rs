@@ -12,7 +12,8 @@ use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestI
 use lsp_types::{
     Diagnostic, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    PublishDiagnosticsParams, Uri,
+    PublishDiagnosticsParams, SemanticTokens, SemanticTokensDelta, SemanticTokensDeltaParams,
+    SemanticTokensFullOptions, SemanticTokensParams, Uri,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -27,6 +28,7 @@ use crate::{
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 const SEMANTIC_FULL: &str = "textDocument/semanticTokens/full";
+const SEMANTIC_DELTA: &str = "textDocument/semanticTokens/full/delta";
 const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
 const COMPLETION: &str = "textDocument/completion";
 const INLAY_HINT: &str = "textDocument/inlayHint";
@@ -87,6 +89,12 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         .and_then(|semantic| semantic.refresh_support)
         .unwrap_or_default();
     let client = params.capabilities.text_document.unwrap_or_default();
+    let semantic_delta = client.semantic_tokens.is_some_and(|tokens| {
+        matches!(
+            tokens.requests.full,
+            Some(SemanticTokensFullOptions::Delta { delta: Some(true) })
+        )
+    });
     let code_actions = client
         .code_action
         .and_then(|actions| actions.code_action_literal_support)
@@ -119,7 +127,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "foldingRangeProvider": true,
                 "documentFormattingProvider": true,
                 "codeActionProvider": if code_actions { json!({ "codeActionKinds": ["quickfix", "source.organizeImports"] }) } else { json!(false) },
-                "semanticTokensProvider": { "legend": highlight::legend(), "full": true },
+                "semanticTokensProvider": { "legend": highlight::legend(), "full": { "delta": true } },
                 "completionProvider": { "triggerCharacters": [":", "."] },
                 "signatureHelpProvider": { "triggerCharacters": ["(", ","], "retriggerCharacters": [","] }
             },
@@ -159,6 +167,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         fold_limit: folding.range_limit.map(|limit| limit as usize),
         line_folding_only: folding.line_folding_only.unwrap_or_default(),
         semantic_refresh,
+        semantic_delta,
         folders,
         versioned_edits,
         resource_rename,
@@ -199,8 +208,22 @@ struct Reply {
     revision: u64,
     path: PathBuf,
     publication: Option<Publication>,
-    response: Option<Response>,
+    response: Option<QueryResponse>,
     reference_coverage: Option<String>,
+}
+
+enum QueryResponse {
+    Value(Response),
+    Semantic(Request),
+}
+
+impl QueryResponse {
+    fn into_id(self) -> RequestId {
+        match self {
+            Self::Value(response) => response.id,
+            Self::Semantic(request) => request.id,
+        }
+    }
 }
 
 struct Publication {
@@ -264,7 +287,7 @@ fn analyze(
                     revision: work.revision,
                     path: work.path,
                     publication: None,
-                    response,
+                    response: response.map(QueryResponse::Value),
                     reference_coverage: None,
                 })
                 .is_err()
@@ -287,7 +310,7 @@ fn analyze(
                     revision: work.revision,
                     path: work.path,
                     publication: None,
-                    response: Some(response),
+                    response: Some(QueryResponse::Value(response)),
                     reference_coverage: None,
                 })
                 .is_err()
@@ -307,7 +330,7 @@ fn analyze(
                     revision: work.revision,
                     path: work.path,
                     publication: None,
-                    response: Some(response),
+                    response: Some(QueryResponse::Value(response)),
                     reference_coverage: None,
                 })
                 .is_err()
@@ -350,52 +373,23 @@ fn analyze(
             highlights: highlights.clone(),
         });
         let mut reference_coverage = None;
-        let response = work.request.take().map(|request| {
-            if work.cancel.check().is_err() {
-                return Response::new_err(
-                    request.id,
-                    ErrorCode::RequestCanceled as i32,
-                    "Request canceled".into(),
-                );
-            }
-            if request.method == SEMANTIC_FULL {
-                return semantic_response(request, document, Some(highlights));
-            }
-            match analysis {
-                Ok(analysis) if request.method == RENAME => {
-                    let params = match decode::<lsp_types::RenameParams>(request.params) {
-                        Ok(params) => params,
-                        Err(error) => {
-                            return Response::new_err(
-                                request.id,
-                                ErrorCode::InvalidParams as i32,
-                                error.to_string(),
-                            );
-                        }
-                    };
-                    let result = session.rename(
-                        analysis,
-                        &work.documents,
-                        Rename {
-                            path: &work.path,
-                            position: params.text_document_position.position,
-                            new_name: &params.new_name,
-                            folders: &work.folders,
-                            versioned: work.versioned_edits,
-                            resource_rename: work.resource_rename,
-                        },
-                        &work.cancel,
+        let semantic = work
+            .request
+            .take_if(|request| matches!(request.method.as_str(), SEMANTIC_FULL | SEMANTIC_DELTA));
+        let response = work
+            .request
+            .take()
+            .map(|request| {
+                if work.cancel.check().is_err() {
+                    return Response::new_err(
+                        request.id,
+                        ErrorCode::RequestCanceled as i32,
+                        "Request canceled".into(),
                     );
-                    match result {
-                        Ok(edit) => Response::new_ok(request.id, edit),
-                        Err(error) => {
-                            Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
-                        }
-                    }
                 }
-                Ok(analysis) if request.method == IMPLEMENTATION => {
-                    let params =
-                        match decode::<lsp_types::TextDocumentPositionParams>(request.params) {
+                match analysis {
+                    Ok(analysis) if request.method == RENAME => {
+                        let params = match decode::<lsp_types::RenameParams>(request.params) {
                             Ok(params) => params,
                             Err(error) => {
                                 return Response::new_err(
@@ -405,83 +399,133 @@ fn analyze(
                                 );
                             }
                         };
-                    let result = session
-                        .workspace_index(&work.path, &work.documents, &work.folders, &work.cancel)
-                        .and_then(|index| {
-                            index.implementations(
-                                analysis,
+                        let result = session.rename(
+                            analysis,
+                            &work.documents,
+                            Rename {
+                                path: &work.path,
+                                position: params.text_document_position.position,
+                                new_name: &params.new_name,
+                                folders: &work.folders,
+                                versioned: work.versioned_edits,
+                                resource_rename: work.resource_rename,
+                            },
+                            &work.cancel,
+                        );
+                        match result {
+                            Ok(edit) => Response::new_ok(request.id, edit),
+                            Err(error) => Response::new_err(
+                                request.id,
+                                ErrorCode::RequestFailed as i32,
+                                error,
+                            ),
+                        }
+                    }
+                    Ok(analysis) if request.method == IMPLEMENTATION => {
+                        let params =
+                            match decode::<lsp_types::TextDocumentPositionParams>(request.params) {
+                                Ok(params) => params,
+                                Err(error) => {
+                                    return Response::new_err(
+                                        request.id,
+                                        ErrorCode::InvalidParams as i32,
+                                        error.to_string(),
+                                    );
+                                }
+                            };
+                        let result = session
+                            .workspace_index(
                                 &work.path,
-                                params.position,
+                                &work.documents,
+                                &work.folders,
                                 &work.cancel,
                             )
-                        });
-                    match result {
-                        Ok(locations) => Response::new_ok(request.id, locations),
-                        Err(error) => {
-                            Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
-                        }
-                    }
-                }
-                Ok(analysis) if request.method == REFERENCES => {
-                    match decode::<lsp_types::ReferenceParams>(request.params) {
-                        Ok(params) => {
-                            let position = params.text_document_position.position;
-                            let include_declaration = params.context.include_declaration;
-                            if analysis
-                                .reference_symbol(&work.path, position)
-                                .is_none_or(|symbol| !analysis.rename_workspace_symbol(symbol))
-                            {
-                                return Response::new_ok(
-                                    request.id,
-                                    analysis.references(&work.path, position, include_declaration),
-                                );
-                            }
-                            let result = session
-                                .workspace_index(
+                            .and_then(|index| {
+                                index.implementations(
+                                    analysis,
                                     &work.path,
-                                    &work.documents,
-                                    &work.folders,
+                                    params.position,
                                     &work.cancel,
                                 )
-                                .and_then(|index| {
-                                    let references = index.references(
-                                        analysis,
-                                        &work.path,
-                                        position,
-                                        include_declaration,
-                                        &work.cancel,
-                                    )?;
-                                    reference_coverage = index.reference_coverage_warning();
-                                    Ok(references)
-                                });
-                            match result {
-                                Ok(references) => Response::new_ok(request.id, references),
-                                Err(error) => Response::new_err(
-                                    request.id,
-                                    ErrorCode::RequestFailed as i32,
-                                    error,
-                                ),
-                            }
+                            });
+                        match result {
+                            Ok(locations) => Response::new_ok(request.id, locations),
+                            Err(error) => Response::new_err(
+                                request.id,
+                                ErrorCode::RequestFailed as i32,
+                                error,
+                            ),
                         }
-                        Err(error) => Response::new_err(
-                            request.id,
-                            ErrorCode::InvalidParams as i32,
-                            error.to_string(),
-                        ),
                     }
+                    Ok(analysis) if request.method == REFERENCES => {
+                        match decode::<lsp_types::ReferenceParams>(request.params) {
+                            Ok(params) => {
+                                let position = params.text_document_position.position;
+                                let include_declaration = params.context.include_declaration;
+                                if analysis
+                                    .reference_symbol(&work.path, position)
+                                    .is_none_or(|symbol| !analysis.rename_workspace_symbol(symbol))
+                                {
+                                    return Response::new_ok(
+                                        request.id,
+                                        analysis.references(
+                                            &work.path,
+                                            position,
+                                            include_declaration,
+                                        ),
+                                    );
+                                }
+                                let result = session
+                                    .workspace_index(
+                                        &work.path,
+                                        &work.documents,
+                                        &work.folders,
+                                        &work.cancel,
+                                    )
+                                    .and_then(|index| {
+                                        let references = index.references(
+                                            analysis,
+                                            &work.path,
+                                            position,
+                                            include_declaration,
+                                            &work.cancel,
+                                        )?;
+                                        reference_coverage = index.reference_coverage_warning();
+                                        Ok(references)
+                                    });
+                                match result {
+                                    Ok(references) => Response::new_ok(request.id, references),
+                                    Err(error) => Response::new_err(
+                                        request.id,
+                                        ErrorCode::RequestFailed as i32,
+                                        error,
+                                    ),
+                                }
+                            }
+                            Err(error) => Response::new_err(
+                                request.id,
+                                ErrorCode::InvalidParams as i32,
+                                error.to_string(),
+                            ),
+                        }
+                    }
+                    Ok(analysis) => {
+                        let probe = matches!(request.method.as_str(), COMPLETION | CODE_ACTION)
+                            .then(|| {
+                                completion_probe
+                                    .get_or_insert_with(|| Session::new(toolchain.clone()))
+                            });
+                        query(analysis, &work, request, &mut session, probe)
+                    }
+                    Err(error) => Response::new_err(
+                        request.id,
+                        ErrorCode::RequestFailed as i32,
+                        error.clone(),
+                    ),
                 }
-                Ok(analysis) => {
-                    let probe =
-                        matches!(request.method.as_str(), COMPLETION | CODE_ACTION).then(|| {
-                            completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()))
-                        });
-                    query(analysis, &work, request, &mut session, probe)
-                }
-                Err(error) => {
-                    Response::new_err(request.id, ErrorCode::RequestFailed as i32, error.clone())
-                }
-            }
-        });
+            })
+            .map(QueryResponse::Value)
+            .or_else(|| semantic.map(QueryResponse::Semantic));
         if output
             .send(Reply {
                 lane,
@@ -540,21 +584,6 @@ fn workspace_query(session: &mut Session, work: &Work, request: Request) -> Resp
     match result {
         Ok(Ok(result)) => Response::new_ok(request.id, result),
         Ok(Err(error)) => Response::new_err(request.id, ErrorCode::RequestFailed as i32, error),
-        Err(error) => Response::new_err(
-            request.id,
-            ErrorCode::InvalidParams as i32,
-            error.to_string(),
-        ),
-    }
-}
-
-fn semantic_response(
-    request: Request,
-    document: &Document,
-    resolved: Option<&Resolved>,
-) -> Response {
-    match decode::<lsp_types::SemanticTokensParams>(request.params) {
-        Ok(_) => Response::new_ok(request.id, document.semantic_tokens(resolved)),
         Err(error) => Response::new_err(
             request.id,
             ErrorCode::InvalidParams as i32,
@@ -644,6 +673,9 @@ struct Server {
     fold_limit: Option<usize>,
     line_folding_only: bool,
     semantic_refresh: bool,
+    semantic_delta: bool,
+    token_results: HashMap<PathBuf, SemanticTokens>,
+    token_sequence: u64,
     highlights: HashMap<PathBuf, Arc<Resolved>>,
     syntax_sent: BTreeSet<PathBuf>,
     refresh_needed: bool,
@@ -665,6 +697,58 @@ struct Active {
 }
 
 impl Server {
+    fn semantic_tokens(&mut self, path: &std::path::Path, request: Request) -> Response {
+        let previous = if request.method == SEMANTIC_DELTA {
+            decode::<SemanticTokensDeltaParams>(request.params)
+                .map(|params| Some(params.previous_result_id))
+        } else {
+            decode::<SemanticTokensParams>(request.params).map(|_| None)
+        };
+        let previous = match previous {
+            Ok(previous) => previous,
+            Err(error) => {
+                return Response::new_err(
+                    request.id,
+                    ErrorCode::InvalidParams as i32,
+                    error.to_string(),
+                );
+            }
+        };
+        let resolved = self.highlights.get(path);
+        if resolved.is_none() && self.semantic_refresh {
+            self.syntax_sent.insert(path.to_owned());
+        }
+        let mut tokens = self.documents[path]
+            .document
+            .semantic_tokens(resolved.map(Arc::as_ref));
+        if !self.semantic_delta {
+            return Response::new_ok(request.id, tokens);
+        }
+        self.token_sequence += 1;
+        let result_id = self.token_sequence.to_string();
+        let edits = previous.and_then(|previous| {
+            let base = self.token_results.get(path)?;
+            if base.result_id.as_deref()? != previous {
+                return None;
+            }
+            highlight::token_edits(&base.data, &tokens.data)
+        });
+        tokens.result_id = Some(result_id.clone());
+        let response = if let Some(edits) = edits {
+            Response::new_ok(
+                request.id,
+                SemanticTokensDelta {
+                    result_id: Some(result_id),
+                    edits,
+                },
+            )
+        } else {
+            Response::new_ok(request.id, &tokens)
+        };
+        self.token_results.insert(path.to_owned(), tokens);
+        response
+    }
+
     fn serve(
         &mut self,
         connection: &Connection,
@@ -737,6 +821,7 @@ impl Server {
                 | "textDocument/documentSymbol"
                 | "textDocument/foldingRange"
                 | SEMANTIC_FULL
+                | SEMANTIC_DELTA
         ) {
             connection.sender.send(
                 Response::new_err(request.id, ErrorCode::MethodNotFound as i32, request.method)
@@ -769,15 +854,11 @@ impl Server {
         {
             active.cancel.cancel();
         }
-        if request.method == SEMANTIC_FULL {
-            let resolved = self.highlights.get(&path);
-            if resolved.is_some() || self.semantic_refresh {
-                let response =
-                    semantic_response(request, &open.document, resolved.map(Arc::as_ref));
-                if resolved.is_none() && response.response_result.is_ok() {
-                    self.syntax_sent.insert(path);
-                }
-                connection.sender.send(response.into())?;
+        if matches!(request.method.as_str(), SEMANTIC_FULL | SEMANTIC_DELTA) {
+            if self.highlights.contains_key(&path) || self.semantic_refresh {
+                connection
+                    .sender
+                    .send(self.semantic_tokens(&path, request).into())?;
             } else {
                 self.pending.push_back((path, self.revision, request));
             }
@@ -832,12 +913,13 @@ impl Server {
                     let document = params.text_document;
                     if let Some(path) = analysis::path(&document.uri) {
                         self.documents.insert(
-                            path,
+                            path.clone(),
                             OpenDocument {
                                 uri: document.uri,
                                 document: Document::new(document.version, document.text),
                             },
                         );
+                        self.token_results.remove(&path);
                         self.invalidate();
                     }
                 })
@@ -886,6 +968,7 @@ impl Server {
                         if let Some(path) = analysis::path(&uri)
                             && self.documents.remove(&path).is_some()
                         {
+                            self.token_results.remove(&path);
                             publish(connection, uri, None, Vec::new())?;
                             self.invalidate();
                             self.release_analysis |= self.documents.is_empty();
@@ -912,6 +995,7 @@ impl Server {
                         .filter_map(|folder| analysis::path(&folder.uri)),
                 );
                 self.invalidate();
+                self.token_results.clear();
                 self.release_analysis = true;
             }),
             "$/cancelRequest" => match decode::<Cancel>(notification.params) {
@@ -1082,7 +1166,8 @@ impl Server {
             {
                 self.refresh_needed = true;
             }
-            self.highlights.insert(reply.path, publication.highlights);
+            self.highlights
+                .insert(reply.path.clone(), publication.highlights);
             let diagnostics = publication.diagnostics.unwrap_or_else(|error| {
                 vec![Diagnostic {
                     source: Some("nia-lsp".into()),
@@ -1098,7 +1183,7 @@ impl Server {
                 diagnostics,
             )?;
         }
-        if let Some(mut response) = reply.response {
+        if let Some(response) = reply.response {
             let code = if reply.revision != self.revision {
                 Some((
                     ErrorCode::ContentModified,
@@ -1109,20 +1194,26 @@ impl Server {
             } else {
                 None
             };
-            if let Some((code, message)) = code {
-                response = Response::new_err(response.id, code as i32, message.into());
-            } else if let Some(message) = reply.reference_coverage {
-                connection.sender.send(
-                    Notification::new(
-                        "window/logMessage".into(),
-                        lsp_types::LogMessageParams {
-                            typ: lsp_types::MessageType::WARNING,
-                            message,
-                        },
-                    )
-                    .into(),
-                )?;
-            }
+            let response = if let Some((code, message)) = code {
+                Response::new_err(response.into_id(), code as i32, message.into())
+            } else {
+                if let Some(message) = reply.reference_coverage {
+                    connection.sender.send(
+                        Notification::new(
+                            "window/logMessage".into(),
+                            lsp_types::LogMessageParams {
+                                typ: lsp_types::MessageType::WARNING,
+                                message,
+                            },
+                        )
+                        .into(),
+                    )?;
+                }
+                match response {
+                    QueryResponse::Value(response) => response,
+                    QueryResponse::Semantic(request) => self.semantic_tokens(&reply.path, request),
+                }
+            };
             connection.sender.send(response.into())?;
         }
         Ok(())
@@ -1281,7 +1372,7 @@ mod tests {
                         diagnostics: Ok(Vec::new()),
                         highlights: Arc::default(),
                     }),
-                    response: Some(Response::new_ok(1.into(), ())),
+                    response: Some(QueryResponse::Value(Response::new_ok(1.into(), ()))),
                     reference_coverage: None,
                 },
             )
@@ -1362,7 +1453,10 @@ mod tests {
                     revision: completing.revision,
                     path: completing.path.clone(),
                     publication: None,
-                    response: Some(Response::new_ok(1.into(), Vec::<Value>::new())),
+                    response: Some(QueryResponse::Value(Response::new_ok(
+                        1.into(),
+                        Vec::<Value>::new(),
+                    ))),
                     reference_coverage: None,
                 },
             )
@@ -1426,7 +1520,7 @@ mod tests {
                     revision: 0,
                     path,
                     publication: None,
-                    response: Some(Response::new_ok(1.into(), ())),
+                    response: Some(QueryResponse::Value(Response::new_ok(1.into(), ()))),
                     reference_coverage: None,
                 },
             )

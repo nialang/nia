@@ -57,14 +57,21 @@ def smoke(server, root):
                         "workspaceFolders": True,
                         "workspaceEdit": {"documentChanges": True},
                     },
-                    "textDocument": {"codeAction": {
-                        "codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix"]}},
-                    }},
+                    "textDocument": {
+                        "codeAction": {
+                            "codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix"]}},
+                        },
+                        "semanticTokens": {
+                            "requests": {"full": {"delta": True}},
+                            "tokenTypes": [], "tokenModifiers": [], "formats": ["relative"],
+                        },
+                    },
                 },
             })["capabilities"]
             assert capabilities["positionEncoding"] == "utf-16"
             assert capabilities["documentFormattingProvider"]
             assert capabilities["inlayHintProvider"]
+            assert capabilities["semanticTokensProvider"]["full"]["delta"]
             assert capabilities["workspaceSymbolProvider"] and capabilities["typeDefinitionProvider"]
             assert set(capabilities["workspace"]["fileOperations"]) == {"willRename", "didRename"}
             assert set(capabilities["codeActionProvider"]["codeActionKinds"]) == {
@@ -163,7 +170,22 @@ def smoke(server, root):
             _, diagnostics = client.wait_diagnostics(main.as_uri(), 3, lambda items: any(
                 "unknown value `weigth`" in diagnostic["message"] for diagnostic in items
             ))
-            assert request(client, "textDocument/semanticTokens/full", params) != tokens
+            delta = request(client, "textDocument/semanticTokens/full/delta", dict(
+                **params, previousResultId=tokens["resultId"],
+            ))
+            assert delta["edits"], delta
+            applied = tokens["data"].copy()
+            for edit in reversed(delta["edits"]):
+                start_index = edit["start"]
+                applied[start_index:start_index + edit["deleteCount"]] = edit.get("data", [])
+            unchanged = request(client, "textDocument/semanticTokens/full/delta", dict(
+                **params, previousResultId=delta["resultId"],
+            ))
+            assert unchanged["edits"] == [], unchanged
+            fallback = request(client, "textDocument/semanticTokens/full/delta", dict(
+                **params, previousResultId=tokens["resultId"],
+            ))
+            assert fallback["data"] == applied and applied != tokens["data"], fallback
             code_action = dict(**params, range={"start": start, "end": end})
             actions = request(client, "textDocument/codeAction", dict(
                 **code_action, context={"diagnostics": diagnostics, "only": ["quickfix"]},

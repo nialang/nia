@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensLegend};
+use lsp_types::{SemanticToken, SemanticTokens, SemanticTokensEdit, SemanticTokensLegend};
 use nia_defs::DefKind;
 use nia_lexer::{LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_span::Span;
@@ -208,6 +208,37 @@ impl Document {
             data,
         }
     }
+}
+
+pub(crate) fn token_edits(
+    before: &[SemanticToken],
+    after: &[SemanticToken],
+) -> Option<Vec<SemanticTokensEdit>> {
+    let prefix = before
+        .iter()
+        .zip(after)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let before = &before[prefix..];
+    let after = &after[prefix..];
+    if before.is_empty() && after.is_empty() {
+        return Some(Vec::new());
+    }
+    let suffix = before
+        .iter()
+        .rev()
+        .zip(after.iter().rev())
+        .take_while(|(left, right)| left == right)
+        .count();
+    let removed = before.len() - suffix;
+    let inserted = after.len() - suffix;
+    let start = u32::try_from(prefix.checked_mul(5)?).ok()?;
+    let delete_count = u32::try_from(removed.checked_mul(5)?).ok()?;
+    Some(vec![SemanticTokensEdit {
+        start,
+        delete_count,
+        data: (inserted != 0).then(|| after[..inserted].to_vec()),
+    }])
 }
 
 fn refine(token: Highlight, resolved: Option<&Resolved>) -> Class {
