@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Document outline and folding from the current lossless syntax tree.
+//! Document outline, folding, and selection from the current lossless syntax tree.
 
 use lsp_types::{
-    DocumentSymbol, DocumentSymbolResponse, FoldingRange, FoldingRangeKind, Location,
-    SymbolInformation, SymbolKind, Uri,
+    DocumentSymbol, DocumentSymbolResponse, FoldingRange, FoldingRangeKind, Location, Position,
+    SelectionRange, SymbolInformation, SymbolKind, Uri,
 };
 use nia_lexer::TokenKind;
 use nia_span::Span;
@@ -12,6 +12,28 @@ use nia_syntax::{GreenElement, GreenNode, SyntaxKind};
 use crate::document::Document;
 
 impl Document {
+    pub(crate) fn selection_ranges(&self, positions: &[Position]) -> Option<Vec<SelectionRange>> {
+        let root = self.syntax().map(|syntax| syntax.tree.green_root());
+        positions
+            .iter()
+            .map(|&position| {
+                let offset = self.lines.offset(&self.text, position)?;
+                let mut spans = vec![Span::new(0, self.text.len())];
+                if let Some(root) = root {
+                    selection_spans(root, offset, &mut spans);
+                }
+                let mut selection = None;
+                for span in spans {
+                    selection = Some(Box::new(SelectionRange {
+                        range: self.lines.range(&self.text, span),
+                        parent: selection,
+                    }));
+                }
+                selection.map(|range| *range)
+            })
+            .collect()
+    }
+
     pub(crate) fn symbols(&self, uri: &Uri, hierarchical: bool) -> DocumentSymbolResponse {
         let mut symbols = Vec::new();
         if let Some(syntax) = self.syntax() {
@@ -130,6 +152,31 @@ impl Document {
             folds.ranges.truncate(limit);
         }
         folds.ranges
+    }
+}
+
+fn selection_spans(mut node: &GreenNode, offset: usize, spans: &mut Vec<Span>) {
+    let contains = |span: Span| span.start <= offset && offset < span.end;
+    loop {
+        if let Some(span) = node.token_span().filter(|&span| contains(span))
+            && spans.last() != Some(&span)
+        {
+            spans.push(span);
+        }
+        match node.children().iter().find(|child| match child {
+            GreenElement::Node(node) => contains(node.span()),
+            GreenElement::Token(token) => contains(token.span()),
+        }) {
+            Some(GreenElement::Node(child)) => node = child,
+            Some(GreenElement::Token(token)) => {
+                let span = token.span();
+                if token.kind() != &SyntaxKind::Whitespace && spans.last() != Some(&span) {
+                    spans.push(span);
+                }
+                return;
+            }
+            None => return,
+        }
     }
 }
 
@@ -281,9 +328,50 @@ impl Folds<'_> {
 
 #[cfg(test)]
 mod tests {
-    use lsp_types::{Position, Range};
+    use lsp_types::Range;
 
     use super::*;
+
+    #[test]
+    fn selection_uses_recovered_tokens_and_preserves_position_order() {
+        let source = "// notes\r\nfun incomplete(";
+        let document = Document::new(1, source.into());
+        let eof = Position::new(1, 15);
+        let comment = Position::new(0, 4);
+        let name = Position::new(1, 6);
+        let file = Range::new(Position::new(0, 0), eof);
+        let ranges = document.selection_ranges(&[eof, comment, name]).unwrap();
+        assert_eq!(
+            ranges[0],
+            SelectionRange {
+                range: file,
+                parent: None
+            }
+        );
+        assert_eq!(
+            ranges[1].range,
+            Range::new(Position::new(0, 0), Position::new(0, 8))
+        );
+        assert_eq!(
+            ranges[2].range,
+            Range::new(Position::new(1, 4), Position::new(1, 14))
+        );
+        for mut range in &ranges {
+            while let Some(parent) = &range.parent {
+                assert!(parent.range.start <= range.range.start);
+                assert!(range.range.end <= parent.range.end);
+                assert_ne!(range.range, parent.range);
+                range = parent;
+            }
+            assert_eq!(range.range, file);
+        }
+        assert!(document.selection_ranges(&[Position::new(2, 0)]).is_none());
+        let empty = Document::new(1, String::new());
+        assert_eq!(
+            empty.selection_ranges(&[Position::new(0, 0)]).unwrap(),
+            [SelectionRange::default()]
+        );
+    }
 
     #[test]
     fn outline_keeps_extension_and_enum_members_in_their_declaring_blocks() {

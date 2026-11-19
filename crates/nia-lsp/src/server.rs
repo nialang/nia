@@ -14,8 +14,9 @@ use lsp_types::{
     CallHierarchyOutgoingCall, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     Diagnostic, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    PublishDiagnosticsParams, SemanticTokens, SemanticTokensDelta, SemanticTokensDeltaParams,
-    SemanticTokensFullOptions, SemanticTokensParams, SemanticTokensRangeParams, Uri,
+    PublishDiagnosticsParams, SelectionRangeParams, SemanticTokens, SemanticTokensDelta,
+    SemanticTokensDeltaParams, SemanticTokensFullOptions, SemanticTokensParams,
+    SemanticTokensRangeParams, Uri,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -41,6 +42,7 @@ const CALL_OUTGOING: &str = "callHierarchy/outgoingCalls";
 const CODE_ACTION: &str = "textDocument/codeAction";
 const FORMATTING: &str = "textDocument/formatting";
 const RANGE_FORMATTING: &str = "textDocument/rangeFormatting";
+const SELECTION_RANGE: &str = "textDocument/selectionRange";
 const RENAME: &str = "textDocument/rename";
 const PREPARE_RENAME: &str = "textDocument/prepareRename";
 const REFERENCES: &str = "textDocument/references";
@@ -133,6 +135,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "documentSymbolProvider": true,
                 "workspaceSymbolProvider": true,
                 "foldingRangeProvider": true,
+                "selectionRangeProvider": true,
                 "documentFormattingProvider": true,
                 "documentRangeFormattingProvider": true,
                 "codeActionProvider": if code_actions { json!({ "codeActionKinds": ["quickfix", "source.organizeImports"] }) } else { json!(false) },
@@ -1012,6 +1015,7 @@ impl Server {
                 | CODE_ACTION
                 | FORMATTING
                 | RANGE_FORMATTING
+                | SELECTION_RANGE
                 | "textDocument/signatureHelp"
                 | "textDocument/documentSymbol"
                 | "textDocument/foldingRange"
@@ -1083,6 +1087,21 @@ impl Server {
                     ErrorCode::InvalidParams as i32,
                     error.to_string(),
                 ),
+            };
+            connection.sender.send(response.into())?;
+            return Ok(());
+        }
+        if request.method == SELECTION_RANGE {
+            let selection = decode::<SelectionRangeParams>(request.params)
+                .map_err(|error| error.to_string())
+                .and_then(|params| {
+                    open.document
+                        .selection_ranges(&params.positions)
+                        .ok_or_else(|| "Selection position is outside the document".to_owned())
+                });
+            let response = match selection {
+                Ok(ranges) => Response::new_ok(request.id, ranges),
+                Err(error) => Response::new_err(request.id, ErrorCode::InvalidParams as i32, error),
             };
             connection.sender.send(response.into())?;
             return Ok(());

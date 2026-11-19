@@ -80,6 +80,7 @@ def smoke(server, root):
             assert capabilities["positionEncoding"] == "utf-16"
             assert capabilities["documentFormattingProvider"]
             assert capabilities["documentRangeFormattingProvider"]
+            assert capabilities["selectionRangeProvider"]
             assert capabilities["inlayHintProvider"]
             assert capabilities["callHierarchyProvider"]
             assert capabilities["semanticTokensProvider"]["full"]["delta"]
@@ -109,6 +110,22 @@ def smoke(server, root):
             })
             assert request(client, "textDocument/semanticTokens/full", params)["data"]
             assert request(client, "textDocument/foldingRange", params)
+            field_name = position(source, "width")
+            field_access = position(source, "shape.width")
+            string_literal = position(source, '"\U0001f34e"')
+            selections = request(client, "textDocument/selectionRange", dict(**params, positions=[
+                field_name, dict(string_literal, character=string_literal["character"] + 1),
+            ]))
+            field_selection, literal_selection = selections
+            field_end = dict(field_name, character=field_name["character"] + len("width"))
+            assert field_selection["range"] == {"start": field_name, "end": field_end}, selections
+            assert field_selection["parent"]["range"] == {
+                "start": field_access, "end": field_end,
+            }, selections
+            assert literal_selection["range"] == {
+                "start": string_literal,
+                "end": dict(string_literal, character=string_literal["character"] + 4),
+            }, selections
             formatting = dict(**params, options={"tabSize": 2, "insertSpaces": True})
             before_eq = position(source, '="')
             after_eq = dict(before_eq, character=before_eq["character"] + 1)
@@ -191,6 +208,11 @@ def smoke(server, root):
                 "textDocument": dict(**document, version=3),
                 "contentChanges": [{"text": typo}],
             })
+            typo_name = position(typo, "weigth")
+            selection, = request(client, "textDocument/selectionRange", dict(**params, positions=[typo_name]))
+            assert selection["range"] == {
+                "start": typo_name, "end": dict(typo_name, character=typo_name["character"] + len("weigth")),
+            }, selection
             tokens = request(client, "textDocument/semanticTokens/full", params)
             region = dict(**params, range={
                 "start": {"line": 4, "character": 0},

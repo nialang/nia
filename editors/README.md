@@ -7,7 +7,7 @@ trait implementation navigation, call hierarchy, hover at resolved names, worksp
 occurrence highlighting in the current file, completion for
 local names, module members, receiver fields and methods, signature help for
 source functions and resolved methods, parameter name and inferred local type hints,
-diagnostic quick fixes, document formatting, outline, folding, and semantic
+diagnostic quick fixes, document formatting, outline, folding, structural selection, and semantic
 highlighting. Callable completions, hovers, and signature help include
 declaration signatures and adjacent triple-slash documentation. Named field accesses
 also support definition navigation and references. Receiver completion
@@ -18,9 +18,11 @@ completed name and added `using` together against the compiler before
 returning the edits.
 Definition and reference lookup cover resolved type names, module and block
 `using` selectors for types and values, and module alias bindings.
-Outline and folding use the current buffer's syntax tree, including unsaved
+Outline, folding, and selection use the current buffer's syntax tree, including unsaved
 changes. Folds include bodies, aggregate members, multiline parameter lists
 and constraints, grouped imports, and consecutive line comments.
+Editors with an expand-selection command can select enclosing expressions,
+statements, and declarations.
 Highlighting uses both the current syntax tree and compiler symbol resolution.
 Clients that support semantic token refresh can show syntax highlights while
 the compiler resolves symbols. Colors follow the editor theme.
