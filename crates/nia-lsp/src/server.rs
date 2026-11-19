@@ -633,9 +633,11 @@ impl Server {
                         .filter_map(|event| analysis::path(&event.uri))
                         .any(|path| {
                             path.extension().is_some_and(|extension| extension == "nia")
-                                || path
-                                    .file_name()
-                                    .is_some_and(|name| name == "nia.toml" || name == "nia.lock")
+                                || path.file_name().is_some_and(|name| {
+                                    name == "nia.toml"
+                                        || name == "nia.lock"
+                                        || name == "build-plan.bin"
+                                })
                         })
                     {
                         self.disk_changed();
@@ -888,6 +890,26 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn published_build_plan_invalidates_disk_analysis() {
+        let (connection, _client) = Connection::memory();
+        let mut server = Server::default();
+        let path = std::env::current_dir()
+            .unwrap()
+            .join("build/out/build-plan.bin");
+        let uri = analysis::uri(&path).unwrap();
+        server
+            .notification(
+                &connection,
+                Notification::new(
+                    "workspace/didChangeWatchedFiles".into(),
+                    json!({"changes": [{"uri": uri, "type": 2}]}),
+                ),
+            )
+            .unwrap();
+        assert_eq!(server.disk_revision, 1);
+    }
 
     #[test]
     fn workspace_cancellation_leaves_the_editor_lane_available() {

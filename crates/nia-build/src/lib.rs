@@ -2010,7 +2010,7 @@ fn include_build_explanation_modules(
         packages.insert(module.key.package().clone());
         for import in &module.imports {
             let selected = match import.path.root() {
-                LogicalPathRoot::Package(package) => coordinator::package_dependency_selected(
+                LogicalPathRoot::Package(package) => compiler_inputs::package_dependency_selected(
                     package_dependency_classes,
                     package,
                     mode,
@@ -3185,7 +3185,7 @@ pub fn resolve_build_invocation(request: BuildRequest) -> Result<BuildInvocation
             error,
         }
     })?;
-    let build_script = package_root.join("build.nia");
+    let build_script = compiler_inputs::build_script_path(&package_root);
     let manifest = if package_root.join("nia.toml").is_file() {
         Some(
             nia_package_metadata::PackageManifest::read(&package_root).map_err(|error| {

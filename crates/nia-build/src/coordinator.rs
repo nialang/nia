@@ -88,67 +88,21 @@ const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
 const EXTERNAL_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
 const EXTERNAL_WAIT_POLL: Duration = Duration::from_millis(10);
 
-/// Dependency classes through which the root package declares each plan
-/// package. Whether a package is visible depends on the compilation mode of
-/// the artifact being built, so selection is decided per action by
-/// [`package_dependency_selected`].
+/// Projects the resolver's declared dependencies into plan package scopes.
 pub(crate) fn package_dependency_classes(
     plan: &BuildPlan,
     invocation: &BuildInvocation,
 ) -> BTreeMap<PackageKey, BTreeSet<DependencyScope>> {
-    plan.packages()
-        .iter()
-        .filter(|package| package.key != *plan.root_package())
-        .filter_map(|package| {
-            let declared = invocation
-                .package_graph_report
-                .declared
-                .iter()
-                .find(|dependency| {
-                    matches!(&package.source, crate::PlanPackageSource::Dependency(name)
-                        if dependency.owner_root.is_empty() && dependency.dependency.name == *name)
-                });
-            let classes = declared
-                .map(|dependency| BTreeSet::from([dependency.dependency.scope]))
-                .or_else(|| {
-                    crate::package_source_root(invocation, package)
-                        .and_then(|package_root| package_root.canonicalize().ok())
-                        .map(|package_root| {
-                            invocation
-                                .package_graph_report
-                                .declared
-                                .iter()
-                                .filter(|dependency| {
-                                    dependency.source_root.as_deref() == Some(&package_root)
-                                })
-                                .map(|dependency| dependency.dependency.scope)
-                                .collect::<BTreeSet<_>>()
-                        })
-                })
-                .filter(|classes| !classes.is_empty())?;
-            Some((package.key.clone(), classes))
-        })
-        .collect()
-}
-
-/// Whether a compilation in `mode` may read `package`. A package the root
-/// manifest does not declare is a local package and always visible.
-///
-/// Dependency scope semantics:
-/// - Build: visible only to build.nia (never to compiled artifacts)
-/// - Runtime: always visible to compiled artifacts
-/// - Development: visible only in Test mode
-/// - Optional: available only when an action explicitly imports the package
-/// - Lazy: available to the runtime module scope and loaded on first use
-pub(crate) fn package_dependency_selected(
-    classes: &BTreeMap<PackageKey, BTreeSet<DependencyScope>>,
-    package: &PackageKey,
-    mode: CompilationMode,
-) -> bool {
-    classes.get(package).is_none_or(|classes| {
-        classes
-            .iter()
-            .any(|scope| crate::compiler_inputs::artifact_dependency_visible(*scope, mode))
+    let mut scopes = crate::compiler_inputs::PlanDependencyScopes::default();
+    for edge in &invocation.package_graph_report.declared {
+        scopes.declare(
+            edge.owner_root.is_empty().then_some(&edge.dependency.name),
+            edge.source_root.as_deref(),
+            edge.dependency.scope,
+        );
+    }
+    scopes.classify(plan, |package| {
+        crate::package_source_root(invocation, package)
     })
 }
 

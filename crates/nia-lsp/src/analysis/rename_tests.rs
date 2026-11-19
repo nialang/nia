@@ -409,6 +409,116 @@ fn rename_updates_enum_constructors_and_named_patterns() {
 }
 
 #[test]
+fn configured_imports_respect_the_scopes_of_local_plan_packages() {
+    use nia_build_plan::{
+        ActionKey, ActionKind, ArtifactConfiguration, BuildPlan, BuildPlanDraft, CompilationMode,
+        LogicalPath, LogicalPathRoot, ModuleImport, ModuleKey, OptimizationMode, PackageKey,
+        PlanAction, PlanModule, PlanPackage, PlanPackageSource, PlanStep, Runtime, StepKey,
+        StepVisibility, publish_build_plan,
+    };
+    let directory = test_dir("lsp-configured-dependency-scopes");
+    std::fs::write(
+        directory.join("nia.toml"),
+        "[package]\nname = \"app\"\nversion = \"1.0.0\"\n\
+         [build-dependencies]\nhelper = { path = \"helper\" }\n\
+         [dev-dependencies]\nfixture = { path = \"fixture\" }\n",
+    )
+    .unwrap();
+    let root = PackageKey::root();
+    let module = ModuleKey::new(root.clone(), "app").unwrap();
+    let mut packages = vec![PlanPackage {
+        key: root.clone(),
+        source: PlanPackageSource::Local(String::new()),
+    }];
+    let mut imports = Vec::new();
+    for name in ["helper", "fixture", "independent"] {
+        let path = directory.join(name);
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(
+            path.join("nia.toml"),
+            format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\n[library]\npath = \"root.nia\"\n"),
+        )
+        .unwrap();
+        let key = PackageKey::new(name).unwrap();
+        packages.push(PlanPackage {
+            key: key.clone(),
+            source: PlanPackageSource::Local(name.into()),
+        });
+        imports.push(ModuleImport {
+            name: format!("{name}Import"),
+            path: LogicalPath::new(LogicalPathRoot::Package(key), "root.nia").unwrap(),
+        });
+    }
+    let target = test_session().toolchain.host_target().to_owned();
+    let mut actions = Vec::new();
+    let mut steps = Vec::new();
+    for (name, mode) in [
+        ("check", CompilationMode::Normal),
+        ("test", CompilationMode::Test),
+    ] {
+        let action = ActionKey::new(root.clone(), name).unwrap();
+        actions.push(PlanAction {
+            key: action.clone(),
+            kind: ActionKind::CompilerCheck {
+                module: module.clone(),
+                target,
+                runtime: Runtime::Bare,
+                mode,
+                configuration: ArtifactConfiguration::default(),
+            },
+        });
+        steps.push(PlanStep {
+            key: StepKey::new(root.clone(), name).unwrap(),
+            visibility: StepVisibility::Public,
+            action,
+            dependencies: Vec::new(),
+        });
+    }
+    let plan = BuildPlan::freeze(BuildPlanDraft {
+        root_package: root.clone(),
+        packages,
+        host_target: target,
+        artifact_target: target,
+        modules: vec![PlanModule {
+            key: module,
+            root_source: LogicalPath::new(LogicalPathRoot::Package(root), "root.nia").unwrap(),
+            optimization: OptimizationMode::O0,
+            imports,
+        }],
+        artifacts: Vec::new(),
+        actions,
+        steps,
+        default_step: None,
+        selected_step: None,
+    })
+    .unwrap();
+    let output = directory.join("build/out");
+    std::fs::create_dir_all(&output).unwrap();
+    publish_build_plan(&output.join("build-plan.bin"), &plan).unwrap();
+
+    let mut session = test_session();
+    let toolchain = Arc::clone(&session.toolchain);
+    let package = session
+        .projects
+        .package(&directory.join("root.nia"))
+        .unwrap()
+        .unwrap();
+    let requests = package.configured_requests(&toolchain).unwrap();
+    assert_eq!(requests.len(), 2);
+    for request in requests {
+        let request = request.check;
+        let modules = request.module_map.for_source(&request.entry_path);
+        assert!(modules.get("independentImport").is_some());
+        assert!(modules.get("helperImport").is_none());
+        assert_eq!(
+            modules.get("fixtureImport").is_some(),
+            request.compilation_mode == nia_target_config::CompilationMode::Test
+        );
+    }
+    assert!(!directory.join("nia.lock").exists());
+}
+
+#[test]
 fn configured_generated_modules_are_indexed_and_restrict_rename() {
     use nia_build_plan::{
         ActionKey, ActionKind, ArtifactConfiguration, BuildPlan, BuildPlanDraft, LogicalPath,

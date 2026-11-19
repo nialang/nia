@@ -7,7 +7,8 @@ use std::{
     sync::OnceLock,
 };
 
-use nia_build_plan::{BuildPlan, PlanHandoffError, PlanPackageSource, read_build_plan};
+use nia_build::compiler_inputs::build_script_path;
+use nia_build_plan::{BuildPlan, PlanHandoffError, read_build_plan};
 use nia_driver::CheckRequest;
 use nia_imports::ModuleMap;
 use nia_package_metadata::{
@@ -162,7 +163,7 @@ impl Projects {
             .ancestors()
             .skip(1)
             .find(|directory| {
-                directory.join("nia.toml").is_file() || directory.join("build.nia").is_file()
+                directory.join("nia.toml").is_file() || build_script_path(directory).is_file()
             })
             .map(Path::to_path_buf)
         else {
@@ -212,12 +213,12 @@ pub(crate) enum Context {
 
 impl Package {
     fn build_candidate(&self) -> Option<PathBuf> {
-        let source = self.layout.package_root().join("build.nia");
+        let source = build_script_path(self.layout.package_root());
         source.is_file().then_some(source)
     }
 
     fn fallback_context(&self, path: &Path) -> Context {
-        if normalized(path) == normalized(&self.layout.package_root().join("build.nia")) {
+        if normalized(path) == normalized(&build_script_path(self.layout.package_root())) {
             Context::Build
         } else {
             Context::Executable

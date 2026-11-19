@@ -1623,7 +1623,11 @@ impl DriverActionExecutor {
         let LogicalPathRoot::Package(package_key) = root else {
             return true;
         };
-        super::package_dependency_selected(&self.package_dependency_classes, package_key, mode)
+        compiler_inputs::package_dependency_selected(
+            &self.package_dependency_classes,
+            package_key,
+            mode,
+        )
     }
 
     fn artifact(

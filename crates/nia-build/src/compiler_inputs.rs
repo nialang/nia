@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Read-only projection of configured build-plan inputs for compilers.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::{Path, PathBuf},
+};
 
 use nia_driver::CheckRequest;
 use nia_driver::NiaOptimizationLevel;
@@ -11,8 +14,80 @@ use nia_target::TargetConfig;
 
 use crate::{
     ActionKind, ArtifactConfiguration, ArtifactKey, BuildPlan, CompilationMode, LogicalPath,
-    LogicalPathRoot, OptimizationMode, PackageKey, PlanAction, PlanModule, Runtime,
+    LogicalPathRoot, OptimizationMode, PackageKey, PlanAction, PlanModule, PlanPackage,
+    PlanPackageSource, Runtime,
 };
+
+/// Resolves the conventional entry point for a package's build script.
+pub fn build_script_path(package_root: &Path) -> PathBuf {
+    package_root.join("build.nia")
+}
+
+/// The declared scopes of packages addressed by a frozen build plan.
+#[derive(Default)]
+pub struct PlanDependencyScopes {
+    root_aliases: BTreeMap<String, DependencyScope>,
+    directories: BTreeMap<PathBuf, BTreeSet<DependencyScope>>,
+}
+
+impl PlanDependencyScopes {
+    /// Records a declaration, including a canonical source root when materialized.
+    pub fn declare(
+        &mut self,
+        root_alias: Option<&str>,
+        directory: Option<&Path>,
+        scope: DependencyScope,
+    ) {
+        if let Some(alias) = root_alias {
+            self.root_aliases.insert(alias.to_owned(), scope);
+        }
+        if let Some(directory) = directory {
+            self.directories
+                .entry(directory.to_path_buf())
+                .or_default()
+                .insert(scope);
+        }
+    }
+
+    /// Matches explicit dependencies by alias and local plan packages by canonical path.
+    pub fn classify(
+        &self,
+        plan: &BuildPlan,
+        package_root: impl Fn(&PlanPackage) -> Option<PathBuf>,
+    ) -> BTreeMap<PackageKey, BTreeSet<DependencyScope>> {
+        plan.packages()
+            .iter()
+            .filter(|package| &package.key != plan.root_package())
+            .filter_map(|package| {
+                let scopes = match &package.source {
+                    PlanPackageSource::Dependency(alias) => self
+                        .root_aliases
+                        .get(alias)
+                        .map(|scope| BTreeSet::from([*scope])),
+                    PlanPackageSource::Local(_) => None,
+                }
+                .or_else(|| {
+                    let root = package_root(package)?.canonicalize().ok()?;
+                    self.directories.get(&root).cloned()
+                })?;
+                Some((package.key.clone(), scopes))
+            })
+            .collect()
+    }
+}
+
+/// Whether an action's explicit import is visible in its compilation mode.
+pub fn package_dependency_selected(
+    classes: &BTreeMap<PackageKey, BTreeSet<DependencyScope>>,
+    package: &PackageKey,
+    mode: CompilationMode,
+) -> bool {
+    classes.get(package).is_none_or(|scopes| {
+        scopes
+            .iter()
+            .any(|scope| artifact_dependency_visible(*scope, mode))
+    })
+}
 
 /// Physical directories that anchor the plan's logical paths.
 pub struct PlanDirectories<'a> {
