@@ -401,7 +401,7 @@ impl Session {
             }
             let (uri, text) = files
                 .get(source)
-                .or_else(|| generated.inputs.get(source))
+                .or_else(|| generated.sources.get(source))
                 .ok_or("Rename source disappeared")?;
             let open = documents
                 .iter()
@@ -594,7 +594,7 @@ impl Session {
             ));
         }
         let open: BTreeSet<_> = documents.keys().map(|path| normalized(path)).collect();
-        for (source, (_, text)) in files.iter().chain(&generated.inputs) {
+        for (source, (_, text)) in files.iter().chain(&generated.sources) {
             cancel.check()?;
             if !open.contains(source)
                 && std::fs::read_to_string(source).ok().as_deref() != Some(text)

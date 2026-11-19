@@ -539,6 +539,12 @@ Set `editable` to `true` only for verbatim byte copies whose identifier
 edits propagate to the output. A transformed range still provides
 navigation to its source range.
 
+For a rename, each mapping along the chain must be editable. The editor
+checks other mapped copies of every edited range, then verifies the
+projected source and generated text with the compiler. It returns edits
+to the original inputs and handwritten references. Run the build after
+applying the edits to regenerate the outputs and their maps.
+
 ## Tests
 
 Suites declared with `[[test]]` in `nia.toml` need nothing in the script.

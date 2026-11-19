@@ -1007,15 +1007,21 @@ def smoke_generated_chain(server, root):
         "ca9650b1f0a22e5ef17befd536c6b9e7ebf00025ceeffbfcfff0edfd8ed91abc",
         "c3ecb1af70e3764b8eb3915fc9c486b97a7fc74b4cfa47e802bcd91c76b0165c",
     ]
+    renamed_digests = [
+        "0bb259eb96f6d3b5f9d9a69fb9793b861dbc8102996fad1013fe507b73fac1ea",
+        "19686504cf6038f5c358cd3ed4d8fe1ee31a4e5b158ba2784cab57018ef3247f",
+        "891824330ae841e047b9fa128c97c49ad4c182a3c63e415fd755c6edba20de30",
+    ]
     (root / "generate.py").write_text(f"""from pathlib import Path
 import json, sys
 stage = int(sys.argv[1])
 before = Path(sys.argv[2]).read_bytes()
 after = (b"// first\\n" if stage == 1 else b"// second\\n") + before
+name = b"amount" if b"amount" in before else b"total"
 def span(data):
-    start = data.index(b"amount")
-    return [start, start + 6]
-digests = {digests!r}
+    start = data.index(name)
+    return [start, start + len(name)]
+digests = {digests!r} if name == b"amount" else {renamed_digests!r}
 mapping = dict(generated=span(after), sourcePath=Path(sys.argv[2]).name,
                sourceDigest=digests[stage - 1], source=span(before), editable=True)
 if stage == 2:
@@ -1023,6 +1029,11 @@ if stage == 2:
 Path(sys.argv[3]).write_bytes(after)
 Path(sys.argv[4]).write_text(json.dumps(dict(version=1, generatedDigest=digests[stage],
                                             mappings=[mapping])), encoding="utf-8")
+if stage == 2:
+    Path(sys.argv[5]).write_bytes(b"// unused\\n")
+    Path(sys.argv[6]).write_text(json.dumps(dict(
+        version=1, generatedDigest="9b48c9391f761752db023350c463505b36e1325f5a2af706575b586a9193614b",
+        mappings=[])), encoding="utf-8")
 """, encoding="utf-8")
     build = """using std::build;
 using std::fs;
@@ -1036,7 +1047,9 @@ pub fun build(b: &mut build::Build) build::Error!() {
         build::CommandArgument::buildOutput(build::BuildPathView::init("first.nia.map"))];
     let secondArgs = [script, build::CommandArgument::literal("2"),
         build::CommandArgument::buildInput(first), build::CommandArgument::buildOutput(second),
-        build::CommandArgument::buildOutput(build::BuildPathView::init("second.nia.map"))];
+        build::CommandArgument::buildOutput(build::BuildPathView::init("second.nia.map")),
+        build::CommandArgument::buildOutput(build::BuildPathView::init("unused.nia")),
+        build::CommandArgument::buildOutput(build::BuildPathView::init("unused.nia.map"))];
     let prepare = b.addExternalCommandStep("first", build::ExternalCommandOptions::search("__PYTHON__").withArguments(firstArgs)).?;
     let generate = b.addExternalCommandStep("second", build::ExternalCommandOptions::search("__PYTHON__").withArguments(secondArgs)).?;
     b.dependOn(generate, prepare).?;
@@ -1051,9 +1064,12 @@ pub fun build(b: &mut build::Build) build::Error!() {
     compiler = server.with_name("nia" + server.suffix)
     env = dict(os.environ)
     env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env["PATH"]
-    result = subprocess.run([str(compiler), "build", "check"], cwd=root, env=env,
-                            capture_output=True, text=True, encoding="utf-8", timeout=180)
-    assert result.returncode == 0, result.stdout + result.stderr
+    def check():
+        result = subprocess.run([str(compiler), "build", "check"], cwd=root, env=env,
+                                capture_output=True, text=True, encoding="utf-8", timeout=180)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    check()
     generated = root / "build/out/second.nia"
     with subprocess.Popen([str(server)], cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
         try:
@@ -1078,6 +1094,30 @@ pub fun build(b: &mut build::Build) build::Error!() {
             assert request(client, "textDocument/definition", definition)["uri"] == generated.as_uri()
             first_map.write_bytes(map_text)
             assert request(client, "textDocument/definition", definition) == target
+            rename = {**definition, "newName": "total"}
+            sibling = generated.with_name("unused.nia")
+            sibling_map = sibling.with_suffix(".nia.map")
+            sibling.write_bytes(generated.read_bytes())
+            sibling_map.write_bytes(generated.with_suffix(".nia.map").read_bytes())
+            _, rejected = client.wait(client.request("textDocument/rename", rename))
+            assert "another generated occurrence" in rejected["error"]["message"], rejected
+            assert "unused.nia" in rejected["error"]["message"], rejected
+            check()
+            result = request(client, "textDocument/rename", rename)
+            changes = result["changes"]
+            assert set(changes) == {entry.as_uri(), origin.as_uri()}, changes
+            assert changes[origin.as_uri()] == [{"range": target["range"], "newText": "total"}]
+            start = position(source, "amount")
+            assert changes[entry.as_uri()] == [{
+                "range": {"start": start, "end": {"line": start["line"], "character": start["character"] + 6}},
+                "newText": "total",
+            }]
+            assert b"fun amount()" in generated.read_bytes()
+            origin.write_bytes(original.replace(b"amount", b"total"))
+            entry.write_text(source.replace("amount", "total"), encoding="utf-8")
+            check()
+            assert b"fun total()" in generated.with_name("first.nia").read_bytes()
+            assert b"fun total()" in generated.read_bytes()
             request(client, "shutdown", None)
             client.notify("exit", None)
             process.stdin.close()

@@ -44,16 +44,14 @@ impl GeneratedSourceSnapshot {
     }
 }
 
-/// Lists Nia outputs of commands that consume the given root package input.
+/// Lists Nia outputs of commands that consume the given package or build input.
 pub fn outputs_reading_input(
     plan: &BuildPlan,
+    package_root: &Path,
     output: &Path,
-    relative_input: &str,
+    path: &Path,
 ) -> Vec<PathBuf> {
-    let Ok(input) = LogicalPath::new(
-        LogicalPathRoot::Package(plan.root_package().clone()),
-        relative_input,
-    ) else {
+    let Some(input) = logical_input(plan.root_package(), package_root, output, path) else {
         return Vec::new();
     };
     plan.actions()
@@ -74,6 +72,23 @@ pub fn outputs_reading_input(
         })
         .map(|path| output.join(path.protocol_path()))
         .collect()
+}
+
+fn logical_input(
+    package: &nia_build_plan::PackageKey,
+    package_root: &Path,
+    output: &Path,
+    path: &Path,
+) -> Option<LogicalPath> {
+    let (root, relative) = if let Ok(relative) = path.strip_prefix(output) {
+        (LogicalPathRoot::Build, relative)
+    } else {
+        (
+            LogicalPathRoot::Package(package.clone()),
+            path.strip_prefix(package_root).ok()?,
+        )
+    };
+    LogicalPath::new(root, &normalize_path(relative.to_str()?)).ok()
 }
 
 /// The current producer input corresponding to a range in generated source.
@@ -267,18 +282,22 @@ impl<'a> GeneratedSourceMap<'a> {
     pub fn input_copies(
         &self,
         package_root: &Path,
+        output: &Path,
         path: &Path,
         text: &str,
         span: Span,
     ) -> io::Result<Vec<Span>> {
-        let Ok(relative) = path.strip_prefix(package_root) else {
+        let Some(input) = logical_input(&self.root, package_root, output, path) else {
             return Ok(Vec::new());
         };
-        let name = normalize_path(&relative.to_string_lossy());
         let mut copies = Vec::new();
         for mapping in &self.entries {
-            if mapping.source_root != SourceRoot::Package
-                || normalize_path(&mapping.source_path) != name
+            let root = match mapping.source_root {
+                SourceRoot::Package => LogicalPathRoot::Package(self.root.clone()),
+                SourceRoot::Build => LogicalPathRoot::Build,
+            };
+            if root != *input.root()
+                || !LogicalPath::new(root, &mapping.source_path).is_ok_and(|path| path == input)
                 || span.end <= mapping.source[0]
                 || mapping.source[1] <= span.start
             {
@@ -418,10 +437,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(
-            outputs_reading_input(&plan, &output, "definitions.nia"),
+            outputs_reading_input(&plan, &root, &output, &root.join("definitions.nia")),
             std::slice::from_ref(&generated_path)
         );
-        assert!(outputs_reading_input(&plan, &output, "other.nia").is_empty());
+        assert!(outputs_reading_input(&plan, &root, &output, &root.join("other.nia")).is_empty());
         map.snapshot().verify_current().unwrap();
         for (span, expected) in [
             (Span::new(0, 6), Span::new(input_span[0], input_span[1])),
@@ -488,13 +507,20 @@ mod tests {
         let path = root.join("definitions.nia");
         let range = Span::new(1, 5);
         assert_eq!(
-            map.input_copies(root, &path, input, range).unwrap(),
+            map.input_copies(root, &root.join("out"), &path, input, range)
+                .unwrap(),
             [Span::new(1, 5), Span::new(8, 12)],
         );
         map.entries[1].editable = false;
-        assert!(map.input_copies(root, &path, input, range).is_err());
+        assert!(
+            map.input_copies(root, &root.join("out"), &path, input, range)
+                .is_err()
+        );
         map.entries[1] = mapping([14, 21], true);
-        assert!(map.input_copies(root, &path, input, range).is_err());
+        assert!(
+            map.input_copies(root, &root.join("out"), &path, input, range)
+                .is_err()
+        );
     }
 
     #[test]
@@ -535,10 +561,10 @@ mod tests {
         let origin = project(&map).unwrap().unwrap();
         assert_eq!(origin.path, input);
         assert_eq!(origin.span, Span::new(1, 3));
-        assert!(
-            map.input_copies(&root, &input, "amount", Span::new(1, 3))
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            map.input_copies(&root, &output, &input, "amount", Span::new(1, 3))
+                .unwrap(),
+            [Span::new(1, 3)],
         );
         map.inputs[0] = LogicalPath::new(
             LogicalPathRoot::Package(map.root.clone()),

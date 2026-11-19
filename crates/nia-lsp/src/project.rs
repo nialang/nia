@@ -388,10 +388,12 @@ impl Package {
         let Some((plan, _)) = self.plan.as_deref() else {
             return Vec::new();
         };
-        let Some(relative) = source.strip_prefix(self.source_root()).ok().map(normalized) else {
-            return Vec::new();
-        };
-        nia_build::source_map::outputs_reading_input(plan, &self.output_root(), &relative)
+        nia_build::source_map::outputs_reading_input(
+            plan,
+            &self.source_root(),
+            &self.output_root(),
+            source,
+        )
     }
 
     fn build_candidate(&self) -> Option<PathBuf> {
