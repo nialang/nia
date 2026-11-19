@@ -199,6 +199,14 @@ require("nvim-web-devicons").set_icon({
 })
 ```
 
+The headless smoke test uses the unpacked toolchain with Neovim's native LSP
+client to verify highlighting, folding, cross-file rename, and definition
+navigation after saving.
+
+```sh
+nvim --headless -u NONE -i NONE -l tools/lsp-neovim-smoke.lua /path/to/bin/nia-lsp
+```
+
 ## Vim
 
 Add `/path/to/nia/editors/vim` to `runtimepath` before `filetype plugin on`.

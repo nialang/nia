@@ -72,14 +72,19 @@ jobs:
         include:
           - platform: linux-x86_64
             runner: ubuntu-24.04
+            neovim: nvim-linux-x86_64
           - platform: linux-aarch64
             runner: ubuntu-24.04-arm
+            neovim: nvim-linux-arm64
           - platform: windows-x86_64
             runner: windows-2022
+            neovim: nvim-win64
           - platform: darwin-x86_64
             runner: macos-15-intel
+            neovim: nvim-macos-x86_64
           - platform: darwin-aarch64
             runner: macos-15
+            neovim: nvim-macos-arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
     env:
@@ -90,6 +95,7 @@ jobs:
       LLVM_SOURCE_ROOT: ${{ github.workspace }}/nia-source/target/llvm-source
       LLVM_BUILD_ROOT: ${{ github.workspace }}/nia-source/target/llvm-static/build
       LLVM_INSTALL_ROOT: ${{ github.workspace }}/nia-source/target/llvm-static/install
+      NEOVIM_VERSION: v0.11.5
     steps:
       - name: Check out release tooling
         uses: actions/checkout@v7
@@ -183,6 +189,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'packaged Windows compiler failed to start' }
       - name: Verify Unix archive layout
         if: runner.os != 'Windows'
+        id: unix-archive
         shell: bash
         run: |
           archive="nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.tar.gz"
@@ -193,7 +200,9 @@ jobs:
           grep -Eq '/libexec/ld.lld$' <<<"${entries}"
           unpacked="$(mktemp -d)"
           tar -xzf "${archive}" -C "${unpacked}"
-          python3 nia-source/tools/lsp-smoke.py "${unpacked}/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}/bin/nia-lsp"
+          server="${unpacked}/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}/bin/nia-lsp"
+          python3 nia-source/tools/lsp-smoke.py "$server"
+          echo "server=$server" >> "$GITHUB_OUTPUT"
       - name: Verify Windows archive layout
         if: runner.os == 'Windows'
         id: windows-archive
@@ -210,6 +219,38 @@ jobs:
           python .\nia-source\tools\lsp-smoke.py $server
           if ($LASTEXITCODE -ne 0) { throw 'packaged Windows language server failed protocol checks' }
           "server=$server" >> $env:GITHUB_OUTPUT
+      - name: Verify the unpacked Unix toolchain with Neovim
+        if: runner.os != 'Windows'
+        shell: bash
+        working-directory: nia-source
+        timeout-minutes: 5
+        env:
+          NEOVIM_ASSET: ${{ matrix.neovim }}
+          NIA_SMOKE_SERVER: ${{ steps.unix-archive.outputs.server }}
+        run: |
+          editor_dir="$(mktemp -d)"
+          archive="${editor_dir}/${NEOVIM_ASSET}.tar.gz"
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/${NEOVIM_ASSET}.tar.gz" -o "$archive"
+          tar -xzf "$archive" -C "$editor_dir"
+          "${editor_dir}/${NEOVIM_ASSET}/bin/nvim" --headless -u NONE -i NONE \
+            -l tools/lsp-neovim-smoke.lua "$NIA_SMOKE_SERVER"
+      - name: Verify the unpacked Windows toolchain with Neovim
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: nia-source
+        timeout-minutes: 5
+        env:
+          NEOVIM_ASSET: ${{ matrix.neovim }}
+          NIA_SMOKE_SERVER: ${{ steps.windows-archive.outputs.server }}
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "$env:NEOVIM_ASSET.zip"
+          $url = "https://github.com/neovim/neovim/releases/download/$env:NEOVIM_VERSION/$env:NEOVIM_ASSET.zip"
+          curl.exe --fail --location --retry 3 --silent --show-error $url -o $zip
+          if ($LASTEXITCODE -ne 0) { throw 'Neovim download failed' }
+          Expand-Archive -LiteralPath $zip -DestinationPath $env:RUNNER_TEMP
+          & "$env:RUNNER_TEMP/$env:NEOVIM_ASSET/bin/nvim.exe" --headless -u NONE -i NONE -l tools/lsp-neovim-smoke.lua $env:NIA_SMOKE_SERVER
+          if ($LASTEXITCODE -ne 0) { throw 'Neovim client smoke test failed' }
       - name: Set up Node.js for the VSIX
         if: runner.os == 'Windows'
         uses: actions/setup-node@v6
