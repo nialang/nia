@@ -70,26 +70,44 @@ impl Session {
             let Some(span) = item.diagnostic.primary_span() else {
                 continue;
             };
-            let Some(name) = file.text.get(span.start..span.end) else {
+            let summary = &item.diagnostic.summary;
+            let (span, candidates) = if let Some(name) = summary
+                .strip_prefix("unknown method `")
+                .and_then(|name| name.strip_suffix('`'))
+            {
+                let Some(span) = method_name_span(file.syntax().tree.green_root(), span) else {
+                    continue;
+                };
+                if file.text.get(span.start..span.end) != Some(name) {
+                    continue;
+                }
+                (span, analysis.extension_imports(file, name, cancel))
+            } else {
+                let Some(name) = file.text.get(span.start..span.end) else {
+                    continue;
+                };
+                if !crate::rename::identifier(name)
+                    || !["unknown value", "unknown type"]
+                        .iter()
+                        .any(|prefix| *summary == format!("{prefix} `{name}`"))
+                    || analysis.symbol_at_offset(file, span.start).is_some()
+                {
+                    continue;
+                }
+                (
+                    span,
+                    self.find_import_candidates(
+                        analysis,
+                        documents,
+                        path,
+                        |item| item.name.as_ref() == name,
+                        cancel,
+                    ),
+                )
+            };
+            let Some(candidates) = candidates else {
                 continue;
             };
-            if !matches!(tokenize(name).as_slice(), [token, _] if token.kind == TokenKind::Ident)
-                || !["unknown value", "unknown type"]
-                    .iter()
-                    .any(|prefix| item.diagnostic.summary == format!("{prefix} `{name}`"))
-                || analysis.symbol_at_offset(file, span.start).is_some()
-            {
-                continue;
-            }
-            let candidates = self
-                .find_import_candidates(
-                    analysis,
-                    documents,
-                    path,
-                    |item| item.name.as_ref() == name,
-                    cancel,
-                )
-                .unwrap_or_default();
             for candidate in candidates {
                 let Some(import) =
                     self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)
@@ -375,13 +393,11 @@ impl Analysis {
         actions
     }
 
-    fn import_candidates(
+    fn import_namespaces(
         &self,
         file: &File,
-        matches: impl Fn(&VisibleName) -> bool,
-        aliases: Option<&BTreeSet<String>>,
         cancel: &Cancellation,
-    ) -> Option<Vec<ImportCandidate>> {
+    ) -> Option<BTreeMap<Vec<String>, nia_ids::ModuleId>> {
         let imports = self.db.source_imports(file.module, 0).ok()?;
         let root = self.graph.current_package_root(file.module)?;
         let mut paths: BTreeMap<Vec<String>, _> = imports
@@ -445,8 +461,63 @@ impl Analysis {
                 }
             }
         }
-        let mut found = BTreeMap::<_, ImportCandidate>::new();
+        Some(paths)
+    }
+
+    fn extension_imports(
+        &self,
+        file: &File,
+        name: &str,
+        cancel: &Cancellation,
+    ) -> Option<Vec<ImportCandidate>> {
+        let name: std::sync::Arc<str> = name.into();
+        let symbol = nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash(&name));
+        let mut paths: Vec<_> = self.import_namespaces(file, cancel)?.into_iter().collect();
+        paths.sort_by(|(left, _), (right, _)| (left.len(), left).cmp(&(right.len(), right)));
+        let mut found = BTreeSet::new();
+        let mut candidates = Vec::new();
         for (path, module) in paths {
+            cancel.check().ok()?;
+            if module == file.module || !found.insert(module) {
+                continue;
+            }
+            let Some(definitions) = self.defs.get(&module) else {
+                continue;
+            };
+            for (def_id, def) in definitions.defs.iter() {
+                if def.name == symbol
+                    && def.kind == nia_defs::DefKind::Method
+                    && let Some(target) = symbol_site(
+                        self,
+                        super::Symbol::Global(nia_ids::GlobalDefId {
+                            module_id: module,
+                            def_id,
+                        }),
+                    )
+                {
+                    candidates.push(ImportCandidate {
+                        target,
+                        path: path.join("::"),
+                        name: name.clone(),
+                        kind: Some(nia_defs::DefKind::Method),
+                        signature: None,
+                        documentation: None,
+                    });
+                }
+            }
+        }
+        Some(candidates)
+    }
+
+    fn import_candidates(
+        &self,
+        file: &File,
+        matches: impl Fn(&VisibleName) -> bool,
+        aliases: Option<&BTreeSet<String>>,
+        cancel: &Cancellation,
+    ) -> Option<Vec<ImportCandidate>> {
+        let mut found = BTreeMap::<_, ImportCandidate>::new();
+        for (path, module) in self.import_namespaces(file, cancel)? {
             cancel.check().ok()?;
             if aliases.is_some_and(|aliases| !aliases.contains(&path[0])) {
                 continue;
@@ -486,6 +557,23 @@ impl Analysis {
         candidates.sort_by(|left, right| left.path.cmp(&right.path));
         Some(candidates)
     }
+}
+
+fn method_name_span(node: &nia_syntax::GreenNode, callee: Span) -> Option<Span> {
+    use nia_syntax::SyntaxKind;
+    if node.kind() == &SyntaxKind::CallExpr
+        && node
+            .child_nodes()
+            .find(|child| child.kind().is_expr())?
+            .token_span()
+            == Some(callee)
+        && let Some((name, true)) = crate::editing::call_target(node)
+    {
+        return Some(name);
+    }
+    node.child_nodes()
+        .find(|child| child.span().start <= callee.start && callee.end <= child.span().end)
+        .and_then(|child| method_name_span(child, callee))
 }
 
 fn completion_matches_import(item: &VisibleName, prefix: &str, type_only: bool) -> bool {

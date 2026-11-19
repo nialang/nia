@@ -44,6 +44,14 @@ def smoke(server, root):
         "pub fun distance(low: i32, high: i32) i32 { high - low }\n"
     )
     shapes.write_text(shapes_source, encoding="utf-8")
+    (root / "extensions.nia").write_text(
+        "extend root::shapes::Shape { pub fun measureHeight(&self) i32 { 42 } }\n",
+        encoding="utf-8",
+    )
+    (root / "other_extensions.nia").write_text(
+        "struct Other {}\nextend Other { pub fun measureHeight(&self) i32 { 0 } }\n",
+        encoding="utf-8",
+    )
     with subprocess.Popen([str(server)], cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
         try:
             client = Client(process, 60)
@@ -418,6 +426,33 @@ def smoke(server, root):
                 **params, position=end, context={"triggerKind": 3},
             ))
             assert [item["label"] for item in completions] == ["height"], completions
+
+            missing_method = updated.replace(
+                "shape.height", "shape.measureHeight()",
+            ) + "module extensions;\nmodule other_extensions;\n"
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=13),
+                "contentChanges": [{"text": missing_method}],
+            })
+            _, diagnostics = client.wait_diagnostics(main.as_uri(), 13, lambda items: any(
+                "unknown method `measureHeight`" in diagnostic["message"] for diagnostic in items
+            ))
+            missing, = [item for item in diagnostics if "unknown method" in item["message"]]
+            fix, = request(client, "textDocument/codeAction", dict(
+                **params, range=missing["range"],
+                context={"diagnostics": [missing], "only": ["quickfix"]},
+            ))
+            assert fix["title"] == "Import `root::extensions`", fix
+            change, = fix["edit"]["documentChanges"]
+            assert change["textDocument"] == dict(**document, version=13), change
+            assert change["edits"][0]["newText"] == "using root::extensions;\n\n", change
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=14),
+                "contentChanges": [
+                    {"range": edit["range"], "text": edit["newText"]} for edit in change["edits"]
+                ],
+            })
+            client.wait_diagnostics(main.as_uri(), 14, lambda items: not items)
 
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)
