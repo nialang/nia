@@ -300,6 +300,28 @@ impl SyntaxTree {
 }
 
 impl GreenNode {
+    pub(crate) fn same_grammar(&self, other: &Self) -> bool {
+        if Arc::ptr_eq(&self.data, &other.data) {
+            return true;
+        }
+        if self.kind() != other.kind() {
+            return false;
+        }
+        let significant = |element: &&GreenElement| !matches!(element, GreenElement::Token(token) if token.kind.is_trivia());
+        let mut left = self.data.children.iter().filter(significant);
+        let mut right = other.data.children.iter().filter(significant);
+        loop {
+            match (left.next(), right.next()) {
+                (Some(GreenElement::Node(left)), Some(GreenElement::Node(right)))
+                    if left.same_grammar(right) => {}
+                (Some(GreenElement::Token(left)), Some(GreenElement::Token(right)))
+                    if left.kind == right.kind && left.text == right.text => {}
+                (None, None) => return true,
+                _ => return false,
+            }
+        }
+    }
+
     fn new(kind: SyntaxKind, span: Span, children: Vec<GreenElement>) -> Self {
         let children = children
             .into_iter()

@@ -184,6 +184,19 @@ impl PartialEq for Parse {
 impl Eq for Parse {}
 
 impl Parse {
+    /// Compares error-free grammar trees, ignoring trivia and source positions.
+    pub fn same_grammar(&self, other: &Self) -> bool {
+        self.errors.is_empty()
+            && other.errors.is_empty()
+            && self.tree.green_root().same_grammar(other.tree.green_root())
+            && self.alternates.len() == other.alternates.len()
+            && self
+                .alternates
+                .iter()
+                .zip(&other.alternates)
+                .all(|(left, right)| left.kind == right.kind && left.root.same_grammar(&right.root))
+    }
+
     /// Returns the alternate reading of `kind` for the node spanning `span`.
     pub fn alternate(&self, kind: AlternateKind, span: Span) -> Option<&GreenNode> {
         self.alternates

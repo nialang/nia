@@ -1,6 +1,53 @@
 use super::*;
 
 #[test]
+fn source_edit_preserves_demands_for_comments_and_retires_them_for_grammar_changes() {
+    let sources = SourceDatabase::new();
+    let main = SourcePath::new("main.nia");
+    let alternate = SourcePath::with_identity(main.as_str(), "overlay:/main.nia");
+    sources
+        .set_source(alternate.clone(), "fun main() i32 { 1 }\n")
+        .unwrap();
+    let initial = sources
+        .set_source(main.clone(), "fun main() i32 { 1 }\n")
+        .unwrap();
+    let database = LoaderDatabase::new_for_test(test_request(main.as_str()).with_sources(sources));
+    database
+        .db
+        .get(crate::queries::SyntaxModuleQuery(initial.version()))
+        .unwrap();
+    let demand = ProviderDemand {
+        source_path: main.clone(),
+        request: nia_compiler_query::ProviderRequest::Method {
+            target_type_name: None,
+            target_package: nia_symbol::known::STD,
+            target_module_segments: Vec::new(),
+            method_name: sym("missing"),
+        },
+    };
+    database.update_provider_demands([demand.clone()]).unwrap();
+    let facts = &database.db.context().provider_facts;
+    let revision = facts.revision_if_nonempty().unwrap();
+
+    database
+        .set_source_path(alternate, "// comment\nfun main() i32 { 1 }\n")
+        .unwrap();
+    assert_eq!(facts.revision_if_nonempty(), Some(revision));
+
+    let edited = database
+        .set_source(main.as_str(), "// comment\nfun main() i32 { 1 }\n")
+        .unwrap();
+    assert_ne!(initial.version(), edited.version());
+    assert_eq!(facts.revision_if_nonempty(), Some(revision));
+    assert!(facts.contains_all(&[demand]));
+
+    database
+        .set_source(main.as_str(), "// comment\nfun main() i32 { 2 }\n")
+        .unwrap();
+    assert!(facts.revision_if_nonempty().is_none());
+}
+
+#[test]
 fn provider_demand_update_keeps_unmatched_and_known_demands_graph_stable() {
     let root = temp_dir("provider_demand_update_keeps_unmatched_and_known_demands_graph_stable");
     let main_path = root.join("main.nia");

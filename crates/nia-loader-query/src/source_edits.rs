@@ -56,7 +56,7 @@ impl LoaderDatabase {
                 id: source_id,
                 revision,
             };
-            let syntax = match (
+            let (syntax, same_grammar) = match (
                 &previous,
                 edit,
                 retirement.cached(&SyntaxModuleQuery(previous_version))?,
@@ -64,17 +64,44 @@ impl LoaderDatabase {
                 (Some(previous), Some(edit), Some(syntax))
                     if syntax.tree.source() == previous.text.as_ref() =>
                 {
-                    Some(syntax.reparse(&edit, Some(version)).map_err(|error| {
+                    let edited = syntax.reparse(&edit, Some(version)).map_err(|error| {
                         self.db.invalid_input(
                             &SyntaxModuleQuery(version),
                             format!("failed to reparse grammar tree: {error:?}"),
                         )
-                    })?)
+                    })?;
+                    let same_grammar = syntax.tree.source() != edited.tree.source()
+                        && syntax.same_grammar(&edited);
+                    (Some(edited), same_grammar)
                 }
-                _ => None,
+                (Some(previous), _, None)
+                    if previous.text.as_ref() != text.as_ref()
+                        && self
+                            .db
+                            .context()
+                            .provider_facts
+                            .revision_if_nonempty()
+                            .is_some() =>
+                {
+                    // A relocated source can have an overlay under an
+                    // additional identity with no cached parse of its own.
+                    let parsed = nia_syntax::parse(&text, Some(version)).ok();
+                    let same_grammar = parsed.as_ref().is_some_and(|after| {
+                        nia_syntax::parse(&previous.text, Some(previous_version))
+                            .is_ok_and(|before| before.same_grammar(after))
+                    });
+                    (parsed, same_grammar)
+                }
+                _ => (None, false),
             };
             // Parsing and edit validation finish before any old resource is retired.
-            self.reset_provider_facts(retirement)?;
+            // Provider demands name sources and symbols, so changes to trivia
+            // and positions alone do not invalidate settled demands.
+            if same_grammar {
+                *self.db.context().provider_demand_plan_candidate.lock() = None;
+            } else {
+                self.reset_provider_facts(retirement)?;
+            }
             retirement.invalidate(SourceTextQuery(source_id))?;
             queries::retire_source_revision_queries(retirement, previous_version)?;
             self.db
