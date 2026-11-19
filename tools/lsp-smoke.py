@@ -1039,17 +1039,17 @@ if stage == 2:
 using std::fs;
 pub fun build(b: &mut build::Build) build::Error!() {
     let script = build::CommandArgument::packageInput(b.rootPackage(), fs::PathView::init("generate.py"));
-    let first = build::BuildPathView::init("first.nia");
+    let first = build::BuildPathView::init("first.txt");
     let second = build::BuildPathView::init("second.nia");
     let firstArgs = [script, build::CommandArgument::literal("1"),
         build::CommandArgument::packageInput(b.rootPackage(), fs::PathView::init("input.nia")),
         build::CommandArgument::buildOutput(first),
-        build::CommandArgument::buildOutput(build::BuildPathView::init("first.nia.map"))];
+        build::CommandArgument::buildOutput(build::BuildPathView::init("first.txt.map"))];
     let secondArgs = [script, build::CommandArgument::literal("2"),
         build::CommandArgument::buildInput(first), build::CommandArgument::buildOutput(second),
         build::CommandArgument::buildOutput(build::BuildPathView::init("second.nia.map")),
-        build::CommandArgument::buildOutput(build::BuildPathView::init("unused.nia")),
-        build::CommandArgument::buildOutput(build::BuildPathView::init("unused.nia.map"))];
+        build::CommandArgument::buildOutput(build::BuildPathView::init("unused.txt")),
+        build::CommandArgument::buildOutput(build::BuildPathView::init("unused.txt.map"))];
     let prepare = b.addExternalCommandStep("first", build::ExternalCommandOptions::search("__PYTHON__").withArguments(firstArgs)).?;
     let generate = b.addExternalCommandStep("second", build::ExternalCommandOptions::search("__PYTHON__").withArguments(secondArgs)).?;
     b.dependOn(generate, prepare).?;
@@ -1088,20 +1088,21 @@ pub fun build(b: &mut build::Build) build::Error!() {
             origin.write_bytes(b"// changed\n" + original)
             assert request(client, "textDocument/definition", definition)["uri"] == generated.as_uri()
             origin.write_bytes(original)
-            first_map = generated.with_name("first.nia.map")
+            first_map = generated.with_name("first.txt.map")
             map_text = first_map.read_bytes()
             first_map.write_bytes(b"{}")
             assert request(client, "textDocument/definition", definition)["uri"] == generated.as_uri()
             first_map.write_bytes(map_text)
             assert request(client, "textDocument/definition", definition) == target
             rename = {**definition, "newName": "total"}
-            sibling = generated.with_name("unused.nia")
-            sibling_map = sibling.with_suffix(".nia.map")
+            sibling = generated.with_name("unused.txt")
+            sibling_map = sibling.with_suffix(".txt.map")
             sibling.write_bytes(generated.read_bytes())
             sibling_map.write_bytes(generated.with_suffix(".nia.map").read_bytes())
             _, rejected = client.wait(client.request("textDocument/rename", rename))
+            assert "error" in rejected, rejected
             assert "another generated occurrence" in rejected["error"]["message"], rejected
-            assert "unused.nia" in rejected["error"]["message"], rejected
+            assert "unused.txt" in rejected["error"]["message"], rejected
             check()
             result = request(client, "textDocument/rename", rename)
             changes = result["changes"]
@@ -1116,7 +1117,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
             origin.write_bytes(original.replace(b"amount", b"total"))
             entry.write_text(source.replace("amount", "total"), encoding="utf-8")
             check()
-            assert b"fun total()" in generated.with_name("first.nia").read_bytes()
+            assert b"fun total()" in generated.with_name("first.txt").read_bytes()
             assert b"fun total()" in generated.read_bytes()
             request(client, "shutdown", None)
             client.notify("exit", None)

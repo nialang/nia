@@ -44,7 +44,7 @@ impl GeneratedSourceSnapshot {
     }
 }
 
-/// Lists Nia outputs of commands that consume the given package or build input.
+/// Lists Nia and source-mapped outputs of commands consuming this input.
 pub fn outputs_reading_input(
     plan: &BuildPlan,
     package_root: &Path,
@@ -66,12 +66,22 @@ pub fn outputs_reading_input(
             }
             _ => None,
         })
-        .flat_map(|command| &command.outputs)
-        .filter(|path| {
-            path.root() == &LogicalPathRoot::Build && path.protocol_path().ends_with(".nia")
+        .flat_map(|command| {
+            command.outputs.iter().filter(|path| {
+                path.root() == &LogicalPathRoot::Build
+                    && (path.protocol_path().ends_with(".nia")
+                        || map_output(path).is_ok_and(|map| command.outputs.contains(&map)))
+            })
         })
         .map(|path| output.join(path.protocol_path()))
         .collect()
+}
+
+fn map_output(source: &LogicalPath) -> Result<LogicalPath, nia_build_plan::LogicalPathError> {
+    LogicalPath::new(
+        source.root().clone(),
+        &format!("{}.map", source.protocol_path()),
+    )
 }
 
 fn logical_input(
@@ -147,9 +157,8 @@ impl<'a> GeneratedSourceMap<'a> {
         let relative = normalize_path(&relative.to_string_lossy());
         let name = LogicalPath::new(LogicalPathRoot::Build, &relative)
             .map_err(|_| invalid("invalid generated source path"))?;
-        let map_name = format!("{relative}.map");
-        let logical_map = LogicalPath::new(LogicalPathRoot::Build, &map_name)
-            .map_err(|_| invalid("invalid generated source map path"))?;
+        let logical_map =
+            map_output(&name).map_err(|_| invalid("invalid generated source map path"))?;
         let Some(producer) = plan.actions().iter().find_map(|action| match &action.kind {
             ActionKind::ExternalCommand(command) | ActionKind::RunExecutable(command)
                 if command.outputs.contains(&name) && command.outputs.contains(&logical_map) =>
@@ -165,7 +174,7 @@ impl<'a> GeneratedSourceMap<'a> {
                 "generated source resolves outside its declared path",
             ));
         }
-        let map = output.join(map_name);
+        let map = output.join(logical_map.protocol_path());
         if canonical_file(&map)? != normalize_path(&map.to_string_lossy()) {
             return Err(invalid(
                 "generated source map resolves outside its declared path",
