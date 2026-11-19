@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crossbeam_channel::{Receiver, Sender, select, tick, unbounded};
@@ -483,8 +483,7 @@ impl Server {
                     Message::Request(request) => {
                         if request.method == "shutdown" {
                             self.cancel_active();
-                        }
-                        if connection.handle_shutdown(&request)? {
+                            finish_shutdown(connection, request)?;
                             break;
                         }
                         self.request(connection, request)?;
@@ -866,6 +865,27 @@ impl Server {
     }
 }
 
+fn finish_shutdown(connection: &Connection, request: Request) -> Result<(), Error> {
+    connection
+        .sender
+        .send(Response::new_ok(request.id, ()).into())?;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        match connection.receiver.recv_deadline(deadline)? {
+            Message::Notification(notification) if notification.method == "exit" => return Ok(()),
+            Message::Request(request) => connection.sender.send(
+                Response::new_err(
+                    request.id,
+                    ErrorCode::InvalidRequest as i32,
+                    "Nia language server is shutting down".into(),
+                )
+                .into(),
+            )?,
+            Message::Notification(_) | Message::Response(_) => {}
+        }
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct Cancel {
     id: RequestId,
@@ -890,6 +910,25 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shutdown_waits_for_exit_after_an_outstanding_refresh_response() {
+        let (server, client) = Connection::memory();
+        client
+            .sender
+            .send(Response::new_ok("nia-semantic-refresh-1".to_owned().into(), ()).into())
+            .unwrap();
+        client
+            .sender
+            .send(Notification::new("exit".into(), ()).into())
+            .unwrap();
+        finish_shutdown(&server, Request::new(1.into(), "shutdown".into(), ())).unwrap();
+        let Message::Response(response) = client.receiver.try_recv().unwrap() else {
+            panic!("expected a shutdown response");
+        };
+        assert_eq!(response.id, 1.into());
+        assert!(response.response_result.is_ok());
+    }
 
     #[test]
     fn published_build_plan_invalidates_disk_analysis() {
