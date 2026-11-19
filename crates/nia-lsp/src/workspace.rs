@@ -155,6 +155,8 @@ impl Session {
     ) -> Result<Arc<WorkspaceIndex>, String> {
         cancel.check()?;
         self.install_documents(documents)?;
+        // Open documents already contribute their packages and standalone entries.
+        let path = path.filter(|path| !documents.contains_key(*path));
         let anchor = path.map(normalized);
         let overlays: BTreeMap<_, _> = documents
             .iter()

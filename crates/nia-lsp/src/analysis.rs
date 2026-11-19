@@ -2984,6 +2984,17 @@ mod tests {
         for (old, new) in closed.entries.iter().zip(&dependent.entries) {
             assert!(!Arc::ptr_eq(old, new));
         }
+        let mut open = overlays;
+        open.insert(test.clone(), changed[&test].clone());
+        let symbols = session
+            .index_workspace(None, &open, &folders, &cancel)
+            .unwrap();
+        for path in [&declaration, &test] {
+            let references = session
+                .workspace_index(path, &open, &folders, &cancel)
+                .unwrap();
+            assert!(Arc::ptr_eq(&symbols, &references));
+        }
         assert_eq!(std::fs::read_to_string(&test).unwrap(), test_source);
         assert_eq!(std::fs::read_to_string(&declaration).unwrap(), source);
     }
