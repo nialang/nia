@@ -185,21 +185,24 @@ impl Folds<'_> {
     fn visit(&mut self, node: &GreenNode) {
         use SyntaxKind::*;
         let brackets = match node.kind() {
-            Block | FieldList | FieldInitList | MatchExpr | MemberList | VariantList
-            | UsingGroup => Some((TokenKind::LBrace, TokenKind::RBrace)),
-            ParamList | ArgList | TupleFieldList => Some((TokenKind::LParen, TokenKind::RParen)),
-            ArrayExpr | BracketArgList | GenericParamList | TypeArgList => {
-                Some((TokenKind::LBracket, TokenKind::RBracket))
+            Block | FieldList | FieldInitList | MatchExpr | MemberList | NominalNamedFields
+            | VariantList | UsingGroup => Some((TokenKind::LBrace, TokenKind::RBrace)),
+            ArgList | CallableType | FnPointerType | NominalTupleFields | ParamList | ParenExpr
+            | ParenPattern | ParenType | TupleExpr | TupleFieldList | TuplePattern | TupleType => {
+                Some((TokenKind::LParen, TokenKind::RParen))
             }
+            ArrayExpr | ArrayType | BracketArgList | CaptureList | GenericParamList
+            | ProjectionType | SlicePointeeType | SliceType | TraitTargetExpr | TypeArgList
+            | TypeTargetExpr => Some((TokenKind::LBracket, TokenKind::RBracket)),
             _ => None,
         };
         if let Some((open, close)) = brackets
             && let Some(open) = node.token(&open)
         {
-            let closing = node.child_tokens().last().filter(|token| token.is(&close));
+            let closing = node.token(&close);
             let end = closing.map_or(node.span().end, |token| token.span().start);
             let kind = (node.kind() == &UsingGroup).then_some(FoldingRangeKind::Imports);
-            self.push(open.span().end, end, kind, true);
+            self.push(open.span().end, end, kind, closing.is_some());
         } else if node.kind() == &WhereClause
             && let Some(keyword) = node.token(&TokenKind::Where)
             && let Some(last) = node.last_token()
@@ -403,5 +406,43 @@ mod tests {
                 (6, 7, None)
             ]
         );
+    }
+
+    #[test]
+    fn folding_covers_nested_types_in_signatures_and_tuple_expressions() {
+        let document = Document::new(
+            1,
+            concat!(
+                "type Callback = &fun(\n",
+                "    [\n",
+                "        i32; 4\n",
+                "    ],\n",
+                "    (\n",
+                "        i32, bool\n",
+                "    ),\n",
+                ") (\n",
+                "    i32, bool\n",
+                ");\n",
+                "fun pair() (i32, bool) {\n",
+                "    (\n",
+                "        1, true\n",
+                "    )\n",
+                "}\n",
+            )
+            .into(),
+        );
+        assert_eq!(
+            document
+                .folding_ranges(true, None)
+                .into_iter()
+                .map(|range| (range.start_line, range.end_line))
+                .collect::<Vec<_>>(),
+            [(0, 6), (1, 2), (4, 5), (7, 8), (10, 13), (11, 12)]
+        );
+        let ranges = document.folding_ranges(false, None);
+        assert_eq!(ranges[0].end_line, 7);
+        assert_eq!(ranges[0].end_character, Some(0));
+        assert_eq!(ranges[3].start_line, 7);
+        assert_eq!(ranges[3].start_character, Some(3));
     }
 }
