@@ -10,7 +10,7 @@ use std::{
     },
 };
 
-use lsp_types::{Location, Position, Uri};
+use lsp_types::{Location, Position, SymbolInformation, SymbolKind, Uri};
 use nia_lexer::TokenKind;
 use nia_span::Span;
 use nia_syntax::SyntaxKind;
@@ -64,7 +64,15 @@ pub(crate) struct WorkspaceIndex {
     pub(crate) editable: BTreeSet<PathBuf>,
     managed: BTreeSet<PathBuf>,
     pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
+    folders: Vec<PathBuf>,
+    symbols: BTreeMap<(String, Span), WorkspaceDeclaration>,
     references: OnceLock<HashMap<Site, BTreeSet<Site>>>,
+}
+
+struct WorkspaceDeclaration {
+    name: String,
+    kind: SymbolKind,
+    container: String,
 }
 
 enum EntryKind {
@@ -92,10 +100,21 @@ impl Session {
         folders: &[PathBuf],
         cancel: &Cancellation,
     ) -> Result<Arc<WorkspaceIndex>, String> {
+        self.index_workspace(Some(path), documents, folders, cancel)
+    }
+
+    pub(crate) fn index_workspace(
+        &mut self,
+        path: Option<&Path>,
+        documents: &Documents,
+        folders: &[PathBuf],
+        cancel: &Cancellation,
+    ) -> Result<Arc<WorkspaceIndex>, String> {
         cancel.check()?;
         self.install_documents(documents)?;
         if let Some(index) = &self.workspace_index
-            && index.files.contains_key(&normalized(path))
+            && index.folders == folders
+            && path.is_none_or(|path| index.files.contains_key(&normalized(path)))
         {
             return Ok(index.clone());
         }
@@ -111,6 +130,8 @@ impl Session {
             editable: workspace.editable,
             managed: workspace.managed,
             unavailable_plans: workspace.unavailable_plans,
+            folders: folders.to_vec(),
+            symbols: BTreeMap::new(),
             references: OnceLock::new(),
         };
         for (request, kind) in workspace
@@ -145,6 +166,27 @@ impl Session {
                 Ok(analysis) => {
                     let error = analysis.first_error().map(str::to_owned);
                     let bindings = bindings(&analysis, cancel)?;
+                    for (source, span, name, kind, module) in analysis.workspace_declarations() {
+                        let source_path = Path::new(source);
+                        if !index.editable_source(source_path) {
+                            continue;
+                        }
+                        let package = source_path
+                            .ancestors()
+                            .find_map(|directory| workspace.package_names.get(directory));
+                        let container = match (package, module.is_empty()) {
+                            (Some(package), false) => format!("{package}::{module}"),
+                            (Some(package), true) => package.clone(),
+                            (None, _) => module,
+                        };
+                        index.symbols.entry((source.to_owned(), span)).or_insert(
+                            WorkspaceDeclaration {
+                                name,
+                                kind,
+                                container,
+                            },
+                        );
+                    }
                     for (source, file) in analysis.files {
                         match index.files.entry(source) {
                             std::collections::btree_map::Entry::Occupied(current) => {
@@ -182,6 +224,49 @@ impl Session {
 }
 
 impl WorkspaceIndex {
+    #[allow(deprecated)]
+    pub(crate) fn symbols(
+        &self,
+        query: &str,
+        cancel: &Cancellation,
+    ) -> Result<Vec<SymbolInformation>, String> {
+        let query = query.trim().to_lowercase();
+        let mut matches = Vec::new();
+        for ((source, span), declaration) in &self.symbols {
+            cancel.check()?;
+            let name = declaration.name.to_lowercase();
+            let candidate = if query.contains("::") {
+                format!("{}::{name}", declaration.container.to_lowercase())
+            } else {
+                name
+            };
+            let Some(offset) = candidate.find(&query) else {
+                continue;
+            };
+            matches.push((candidate != query, offset, &declaration.name, source, span));
+        }
+        matches.sort_unstable();
+        let mut lines = HashMap::new();
+        matches
+            .into_iter()
+            .map(|(_, _, _, source, span)| {
+                cancel.check()?;
+                let declaration = &self.symbols[&(source.clone(), *span)];
+                let (uri, text) = &self.files[source];
+                let lines = lines.entry(source).or_insert_with(|| Lines::new(text));
+                Ok(SymbolInformation {
+                    name: declaration.name.clone(),
+                    kind: declaration.kind,
+                    tags: None,
+                    deprecated: None,
+                    location: Location::new(uri.clone(), lines.range(text, *span)),
+                    container_name: (!declaration.container.is_empty())
+                        .then(|| declaration.container.clone()),
+                })
+            })
+            .collect()
+    }
+
     pub(crate) fn reference_coverage_warning(&self) -> Option<String> {
         let (path, error) = if let Some((package, error)) = self.unavailable_plans.first() {
             (package.to_string_lossy(), error)

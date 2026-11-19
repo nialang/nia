@@ -1468,6 +1468,54 @@ impl Analysis {
         ))
     }
 
+    pub(crate) fn workspace_declarations(
+        &self,
+    ) -> impl Iterator<Item = (&str, Span, String, lsp_types::SymbolKind, String)> {
+        self.definitions
+            .iter()
+            .filter_map(|(symbol, (source, span))| {
+                use lsp_types::SymbolKind as Kind;
+                let (module, kind) = match *symbol {
+                    Symbol::Global(id) => {
+                        let def = self.defs.get(&id.module_id)?.defs.get(id.def_id)?;
+                        let kind = match def.kind {
+                            DefKind::Module => Kind::MODULE,
+                            DefKind::Function => Kind::FUNCTION,
+                            DefKind::Global => Kind::VARIABLE,
+                            DefKind::Const => Kind::CONSTANT,
+                            DefKind::Struct | DefKind::Union => Kind::STRUCT,
+                            DefKind::Enum => Kind::ENUM,
+                            DefKind::Trait => Kind::INTERFACE,
+                            DefKind::TypeAlias | DefKind::TraitAssociatedType => {
+                                Kind::TYPE_PARAMETER
+                            }
+                            DefKind::StructField
+                            | DefKind::UnionField
+                            | DefKind::EnumVariantField => Kind::FIELD,
+                            DefKind::EnumVariant => Kind::ENUM_MEMBER,
+                            DefKind::Method | DefKind::TraitMethod => Kind::METHOD,
+                        };
+                        (id.module_id, kind)
+                    }
+                    Symbol::Module(id) => (self.graph.get(id)?.parent?, Kind::MODULE),
+                    _ => return None,
+                };
+                let file = self.files.get(source)?;
+                let name = file.text.get(span.start..span.end)?.to_owned();
+                let container = self
+                    .graph
+                    .get(module)?
+                    .module_path
+                    .segments
+                    .iter()
+                    .filter_map(|&name| self.db.source_symbol_text(name))
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>()
+                    .join("::");
+                Some((source.as_str(), *span, name, kind, container))
+            })
+    }
+
     pub(crate) fn hover(&self, path: &Path, position: Position) -> Option<lsp_types::Hover> {
         let (source, span) = self.definitions.get(&self.symbol_at(path, position)?)?;
         let file = self.files.get(source)?;
@@ -2123,6 +2171,56 @@ mod tests {
         );
         assert!(!root.join("nia.lock").exists());
         assert!(!root.join("build").exists());
+    }
+
+    #[test]
+    fn workspace_symbols_search_unopened_packages_and_use_active_buffer_declarations() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-symbols");
+        std::fs::write(root.join("nia.toml"), "[workspace]\nmembers = [\"app\"]\n").unwrap();
+        let app = root.join("app");
+        std::fs::create_dir(&app).unwrap();
+        std::fs::write(
+            app.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+        )
+        .unwrap();
+        std::fs::write(app.join("root.nia"), "module types;\n").unwrap();
+        let path = app.join("types.nia");
+        std::fs::write(
+            &path,
+            "pub struct DiskValue {}\n@[release] pub struct Hidden {}\n",
+        )
+        .unwrap();
+        let mut session = test_session();
+        let cancel = Cancellation::default();
+        let folders = [root.to_path_buf()];
+        let index = session
+            .index_workspace(None, &Documents::new(), &folders, &cancel)
+            .unwrap();
+        let symbols = index.symbols("APP::types::DiskValue", &cancel).unwrap();
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].location.uri, uri(&path).unwrap());
+        assert_eq!(symbols[0].kind, lsp_types::SymbolKind::STRUCT);
+        assert!(index.symbols("Hidden", &cancel).unwrap().is_empty());
+
+        let documents = Documents::from([(
+            path.clone(),
+            OpenDocument {
+                uri: uri(&path).unwrap(),
+                document: Document::new(1, "pub struct BufferValue {}\n".into()),
+            },
+        )]);
+        let index = session
+            .index_workspace(None, &documents, &folders, &cancel)
+            .unwrap();
+        assert!(index.symbols("DiskValue", &cancel).unwrap().is_empty());
+        assert_eq!(
+            index.symbols("BufferValue", &cancel).unwrap()[0]
+                .location
+                .uri,
+            uri(&path).unwrap()
+        );
     }
 
     #[test]

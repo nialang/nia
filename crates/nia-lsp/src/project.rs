@@ -2,7 +2,7 @@
 //! Package contexts for editor analysis.
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::OnceLock,
 };
@@ -36,6 +36,7 @@ pub(crate) struct WorkspaceRequests {
     pub(crate) editable: BTreeSet<PathBuf>,
     pub(crate) managed: BTreeSet<PathBuf>,
     pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
+    pub(crate) package_names: BTreeMap<PathBuf, String>,
 }
 
 #[derive(Clone)]
@@ -56,7 +57,7 @@ impl From<CheckRequest> for EditorRequest {
 impl Projects {
     pub(crate) fn workspace_requests(
         &mut self,
-        entry: &Path,
+        entry: Option<&Path>,
         open: impl Iterator<Item = PathBuf>,
         folders: &[PathBuf],
         toolchain: &nia_toolchain::ToolchainLayout,
@@ -69,12 +70,13 @@ impl Projects {
         let mut configured = Vec::new();
         let mut build_candidates = Vec::new();
         let mut unavailable_plans = Vec::new();
+        let mut package_names = BTreeMap::new();
         for folder in folders {
             if folder.join("nia.toml").is_file() {
                 roots.insert(folder.canonicalize().map_err(|error| error.to_string())?);
             }
         }
-        for path in std::iter::once(entry.to_path_buf()).chain(open) {
+        for path in entry.map(Path::to_path_buf).into_iter().chain(open) {
             standalone.insert(PathBuf::from(normalized(&path)));
             let Some(package) = self.package(&path)? else {
                 if let Some(parent) = path.parent() {
@@ -106,6 +108,10 @@ impl Projects {
             let package = self
                 .package(&root.join("nia.toml"))?
                 .ok_or("Workspace package disappeared")?;
+            package_names.insert(
+                PathBuf::from(normalized(package.layout.package_root())),
+                package.manifest.package.name.clone(),
+            );
             editable.insert(PathBuf::from(normalized(package.layout.package_root())));
             managed.extend(
                 package
@@ -166,6 +172,7 @@ impl Projects {
             editable,
             managed,
             unavailable_plans,
+            package_names,
         })
     }
 

@@ -32,6 +32,7 @@ const COMPLETION: &str = "textDocument/completion";
 const RENAME: &str = "textDocument/rename";
 const PREPARE_RENAME: &str = "textDocument/prepareRename";
 const REFERENCES: &str = "textDocument/references";
+const WORKSPACE_SYMBOL: &str = "workspace/symbol";
 
 pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error> {
     let (connection, io) = Connection::stdio();
@@ -88,6 +89,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "workspace": { "workspaceFolders": { "supported": true, "changeNotifications": true } },
                 "hoverProvider": true,
                 "documentSymbolProvider": true,
+                "workspaceSymbolProvider": true,
                 "foldingRangeProvider": true,
                 "semanticTokensProvider": { "legend": highlight::legend(), "full": true },
                 "completionProvider": { "triggerCharacters": [":", "."] },
@@ -177,7 +179,10 @@ enum Lane {
 
 impl Lane {
     fn for_request(request: &Request) -> Self {
-        if matches!(request.method.as_str(), REFERENCES | RENAME) {
+        if matches!(
+            request.method.as_str(),
+            REFERENCES | RENAME | WORKSPACE_SYMBOL
+        ) {
             Self::Workspace
         } else {
             Self::Editor
@@ -196,7 +201,7 @@ fn analyze(
     let mut cached = None;
     let mut disk_revision = 0;
     let mut revision = None;
-    for work in queue {
+    for mut work in queue {
         if revision != Some(work.revision) {
             session.workspace_index = None;
             revision = Some(work.revision);
@@ -222,6 +227,42 @@ fn analyze(
                     diagnostics: Ok(Vec::new()),
                     highlights: Arc::new(Resolved::new()),
                     response,
+                    reference_coverage: None,
+                })
+                .is_err()
+            {
+                break;
+            }
+            continue;
+        }
+        if let Some(request) = &work.request
+            && request.method == WORKSPACE_SYMBOL
+        {
+            let request = work.request.take().expect("workspace symbol request");
+            let response = match decode::<lsp_types::WorkspaceSymbolParams>(request.params) {
+                Ok(params) => match session
+                    .index_workspace(None, &work.documents, &work.folders, &work.cancel)
+                    .and_then(|index| index.symbols(&params.query, &work.cancel))
+                {
+                    Ok(symbols) => Response::new_ok(request.id, symbols),
+                    Err(error) => {
+                        Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
+                    }
+                },
+                Err(error) => Response::new_err(
+                    request.id,
+                    ErrorCode::InvalidParams as i32,
+                    error.to_string(),
+                ),
+            };
+            if output
+                .send(Reply {
+                    lane,
+                    revision: work.revision,
+                    path: work.path,
+                    diagnostics: Ok(Vec::new()),
+                    highlights: Arc::new(Resolved::new()),
+                    response: Some(response),
                     reference_coverage: None,
                 })
                 .is_err()
@@ -519,6 +560,11 @@ impl Server {
     }
 
     fn request(&mut self, connection: &Connection, request: Request) -> Result<(), Error> {
+        if request.method == WORKSPACE_SYMBOL {
+            self.pending
+                .push_back((PathBuf::new(), self.revision, request));
+            return Ok(());
+        }
         if !matches!(
             request.method.as_str(),
             "textDocument/definition"
