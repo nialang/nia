@@ -145,10 +145,11 @@ impl Projects {
         let standalone = standalone
             .into_iter()
             .map(|path| match self.package(&path)? {
-                Some(package) => package.request(&path, package.fallback_context(&path)),
-                None => Ok(CheckRequest::new(normalized(&path))),
+                Some(package) => {
+                    package.editor_request(&path, package.fallback_context(&path), toolchain)
+                }
+                None => Ok(CheckRequest::new(normalized(&path)).into()),
             })
-            .map(|result| result.map(EditorRequest::from))
             .collect::<Result<_, _>>()?;
         Ok(WorkspaceRequests {
             entries,
@@ -356,9 +357,28 @@ impl Package {
                 entries.push((library, Context::Library));
             }
             entries.extend(artifacts);
-            entries.push((entry.to_path_buf(), self.fallback_context(entry)));
+            let fallback = self.fallback_context(entry);
+            if fallback != Context::Build
+                && let Some(build) = self.build_candidate()
+            {
+                entries.push((build, Context::Build));
+            }
+            entries.push((entry.to_path_buf(), fallback));
         }
         entries
+    }
+
+    pub(crate) fn editor_request(
+        &mut self,
+        path: &Path,
+        context: Context,
+        toolchain: &nia_toolchain::ToolchainLayout,
+    ) -> Result<EditorRequest, String> {
+        if context == Context::Build {
+            self.build_request(path, toolchain)
+        } else {
+            self.request(path, context).map(EditorRequest::from)
+        }
     }
 
     pub(crate) fn request(

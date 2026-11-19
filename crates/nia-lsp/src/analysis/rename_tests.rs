@@ -141,6 +141,53 @@ fn build_hook_still_contributes_its_independent_context() {
 }
 
 #[test]
+fn opening_a_build_script_child_uses_the_build_dependency_scope() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-build-child-owner");
+    let write = |path: &str, text: &str| {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        path
+    };
+    write(
+        "nia.toml",
+        "[package]\nname = \"example\"\nversion = \"0.1.0\"\n\
+         [library]\npath = \"root.nia\"\n\
+         [build-dependencies]\nhelper = { path = \"helper\" }\n",
+    );
+    write("root.nia", "pub fun library() i32 { 0 }\n");
+    write(
+        "build.nia",
+        "using std::build;\nmodule options;\n\
+         pub fun build(b: &mut build::Build) build::Error!() { _ = b; _ = options::value(); !() }\n",
+    );
+    let child = write("options.nia", "pub fun value() i32 { 0 }\n");
+    write(
+        "helper/nia.toml",
+        "[package]\nname = \"helper\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+    );
+    let helper = write("helper/root.nia", "pub fun amount() i32 { 42 }\n");
+    let edited = "pub fun value() i32 { helper::amount() }\n";
+    let documents = Documents::from([(
+        child.clone(),
+        OpenDocument {
+            uri: uri(&child).unwrap(),
+            document: Document::new(1, edited.into()),
+        },
+    )]);
+    let analysis = test_session().analyze(&documents, &child).unwrap();
+    assert_eq!(analysis.first_error(), None);
+    assert_eq!(
+        analysis
+            .definition(&child, Position::new(0, 31))
+            .unwrap()
+            .uri,
+        uri(&helper).unwrap()
+    );
+}
+
+#[test]
 fn rename_updates_associated_types_in_implementations_projections_and_bounds() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-rename-associated-types");

@@ -99,30 +99,26 @@ impl Session {
             if let Some(cancel) = cancel {
                 cancel.check()?;
             }
-            analyze_request(&self.driver, request)
+            analyze_editor_request(&self.driver, &self.target_drivers, &self.overlays, request)
         };
         let Some(package) = self.projects.package(entry)? else {
-            return analyze(CheckRequest::new(normalized(entry)));
+            return analyze(CheckRequest::new(normalized(entry)).into());
         };
         let entry_path = normalized(entry);
         let (mut configured, configuration_warning) = match package
             .configured_requests(&self.toolchain)
         {
-            Ok(configured) => (configured, package.configuration_message()),
+            Ok(configured) => (configured, None),
             Err(error) => (
                 Vec::new(),
-                Some(format!(
-                    "Configured build plan could not be applied. Using manifest entries. {error}"
-                )),
+                Some(package.configuration_message().unwrap_or_else(|| {
+                    format!("Configured build plan could not be applied. Using manifest entries. {error}")
+                })),
             ),
         };
         configured.sort_by_key(|request| request.check.entry_path.as_str() != entry_path);
         for request in configured {
-            if let Some(cancel) = cancel {
-                cancel.check()?;
-            }
-            if let Ok(analysis) =
-                analyze_editor_request(&self.driver, &self.target_drivers, &self.overlays, request)
+            if let Ok(analysis) = analyze(request)
                 && analysis.files.contains_key(&entry_path)
             {
                 return Ok(analysis);
@@ -131,7 +127,9 @@ impl Session {
         let entries = package.entries(entry);
         let mut entries = entries.into_iter().peekable();
         while let Some((path, context)) = entries.next() {
-            let analysis = package.request(&path, context).and_then(analyze);
+            let analysis = package
+                .editor_request(&path, context, &self.toolchain)
+                .and_then(analyze);
             if entries.peek().is_none()
                 || analysis
                     .as_ref()
