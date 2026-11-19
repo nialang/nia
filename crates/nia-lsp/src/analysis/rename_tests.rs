@@ -504,18 +504,22 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
         });
     }
     let target = test_session().toolchain.host_target().to_owned();
+    let alternate_target = nia_target::SUPPORTED_TARGETS
+        .into_iter()
+        .find(|candidate| *candidate != target)
+        .unwrap();
     let mut actions = Vec::new();
     let mut steps = Vec::new();
-    for (name, mode) in [
-        ("check", CompilationMode::Normal),
-        ("test", CompilationMode::Test),
+    for (name, mode, action_target) in [
+        ("check", CompilationMode::Normal, target),
+        ("test", CompilationMode::Test, alternate_target),
     ] {
         let action = ActionKey::new(root.clone(), name).unwrap();
         actions.push(PlanAction {
             key: action.clone(),
             kind: ActionKind::CompilerCheck {
                 module: module.clone(),
-                target,
+                target: action_target,
                 runtime: Runtime::Bare,
                 mode,
                 configuration: ArtifactConfiguration::default(),
@@ -528,6 +532,18 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
             dependencies: Vec::new(),
         });
     }
+    let verify_step = StepKey::new(root.clone(), "verify").unwrap();
+    let verify_action = ActionKey::new(root.clone(), "verify").unwrap();
+    actions.push(PlanAction {
+        key: verify_action.clone(),
+        kind: ActionKind::Aggregate,
+    });
+    steps.push(PlanStep {
+        key: verify_step.clone(),
+        visibility: StepVisibility::Public,
+        action: verify_action,
+        dependencies: vec![StepKey::new(root.clone(), "test").unwrap()],
+    });
     let plan = BuildPlan::freeze(BuildPlanDraft {
         root_package: root.clone(),
         packages,
@@ -542,8 +558,8 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
         artifacts: Vec::new(),
         actions,
         steps,
-        default_step: None,
-        selected_step: None,
+        default_step: Some(StepKey::new(PackageKey::root(), "check").unwrap()),
+        selected_step: Some(verify_step),
     })
     .unwrap();
     let output = directory.join("build/out");
@@ -567,6 +583,15 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
         .unwrap();
     let requests = package.configured_requests(&toolchain).unwrap();
     assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0].target.unwrap().target,
+        alternate_target,
+        "the selected step's check takes precedence over the default step"
+    );
+    assert_eq!(
+        requests[0].check.compilation_mode,
+        nia_target_config::CompilationMode::Test
+    );
     for request in requests {
         let request = request.check;
         let modules = request.module_map.for_source(&request.entry_path);

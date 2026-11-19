@@ -6,7 +6,7 @@
 //! paths. `BuildPlan::freeze` canonicalizes order and validates the complete
 //! graph before a plan can be encoded or executed.
 
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
 use nia_compat::formats::BUILD_PLAN;
 use nia_target::TargetConfig;
@@ -1346,6 +1346,26 @@ impl BuildPlan {
     /// Returns the explicitly selected step, if any.
     pub fn selected_step(&self) -> Option<&StepKey> {
         self.selected_step.as_ref()
+    }
+
+    /// Returns the canonical step indices reached from the selected or default step.
+    pub fn selected_step_indices(&self) -> BTreeSet<usize> {
+        let mut pending: Vec<_> = self
+            .selected_step()
+            .or_else(|| self.default_step())
+            .into_iter()
+            .collect();
+        let mut indices = BTreeSet::new();
+        while let Some(key) = pending.pop() {
+            let index = self
+                .steps
+                .binary_search_by(|step| step.key.cmp(key))
+                .expect("frozen plans contain each referenced step");
+            if indices.insert(index) {
+                pending.extend(&self.steps[index].dependencies);
+            }
+        }
+        indices
     }
 
     /// Returns an invocation-specific plan with arguments appended to its

@@ -67,24 +67,35 @@ impl Package {
             .or_else(|| plan.default_step())
             .and_then(|key| plan.steps().iter().find(|step| &step.key == key))
             .map(|step| &step.action);
+        let selected_actions: BTreeSet<_> = plan
+            .selected_step_indices()
+            .into_iter()
+            .map(|index| &plan.steps()[index].action)
+            .collect();
         let mut contexts = Vec::new();
         for action in plan.actions() {
             let Some(input) = PlanCompilation::for_action(plan, action) else {
                 continue;
             };
             let context = CompilerContext::for_action(plan, &input, *configuration);
-            contexts.push((Some(&action.key) != preferred_action, context, input));
+            contexts.push((
+                Some(&action.key) != preferred_action,
+                !selected_actions.contains(&action.key),
+                context,
+                input,
+            ));
         }
-        contexts.sort_by_key(|(secondary, context, _)| {
+        contexts.sort_by_key(|(secondary, outside_selection, context, _)| {
             (
                 *secondary,
+                *outside_selection,
                 &context.target != plan.artifact_target(),
                 context.mode,
             )
         });
         let mut seen = BTreeSet::new();
         let mut requests = Vec::new();
-        for (_, context, input) in contexts {
+        for (_, _, context, input) in contexts {
             if !seen.insert((&input.module.key, context)) {
                 continue;
             }

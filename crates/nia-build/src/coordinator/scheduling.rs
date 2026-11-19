@@ -420,34 +420,11 @@ fn execute_selected_closure_with_progress(
     progress: Option<&ProgressSession>,
     mut execute_batch: impl FnMut(&[&PlanAction]) -> Result<Vec<ActionOutcome>, CoordinatorError>,
 ) -> Result<ExecutionReport, CoordinatorError> {
-    let Some(selected) = plan.selected_step().or_else(|| plan.default_step()) else {
+    let closure = plan.selected_step_indices();
+    if closure.is_empty() {
         return Ok(ExecutionReport::default());
-    };
-    let roots = [selected];
+    }
     let steps = plan.steps();
-    // Discover only the selected step's transitive dependency closure. An
-    // iterative walk avoids coupling valid plan depth to the process stack.
-    let mut closure = BTreeSet::new();
-    let mut pending = Vec::with_capacity(roots.len());
-    for root in roots {
-        pending
-            .push(find_step(steps, root).ok_or_else(|| {
-                inconsistent("plan selection", format!("step `{}`", root.name()))
-            })?);
-    }
-    while let Some(index) = pending.pop() {
-        if !closure.insert(index) {
-            continue;
-        }
-        for dependency in &steps[index].dependencies {
-            pending.push(find_step(steps, dependency).ok_or_else(|| {
-                inconsistent(
-                    format!("step `{}`", steps[index].key.name()),
-                    format!("dependency step `{}`", dependency.name()),
-                )
-            })?);
-        }
-    }
 
     // Build the induced dependency graph once, then consume it in canonical
     // Kahn waves. The BTreeSet makes allocation and completion order invisible.
