@@ -36,8 +36,9 @@ buffers take precedence over disk contents. The server reads the last
 configured `build-plan.bin` to discover additional compiler entries and
 imports, including generated modules that the build has materialized.
 Those entries use the published build profile and CPU defaults alongside
-each compiler action's target, runtime, and test mode. A corrupt or stale
-plan produces a diagnostic while the server analyzes the manifest entries.
+each compiler action's target, runtime, and test mode. The server analyzes
+manifest entries and warns when the build plan is corrupt or stale, or when a
+build script has yet to publish a plan.
 
 Rename supports local bindings, top-level items, explicit import and
 re-export aliases, named fields, enum variants, inherent methods, and

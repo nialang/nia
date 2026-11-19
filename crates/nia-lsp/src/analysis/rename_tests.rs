@@ -180,6 +180,17 @@ fn build_hook_still_contributes_its_independent_context() {
         build_entry.request.context.runtime,
         nia_build_plan::Runtime::Bare
     );
+    let warning = index.reference_coverage_warning().unwrap();
+    assert!(warning.contains("no configured build plan"), "{warning}");
+    let documents = Documents::new();
+    let analysis = session.analyze(&documents, &entry).unwrap();
+    assert_eq!(analysis.first_error(), None);
+    assert!(
+        analysis
+            .diagnostics(&entry, &Document::new(1, "module build;\n".into()))
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("no configured build plan"))
+    );
 }
 
 #[test]

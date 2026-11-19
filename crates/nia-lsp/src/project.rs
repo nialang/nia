@@ -16,11 +16,13 @@ use nia_build_plan::{
 };
 use nia_driver::CheckRequest;
 use nia_imports::ModuleMap;
+use nia_lexer::TokenKind;
 use nia_package_metadata::{
     ArtifactKind, BuildLayout, DependencyScope, InstalledDependencies, PackageManifest,
     WorkspaceManifest,
 };
 use nia_source::{SourceIdentity, SourcePath};
+use nia_syntax::SyntaxKind;
 use nia_target_config::CompilationMode;
 
 use crate::analysis::normalized;
@@ -265,6 +267,7 @@ pub(crate) struct Package {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConfigurationStatus {
+    Unconfigured,
     Missing,
     Ready,
     Corrupt(String),
@@ -274,7 +277,11 @@ pub(crate) enum ConfigurationStatus {
 impl ConfigurationStatus {
     pub(crate) fn message(&self) -> Option<String> {
         match self {
-            Self::Missing | Self::Ready => None,
+            Self::Unconfigured | Self::Ready => None,
+            Self::Missing => Some(
+                "The build script has no configured build plan. Using manifest entries until `nia build` publishes the plan."
+                    .to_owned(),
+            ),
             Self::Corrupt(detail) => Some(format!(
                 "Configured build plan is corrupt. Using manifest entries. {detail}"
             )),
@@ -376,7 +383,15 @@ impl Package {
             Err(PlanHandoffError::Open { error, .. })
                 if error.kind() == std::io::ErrorKind::NotFound =>
             {
-                (None, ConfigurationStatus::Missing)
+                let build_script = build_script_path(layout.package_root());
+                let status = if nia_source::read_source_text(&build_script)
+                    .is_ok_and(|text| declares_build_hook(&text))
+                {
+                    ConfigurationStatus::Missing
+                } else {
+                    ConfigurationStatus::Unconfigured
+                };
+                (None, status)
             }
             Err(error) => (None, ConfigurationStatus::Corrupt(error.to_string())),
         };
@@ -570,6 +585,17 @@ impl Package {
     }
 }
 
+pub(crate) fn declares_build_hook(text: &str) -> bool {
+    let Ok(parsed) = nia_syntax::parse(text, None) else {
+        return false;
+    };
+    parsed.tree.green_root().child_nodes().any(|item| {
+        item.child(&SyntaxKind::FunctionDecl)
+            .and_then(|function| function.token(&TokenKind::Ident))
+            .is_some_and(|name| name.text() == "build")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -577,7 +603,13 @@ mod tests {
 
     #[test]
     fn configuration_states_keep_missing_corrupt_and_stale_distinct() {
-        assert_eq!(ConfigurationStatus::Missing.message(), None);
+        assert_eq!(ConfigurationStatus::Unconfigured.message(), None);
+        assert!(
+            ConfigurationStatus::Missing
+                .message()
+                .unwrap()
+                .contains("no configured build plan")
+        );
         assert!(
             ConfigurationStatus::Corrupt("decode failed".into())
                 .message()

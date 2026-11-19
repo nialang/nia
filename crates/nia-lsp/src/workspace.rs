@@ -9,15 +9,13 @@ use std::{
 
 use lsp_types::{CallHierarchyItem, Location, Position, Range, SymbolInformation, SymbolKind, Uri};
 use nia_compiler_query::ProgramDiagnostic;
-use nia_lexer::TokenKind;
 use nia_span::Span;
-use nia_syntax::SyntaxKind;
 
 use crate::{
     analysis::{Analysis, Documents, Session, Symbol, normalized},
     document::Lines,
     editing::CallableDeclaration,
-    project::EditorRequest,
+    project::{EditorRequest, declares_build_hook},
 };
 
 #[derive(Clone, Default)]
@@ -134,17 +132,6 @@ enum EntryKind {
     Declared,
     BuildCandidate,
     Standalone,
-}
-
-fn declares_build_hook(text: &str) -> bool {
-    let Ok(parsed) = nia_syntax::parse(text, None) else {
-        return false;
-    };
-    parsed.tree.green_root().child_nodes().any(|item| {
-        item.child(&SyntaxKind::FunctionDecl)
-            .and_then(|function| function.token(&TokenKind::Ident))
-            .is_some_and(|name| name.text() == "build")
-    })
 }
 
 impl Session {
