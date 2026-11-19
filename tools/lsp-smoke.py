@@ -307,6 +307,26 @@ def smoke(server, root):
             })
             client.wait_diagnostics(main.as_uri(), 8, lambda items: not items)
 
+            for name, declaration in [
+                ("alternate", "pub fun weight() i32 { 2 }\n"),
+                ("incompatible", "pub fun weight(limit: i32) i32 { limit }\n"),
+            ]:
+                (root / f"{name}.nia").write_text(declaration, encoding="utf-8")
+            ambiguous = missing + "\nmodule alternate;\nmodule incompatible;\n"
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=9),
+                "contentChanges": [{"text": ambiguous}],
+            })
+            _, diagnostics = client.wait_diagnostics(main.as_uri(), 9, lambda items: any(
+                "unknown value `weight`" in diagnostic["message"] for diagnostic in items
+            ))
+            actions = request(client, "textDocument/codeAction", dict(
+                **quick_fix_at, context={"diagnostics": diagnostics, "only": ["quickfix"], "triggerKind": 1},
+            ))
+            assert [action["title"] for action in actions] == [
+                "Import `root::alternate::weight`", "Import `root::shapes::weight`",
+            ], actions
+
             unordered = updated.replace(
                 "using std::process;",
                 "using std::process;\n"
@@ -317,10 +337,10 @@ def smoke(server, root):
             )
             unordered += "\n// Public API\npub using root::shapes::{weight as mass, distance as width};\n"
             client.notify("textDocument/didChange", {
-                "textDocument": dict(**document, version=9),
+                "textDocument": dict(**document, version=10),
                 "contentChanges": [{"text": unordered}],
             })
-            client.wait_diagnostics(main.as_uri(), 9, lambda items: not items)
+            client.wait_diagnostics(main.as_uri(), 10, lambda items: not items)
             actions = request(client, "textDocument/codeAction", dict(
                 **params, range={"start": {"line": 0, "character": 0},
                                  "end": {"line": 0, "character": 0}},
@@ -329,7 +349,7 @@ def smoke(server, root):
             action, = actions
             assert action["kind"] == "source.organizeImports", actions
             change, = action["edit"]["documentChanges"]
-            assert change["textDocument"] == dict(**document, version=9), change
+            assert change["textDocument"] == dict(**document, version=10), change
             reorder, public = change["edits"]
             assert reorder["newText"] == (
                 "using root::shapes as geo;\n"
@@ -338,13 +358,13 @@ def smoke(server, root):
             ), reorder
             assert public["newText"] == "distance as width, weight as mass", public
             client.notify("textDocument/didChange", {
-                "textDocument": dict(**document, version=10),
+                "textDocument": dict(**document, version=11),
                 "contentChanges": [
                     {"range": edit["range"], "text": edit["newText"]}
                     for edit in reversed(change["edits"])
                 ],
             })
-            client.wait_diagnostics(main.as_uri(), 10, lambda items: not items)
+            client.wait_diagnostics(main.as_uri(), 11, lambda items: not items)
 
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)

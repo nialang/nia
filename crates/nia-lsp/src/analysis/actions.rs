@@ -77,32 +77,34 @@ impl Session {
             {
                 continue;
             }
-            let Some(candidate) =
-                analysis.import_candidate(file, |item| item.name.as_ref() == name, cancel)
+            let Some(candidates) =
+                analysis.import_candidates(file, |item| item.name.as_ref() == name, cancel)
             else {
                 continue;
             };
-            let Some(import) =
-                self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)
-            else {
-                continue;
-            };
-            let edit = TextDocumentEdit {
-                text_document: OptionalVersionedTextDocumentIdentifier {
-                    uri: open.uri.clone(),
-                    version: Some(open.document.version),
-                },
-                edits: vec![OneOf::Left(import)],
-            };
-            let action = CodeAction {
-                title: format!("Import `{}`", candidate.path),
-                kind: Some(CodeActionKind::QUICKFIX),
-                diagnostics: Some(vec![diagnostic]),
-                edit: Some(text_workspace_edit(vec![edit], versioned)),
-                ..CodeAction::default()
-            };
-            if !actions.contains(&action) {
-                actions.push(action);
+            for candidate in candidates {
+                let Some(import) =
+                    self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)
+                else {
+                    continue;
+                };
+                let edit = TextDocumentEdit {
+                    text_document: OptionalVersionedTextDocumentIdentifier {
+                        uri: open.uri.clone(),
+                        version: Some(open.document.version),
+                    },
+                    edits: vec![OneOf::Left(import)],
+                };
+                let action = CodeAction {
+                    title: format!("Import `{}`", candidate.path),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diagnostic.clone()]),
+                    edit: Some(text_workspace_edit(vec![edit], versioned)),
+                    ..CodeAction::default()
+                };
+                if !actions.contains(&action) {
+                    actions.push(action);
+                }
             }
         }
         actions
@@ -211,7 +213,7 @@ impl Analysis {
         use nia_defs::DefKind;
         let file = self.file(path)?;
         let (span, prefix, type_only) = crate::editing::unqualified_completion(file, position)?;
-        let candidate = self.import_candidate(
+        let candidates = self.import_candidates(
             file,
             |item| {
                 item.name.starts_with(prefix)
@@ -232,6 +234,7 @@ impl Analysis {
             },
             cancel,
         )?;
+        let [candidate] = candidates.try_into().ok()?;
         Some((span, candidate))
     }
 
@@ -295,12 +298,12 @@ impl Analysis {
         actions
     }
 
-    fn import_candidate(
+    fn import_candidates(
         &self,
         file: &File,
         matches: impl Fn(&VisibleName) -> bool,
         cancel: &Cancellation,
-    ) -> Option<ImportCandidate> {
+    ) -> Option<Vec<ImportCandidate>> {
         let imports = self.db.source_imports(file.module, 0).ok()?;
         let root = self.graph.current_package_root(file.module)?;
         let mut paths: BTreeMap<Vec<String>, _> = imports
@@ -364,7 +367,7 @@ impl Analysis {
                 }
             }
         }
-        let mut found: Option<ImportCandidate> = None;
+        let mut found = BTreeMap::<_, ImportCandidate>::new();
         for (path, module) in paths {
             cancel.check().ok()?;
             let available = self.namespace_names(file.module, module).ok()?;
@@ -373,25 +376,28 @@ impl Analysis {
                     continue;
                 };
                 let import = format!("{}::{}", path.join("::"), item.name);
-                if let Some(current) = &mut found {
-                    if current.target != target || current.name != item.name {
-                        return None;
-                    }
+                let key = (target.clone(), item.name.clone());
+                if let Some(current) = found.get_mut(&key) {
                     if (import.len(), &import) < (current.path.len(), &current.path) {
                         current.path = import;
                     }
                 } else {
-                    found = Some(ImportCandidate {
-                        target,
-                        path: import,
-                        name: item.name,
-                        kind: item.kind,
-                        symbol: item.symbol,
-                    });
+                    found.insert(
+                        key,
+                        ImportCandidate {
+                            target,
+                            path: import,
+                            name: item.name,
+                            kind: item.kind,
+                            symbol: item.symbol,
+                        },
+                    );
                 }
             }
         }
-        found
+        let mut candidates: Vec<_> = found.into_values().collect();
+        candidates.sort_by(|left, right| left.path.cmp(&right.path));
+        Some(candidates)
     }
 }
 
