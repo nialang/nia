@@ -87,11 +87,14 @@ pub(super) fn contains(outer: Span, inner: Span) -> bool {
     outer.start <= inner.start && inner.end <= outer.end
 }
 
+#[derive(PartialEq, Eq)]
 pub(super) struct RelocationDestination<'a> {
     pub(super) file: &'a Path,
-    pub(super) parent: &'a str,
-    pub(super) suffix: &'a str,
+    pub(super) parent: String,
+    pub(super) suffix: String,
     pub(super) crosses_package: bool,
+    pub(super) package_root: nia_source::SourcePath,
+    pub(super) previous_package_alias: Option<String>,
 }
 
 pub(super) fn collect_relocation(
@@ -99,7 +102,7 @@ pub(super) fn collect_relocation(
     workspace: &WorkspaceIndex,
     symbol: Symbol,
     source: &Path,
-    destination: RelocationDestination<'_>,
+    destination: &RelocationDestination<'_>,
     cancel: &Cancellation,
     mut resolve_root: impl FnMut(&Site) -> Result<Option<String>, String>,
 ) -> Result<RenamePlan, String> {
@@ -109,7 +112,7 @@ pub(super) fn collect_relocation(
         .and_then(|name| name.to_str())
         .ok_or("Invalid module name")?;
     validate_new_name(symbol, new_name)?;
-    let parent = destination.parent;
+    let parent = destination.parent.as_str();
     let (declaring, name_span) = analysis
         .definitions
         .get(&symbol)
@@ -168,16 +171,27 @@ pub(super) fn collect_relocation(
         ..RenamePlan::default()
     };
     if destination.crosses_package {
-        for (file, mut sites) in bindings(analysis, cancel)? {
-            if relocated(&file, &plan.moves).is_some() {
+        let before = bindings(analysis, cancel)?;
+        let original_root = analysis
+            .module_package_root_path(declaring)
+            .ok_or("Original package root is unavailable")?;
+        let mut dependencies =
+            BTreeSet::from([declaring.clone(), original_root.as_str().to_owned()]);
+        for (file, sites) in &before {
+            if relocated(file, &plan.moves).is_none() {
+                continue;
+            }
+            for binding in sites.values().flatten() {
+                if let Some(target) = &binding.declaration
+                    && analysis.module_package_root_path(&target.source) == Some(original_root)
+                {
+                    dependencies.insert(target.source.to_string());
+                }
+            }
+        }
+        for (file, sites) in before {
+            if relocated(&file, &plan.moves).is_some() || dependencies.contains(&file) {
                 plan.transferred.insert(file, sites);
-            } else if file == *declaring
-                && let Some(declaration) = sites.remove(name_span)
-            {
-                plan.transferred
-                    .entry(file)
-                    .or_default()
-                    .insert(*name_span, declaration);
             }
         }
     }
@@ -246,7 +260,7 @@ pub(super) fn collect_relocation(
         let prefix = match local_prefix {
             Some(prefix) => prefix,
             None => resolve_root(&site)?
-                .map(|root| root + destination.suffix)
+                .map(|root| root + &destination.suffix)
                 .ok_or_else(|| {
                     format!(
                         "Destination module has no visible path from {}",
@@ -290,49 +304,73 @@ pub(super) fn collect_relocation(
             form: NamespaceForm::Path,
         });
     }
-    retain_parent_paths(analysis, source, declaring, &mut plan)?;
+    retain_relative_paths(
+        analysis,
+        workspace,
+        source,
+        declaring,
+        destination,
+        &mut plan,
+        cancel,
+    )?;
     Ok(plan)
 }
 
-fn retain_parent_paths(
+fn retain_relative_paths(
     analysis: &Analysis,
+    workspace: &WorkspaceIndex,
     source: &Path,
     declaring: &str,
+    destination: &RelocationDestination<'_>,
     plan: &mut RenamePlan,
+    cancel: &Cancellation,
 ) -> Result<(), String> {
-    let file = analysis
-        .file(source)
-        .ok_or("Moving module source is unavailable")?;
     let source = normalized(source);
-    let old_parent = analysis
-        .rooted_module_path(&source, declaring)
+    let parent_suffix = analysis
+        .module_path_suffix(declaring)
         .ok_or("Previous module parent is unavailable")?;
-    let edits = plan.edits.entry(source.clone()).or_default();
-    let tokens = tokenize(&file.text);
-    let root = file.syntax().tree.green_root();
-    for [token, separator] in tokens.array_windows() {
-        if token.kind != TokenKind::Super
-            || separator.kind != TokenKind::ColonColon
-            || grouped_import(root, token.span).is_some()
-            || edits.keys().any(|edit| contains(*edit, token.span))
-        {
-            continue;
-        }
-        let site = Site {
-            source: Arc::from(source.as_str()),
-            span: token.span,
+    for (file, (_, text)) in workspace.files.iter().filter(|(file, _)| {
+        **file == source || (destination.crosses_package && relocated(file, &plan.moves).is_some())
+    }) {
+        cancel.check()?;
+        let mut edits = plan.edits.remove(file).unwrap_or_default();
+        let previous_root = if destination.crosses_package {
+            destination.previous_package_alias.as_deref()
+        } else {
+            Some("root")
         };
-        edits.insert(token.span, old_parent.clone());
-        plan.namespaces.push(NamespaceRewrite {
-            before: site.clone(),
-            old_range: token.span,
-            destination: site,
-            name: Span::new(0, old_parent.len()),
-            form: NamespaceForm::Parent,
-        });
-    }
-    if edits.is_empty() {
-        plan.edits.remove(&source);
+        for [token, separator] in tokenize(text).array_windows() {
+            let suffix = match token.kind {
+                TokenKind::Super if file == &source => parent_suffix.as_str(),
+                TokenKind::Root if destination.crosses_package => "",
+                _ => continue,
+            };
+            if separator.kind != TokenKind::ColonColon
+                || edits.keys().any(|edit| contains(*edit, token.span))
+            {
+                continue;
+            }
+            let previous_root = previous_root.ok_or_else(|| {
+                format!("The destination package needs a dependency on the original package to preserve a path in {file}")
+            })?;
+            let replacement = format!("{previous_root}{suffix}");
+            let site = Site {
+                source: Arc::from(file.as_str()),
+                span: token.span,
+            };
+            let name = Span::new(0, replacement.len());
+            edits.insert(token.span, replacement);
+            plan.namespaces.push(NamespaceRewrite {
+                before: site.clone(),
+                old_range: token.span,
+                destination: site,
+                name,
+                form: NamespaceForm::Parent,
+            });
+        }
+        if !edits.is_empty() {
+            plan.edits.insert(file.clone(), edits);
+        }
     }
     Ok(())
 }

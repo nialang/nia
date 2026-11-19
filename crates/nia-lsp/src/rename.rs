@@ -192,9 +192,8 @@ impl Session {
                     .module_package_root_path(&moved_source)
                     .ok_or("Moving module package root is unavailable")?;
                 let local_parent = analysis.destination_module(symbol, new);
-                let (destination_parent, destination_suffix, destination_root) = match local_parent
-                {
-                    Some(parent) => relocation_destination(analysis, parent)?,
+                let destination = match local_parent {
+                    Some(parent) => relocation_destination(analysis, parent, new, original_root)?,
                     None => {
                         let destination_path = normalized(new);
                         let mut destination = None;
@@ -213,7 +212,8 @@ impl Session {
                                     .insert(self.analyze_request(entry.request.clone(), cancel)?),
                             };
                             if let Some(parent) = context.destination_parent(new, None) {
-                                let candidate = relocation_destination(context, parent)?;
+                                let candidate =
+                                    relocation_destination(context, parent, new, original_root)?;
                                 if destination
                                     .as_ref()
                                     .is_some_and(|other| other != &candidate)
@@ -230,20 +230,12 @@ impl Session {
                             .ok_or("A module destination must have a unique declaring parent")?
                     }
                 };
-                let crosses_package =
-                    original_root.identity_ref() != destination_root.identity_ref();
-                let destination = RelocationDestination {
-                    file: new,
-                    parent: &destination_parent,
-                    suffix: &destination_suffix,
-                    crosses_package,
-                };
                 collect_relocation(
                     analysis,
                     &workspace,
                     symbol,
                     old,
-                    destination,
+                    &destination,
                     cancel,
                     |site| {
                         for (index, entry) in workspace.entries.iter().enumerate() {
@@ -261,8 +253,9 @@ impl Session {
                                 std::collections::hash_map::Entry::Vacant(slot) => slot
                                     .insert(self.analyze_request(entry.request.clone(), cancel)?),
                             };
-                            let root = if crosses_package {
-                                context.name_for_package_root(&site.source, &destination_root)
+                            let root = if destination.crosses_package {
+                                context
+                                    .name_for_package_root(&site.source, &destination.package_root)
                             } else {
                                 context.module_root_name(&site.source, &moved_source)
                             };
@@ -467,6 +460,12 @@ impl Session {
         let mut verification = Session::new(self.toolchain.clone());
         verification.install_documents(&updated)?;
         let offsets = EditOffsets::new(&edits);
+        let moved_sources: BTreeSet<_> = transferred
+            .keys()
+            .filter_map(|source| relocated(source, &moves))
+            .map(|path| normalized(&path))
+            .collect();
+        let mut unverified_moves = moved_sources.clone();
         let transferred = shifted_bindings(transferred, &offsets, &moves, &shorthand, &namespaces);
         let destination_parents: Vec<_> = namespaces
             .iter()
@@ -511,6 +510,14 @@ impl Session {
                 if !actual.contains_key(source) {
                     continue;
                 }
+                if expected.contains_key(source)
+                    && !moved_sources.contains(source)
+                    && !destination_parents
+                        .iter()
+                        .any(|(_, parent)| parent == source)
+                {
+                    continue;
+                }
                 let bindings = expected.entry(source.clone()).or_default();
                 for (span, binding) in sites {
                     bindings.entry(*span).or_insert_with(|| binding.clone());
@@ -525,31 +532,50 @@ impl Session {
             };
             // A destination parent can enter this compilation for the first
             // time. Its projected declarations still have to resolve.
-            let newly_reached_parent = |source: &str| {
+            let unobserved_destination_parent = |source: &str| {
                 destination_parents.iter().any(|(original, moved)| {
                     moved == source && !entry.bindings.contains_key(*original)
                 })
             };
-            if expected.iter().any(|(source, before)| {
-                actual.get(source).map_or_else(
-                    || workspace_file(source),
-                    |after| {
-                        if newly_reached_parent(source) {
-                            before
-                                .iter()
-                                .any(|(span, binding)| after.get(span) != Some(binding))
-                        } else {
-                            after != before
-                        }
-                    },
-                )
-            }) || actual.keys().any(|source| {
-                workspace_file(source)
-                    && !newly_reached_parent(source)
-                    && !expected.contains_key(source)
-            }) {
-                return Err(format!("Rename would change name resolution in {request}"));
+            let changed = expected
+                .iter()
+                .find(|(source, before)| {
+                    actual.get(*source).map_or_else(
+                        || {
+                            workspace_file(source)
+                                && !moved_sources.contains(*source)
+                                && !unobserved_destination_parent(source)
+                        },
+                        |after| {
+                            if unobserved_destination_parent(source) {
+                                before
+                                    .iter()
+                                    .any(|(span, binding)| after.get(span) != Some(binding))
+                            } else {
+                                after != *before
+                            }
+                        },
+                    )
+                })
+                .map(|(source, _)| source)
+                .or_else(|| {
+                    actual.keys().find(|source| {
+                        workspace_file(source)
+                            && !unobserved_destination_parent(source)
+                            && !expected.contains_key(*source)
+                    })
+                });
+            if let Some(source) = changed {
+                return Err(format!(
+                    "Rename would change name resolution in {request} ({source})"
+                ));
             }
+            unverified_moves.retain(|source| !actual.contains_key(source));
+        }
+        if let Some(source) = unverified_moves.first() {
+            return Err(format!(
+                "No compilation entry verifies the relocated module source ({source})"
+            ));
         }
         let open: BTreeSet<_> = documents.keys().map(|path| normalized(path)).collect();
         for (source, (_, text)) in files.iter().chain(&generated.inputs) {
@@ -590,17 +616,29 @@ impl Session {
     }
 }
 
-fn relocation_destination(
+fn relocation_destination<'a>(
     analysis: &Analysis,
     parent: &str,
-) -> Result<(String, String, nia_source::SourcePath), String> {
+    file: &'a Path,
+    original_root: &nia_source::SourcePath,
+) -> Result<RelocationDestination<'a>, String> {
     let suffix = analysis
         .module_path_suffix(parent)
         .ok_or("Destination module path is unavailable")?;
     let root = analysis
         .module_package_root_path(parent)
         .ok_or("Destination package root is unavailable")?;
-    Ok((parent.to_owned(), suffix, root.clone()))
+    let crosses_package = original_root.identity_ref() != root.identity_ref();
+    Ok(RelocationDestination {
+        file,
+        parent: parent.to_owned(),
+        suffix,
+        crosses_package,
+        package_root: root.clone(),
+        previous_package_alias: crosses_package
+            .then(|| analysis.name_for_package_root(parent, original_root))
+            .flatten(),
+    })
 }
 
 fn collect_rename(

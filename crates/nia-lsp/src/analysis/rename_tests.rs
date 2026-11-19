@@ -845,7 +845,82 @@ fn files_can_move_to_an_existing_package_dependency() {
 
     write("api/data.nia", "pub fun value() i32 { root::base() }\n");
     let error = move_file().unwrap_err();
-    assert!(error.contains("change name resolution"), "{error}");
+    assert!(
+        error.contains("needs a dependency on the original package"),
+        "{error}"
+    );
+}
+
+#[test]
+fn package_move_preserves_paths_to_the_original_package() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-move-with-original-package-paths");
+    let write = |path: &str, text: &str| {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        path
+    };
+    write("nia.toml", "[workspace]\nmembers = [\"api\", \"kit\"]\n");
+    write(
+        "api/nia.toml",
+        "[package]\nname = \"api\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+    );
+    write(
+        "kit/nia.toml",
+        "[package]\nname = \"kit\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n[dependencies]\noriginal = { path = \"../api\" }\n",
+    );
+    write(
+        "api/root.nia",
+        "pub module data;\npub fun base() i32 { 42 }\n",
+    );
+    write("kit/root.nia", "pub fun base() i32 { 12 }\n");
+    let old = write(
+        "api/data.nia",
+        "pub module child;\npub fun value() i32 { root::base() + super::base() + child::value() }\n",
+    );
+    let child = write(
+        "api/data/child.nia",
+        "pub fun value() i32 { root::base() }\n",
+    );
+    let new = root.join("kit/reading.nia");
+    let moves = [
+        (&old, &new),
+        (&old.with_extension(""), &new.with_extension("")),
+    ];
+    let result = test_session()
+        .will_rename_files(
+            moves
+                .into_iter()
+                .map(|(old, new)| lsp_types::FileRename {
+                    old_uri: uri(old).unwrap().to_string(),
+                    new_uri: uri(new).unwrap().to_string(),
+                })
+                .collect(),
+            &Documents::new(),
+            &[root.to_path_buf()],
+            true,
+            &Cancellation::default(),
+        )
+        .unwrap()
+        .unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(edits)) = result.document_changes else {
+        panic!("expected versioned document edits");
+    };
+    for (path, expected) in [(old, 2), (child, 1)] {
+        let target = uri(&path).unwrap();
+        let changes = edits
+            .iter()
+            .find(|change| change.text_document.uri == target)
+            .unwrap();
+        assert_eq!(changes.edits.len(), expected);
+        for edit in &changes.edits {
+            let lsp_types::OneOf::Left(edit) = edit else {
+                panic!("expected a plain text edit");
+            };
+            assert_eq!(edit.new_text, "original");
+        }
+    }
 }
 
 #[test]

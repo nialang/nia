@@ -696,7 +696,7 @@ def smoke_module_move(server, root):
                 process.kill()
 
 
-def smoke_package_move(server, root):
+def smoke_package_move(server, root, retain_original=False):
     (root / "nia.toml").write_text('[workspace]\nmembers = ["api", "kit"]\n', encoding="utf-8")
     api, kit = (root / name / "root.nia" for name in ("api", "kit"))
     for entry in (api, kit):
@@ -705,7 +705,9 @@ def smoke_package_move(server, root):
             f'[package]\nname = "{entry.parent.name}"\nversion = "0.1.0"\n'
             '[library]\npath = "root.nia"\n'
         )
-        if entry == api:
+        if retain_original and entry == kit:
+            manifest += '[dependencies]\noriginal = { path = "../api" }\n'
+        elif not retain_original and entry == api:
             manifest += '[dependencies]\nhelper = { path = "../kit" }\n'
         entry.with_name("nia.toml").write_text(manifest, encoding="utf-8")
     old, new = api.with_name("data.nia"), kit.with_name("reading.nia")
@@ -714,6 +716,9 @@ def smoke_package_move(server, root):
         kit: "pub fun base() i32 { 12 }\n",
         old: "fun local() i32 { 42 }\npub fun value() i32 { root::data::local() }\n",
     }
+    if retain_original:
+        sources[api] = "pub module data;\npub fun base() i32 { 42 }\n"
+        sources[old] = "pub fun value() i32 { root::base() + super::base() }\n"
     for file, source in sources.items():
         file.write_text(source, encoding="utf-8", newline="\n")
     with subprocess.Popen([str(server)], cwd=root,
@@ -743,18 +748,23 @@ def smoke_package_move(server, root):
                     source = source[:start] + edit["newText"] + source[end:]
                 sources[file] = source
                 file.write_text(source, encoding="utf-8", newline="\n")
-            assert "helper::reading::value()" in sources[api], sources[api]
-            assert "root::reading::local()" in sources[old], sources[old]
+            if retain_original:
+                assert sources[old].count("original::base()") == 2, sources[old]
+            else:
+                assert "helper::reading::value()" in sources[api], sources[api]
+                assert "root::reading::local()" in sources[old], sources[old]
             old.rename(new)
+            sources[new] = sources.pop(old)
             client.notify("workspace/didRenameFiles", move)
+            caller, needle, declaration = (new, "base()", api) if retain_original else (api, "value()", new)
             client.notify("textDocument/didOpen", {"textDocument": {
-                "uri": api.as_uri(), "languageId": "nia", "version": 1, "text": sources[api],
+                "uri": caller.as_uri(), "languageId": "nia", "version": 1, "text": sources[caller],
             }})
-            client.wait_diagnostics(api.as_uri(), 1, lambda items: not items)
+            client.wait_diagnostics(caller.as_uri(), 1, lambda items: not items)
             target = request(client, "textDocument/definition", {
-                "textDocument": {"uri": api.as_uri()}, "position": position(sources[api], "value()"),
+                "textDocument": {"uri": caller.as_uri()}, "position": position(sources[caller], needle),
             })
-            assert target["uri"] == new.as_uri(), target
+            assert target["uri"] == declaration.as_uri(), target
             request(client, "shutdown", None)
             client.notify("exit", None)
             process.stdin.close()
@@ -927,6 +937,8 @@ def main():
         smoke_module_move(server, Path(directory).resolve())
     with tempfile.TemporaryDirectory(prefix="nia-lsp-package-move-smoke-") as directory:
         smoke_package_move(server, Path(directory).resolve())
+    with tempfile.TemporaryDirectory(prefix="nia-lsp-package-move-original-smoke-") as directory:
+        smoke_package_move(server, Path(directory).resolve(), retain_original=True)
     with tempfile.TemporaryDirectory(prefix="nia-lsp-build-smoke-") as directory:
         smoke_build_context(server, Path(directory).resolve())
 
