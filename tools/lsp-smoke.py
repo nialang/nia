@@ -181,12 +181,39 @@ def smoke(server, root):
                 **code_action, context={"diagnostics": diagnostics},
             ))
 
-            missing = updated.replace("shape.height", "weight()")
+            partial = updated.replace("shape.height", "weig()")
             client.notify("textDocument/didChange", {
                 "textDocument": dict(**document, version=5),
+                "contentChanges": [{"text": partial}],
+            })
+            start = position(partial, "weig")
+            cursor = dict(start, character=start["character"] + len("weig"))
+            completion, = request(client, "textDocument/completion", dict(**params, position=cursor))
+            assert completion["label"] == "weight", completion
+            assert completion["textEdit"] == {
+                "range": {"start": start, "end": cursor}, "newText": "weight",
+            }, completion
+            auto_import, = completion["additionalTextEdits"]
+            assert auto_import["newText"] == "using root::shapes::weight;\n\n", completion
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=6),
+                "contentChanges": [
+                    {"range": edit["range"], "text": edit["newText"]}
+                    for edit in [completion["textEdit"], auto_import]
+                ],
+            })
+            client.wait_diagnostics(main.as_uri(), 6, lambda items: not items)
+            target = request(client, "textDocument/definition", dict(
+                **params, position=dict(start, line=start["line"] + 2),
+            ))
+            assert target["uri"] == shapes.as_uri(), target
+
+            missing = updated.replace("shape.height", "weight()")
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=7),
                 "contentChanges": [{"text": missing}],
             })
-            _, diagnostics = client.wait_diagnostics(main.as_uri(), 5, lambda items: any(
+            _, diagnostics = client.wait_diagnostics(main.as_uri(), 7, lambda items: any(
                 "unknown value `weight`" in diagnostic["message"] for diagnostic in items
             ))
             start = position(missing, "weight")
@@ -204,24 +231,24 @@ def smoke(server, root):
             action, = actions
             assert action["title"] == "Import `root::shapes::weight`", actions
             change, = action["edit"]["documentChanges"]
-            assert change["textDocument"] == dict(**document, version=5), change
+            assert change["textDocument"] == dict(**document, version=7), change
             insertion, = change["edits"]
             assert insertion["newText"] == "using root::shapes::weight;\n\n", insertion
             client.notify("textDocument/didChange", {
-                "textDocument": dict(**document, version=6),
+                "textDocument": dict(**document, version=8),
                 "contentChanges": [{"range": insertion["range"], "text": insertion["newText"]}],
             })
-            client.wait_diagnostics(main.as_uri(), 6, lambda items: not items)
+            client.wait_diagnostics(main.as_uri(), 8, lambda items: not items)
 
             unordered = updated.replace(
                 "using std::process;",
                 "using std::process;\nusing root::shapes as geo;",
             ).replace("shapes::Shape", "geo::Shape")
             client.notify("textDocument/didChange", {
-                "textDocument": dict(**document, version=7),
+                "textDocument": dict(**document, version=9),
                 "contentChanges": [{"text": unordered}],
             })
-            client.wait_diagnostics(main.as_uri(), 7, lambda items: not items)
+            client.wait_diagnostics(main.as_uri(), 9, lambda items: not items)
             actions = request(client, "textDocument/codeAction", dict(
                 **params, range={"start": {"line": 0, "character": 0},
                                  "end": {"line": 0, "character": 0}},
@@ -230,14 +257,14 @@ def smoke(server, root):
             action, = actions
             assert action["kind"] == "source.organizeImports", actions
             change, = action["edit"]["documentChanges"]
-            assert change["textDocument"] == dict(**document, version=7), change
+            assert change["textDocument"] == dict(**document, version=9), change
             reorder, = change["edits"]
             assert reorder["newText"] == "using root::shapes as geo;\nusing std::process;", reorder
             client.notify("textDocument/didChange", {
-                "textDocument": dict(**document, version=8),
+                "textDocument": dict(**document, version=10),
                 "contentChanges": [{"range": reorder["range"], "text": reorder["newText"]}],
             })
-            client.wait_diagnostics(main.as_uri(), 8, lambda items: not items)
+            client.wait_diagnostics(main.as_uri(), 10, lambda items: not items)
 
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)

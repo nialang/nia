@@ -4,14 +4,16 @@
 use std::{collections::BTreeMap, path::Path};
 
 use lsp_types::{
-    CodeAction, CodeActionKind, CodeActionParams, CodeActionTriggerKind, OneOf,
+    CodeAction, CodeActionKind, CodeActionParams, CodeActionTriggerKind, CompletionItem, OneOf,
     OptionalVersionedTextDocumentIdentifier, TextDocumentEdit, TextEdit,
 };
 use nia_diagnostic::{DiagnosticSuggestion, SuggestionApplicability, codes};
 use nia_lexer::{TokenKind, tokenize};
 use nia_span::Span;
 
-use super::{Analysis, Documents, File, OpenDocument, Session, editor_diagnostic, normalized};
+use super::{
+    Analysis, Documents, File, OpenDocument, Session, VisibleName, editor_diagnostic, normalized,
+};
 use crate::document::{Document, text_workspace_edit};
 use crate::rewrite::{EditOffsets, Edits, preserves_bindings};
 use crate::workspace::{Bindings, Cancellation, Site, bindings, symbol_site};
@@ -75,38 +77,22 @@ impl Session {
             {
                 continue;
             }
-            let Some(candidate) = analysis.import_candidate(file, name, cancel) else {
+            let Some(candidate) =
+                analysis.import_candidate(file, |item| item.name.as_ref() == name, cancel)
+            else {
                 continue;
             };
-            let newline = if file.text.contains("\r\n") {
-                "\r\n"
-            } else {
-                "\n"
-            };
-            let text = format!("using {};{newline}{newline}", candidate.path);
-            let mut updated = documents.clone();
-            updated.get_mut(path).expect("open import source").document =
-                Document::new(open.document.version, format!("{text}{}", file.text));
-            let Ok(after) = self.analyze_with_cancel(&updated, path, Some(cancel)) else {
+            let Some(import) =
+                self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)
+            else {
                 continue;
             };
-            if !verified_import(
-                analysis,
-                &after,
-                path,
-                span,
-                &candidate.target,
-                &text,
-                cancel,
-            ) {
-                continue;
-            }
             let edit = TextDocumentEdit {
                 text_document: OptionalVersionedTextDocumentIdentifier {
                     uri: open.uri.clone(),
                     version: Some(open.document.version),
                 },
-                edits: vec![OneOf::Left(TextEdit::new(Default::default(), text))],
+                edits: vec![OneOf::Left(import)],
             };
             let action = CodeAction {
                 title: format!("Import `{}`", candidate.path),
@@ -121,14 +107,134 @@ impl Session {
         }
         actions
     }
+
+    pub(super) fn complete_import(
+        &mut self,
+        analysis: &Analysis,
+        documents: &Documents,
+        path: &Path,
+        position: lsp_types::Position,
+        cancel: &Cancellation,
+    ) -> Option<CompletionItem> {
+        let file = analysis.file(path)?;
+        let (span, candidate) = nia_query::with_cancellation(Some(cancel.token()), || {
+            Ok(analysis.import_completion(path, position, cancel))
+        })
+        .ok()
+        .flatten()?;
+        if analysis.symbol_at_offset(file, span.start).is_some() {
+            return None;
+        }
+        let import =
+            self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)?;
+        let range = file.lines.range(&file.text, span);
+        let mut item = crate::editing::completion_item(
+            candidate.name.to_string(),
+            candidate.kind.map(crate::editing::completion_kind),
+            range,
+        );
+        item.label_details = Some(lsp_types::CompletionItemLabelDetails {
+            detail: None,
+            description: Some(candidate.path),
+        });
+        if let Some(callable) = candidate
+            .symbol
+            .and_then(|symbol| analysis.callable_declaration(symbol))
+        {
+            callable.describe_completion(&mut item);
+        }
+        item.additional_text_edits = Some(vec![import]);
+        Some(item)
+    }
+
+    fn verified_import_edit(
+        &mut self,
+        analysis: &Analysis,
+        documents: &Documents,
+        path: &Path,
+        span: Span,
+        candidate: &ImportCandidate,
+        cancel: &Cancellation,
+    ) -> Option<TextEdit> {
+        let open = documents.get(path)?;
+        let file = analysis
+            .file(path)
+            .filter(|file| file.text == open.document.text)?;
+        let newline = if file.text.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let text = format!("using {};{newline}{newline}", candidate.path);
+        let source = normalized(path);
+        let mut changes = BTreeMap::from([(Span::default(), text.clone())]);
+        let mut edited = file.text.to_string();
+        if file.text[span.start..span.end] != *candidate.name {
+            changes.insert(span, candidate.name.to_string());
+            edited.replace_range(span.start..span.end, &candidate.name);
+        }
+        edited.insert_str(0, &text);
+        let edits = Edits::from([(source.clone(), changes)]);
+        let mut updated = documents.clone();
+        updated.get_mut(path)?.document = Document::new(open.document.version, edited);
+        let after = self
+            .analyze_with_cancel(&updated, path, Some(cancel))
+            .ok()?;
+        verified_import(
+            analysis,
+            &after,
+            &source,
+            span,
+            &candidate.target,
+            &edits,
+            cancel,
+        )
+        .then(|| TextEdit::new(Default::default(), text))
+    }
 }
 
-struct ImportCandidate {
+pub(super) struct ImportCandidate {
     target: Site,
     path: String,
+    name: std::sync::Arc<str>,
+    kind: Option<nia_defs::DefKind>,
+    symbol: Option<super::Symbol>,
 }
 
 impl Analysis {
+    pub(super) fn import_completion(
+        &self,
+        path: &Path,
+        position: lsp_types::Position,
+        cancel: &Cancellation,
+    ) -> Option<(Span, ImportCandidate)> {
+        use nia_defs::DefKind;
+        let file = self.file(path)?;
+        let (span, prefix, type_only) = crate::editing::unqualified_completion(file, position)?;
+        let candidate = self.import_candidate(
+            file,
+            |item| {
+                item.name.starts_with(prefix)
+                    && item.kind.is_some_and(|kind| {
+                        if type_only {
+                            matches!(
+                                kind,
+                                DefKind::Struct
+                                    | DefKind::Enum
+                                    | DefKind::Union
+                                    | DefKind::Trait
+                                    | DefKind::TypeAlias
+                            )
+                        } else {
+                            matches!(kind, DefKind::Function | DefKind::Const | DefKind::Global)
+                        }
+                    })
+            },
+            cancel,
+        )?;
+        Some((span, candidate))
+    }
+
     fn code_actions(
         &self,
         path: &Path,
@@ -192,7 +298,7 @@ impl Analysis {
     fn import_candidate(
         &self,
         file: &File,
-        name: &str,
+        matches: impl Fn(&VisibleName) -> bool,
         cancel: &Cancellation,
     ) -> Option<ImportCandidate> {
         let imports = self.db.source_imports(file.module, 0).ok()?;
@@ -240,29 +346,34 @@ impl Analysis {
                 paths.insert(path, module.id);
             }
         }
-        let mut found: BTreeMap<Site, String> = BTreeMap::new();
+        let mut found: Option<ImportCandidate> = None;
         for (path, module) in paths {
             cancel.check().ok()?;
             let available = self.namespace_names(file.module, module).ok()?;
-            for item in available
-                .into_iter()
-                .filter(|item| item.name.as_ref() == name)
-            {
+            for item in available.into_iter().filter(&matches) {
                 let Some(target) = item.symbol.and_then(|symbol| symbol_site(self, symbol)) else {
                     continue;
                 };
-                let path = format!("{}::{name}", path.join("::"));
-                let current = found.entry(target).or_insert_with(|| path.clone());
-                if (path.len(), &path) < (current.len(), &*current) {
-                    *current = path;
+                let import = format!("{}::{}", path.join("::"), item.name);
+                if let Some(current) = &mut found {
+                    if current.target != target || current.name != item.name {
+                        return None;
+                    }
+                    if (import.len(), &import) < (current.path.len(), &current.path) {
+                        current.path = import;
+                    }
+                } else {
+                    found = Some(ImportCandidate {
+                        target,
+                        path: import,
+                        name: item.name,
+                        kind: item.kind,
+                        symbol: item.symbol,
+                    });
                 }
             }
         }
-        if found.len() != 1 {
-            return None;
-        }
-        let (target, path) = found.pop_first()?;
-        Some(ImportCandidate { target, path })
+        found
     }
 }
 
@@ -277,18 +388,13 @@ fn requests_quick_fixes(params: &CodeActionParams) -> bool {
 fn verified_import(
     before: &Analysis,
     after: &Analysis,
-    path: &Path,
+    source: &str,
     use_span: Span,
     target: &Site,
-    text: &str,
+    edits: &Edits,
     cancel: &Cancellation,
 ) -> bool {
-    let source = normalized(path);
-    let edits = Edits::from([(
-        source.clone(),
-        BTreeMap::from([(Span::default(), text.to_owned())]),
-    )]);
-    let offsets = EditOffsets::new(&edits);
+    let offsets = EditOffsets::new(edits);
     let shift = |site: &Site| Site {
         span: offsets.binding_span(&site.source, site.span),
         source: site.source.clone(),
@@ -296,7 +402,7 @@ fn verified_import(
     let (Ok(previous), Ok(current)) = (bindings(before, cancel), bindings(after, cancel)) else {
         return false;
     };
-    if !matches_import_target(&source, use_span, &shift(target), &offsets, &current) {
+    if !matches_import_target(source, use_span, &shift(target), &offsets, &current) {
         return false;
     }
     if offsets

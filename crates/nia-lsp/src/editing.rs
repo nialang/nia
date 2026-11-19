@@ -327,7 +327,7 @@ impl<'a> CompletionContext<'a> {
     }
 }
 
-fn completion_item(
+pub(crate) fn completion_item(
     name: String,
     kind: Option<CompletionItemKind>,
     range: lsp_types::Range,
@@ -340,7 +340,7 @@ fn completion_item(
     }
 }
 
-fn completion_kind(kind: DefKind) -> CompletionItemKind {
+pub(crate) fn completion_kind(kind: DefKind) -> CompletionItemKind {
     match kind {
         DefKind::Module => CompletionItemKind::MODULE,
         DefKind::Function => CompletionItemKind::FUNCTION,
@@ -360,6 +360,43 @@ fn completion_kind(kind: DefKind) -> CompletionItemKind {
 
 fn is_name_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+pub(crate) fn unqualified_completion(
+    file: &File,
+    position: Position,
+) -> Option<(Span, &str, bool)> {
+    let offset = file.lines.offset(&file.text, position)?;
+    let start = name_start(&file.text, offset);
+    let prefix = &file.text[start..offset];
+    if prefix.is_empty()
+        || qualifier(&file.text, start).1 != start
+        || file.text[..start].trim_end().ends_with('.')
+        || inside_literal_or_comment(&file.text, offset)
+    {
+        return None;
+    }
+    let end = offset
+        + file.text[offset..]
+            .bytes()
+            .take_while(|&byte| is_name_byte(byte))
+            .count();
+    let root = file.syntax()?.tree.green_root();
+    let span = Span::new(start, end);
+    let mut node = root;
+    let mut kind = None;
+    while let Some(child) = node.child_nodes().find(|child| {
+        let inner = child.span();
+        inner.start <= start && end <= inner.end
+    }) {
+        node = child;
+        match node.kind() {
+            SyntaxKind::NameExpr if node.token_span() == Some(span) => kind = Some(false),
+            SyntaxKind::PathType if node.token_span() == Some(span) => kind = Some(true),
+            _ => {}
+        }
+    }
+    Some((span, prefix, kind?))
 }
 
 fn name_start(source: &str, end: usize) -> usize {

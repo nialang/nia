@@ -132,7 +132,13 @@ impl Session {
         let analysis =
             self.analyze_mode(documents, path, Some(cancel), AnalysisMode::Declarations)?;
         nia_query::with_cancellation(Some(cancel.token()), || {
-            Ok(analysis.complete(path, position))
+            let items = analysis.complete(path, position);
+            if items.as_ref().is_some_and(Vec::is_empty)
+                && analysis.import_completion(path, position, cancel).is_some()
+            {
+                return Ok(None);
+            }
+            Ok(items)
         })
         .map_err(|error| error.to_string())
     }
@@ -298,11 +304,15 @@ impl Session {
         let file = analysis.file(path)?;
         let offset = file.lines.offset(&file.text, position)?;
         let Some(member) = MemberCompletion::at(&file.text, offset) else {
-            return nia_query::with_cancellation(Some(cancel.token()), || {
+            let mut items = nia_query::with_cancellation(Some(cancel.token()), || {
                 Ok(analysis.complete(path, position))
             })
             .ok()
-            .flatten();
+            .flatten()?;
+            if items.is_empty() {
+                items.extend(self.complete_import(analysis, documents, path, position, cancel));
+            }
+            return Some(items);
         };
         let names = analysis.method_names(member.prefix(&file.text));
         let fields = member.candidates(analysis, file, &[], cancel);
@@ -2903,6 +2913,71 @@ mod tests {
                 ("LocalRecord", Some(CompletionItemKind::STRUCT)),
                 ("LocalType", Some(CompletionItemKind::TYPE_PARAMETER)),
             ],
+        );
+    }
+
+    #[test]
+    fn completion_imports_only_an_unambiguous_visible_declaration() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-completion-import");
+        let main = root.join("main.nia");
+        let alpha = root.join("alpha.nia");
+        let beta = root.join("beta.nia");
+        let source = "module alpha;\nmodule beta;\nfun example() i32 { weig() }\n";
+        let visible = "pub fun weight() i32 { 1 }\n";
+        let hidden = "fun weight() i32 { 2 }\n";
+        std::fs::write(&main, source).unwrap();
+        std::fs::write(&alpha, visible).unwrap();
+        std::fs::write(&beta, hidden).unwrap();
+        let mut documents = Documents::from([(
+            main.clone(),
+            OpenDocument {
+                uri: uri(&main).unwrap(),
+                document: Document::new(1, source.to_owned()),
+            },
+        )]);
+        let mut session = test_session();
+        let mut probe = test_session();
+        let cancel = Cancellation::default();
+        let cursor = Position::new(2, 24);
+        assert_eq!(
+            session
+                .complete_names(&documents, &main, cursor, &cancel)
+                .unwrap(),
+            None
+        );
+        let full = session.analyze(&documents, &main).unwrap();
+        let items = probe
+            .complete(&full, &documents, &main, cursor, &cancel)
+            .unwrap();
+        let [item] = items.as_slice() else {
+            panic!("expected one verified import completion, got {items:?}");
+        };
+        assert_eq!(item.label, "weight");
+        assert_eq!(
+            item.additional_text_edits.as_ref().unwrap()[0].new_text,
+            "using root::alpha::weight;\n\n"
+        );
+
+        documents.insert(
+            beta.clone(),
+            OpenDocument {
+                uri: uri(&beta).unwrap(),
+                document: Document::new(2, visible.to_owned()),
+            },
+        );
+        assert_eq!(
+            session
+                .complete_names(&documents, &main, cursor, &cancel)
+                .unwrap(),
+            Some(vec![])
+        );
+        let full = session.analyze(&documents, &main).unwrap();
+        assert!(
+            probe
+                .complete(&full, &documents, &main, cursor, &cancel)
+                .unwrap()
+                .is_empty()
         );
     }
 
