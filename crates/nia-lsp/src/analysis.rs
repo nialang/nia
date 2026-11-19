@@ -325,9 +325,12 @@ impl Session {
     }
 
     fn replace_source(&mut self, path: &Path, text: Arc<str>) -> Result<(), String> {
-        self.source_revision += 1;
         for driver in std::iter::once(&self.driver).chain(self.target_drivers.get_mut().values()) {
-            set_source(driver, path, text.clone())?;
+            let changed = set_source(driver, path, text.clone());
+            if !matches!(changed, Ok(false)) {
+                self.source_revision += 1;
+            }
+            changed?;
         }
         Ok(())
     }
@@ -528,7 +531,7 @@ fn analyze_editor_request(
     analyze_request(configured, request, check, cancel, mode)
 }
 
-fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<(), String> {
+fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<bool, String> {
     let physical = normalized(path);
     let toolchain = &driver.config().toolchain;
     let mut paths = vec![SourcePath::new(physical.clone())];
@@ -543,15 +546,24 @@ fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<(), String
             ));
         }
     }
+    let mut changed = false;
     for path in paths {
+        if driver
+            .sources()
+            .source_for_path(&path)
+            .is_some_and(|source| source.path.as_str() == path.as_str() && source.text == text)
+        {
+            continue;
+        }
         driver
             .set_source_path(path, text.clone())
             .map_err(|error| match error {
                 nia_driver::DriverError::InternalDiagnostic(diagnostic) => diagnostic.summary,
                 other => format!("{other:?}"),
             })?;
+        changed = true;
     }
-    Ok(())
+    Ok(changed)
 }
 
 fn analyze_request(
@@ -2453,7 +2465,7 @@ mod tests {
             .unwrap();
         assert!(Arc::ptr_eq(&parent, &nested));
         assert_eq!(nested.first_error(), None);
-        documents.remove(&child);
+        let child_buffer = documents.remove(&child).unwrap();
         let remaining = session
             .analyze_editor_snapshot(
                 &documents,
@@ -2463,12 +2475,22 @@ mod tests {
             )
             .unwrap();
         assert!(Arc::ptr_eq(&parent, &remaining));
+        documents.insert(child.clone(), child_buffer);
+        let reopened = session
+            .analyze_editor_snapshot(
+                &documents,
+                &child,
+                &cancel,
+                Some((source_revision, &remaining)),
+            )
+            .unwrap();
+        assert!(Arc::ptr_eq(&parent, &reopened));
         let other = session
             .analyze_editor_snapshot(
                 &documents,
                 &example,
                 &cancel,
-                Some((source_revision, &remaining)),
+                Some((source_revision, &reopened)),
             )
             .unwrap();
         assert!(!Arc::ptr_eq(&nested, &other));
