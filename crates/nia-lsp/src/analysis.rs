@@ -2727,6 +2727,38 @@ mod tests {
     }
 
     #[test]
+    fn type_completions_filter_values_and_include_generic_parameters() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-type-completion");
+        let entry = root.join("root.nia");
+        let text = concat!(
+            "struct LocalRecord {}\n",
+            "fun LocalFunction() i32 { 0 }\n",
+            "fun run[LocalType, LocalSize: usize](LocalValue: i32, value: Loc) () {}\n",
+        );
+        std::fs::write(&entry, text).unwrap();
+        let analysis = test_session().analyze(&Documents::new(), &entry).unwrap();
+        let offset = text.find("Loc)").unwrap() + "Loc".len();
+        let position = analysis
+            .file(&entry)
+            .unwrap()
+            .lines
+            .range(text, Span::new(offset, offset))
+            .start;
+        let items = analysis.complete(&entry, position).unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| (item.label.as_str(), item.kind))
+                .collect::<Vec<_>>(),
+            [
+                ("LocalRecord", Some(CompletionItemKind::STRUCT)),
+                ("LocalType", Some(CompletionItemKind::TYPE_PARAMETER)),
+            ],
+        );
+    }
+
+    #[test]
     fn completion_and_signature_help_follow_the_current_buffer() {
         let _resources = acquire_test_resources(TestWorkload::Compiler);
         let root = test_dir("lsp-editing");

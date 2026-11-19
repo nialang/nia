@@ -134,18 +134,43 @@ impl Analysis {
         if inside_literal_or_comment(&file.text, offset) {
             return Some(Vec::new());
         }
+        let root = file.syntax().map(|parsed| parsed.tree.green_root());
+        let context = CompletionContext::at(root, start);
         let mut candidates = BTreeMap::new();
         for name in self.names(file, start, &qualifier).ok()? {
+            if context.type_only
+                && name.kind.is_some_and(|kind| {
+                    !matches!(
+                        kind,
+                        DefKind::Struct
+                            | DefKind::Enum
+                            | DefKind::Union
+                            | DefKind::Trait
+                            | DefKind::TypeAlias
+                            | DefKind::TraitAssociatedType
+                            | DefKind::Module
+                    )
+                })
+            {
+                continue;
+            }
             candidates.entry(name.name.to_string()).or_insert((
                 name.kind.map(completion_kind),
                 name.symbol,
                 false,
             ));
         }
-        if qualifier.is_empty()
-            && let Some(parsed) = file.syntax()
+        if qualifier.is_empty() && context.type_only {
+            for name in context.type_parameters {
+                candidates.insert(
+                    name.to_owned(),
+                    (Some(CompletionItemKind::TYPE_PARAMETER), None, true),
+                );
+            }
+        } else if qualifier.is_empty()
+            && let Some(root) = root
         {
-            for name in local_names(parsed.tree.green_root(), &file.text, start) {
+            for name in local_names(root, &file.text, start) {
                 candidates.insert(
                     name.to_owned(),
                     (Some(CompletionItemKind::VARIABLE), None, true),
@@ -266,6 +291,49 @@ impl Analysis {
                 *candidate.name == *name && candidate.kind == Some(DefKind::Function)
             })?
             .symbol
+    }
+}
+
+#[derive(Default)]
+struct CompletionContext<'a> {
+    type_only: bool,
+    type_parameters: Vec<&'a str>,
+}
+
+impl<'a> CompletionContext<'a> {
+    fn at(root: Option<&'a GreenNode>, offset: usize) -> Self {
+        let mut context = Self::default();
+        let mut node = root;
+        while let Some(current) = node {
+            if current.kind() == &SyntaxKind::TypeOrConstArg {
+                // A bare argument path can denote a const as well as a type.
+                context.type_only = false;
+                break;
+            }
+            if current.kind().is_type() {
+                context.type_only = true;
+            } else if current.kind().is_expr() {
+                context.type_only = false;
+            }
+            if let Some(generics) = current.child(&SyntaxKind::GenericParamList) {
+                context
+                    .type_parameters
+                    .extend(generics.child_nodes().filter_map(|parameter| {
+                        if parameter.kind() != &SyntaxKind::GenericParam
+                            || parameter.token(&TokenKind::Colon).is_some()
+                        {
+                            return None;
+                        }
+                        let name = parameter.token(&TokenKind::Ident)?;
+                        (name.span().end <= offset).then_some(name.text())
+                    }));
+            }
+            node = current.child_nodes().find(|child| {
+                let span = child.span();
+                span.start <= offset && offset < span.end
+            });
+        }
+        context
     }
 }
 
