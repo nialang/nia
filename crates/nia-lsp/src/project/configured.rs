@@ -4,14 +4,20 @@
 use super::*;
 
 impl Package {
-    pub(crate) fn configured_requests(&self) -> Result<Vec<EditorRequest>, String> {
+    pub(crate) fn configured_requests(
+        &self,
+        toolchain: &nia_toolchain::ToolchainLayout,
+    ) -> Result<Vec<EditorRequest>, String> {
         self.planned_requests
-            .get_or_init(|| self.read_configured_requests())
+            .get_or_init(|| self.read_configured_requests(toolchain))
             .clone()
     }
 
-    fn read_configured_requests(&self) -> Result<Vec<EditorRequest>, String> {
-        let Some(plan) = &self.plan else {
+    fn read_configured_requests(
+        &self,
+        toolchain: &nia_toolchain::ToolchainLayout,
+    ) -> Result<Vec<EditorRequest>, String> {
+        let Some(plan) = self.plan.as_ref().map_err(Clone::clone)? else {
             return Ok(Vec::new());
         };
         let installed =
@@ -37,61 +43,35 @@ impl Package {
             package_roots.insert(&package.key, path);
         }
         let output = self.layout.out_dir();
-        let resolve = |path: &LogicalPath| {
-            let root = match path.root() {
-                LogicalPathRoot::Package(package) => package_roots.get(package)?,
-                LogicalPathRoot::Build => &output,
-                _ => return None,
-            };
-            Some(root.join(path.protocol_path()))
+        let cache = self.layout.cache_dir();
+        let directories = nia_build::compiler_inputs::PlanDirectories {
+            build: &output,
+            cache: &cache,
+            toolchain: toolchain.resource_root(),
         };
-        let entries: BTreeSet<_> = plan
-            .actions()
-            .iter()
-            .filter_map(|action| match &action.kind {
-                ActionKind::CompilerCheck {
-                    module,
-                    mode,
-                    target,
-                    runtime,
-                    configuration,
-                } => Some((
-                    module,
-                    *mode,
-                    *target,
-                    *runtime,
-                    configuration.cpu.unwrap_or_default(),
-                )),
-                ActionKind::CompilerEmit {
-                    artifact,
-                    target,
-                    configuration,
-                    ..
-                } => {
-                    let artifact = plan
-                        .artifacts()
-                        .iter()
-                        .find(|candidate| &candidate.key == artifact)?;
-                    Some((
-                        &artifact.root_module,
-                        artifact.mode,
-                        *target,
-                        artifact.runtime,
-                        configuration.cpu.unwrap_or_default(),
-                    ))
-                }
-                _ => None,
-            })
-            .collect();
+        let package_root: &nia_build::compiler_inputs::PackageRoot<'_> =
+            &|key| package_roots.get(key).cloned();
+        let mut contexts = std::collections::BTreeMap::new();
+        for input in plan.actions().iter().filter_map(|action| {
+            nia_build::compiler_inputs::PlanCompilation::for_action(plan, action)
+        }) {
+            let cpu = input.configuration.cpu.unwrap_or_default();
+            contexts
+                .entry((
+                    &input.module.key,
+                    input.mode,
+                    input.target,
+                    input.runtime,
+                    cpu,
+                ))
+                .or_insert(input);
+        }
         let mut requests = Vec::new();
-        for (key, mode, target, runtime, cpu) in entries {
-            let module = plan
-                .modules()
-                .iter()
-                .find(|module| &module.key == key)
-                .ok_or("Build plan entry has no module")?;
-            let entry = resolve(&module.root_source)
-                .ok_or("Build plan entry has an unsupported source root")?;
+        for ((_, mode, target, runtime, cpu), input) in contexts {
+            let module = input.module;
+            let entry = directories
+                .resolve(plan, &module.root_source, package_root)
+                .map_err(|error| format!("Could not resolve compiler entry: {error:?}"))?;
             let context = if mode == nia_build_plan::CompilationMode::Test {
                 Context::Test
             } else {
@@ -99,31 +79,53 @@ impl Package {
             };
             let mut modules = self.module_map(context)?;
             let directory = match module.root_source.root() {
-                LogicalPathRoot::Package(package) => &package_roots[package],
-                _ => &output,
+                nia_build_plan::LogicalPathRoot::Package(package) => &package_roots[package],
+                nia_build_plan::LogicalPathRoot::Build => &output,
+                _ => entry.parent().unwrap_or(&output),
             };
             let scope = SourceIdentity::new(normalized(directory));
             modules.add_scope(&scope);
             for import in &module.imports {
-                let path = resolve(&import.path).ok_or_else(|| {
-                    format!(
-                        "Build plan import `{}` has an unsupported source root",
-                        import.name
-                    )
-                })?;
+                if let nia_build_plan::LogicalPathRoot::Package(package) = import.path.root()
+                    && !self.selected_plan_dependency(plan, package, mode)
+                {
+                    continue;
+                }
+                let path = directories
+                    .resolve(plan, &import.path, package_root)
+                    .map_err(|error| {
+                        format!("Could not resolve import `{}`: {error:?}", import.name)
+                    })?;
                 modules.insert_scoped(&scope, &import.name, SourcePath::new(normalized(&path)))?;
             }
             requests.push(EditorRequest {
-                check: CheckRequest::new(normalized(&entry))
-                    .with_module_map(modules)
-                    .with_compilation_mode(if context == Context::Test {
-                        CompilationMode::Test
-                    } else {
-                        CompilationMode::Normal
-                    }),
+                check: input
+                    .check_request(SourcePath::new(normalized(&entry)))
+                    .with_module_map(modules),
                 target: Some((target, cpu, runtime)),
             });
         }
         Ok(requests)
+    }
+
+    fn selected_plan_dependency(
+        &self,
+        plan: &BuildPlan,
+        key: &nia_build_plan::PackageKey,
+        mode: nia_build_plan::CompilationMode,
+    ) -> bool {
+        let Some(package) = plan.packages().iter().find(|package| &package.key == key) else {
+            return false;
+        };
+        let PlanPackageSource::Dependency(alias) = &package.source else {
+            return true;
+        };
+        self.manifest
+            .dependencies
+            .iter()
+            .find(|dependency| &dependency.name == alias)
+            .is_some_and(|dependency| {
+                nia_build::compiler_inputs::artifact_dependency_visible(dependency.scope, mode)
+            })
     }
 }

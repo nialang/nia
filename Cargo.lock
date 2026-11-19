@@ -1670,6 +1670,7 @@ dependencies = [
  "lsp-server",
  "lsp-types",
  "nia-alloc",
+ "nia-build",
  "nia-build-plan",
  "nia-compat",
  "nia-compiler-query",

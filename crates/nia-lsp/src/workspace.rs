@@ -98,9 +98,12 @@ impl Session {
         {
             return Ok(index.clone());
         }
-        let workspace =
-            self.projects
-                .workspace_requests(path, documents.keys().cloned(), folders)?;
+        let workspace = self.projects.workspace_requests(
+            path,
+            documents.keys().cloned(),
+            folders,
+            &self.toolchain,
+        )?;
         let mut index = WorkspaceIndex {
             entries: Vec::new(),
             files: BTreeMap::new(),

@@ -78,24 +78,6 @@ pub(super) fn unsupported(action: &PlanAction, kind: &'static str) -> Coordinato
     }
 }
 
-pub(super) fn optimization(mode: OptimizationMode) -> NiaOptimizationLevel {
-    match mode {
-        OptimizationMode::O0 => NiaOptimizationLevel::O0,
-        OptimizationMode::O1 => NiaOptimizationLevel::O1,
-        OptimizationMode::O2 => NiaOptimizationLevel::O2,
-        OptimizationMode::O3 => NiaOptimizationLevel::O3,
-        OptimizationMode::Os => NiaOptimizationLevel::Os,
-        OptimizationMode::Oz => NiaOptimizationLevel::Oz,
-    }
-}
-
-pub(crate) fn source_compilation_mode(mode: CompilationMode) -> nia_target_config::CompilationMode {
-    match mode {
-        CompilationMode::Normal => nia_target_config::CompilationMode::Normal,
-        CompilationMode::Test => nia_target_config::CompilationMode::Test,
-    }
-}
-
 pub(super) fn runtime_spec(
     runtime: Runtime,
     toolchain: &nia_toolchain::ToolchainLayout,

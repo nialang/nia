@@ -7,6 +7,7 @@
 
 use super::*;
 use crate::action_cache::CompilerCheckCacheIdentityInput;
+use crate::compiler_inputs::{self, PlanDirectories, PlanPathError};
 use crate::lock::{LockWaitEvent, LockWaitObserver};
 use crate::progress::{ProgressActivity, ProgressSession, ProgressWaitKind, ProgressWaitOutcome};
 use crate::{ArtifactConfiguration, ArtifactLinkage, ArtifactLto, SystemLibraryMode};
@@ -1611,11 +1612,9 @@ impl DriverActionExecutor {
                     error: Box::new(DriverError::Runtime(error)),
                 }
             })?;
-        Ok(CheckRequest::from_source_path(entry)
+        Ok(compiler_inputs::check_request(entry, module, mode)
             .with_module_map(module_map)
-            .with_optimization(optimization(module.optimization))
             .with_profile(self.invocation.profile)
-            .with_compilation_mode(source_compilation_mode(mode))
             .with_timings(self.invocation.timings)
             .with_runtime(runtime))
     }
@@ -1757,36 +1756,30 @@ impl DriverActionExecutor {
         action: &PlanAction,
         logical: &LogicalPath,
     ) -> Result<PathBuf, CoordinatorError> {
-        let mut path = match logical.root() {
-            LogicalPathRoot::Package(package) => {
+        let directories = PlanDirectories {
+            build: &self.invocation.build_dir,
+            cache: &self.invocation.cache_dir,
+            toolchain: self.invocation.toolchain.resource_root(),
+        };
+        directories
+            .resolve(&self.plan, logical, &|key| {
                 let package = self
                     .plan
                     .packages()
                     .iter()
-                    .find(|candidate| &candidate.key == package)
-                    .ok_or_else(|| CoordinatorError::UnmappedPackage {
-                        action: action.key.clone(),
-                        package: package.clone(),
-                    })?;
-                crate::package_source_root(&self.invocation, package).ok_or_else(|| {
-                    CoordinatorError::UnmappedPackage {
-                        action: action.key.clone(),
-                        package: package.key.clone(),
-                    }
-                })?
-            }
-            LogicalPathRoot::Build => self.invocation.build_dir.clone(),
-            LogicalPathRoot::Cache => self.invocation.cache_dir.clone(),
-            LogicalPathRoot::Toolchain => self.invocation.toolchain.resource_root().to_path_buf(),
-            LogicalPathRoot::Artifact(key) => {
-                let artifact = self.artifact(action, key)?;
-                self.resolve_path(action, &artifact.output)?
-            }
-        };
-        for component in logical.components() {
-            path.push(component);
-        }
-        Ok(path)
+                    .find(|package| &package.key == key)?;
+                crate::package_source_root(&self.invocation, package)
+            })
+            .map_err(|error| match error {
+                PlanPathError::Package(package) => CoordinatorError::UnmappedPackage {
+                    action: action.key.clone(),
+                    package,
+                },
+                PlanPathError::Artifact(artifact) => inconsistent(
+                    format!("action `{}`", action.key.name()),
+                    format!("artifact `{}`", artifact.name()),
+                ),
+            })
     }
 }
 

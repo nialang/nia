@@ -51,6 +51,7 @@ fn stream_chunk_len(remaining: u64, buffer_len: usize) -> usize {
 }
 
 mod action_cache;
+pub mod compiler_inputs;
 mod configure_cache;
 mod configure_observation;
 mod coordinator;
@@ -3610,21 +3611,11 @@ pub(crate) fn manifest_module_roots(
 ) -> io::Result<Vec<(String, String, SourcePath)>> {
     let mut imports = Vec::new();
     for edge in &report.declared {
-        let selected = match edge.dependency.scope {
-            DependencyScope::Build => scopes.contains(&DependencyScope::Build),
-            DependencyScope::Runtime => scopes.contains(&DependencyScope::Runtime),
-            DependencyScope::Development => {
-                scopes.contains(&DependencyScope::Development)
-                    && compilation_mode == CompilationMode::Test
-            }
-            // Optional roots are injected only when the selected module
-            // explicitly imports the package. They are never preinstalled in
-            // the ordinary runtime root set.
-            DependencyScope::Optional => scopes.contains(&DependencyScope::Optional),
-            // Lazy roots remain visible to the loader, but source loading is
-            // still demand-driven by the module query.
-            DependencyScope::Lazy => scopes.contains(&DependencyScope::Runtime),
-        };
+        let selected = compiler_inputs::manifest_dependency_visible(
+            edge.dependency.scope,
+            scopes,
+            compilation_mode,
+        );
         let Some(logical_root) = edge.resolved_root.as_deref() else {
             continue;
         };

@@ -5,6 +5,46 @@ use nia_test_support::{TestWorkload, acquire_test_resources, test_dir};
 use super::{tests::test_session, *};
 
 #[test]
+fn unreadable_plan_keeps_manifest_navigation_available() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-unreadable-build-plan");
+    let entry = root.join("root.nia");
+    let source = "fun amount() i32 { 1 }\nfun run() i32 { amount() }\n";
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"example\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+    )
+    .unwrap();
+    std::fs::write(&entry, source).unwrap();
+    let output = root.join("build/out");
+    std::fs::create_dir_all(&output).unwrap();
+    std::fs::write(output.join("build-plan.bin"), b"invalid plan").unwrap();
+    let mut session = test_session();
+    let documents = Documents::new();
+    let analysis = session.analyze(&documents, &entry).unwrap();
+    assert_eq!(analysis.first_error(), None);
+    assert_eq!(
+        analysis
+            .definition(&entry, Position::new(1, 18))
+            .unwrap()
+            .range
+            .start,
+        Position::new(0, 4)
+    );
+    let diagnostics = analysis.diagnostics(&entry, &Document::new(1, source.into()));
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert!(diagnostics[0].message.contains("build-plan.bin"));
+    assert!(
+        session
+            .workspace_index(&entry, &documents, &[], &Cancellation::default())
+            .err()
+            .expect("incomplete build context")
+            .contains("build-plan.bin")
+    );
+}
+
+#[test]
 fn build_named_library_module_keeps_its_owner_in_navigation_and_rename() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-build-module-owner");

@@ -42,8 +42,8 @@ use std::{
 
 use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, ExecutableCacheRestore,
-    LinkExecutableRequest, LinkTimeOptimization, ModuleMap, NiaOptimizationLevel, RuntimeSpec,
-    SourceInputContent, SourcePath,
+    LinkExecutableRequest, LinkTimeOptimization, ModuleMap, RuntimeSpec, SourceInputContent,
+    SourcePath,
 };
 use nia_linker::{ArchiveOptions, StaticArchiveLinkInput};
 use nia_package_metadata::DependencyScope;
@@ -51,6 +51,7 @@ use nia_query::{QueryFingerprintBytesWriter, QuerySession};
 use nia_target::TargetConfig;
 use nia_target_config::BuildProfile;
 
+use crate::compiler_inputs::optimization;
 use crate::{
     ActionCacheMissReason, ActionCacheOutcome, ActionCacheReport, ActionKey, ActionKind,
     ActionResourceClass, ArtifactKey, BuildInvocation, BuildPlan, CommandAction, CommandArgument,
@@ -80,6 +81,8 @@ use crate::{
     },
     resources::ActionResourceBudget,
 };
+#[cfg(test)]
+use nia_driver::NiaOptimizationLevel;
 
 const EXTERNAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(7 * 60);
 const EXTERNAL_OUTPUT_TAIL_BYTES: usize = 64 * 1024;
@@ -143,13 +146,9 @@ pub(crate) fn package_dependency_selected(
     mode: CompilationMode,
 ) -> bool {
     classes.get(package).is_none_or(|classes| {
-        classes.iter().any(|scope| match scope {
-            DependencyScope::Build => false,
-            DependencyScope::Runtime => true,
-            DependencyScope::Development => mode == CompilationMode::Test,
-            DependencyScope::Optional => true,
-            DependencyScope::Lazy => true,
-        })
+        classes
+            .iter()
+            .any(|scope| crate::compiler_inputs::artifact_dependency_visible(*scope, mode))
     })
 }
 

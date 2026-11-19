@@ -6,8 +6,8 @@ license.workspace = true
 
 [features]
 default = ["llvm-dynamic"]
-llvm-dynamic = ["nia-driver/llvm-dynamic"]
-llvm-static = ["nia-driver/llvm-static"]
+llvm-dynamic = ["nia-driver/llvm-dynamic", "nia-build/llvm-dynamic"]
+llvm-static = ["nia-driver/llvm-static", "nia-build/llvm-static"]
 
 [dependencies]
 crossbeam-channel = "0.5"
@@ -15,6 +15,7 @@ lsp-server = "0.10.0"
 lsp-types = "0.97.0"
 url = "2.5"
 nia-alloc.workspace = true
+nia-build = { workspace = true, default-features = false }
 nia-build-plan.workspace = true
 nia-compat.workspace = true
 nia-compiler-query.workspace = true

@@ -105,7 +105,16 @@ impl Session {
             return analyze(CheckRequest::new(normalized(entry)));
         };
         let entry_path = normalized(entry);
-        let mut configured = package.configured_requests()?;
+        let (mut configured, configuration_warning) =
+            match package.configured_requests(&self.toolchain) {
+                Ok(configured) => (configured, None),
+                Err(error) => (
+                    Vec::new(),
+                    Some(format!(
+                        "Build plan unavailable. Using manifest entries. {error}"
+                    )),
+                ),
+            };
         configured.sort_by_key(|request| request.check.entry_path.as_str() != entry_path);
         for request in configured {
             if let Some(cancel) = cancel {
@@ -127,7 +136,10 @@ impl Session {
                     .as_ref()
                     .is_ok_and(|analysis| analysis.files.contains_key(&entry_path))
             {
-                return analysis;
+                return analysis.map(|mut analysis| {
+                    analysis.configuration_warning = configuration_warning;
+                    analysis
+                });
             }
         }
         unreachable!("editor requests always include the current source")
@@ -310,6 +322,7 @@ pub(crate) struct Analysis {
     pub(crate) files: BTreeMap<String, File>,
     pub(crate) definitions: HashMap<Symbol, (String, Span)>,
     diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
+    configuration_warning: Option<String>,
     db: CompilerDatabase,
     graph: ModuleGraphSnapshot,
     defs: HashMap<ModuleId, Arc<DefCollection>>,
@@ -387,6 +400,7 @@ impl Analysis {
             files: BTreeMap::new(),
             definitions: HashMap::new(),
             diagnostics: program.diagnostics,
+            configuration_warning: None,
             db: db.clone(),
             graph: program.graph.clone(),
             defs: program
@@ -1489,6 +1503,12 @@ impl Analysis {
                     ..Diagnostic::default()
                 }
             })
+            .chain(self.configuration_warning.iter().map(|message| Diagnostic {
+                severity: Some(DiagnosticSeverity::WARNING),
+                source: Some("nia-lsp".to_owned()),
+                message: message.clone(),
+                ..Diagnostic::default()
+            }))
             .collect()
     }
 }

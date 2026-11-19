@@ -7,10 +7,7 @@ use std::{
     sync::OnceLock,
 };
 
-use nia_build_plan::{
-    ActionKind, BuildPlan, LogicalPath, LogicalPathRoot, PlanHandoffError, PlanPackageSource,
-    read_build_plan,
-};
+use nia_build_plan::{BuildPlan, PlanHandoffError, PlanPackageSource, read_build_plan};
 use nia_driver::CheckRequest;
 use nia_imports::ModuleMap;
 use nia_package_metadata::{
@@ -59,6 +56,7 @@ impl Projects {
         entry: &Path,
         open: impl Iterator<Item = PathBuf>,
         folders: &[PathBuf],
+        toolchain: &nia_toolchain::ToolchainLayout,
     ) -> Result<WorkspaceRequests, String> {
         let mut entries = BTreeSet::new();
         let mut standalone = BTreeSet::new();
@@ -114,7 +112,7 @@ impl Projects {
             if let Some(build) = package.build_candidate() {
                 build_candidates.push(package.request(&build, Context::Build)?.into());
             }
-            let planned = package.configured_requests()?;
+            let planned = package.configured_requests(toolchain)?;
             entries.extend(
                 package
                     .declared_entries()
@@ -200,7 +198,7 @@ pub(crate) struct Package {
     layout: BuildLayout,
     manifest: PackageManifest,
     maps: HashMap<Context, ModuleMap>,
-    plan: Option<BuildPlan>,
+    plan: Result<Option<BuildPlan>, String>,
     planned_requests: OnceLock<Result<Vec<EditorRequest>, String>>,
 }
 
@@ -246,13 +244,13 @@ impl Package {
         let layout = BuildLayout::for_package(root).map_err(error)?;
         let manifest = PackageManifest::read(layout.package_root()).map_err(error)?;
         let plan = match read_build_plan(&layout.out_dir().join("build-plan.bin")) {
-            Ok(plan) => Some(plan),
+            Ok(plan) => Ok(Some(plan)),
             Err(PlanHandoffError::Open { error, .. })
                 if error.kind() == std::io::ErrorKind::NotFound =>
             {
-                None
+                Ok(None)
             }
-            Err(error) => return Err(error.to_string()),
+            Err(error) => Err(error.to_string()),
         };
         Ok(Self {
             layout,
@@ -342,19 +340,25 @@ impl Package {
             let scope = SourceIdentity::new(normalized(&owner));
             modules.add_scope(&scope);
             let is_root = owner == root;
-            for dependency in
-                manifest
-                    .dependencies
-                    .iter()
-                    .filter(|dependency| match dependency.scope {
-                        DependencyScope::Build => context == Context::Build,
-                        DependencyScope::Runtime | DependencyScope::Lazy => {
-                            context != Context::Build
-                        }
-                        DependencyScope::Development => context == Context::Test && is_root,
-                        DependencyScope::Optional => false,
-                    })
-            {
+            let scopes: &[_] = match context {
+                Context::Build => &[DependencyScope::Build],
+                Context::Test if is_root => {
+                    &[DependencyScope::Runtime, DependencyScope::Development]
+                }
+                _ => &[DependencyScope::Runtime],
+            };
+            let mode = if context == Context::Test {
+                nia_build_plan::CompilationMode::Test
+            } else {
+                nia_build_plan::CompilationMode::Normal
+            };
+            for dependency in manifest.dependencies.iter().filter(|dependency| {
+                nia_build::compiler_inputs::manifest_dependency_visible(
+                    dependency.scope,
+                    scopes,
+                    mode,
+                )
+            }) {
                 let Some(target) = installed.source_root(&owner, dependency).map_err(|error| {
                     format!(
                         "{}: dependency `{}`: {error}",
