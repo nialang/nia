@@ -13,7 +13,8 @@ use nia_span::Span;
 use serde::Deserialize;
 
 /// A source map whose generated ranges match the current generated text.
-pub struct GeneratedSourceMap {
+pub struct GeneratedSourceMap<'a> {
+    generated_text: &'a str,
     entries: Vec<Mapping>,
     root: nia_build_plan::PackageKey,
     inputs: Vec<LogicalPath>,
@@ -46,14 +47,14 @@ struct Mapping {
     source: [usize; 2],
 }
 
-impl GeneratedSourceMap {
+impl<'a> GeneratedSourceMap<'a> {
     /// Loads the `.map` companion if the configured action declares both
     /// exactly named outputs. Digest and range validation use UTF-8 bytes.
     pub fn read(
         plan: &BuildPlan,
         output: &Path,
         generated: &Path,
-        generated_text: &str,
+        generated_text: &'a str,
     ) -> io::Result<Option<Self>> {
         let Ok(relative) = generated.strip_prefix(output) else {
             return Ok(None);
@@ -106,6 +107,7 @@ impl GeneratedSourceMap {
             return Err(invalid("generated source ranges are invalid or overlap"));
         }
         Ok(Some(Self {
+            generated_text,
             entries: mappings,
             root: plan.root_package().clone(),
             inputs: producer.inputs.clone(),
@@ -114,6 +116,7 @@ impl GeneratedSourceMap {
 
     /// Finds a unique enclosing generated range and validates the mapped input
     /// against the caller's current text, including any unsaved editor buffer.
+    /// Byte-identical ranges preserve the offset within that range.
     pub fn origin(
         &self,
         package_root: &Path,
@@ -130,7 +133,9 @@ impl GeneratedSourceMap {
         else {
             return Ok(None);
         };
-        if span.start >= span.end || span.end > mapping.generated[1] {
+        if span.end > mapping.generated[1]
+            || checked_span(self.generated_text, [span.start, span.end]).is_none()
+        {
             return Ok(None);
         }
         let relative = LogicalPath::new(
@@ -154,8 +159,16 @@ impl GeneratedSourceMap {
         if !matches_digest(&text, &mapping.source_digest) {
             return Err(invalid("mapped source digest is stale"));
         }
-        let span = checked_span(&text, mapping.source)
+        let source_span = checked_span(&text, mapping.source)
             .ok_or_else(|| invalid("mapped source range is invalid"))?;
+        let copied = self.generated_text[mapping.generated[0]..mapping.generated[1]]
+            == text[source_span.start..source_span.end];
+        let span = if copied {
+            let start = source_span.start + (span.start - mapping.generated[0]);
+            Span::new(start, start + span.len())
+        } else {
+            source_span
+        };
         Ok(Some(SourceOrigin { path, text, span }))
     }
 }
@@ -248,7 +261,7 @@ mod tests {
         let output = root.join("out");
         std::fs::create_dir(&output).unwrap();
         let input = "// 🙂\namount";
-        let generated = "amount amount";
+        let generated = "amount generated";
         let generated_path = output.join("generated.nia");
         let map_path = output.join("generated.nia.map");
         std::fs::write(root.join("definitions.nia"), input).unwrap();
@@ -266,14 +279,21 @@ mod tests {
         let mut manifest = serde_json::json!({
             "version": 1,
             "generatedDigest": digest(generated),
-            "mappings": [mapping([0, 6]), mapping([7, 13])],
+            "mappings": [mapping([0, 6]), mapping([7, 16])],
         });
         std::fs::write(&map_path, manifest.to_string()).unwrap();
         let plan = producer(true);
         let map = GeneratedSourceMap::read(&plan, &output, &generated_path, generated)
             .unwrap()
             .unwrap();
-        for span in [Span::new(0, 6), Span::new(7, 13)] {
+        for (span, expected) in [
+            (Span::new(0, 6), Span::new(input_span[0], input_span[1])),
+            (
+                Span::new(1, 5),
+                Span::new(input_span[0] + 1, input_span[0] + 5),
+            ),
+            (Span::new(8, 11), Span::new(input_span[0], input_span[1])),
+        ] {
             let origin = map
                 .origin(&root, &output, span, |path| {
                     read_source_text(path).map(Arc::from)
@@ -281,7 +301,7 @@ mod tests {
                 .unwrap()
                 .unwrap();
             assert_eq!(origin.path, root.join("definitions.nia"));
-            assert_eq!(origin.span, Span::new(input_span[0], input_span[1]));
+            assert_eq!(origin.span, expected);
         }
         assert!(
             map.origin(&root, &output, Span::new(0, 6), |_| Ok(Arc::from(
@@ -295,7 +315,7 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        manifest["mappings"][1]["generated"] = serde_json::json!([5, 13]);
+        manifest["mappings"][1]["generated"] = serde_json::json!([5, 16]);
         std::fs::write(&map_path, manifest.to_string()).unwrap();
         assert!(GeneratedSourceMap::read(&plan, &output, &generated_path, generated).is_err());
     }

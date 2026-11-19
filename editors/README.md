@@ -88,8 +88,9 @@ be disjoint.
 ```
 
 Definition and type-definition navigation use the map when both snapshots
-match the producer's digests. Unsaved changes to either file are checked
-against the same digests.
+match the producer's digests. Byte-identical ranges preserve the location
+within the mapped text. Transformed ranges link to the entire input range.
+Unsaved changes to either file are checked against the same digests.
 
 Workspace references and rename share an index for the current document
 revision. Reference results can include resolved sources from entries
