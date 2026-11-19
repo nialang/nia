@@ -172,8 +172,10 @@ fn build_hook_still_contributes_its_independent_context() {
         .iter()
         .find(|entry| entry.request.check.entry_path.as_str() == normalized(&build))
         .expect("build candidate is indexed");
-    assert!(build_entry.analysis_failure.is_none());
-    assert!(build_entry.diagnostics.is_empty());
+    assert!(matches!(
+        build_entry.coverage,
+        crate::workspace::Coverage::Complete
+    ));
     assert_eq!(
         build_entry.request.target.map(|context| context.runtime),
         Some(nia_build_plan::Runtime::Bare)

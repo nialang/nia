@@ -8,6 +8,7 @@ use std::{
 };
 
 use lsp_types::{Location, Position, SymbolInformation, SymbolKind, Uri};
+use nia_compiler_query::ProgramDiagnostic;
 use nia_lexer::TokenKind;
 use nia_span::Span;
 use nia_syntax::SyntaxKind;
@@ -52,13 +53,35 @@ pub(crate) type Bindings = BTreeMap<String, BTreeMap<Span, BTreeSet<Binding>>>;
 pub(crate) struct Entry {
     pub(crate) request: EditorRequest,
     pub(crate) bindings: Bindings,
-    pub(crate) analysis_failure: Option<String>,
-    pub(crate) diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
+    pub(crate) coverage: Coverage,
     consulted_sources: Option<Arc<BTreeSet<String>>>,
     files: BTreeMap<String, (Uri, Arc<str>)>,
     symbols: Vec<(Site, WorkspaceDeclaration)>,
     implementations: Vec<(Site, Site)>,
     module_declarations: Vec<(String, Site)>,
+}
+
+pub(crate) enum Coverage {
+    Complete,
+    Partial(Vec<ProgramDiagnostic>),
+    Unavailable(String),
+}
+
+impl Coverage {
+    pub(crate) fn source_errors(&self) -> &[ProgramDiagnostic] {
+        match self {
+            Self::Partial(errors) => errors,
+            _ => &[],
+        }
+    }
+
+    fn problem(&self) -> Option<&str> {
+        match self {
+            Self::Complete => None,
+            Self::Partial(errors) => errors.first().map(|item| item.diagnostic.summary.as_str()),
+            Self::Unavailable(error) => Some(error),
+        }
+    }
 }
 
 pub(crate) struct WorkspaceIndex {
@@ -248,8 +271,7 @@ impl Entry {
             Err(error) => {
                 return Ok(Self {
                     request,
-                    analysis_failure: Some(error),
-                    diagnostics: Vec::new(),
+                    coverage: Coverage::Unavailable(error),
                     bindings: Bindings::new(),
                     consulted_sources: None,
                     files: BTreeMap::new(),
@@ -260,10 +282,16 @@ impl Entry {
             }
         };
         let diagnostics: Vec<_> = analysis.errors().cloned().collect();
-        let analysis_failure = diagnostics
+        let coverage = if let Some(error) = diagnostics
             .iter()
             .find(|item| item.diagnostic.category() == nia_diagnostic::DiagnosticCategory::Internal)
-            .map(|item| item.diagnostic.summary.clone());
+        {
+            Coverage::Unavailable(error.diagnostic.summary.clone())
+        } else if diagnostics.is_empty() {
+            Coverage::Complete
+        } else {
+            Coverage::Partial(diagnostics)
+        };
         let bindings = bindings(&analysis, cancel)?;
         let mut symbols = Vec::new();
         for (source, span, name, kind, container) in analysis.workspace_declarations() {
@@ -307,8 +335,7 @@ impl Entry {
             .collect();
         Ok(Self {
             request,
-            analysis_failure,
-            diagnostics,
+            coverage,
             bindings,
             consulted_sources: Some(analysis.consulted_sources),
             symbols,
@@ -320,6 +347,24 @@ impl Entry {
                 .map(|(source, file)| (source, (file.uri, file.text)))
                 .collect(),
         })
+    }
+
+    pub(crate) fn depends_on(&self, source: &str) -> bool {
+        self.files.contains_key(source)
+            || self
+                .consulted_sources
+                .as_ref()
+                .is_some_and(|paths| paths.contains(source))
+    }
+
+    pub(crate) fn observes_move(&self, from: &Path, to: &Path) -> bool {
+        self.files
+            .keys()
+            .chain(self.consulted_sources.iter().flat_map(|paths| paths.iter()))
+            .any(|source| {
+                let source = Path::new(source);
+                source.starts_with(from) || source.starts_with(to)
+            })
     }
 }
 
@@ -464,17 +509,12 @@ impl WorkspaceIndex {
 
     pub(crate) fn reference_coverage_warning(&self) -> Option<String> {
         let (path, error) = if let Some((package, error)) = self.unavailable_plans.first() {
-            (package.to_string_lossy(), error)
+            (package.to_string_lossy(), error.as_str())
         } else {
-            let (entry, error) = self.entries.iter().find_map(|entry| {
-                let error = entry.analysis_failure.as_ref().or_else(|| {
-                    entry
-                        .diagnostics
-                        .first()
-                        .map(|item| &item.diagnostic.summary)
-                })?;
-                Some((entry, error))
-            })?;
+            let (entry, error) = self
+                .entries
+                .iter()
+                .find_map(|entry| Some((entry, entry.coverage.problem()?)))?;
             (
                 std::borrow::Cow::Borrowed(entry.request.check.entry_path.as_str()),
                 error,

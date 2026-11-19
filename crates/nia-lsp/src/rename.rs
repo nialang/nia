@@ -19,7 +19,7 @@ use crate::{
     analysis::{Analysis, Documents, OpenDocument, Session, Symbol, normalized, path, uri},
     document::{Document, text_workspace_edit},
     rewrite::{EditOffsets, Edits, relocated},
-    workspace::{Binding, Bindings, Cancellation, Site, WorkspaceIndex, bindings},
+    workspace::{Binding, Bindings, Cancellation, Coverage, Site, WorkspaceIndex, bindings},
 };
 
 type ShorthandFields = BTreeMap<String, BTreeSet<Span>>;
@@ -267,7 +267,7 @@ impl Session {
         };
         for entry in &workspace.entries {
             cancel.check()?;
-            if let Some(error) = &entry.analysis_failure {
+            if let Coverage::Unavailable(error) = &entry.coverage {
                 return Err(format!(
                     "Cannot check rename in {} ({error})",
                     entry.request.check.entry_path.as_str()
@@ -415,11 +415,17 @@ impl Session {
         let mut verification = Session::new(self.toolchain.clone());
         verification.install_documents(&updated)?;
         let offsets = EditOffsets::new(&edits);
-        for entry in &workspace.entries {
+        let affected = workspace.entries.iter().filter(|entry| {
+            edits.keys().any(|source| entry.depends_on(source))
+                || moves.iter().any(|(from, to)| entry.observes_move(from, to))
+        });
+        for entry in affected {
             cancel.check()?;
             let request = &entry.request;
             let after = verification.analyze_request(request.clone(), cancel)?;
-            if let Some(error) = offsets.new_error(&entry.diagnostics, after.errors(), &moves) {
+            if let Some(error) =
+                offsets.new_error(entry.coverage.source_errors(), after.errors(), &moves)
+            {
                 return Err(format!(
                     "Rename would break {} ({} at {})",
                     request.check.entry_path.as_str(),
