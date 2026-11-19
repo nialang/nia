@@ -18,7 +18,7 @@ error[E0201]: unknown value `comput`
   |          ^^^^^^
 help: check the module path, spelling, and whether the value is public
 help: did you mean `compute`?
-suggestion (maybe-incorrect): replace the unknown member with this spelling
+suggestion (maybe-incorrect): replace the unknown member with `compute`
   edit: fail/qualified_callable/main.nia:8:10 replace 178..184 with "compute"
 
 error[E0301]: generic function pointer requires explicit type arguments

@@ -35,23 +35,31 @@ def smoke(server, root):
     main = root / "root.nia"
     main.write_text(source, encoding="utf-8")
     shapes = root / "shapes.nia"
-    shapes.write_text("pub struct Shape { width: i32 }\n", encoding="utf-8")
+    shapes_source = "pub struct Shape { width: i32 }\npub fun weight() i32 { 1 }\n"
+    shapes.write_text(shapes_source, encoding="utf-8")
     with subprocess.Popen([str(server)], cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
         try:
             client = Client(process, 60)
             capabilities = request(client, "initialize", {
                 "processId": None,
                 "rootUri": root.as_uri(),
-                "capabilities": {"workspace": {
-                    "semanticTokens": {"refreshSupport": True},
-                    "didChangeWatchedFiles": {"dynamicRegistration": True},
-                    "fileOperations": {"willRename": True, "didRename": True},
-                    "workspaceFolders": True,
-                }},
+                "capabilities": {
+                    "workspace": {
+                        "semanticTokens": {"refreshSupport": True},
+                        "didChangeWatchedFiles": {"dynamicRegistration": True},
+                        "fileOperations": {"willRename": True, "didRename": True},
+                        "workspaceFolders": True,
+                        "workspaceEdit": {"documentChanges": True},
+                    },
+                    "textDocument": {"codeAction": {
+                        "codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix"]}},
+                    }},
+                },
             })["capabilities"]
             assert capabilities["positionEncoding"] == "utf-16"
             assert capabilities["workspaceSymbolProvider"] and capabilities["typeDefinitionProvider"]
             assert set(capabilities["workspace"]["fileOperations"]) == {"willRename", "didRename"}
+            assert capabilities["codeActionProvider"]["codeActionKinds"] == ["quickfix"]
             client.notify("initialized", {})
 
             canceled = client.request("workspace/symbol", {"query": "fixture::shapes::Shape"})
@@ -81,13 +89,15 @@ def smoke(server, root):
             assert target["range"]["start"] == {"line": 0, "character": 19}, target
 
             edit = request(client, "textDocument/rename", dict(**field, newName="height"))
-            assert sorted(edit["changes"]) == sorted([main.as_uri(), shapes.as_uri()]), edit
+            assert {item["textDocument"]["uri"] for item in edit["documentChanges"]} == {
+                main.as_uri(), shapes.as_uri(),
+            }, edit
             assert "client/registerCapability" in client.server_requests
             deadline = perf_counter() + client.timeout
             while "workspace/semanticTokens/refresh" not in client.server_requests:
                 client.receive(deadline)
 
-            shapes.write_text("pub struct Shape { height: i32 }\n", encoding="utf-8")
+            shapes.write_text(shapes_source.replace("width", "height"), encoding="utf-8")
             client.notify("workspace/didChangeWatchedFiles", {
                 "changes": [{"uri": shapes.as_uri(), "type": 2}],
             })
@@ -107,18 +117,54 @@ def smoke(server, root):
             target = request(client, "textDocument/definition", field)
             assert target["uri"] == shapes.as_uri(), target
 
+            updated = source.replace("width", "height")
+            typo = updated.replace("shape.height", "shapes::weigth()")
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=3),
+                "contentChanges": [{"text": typo}],
+            })
+            _, diagnostics = client.wait_diagnostics(main.as_uri(), 3, lambda items: any(
+                "unknown value `weigth`" in diagnostic["message"] for diagnostic in items
+            ))
+            start = position(typo, "weigth")
+            end = dict(start, character=start["character"] + len("weigth"))
+            code_action = dict(**params, range={"start": start, "end": end})
+            actions = request(client, "textDocument/codeAction", dict(
+                **code_action, context={"diagnostics": diagnostics, "only": ["quickfix"]},
+            ))
+            assert len(actions) == 1, actions
+            action = actions[0]
+            assert action["kind"] == "quickfix" and "weight" in action["title"], action
+            assert not action.get("isPreferred"), action
+            change, = action["edit"]["documentChanges"]
+            assert change["textDocument"] == dict(**document, version=3), change
+            assert change["edits"] == [{"range": code_action["range"], "newText": "weight"}], change
+            assert not request(client, "textDocument/codeAction", dict(
+                **code_action, context={"diagnostics": diagnostics, "only": ["source.organizeImports"]},
+            ))
+            replacement = change["edits"][0]
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=4),
+                "contentChanges": [{"range": replacement["range"], "text": replacement["newText"]}],
+            })
+            client.wait_diagnostics(main.as_uri(), 4, lambda items: not items)
+            assert not request(client, "textDocument/codeAction", dict(
+                **code_action, context={"diagnostics": diagnostics},
+            ))
+
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)
             renamed = root / "geometry.nia"
             move = {"files": [{"oldUri": shapes.as_uri(), "newUri": renamed.as_uri()}]}
             edit = request(client, "workspace/willRenameFiles", move)
-            assert set(edit) == {"changes"} and set(edit["changes"]) == {main.as_uri()}, edit
-            assert [item["newText"] for item in edit["changes"][main.as_uri()]] == [
+            assert set(edit) == {"documentChanges"}, edit
+            change, = edit["documentChanges"]
+            assert change["textDocument"]["uri"] == main.as_uri(), change
+            assert [item["newText"] for item in change["edits"]] == [
                 "geometry", "geometry",
             ], edit
-            updated = source.replace("width", "height")
             lines = updated.splitlines(keepends=True)
-            for item in reversed(edit["changes"][main.as_uri()]):
+            for item in reversed(change["edits"]):
                 start, end = item["range"]["start"], item["range"]["end"]
                 assert start["line"] == end["line"]
                 line = lines[start["line"]]

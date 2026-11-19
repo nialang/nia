@@ -33,6 +33,7 @@ use crate::highlight::{Class, Kind, Resolved};
 use crate::project::{EditorRequest, Projects};
 use crate::workspace::Cancellation;
 
+mod actions;
 mod imports;
 mod namespaces;
 #[cfg(test)]
@@ -1668,40 +1669,8 @@ impl Analysis {
     }
 
     pub(crate) fn diagnostics(&self, path: &Path, document: &Document) -> Vec<Diagnostic> {
-        let path = normalized(path);
-        self.diagnostics
-            .iter()
-            .filter(|item| item.path.as_str() == path)
-            .map(|item| {
-                let diagnostic = &item.diagnostic;
-                let primary = diagnostic
-                    .labels
-                    .iter()
-                    .find(|label| label.style == LabelStyle::Primary);
-                let mut parts = vec![diagnostic.summary.as_str()];
-                if let Some(message) = primary.and_then(|label| label.message.as_deref())
-                    && message != diagnostic.summary
-                {
-                    parts.push(message);
-                }
-                parts.extend(diagnostic.notes.iter().map(String::as_str));
-                parts.extend(diagnostic.help.iter().map(String::as_str));
-                Diagnostic {
-                    range: document.lines.range(
-                        &document.text,
-                        primary.map_or(Span::default(), |label| label.span),
-                    ),
-                    severity: Some(if item.is_error() {
-                        DiagnosticSeverity::ERROR
-                    } else {
-                        DiagnosticSeverity::WARNING
-                    }),
-                    code: Some(NumberOrString::String(diagnostic.code.as_str().to_owned())),
-                    source: Some("nia".to_owned()),
-                    message: parts.join("\n"),
-                    ..Diagnostic::default()
-                }
-            })
+        self.source_diagnostics(path)
+            .map(|item| editor_diagnostic(item, document))
             .chain(self.configuration_warning.iter().map(|message| Diagnostic {
                 severity: Some(DiagnosticSeverity::WARNING),
                 source: Some("nia-lsp".to_owned()),
@@ -1709,6 +1678,50 @@ impl Analysis {
                 ..Diagnostic::default()
             }))
             .collect()
+    }
+
+    fn source_diagnostics(
+        &self,
+        path: &Path,
+    ) -> impl Iterator<Item = &nia_compiler_query::ProgramDiagnostic> {
+        let path = normalized(path);
+        self.diagnostics
+            .iter()
+            .filter(move |item| item.path.as_str() == path)
+    }
+}
+
+fn editor_diagnostic(
+    item: &nia_compiler_query::ProgramDiagnostic,
+    document: &Document,
+) -> Diagnostic {
+    let diagnostic = &item.diagnostic;
+    let primary = diagnostic
+        .labels
+        .iter()
+        .find(|label| label.style == LabelStyle::Primary);
+    let mut parts = vec![diagnostic.summary.as_str()];
+    if let Some(message) = primary.and_then(|label| label.message.as_deref())
+        && message != diagnostic.summary
+    {
+        parts.push(message);
+    }
+    parts.extend(diagnostic.notes.iter().map(String::as_str));
+    parts.extend(diagnostic.help.iter().map(String::as_str));
+    Diagnostic {
+        range: document.lines.range(
+            &document.text,
+            primary.map_or(Span::default(), |label| label.span),
+        ),
+        severity: Some(if item.is_error() {
+            DiagnosticSeverity::ERROR
+        } else {
+            DiagnosticSeverity::WARNING
+        }),
+        code: Some(NumberOrString::String(diagnostic.code.as_str().to_owned())),
+        source: Some("nia".to_owned()),
+        message: parts.join("\n"),
+        ..Diagnostic::default()
     }
 }
 

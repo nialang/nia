@@ -1444,8 +1444,8 @@ impl<'a> TypeResolver<'a> {
                             .help(format!("did you mean `{candidate}`?"))
                             .suggestion(
                                 span,
-                                candidate,
-                                "replace the unknown type with this spelling",
+                                candidate.clone(),
+                                format!("replace the unknown type with `{candidate}`"),
                                 SuggestionApplicability::MaybeIncorrect,
                             );
                     }

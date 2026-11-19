@@ -1540,8 +1540,8 @@ impl<'a> ValueResolver<'a> {
                             .help(format!("did you mean `{candidate}`?"))
                             .suggestion(
                                 span,
-                                candidate,
-                                "replace the unknown member with this spelling",
+                                candidate.clone(),
+                                format!("replace the unknown member with `{candidate}`"),
                                 SuggestionApplicability::MaybeIncorrect,
                             );
                     }

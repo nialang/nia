@@ -1,8 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::sync::{Arc, OnceLock};
 
-use lsp_types::{Position, Range, TextDocumentContentChangeEvent};
+use lsp_types::{
+    DocumentChanges, OneOf, Position, Range, TextDocumentContentChangeEvent, TextDocumentEdit,
+    WorkspaceEdit,
+};
 use nia_span::Span;
+
+pub(crate) fn text_workspace_edit(edits: Vec<TextDocumentEdit>, versioned: bool) -> WorkspaceEdit {
+    if versioned {
+        return WorkspaceEdit {
+            document_changes: Some(DocumentChanges::Edits(edits)),
+            ..WorkspaceEdit::default()
+        };
+    }
+    WorkspaceEdit::new(
+        edits
+            .into_iter()
+            .map(|document| {
+                let edits = document.edits.into_iter().map(|edit| match edit {
+                    OneOf::Left(edit) => edit,
+                    OneOf::Right(edit) => edit.text_edit,
+                });
+                (document.text_document.uri, edits.collect())
+            })
+            .collect(),
+    )
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct Document {

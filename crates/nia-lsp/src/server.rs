@@ -29,6 +29,7 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 const SEMANTIC_FULL: &str = "textDocument/semanticTokens/full";
 const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
 const COMPLETION: &str = "textDocument/completion";
+const CODE_ACTION: &str = "textDocument/codeAction";
 const RENAME: &str = "textDocument/rename";
 const PREPARE_RENAME: &str = "textDocument/prepareRename";
 const REFERENCES: &str = "textDocument/references";
@@ -84,6 +85,10 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         .and_then(|semantic| semantic.refresh_support)
         .unwrap_or_default();
     let client = params.capabilities.text_document.unwrap_or_default();
+    let code_actions = client
+        .code_action
+        .and_then(|actions| actions.code_action_literal_support)
+        .is_some();
     let hierarchical_symbols = client
         .document_symbol
         .and_then(|symbols| symbols.hierarchical_document_symbol_support)
@@ -109,6 +114,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "documentSymbolProvider": true,
                 "workspaceSymbolProvider": true,
                 "foldingRangeProvider": true,
+                "codeActionProvider": if code_actions { json!({ "codeActionKinds": ["quickfix"] }) } else { json!(false) },
                 "semanticTokensProvider": { "legend": highlight::legend(), "full": true },
                 "completionProvider": { "triggerCharacters": [":", "."] },
                 "signatureHelpProvider": { "triggerCharacters": ["(", ","], "retriggerCharacters": [","] }
@@ -309,7 +315,7 @@ fn analyze(
             })
             .map_err(Clone::clone);
         let mut reference_coverage = None;
-        let response = work.request.map(|request| {
+        let response = work.request.take().map(|request| {
             if work.cancel.check().is_err() {
                 return Response::new_err(
                     request.id,
@@ -429,17 +435,11 @@ fn analyze(
                         ),
                     }
                 }
-                Ok(analysis) => query(
-                    analysis,
-                    &work.path,
-                    request,
-                    work.resource_rename,
-                    |position| {
-                        let probe =
-                            completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()));
-                        probe.complete(analysis, &work.documents, &work.path, position)
-                    },
-                ),
+                Ok(analysis) => query(analysis, &work, request, |position| {
+                    let probe =
+                        completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()));
+                    probe.complete(analysis, &work.documents, &work.path, position)
+                }),
                 Err(error) => {
                     Response::new_err(request.id, ErrorCode::RequestFailed as i32, error.clone())
                 }
@@ -511,11 +511,11 @@ fn semantic_response(
 
 fn query(
     analysis: &Analysis,
-    path: &std::path::Path,
+    work: &Work,
     request: Request,
-    resource_rename: bool,
     complete: impl FnOnce(lsp_types::Position) -> Option<Vec<lsp_types::CompletionItem>>,
 ) -> Response {
+    let path = &work.path;
     let Request { id, method, params } = request;
     let result = match method.as_str() {
         "textDocument/definition" => decode::<lsp_types::TextDocumentPositionParams>(params)
@@ -526,10 +526,14 @@ fn query(
             .map(|params| json!(analysis.hover(path, params.position))),
         "textDocument/documentHighlight" => decode::<lsp_types::TextDocumentPositionParams>(params)
             .map(|params| json!(analysis.document_highlights(path, params.position))),
-        PREPARE_RENAME => decode::<lsp_types::TextDocumentPositionParams>(params)
-            .map(|params| json!(analysis.prepare_rename(path, params.position, resource_rename))),
+        PREPARE_RENAME => decode::<lsp_types::TextDocumentPositionParams>(params).map(|params| {
+            json!(analysis.prepare_rename(path, params.position, work.resource_rename))
+        }),
         COMPLETION => decode::<lsp_types::CompletionParams>(params)
             .map(|params| json!(complete(params.text_document_position.position))),
+        CODE_ACTION => decode::<lsp_types::CodeActionParams>(params).map(|params| {
+            json!(analysis.code_actions(path, &work.documents[path], &params, work.versioned_edits))
+        }),
         "textDocument/signatureHelp" => {
             decode::<lsp_types::SignatureHelpParams>(params).map(|params| {
                 json!(analysis.signature_help(path, params.text_document_position_params.position))
@@ -641,6 +645,7 @@ impl Server {
                 | PREPARE_RENAME
                 | "textDocument/hover"
                 | COMPLETION
+                | CODE_ACTION
                 | "textDocument/signatureHelp"
                 | "textDocument/documentSymbol"
                 | "textDocument/foldingRange"

@@ -17,7 +17,7 @@ use nia_span::Span;
 
 use crate::{
     analysis::{Analysis, Documents, OpenDocument, Session, Symbol, normalized, path, uri},
-    document::Document,
+    document::{Document, text_workspace_edit},
     workspace::{Binding, Bindings, Cancellation, Site, WorkspaceIndex, bindings},
 };
 
@@ -486,30 +486,8 @@ impl Session {
                 document_changes: Some(DocumentChanges::Operations(operations)),
                 ..WorkspaceEdit::default()
             })
-        } else if versioned {
-            Ok(WorkspaceEdit {
-                document_changes: Some(DocumentChanges::Edits(changes)),
-                ..WorkspaceEdit::default()
-            })
         } else {
-            Ok(WorkspaceEdit::new(
-                changes
-                    .into_iter()
-                    .map(|change| {
-                        (
-                            change.text_document.uri,
-                            change
-                                .edits
-                                .into_iter()
-                                .filter_map(|item| match item {
-                                    OneOf::Left(edit) => Some(edit),
-                                    OneOf::Right(_) => None,
-                                })
-                                .collect(),
-                        )
-                    })
-                    .collect(),
-            ))
+            Ok(text_workspace_edit(changes, versioned))
         }
     }
 }
