@@ -473,7 +473,11 @@ impl Session {
                 },
             )
         };
-        Some(member.items(&file.text, &file.lines, candidates.unwrap_or_default()))
+        let items = member.items(&file.text, &file.lines, candidates.unwrap_or_default());
+        if items.is_empty() && !member.prefix(&file.text).is_empty() {
+            return self.complete_extension_imports(analysis, documents, path, &member, cancel);
+        }
+        Some(items)
     }
 }
 

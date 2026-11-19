@@ -57,6 +57,10 @@ impl MemberCompletion {
         &source[self.replace.start..self.cursor]
     }
 
+    pub(crate) fn replacement(&self) -> Span {
+        self.replace
+    }
+
     pub(crate) fn items(
         &self,
         source: &str,

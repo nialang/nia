@@ -454,6 +454,22 @@ def smoke(server, root):
             })
             client.wait_diagnostics(main.as_uri(), 14, lambda items: not items)
 
+            for version, suffix in [(15, "()"), (16, "")]:
+                partial_member = missing_method.replace("measureHeight()", "measureHe" + suffix)
+                client.notify("textDocument/didChange", {
+                    "textDocument": dict(**document, version=version),
+                    "contentChanges": [{"text": partial_member}],
+                })
+                start = position(partial_member, "measureHe")
+                end = dict(start, character=start["character"] + len("measureHe"))
+                completion, = request(client, "textDocument/completion", dict(**params, position=end))
+                assert completion["label"] == "measureHeight", completion
+                assert completion["kind"] == 2, completion
+                assert completion["textEdit"] == {
+                    "range": {"start": start, "end": end}, "newText": "measureHeight",
+                }, completion
+                assert completion["additionalTextEdits"] == change["edits"], completion
+
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)
             palette = root / "palette.nia"
