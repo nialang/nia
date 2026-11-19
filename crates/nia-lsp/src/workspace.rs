@@ -63,6 +63,7 @@ pub(crate) struct WorkspaceIndex {
     pub(crate) files: BTreeMap<String, (Uri, Arc<str>)>,
     pub(crate) editable: BTreeSet<PathBuf>,
     managed: BTreeSet<PathBuf>,
+    pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
     references: OnceLock<HashMap<Site, BTreeSet<Site>>>,
 }
 
@@ -109,6 +110,7 @@ impl Session {
             files: BTreeMap::new(),
             editable: workspace.editable,
             managed: workspace.managed,
+            unavailable_plans: workspace.unavailable_plans,
             references: OnceLock::new(),
         };
         for (request, kind) in workspace
@@ -180,6 +182,21 @@ impl Session {
 }
 
 impl WorkspaceIndex {
+    pub(crate) fn reference_coverage_warning(&self) -> Option<String> {
+        let (path, error) = if let Some((package, error)) = self.unavailable_plans.first() {
+            (package.to_string_lossy(), error)
+        } else {
+            let entry = self.entries.iter().find(|entry| entry.error.is_some())?;
+            (
+                std::borrow::Cow::Borrowed(entry.request.check.entry_path.as_str()),
+                entry.error.as_ref()?,
+            )
+        };
+        Some(format!(
+            "Workspace references may be incomplete for `{path}`. {error}"
+        ))
+    }
+
     pub(crate) fn contains_build_state(&self, path: &Path) -> bool {
         self.managed
             .iter()

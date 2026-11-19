@@ -113,6 +113,12 @@ impl Session {
         };
         let workspace_symbol = analysis.rename_workspace_symbol(symbol);
         let workspace = self.workspace_index(path, documents, folders, cancel)?;
+        if let Some((package, error)) = workspace.unavailable_plans.first() {
+            return Err(format!(
+                "Cannot verify rename in package `{}` ({error})",
+                package.display()
+            ));
+        }
         let moves = if let Some(path) = analysis.module_file(symbol) {
             if !resource_rename {
                 return Err("The editor must support rename file operations".to_owned());

@@ -35,6 +35,7 @@ pub(crate) struct WorkspaceRequests {
     pub(crate) standalone: Vec<EditorRequest>,
     pub(crate) editable: BTreeSet<PathBuf>,
     pub(crate) managed: BTreeSet<PathBuf>,
+    pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
 }
 
 #[derive(Clone)]
@@ -67,6 +68,7 @@ impl Projects {
         let mut managed = BTreeSet::new();
         let mut configured = Vec::new();
         let mut build_candidates = Vec::new();
+        let mut unavailable_plans = Vec::new();
         for folder in folders {
             if folder.join("nia.toml").is_file() {
                 roots.insert(folder.canonicalize().map_err(|error| error.to_string())?);
@@ -114,7 +116,13 @@ impl Projects {
             if let Some(build) = package.build_candidate() {
                 build_candidates.push(package.build_request(&build, toolchain)?);
             }
-            let planned = package.configured_requests(toolchain)?;
+            let planned = match package.configured_requests(toolchain) {
+                Ok(requests) => requests,
+                Err(error) => {
+                    unavailable_plans.push((package.layout.package_root().to_path_buf(), error));
+                    Vec::new()
+                }
+            };
             entries.extend(
                 package
                     .declared_entries()
@@ -157,6 +165,7 @@ impl Projects {
             standalone,
             editable,
             managed,
+            unavailable_plans,
         })
     }
 

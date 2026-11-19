@@ -165,6 +165,7 @@ struct Reply {
     diagnostics: Result<Vec<Diagnostic>, String>,
     highlights: Arc<Resolved>,
     response: Option<Response>,
+    reference_coverage: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -220,6 +221,7 @@ fn analyze(
                     diagnostics: Ok(Vec::new()),
                     highlights: Arc::new(Resolved::new()),
                     response,
+                    reference_coverage: None,
                 })
                 .is_err()
             {
@@ -263,6 +265,7 @@ fn analyze(
                 }
             })
             .map_err(Clone::clone);
+        let mut reference_coverage = None;
         let response = work.request.map(|request| {
             if work.cancel.check().is_err() {
                 return Response::new_err(
@@ -328,13 +331,15 @@ fn analyze(
                                     &work.cancel,
                                 )
                                 .and_then(|index| {
-                                    index.references(
+                                    let references = index.references(
                                         analysis,
                                         &work.path,
                                         position,
                                         include_declaration,
                                         &work.cancel,
-                                    )
+                                    )?;
+                                    reference_coverage = index.reference_coverage_warning();
+                                    Ok(references)
                                 });
                             match result {
                                 Ok(references) => Response::new_ok(request.id, references),
@@ -376,6 +381,7 @@ fn analyze(
                 diagnostics,
                 highlights: highlights.clone(),
                 response,
+                reference_coverage,
             })
             .is_err()
         {
@@ -858,6 +864,17 @@ impl Server {
             };
             if let Some((code, message)) = code {
                 response = Response::new_err(response.id, code as i32, message.into());
+            } else if let Some(message) = reply.reference_coverage {
+                connection.sender.send(
+                    Notification::new(
+                        "window/logMessage".into(),
+                        lsp_types::LogMessageParams {
+                            typ: lsp_types::MessageType::WARNING,
+                            message,
+                        },
+                    )
+                    .into(),
+                )?;
             }
             connection.sender.send(response.into())?;
         }
@@ -988,6 +1005,7 @@ mod tests {
                     diagnostics: Ok(Vec::new()),
                     highlights: Arc::default(),
                     response: Some(Response::new_ok(1.into(), ())),
+                    reference_coverage: None,
                 },
             )
             .unwrap();

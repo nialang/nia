@@ -35,11 +35,26 @@ fn unreadable_plan_keeps_manifest_navigation_available() {
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
     assert!(diagnostics[0].message.contains("build-plan.bin"));
+    let cancel = Cancellation::default();
+    let index = session
+        .workspace_index(&entry, &documents, &[], &cancel)
+        .unwrap();
+    assert_eq!(
+        index
+            .references(&analysis, &entry, Position::new(1, 18), false, &cancel)
+            .unwrap()
+            .len(),
+        1
+    );
     assert!(
-        session
-            .workspace_index(&entry, &documents, &[], &Cancellation::default())
-            .err()
-            .expect("incomplete build context")
+        index
+            .reference_coverage_warning()
+            .unwrap()
+            .contains("build-plan.bin")
+    );
+    assert!(
+        rename_at(&entry, "amount()", "quantity")
+            .unwrap_err()
             .contains("build-plan.bin")
     );
 }
