@@ -355,6 +355,11 @@ def smoke(server, root):
             client.notify("workspace/didChangeWatchedFiles", {
                 "changes": [{"uri": main.as_uri(), "type": 2}, {"uri": palette.as_uri(), "type": 1}],
             })
+            unsaved = shapes.read_text(encoding="utf-8") + "\npub struct BufferOnly {}\n"
+            client.notify("textDocument/didOpen", {"textDocument": {
+                "uri": shapes.as_uri(), "languageId": "nia", "version": 11, "text": unsaved,
+            }})
+            client.wait_diagnostics(shapes.as_uri(), 11, lambda items: not items)
             for old_name, new_name in [("shapes", "geometry"), ("geometry", "Geometry")]:
                 old_file = root / f"{old_name}.nia"
                 renamed = root / f"{new_name}.nia"
@@ -390,12 +395,19 @@ def smoke(server, root):
                     old.rename(new)
                 assert renamed.name in {entry.name for entry in root.iterdir()}
                 client.notify("workspace/didRenameFiles", move)
+                client.wait_diagnostics(old_file.as_uri(), None, lambda items: not items)
+                client.wait_diagnostics(renamed.as_uri(), 11, lambda items: not items)
                 symbols = request(client, "workspace/symbol", {"query": f"fixture::{new_name}::Shape"})
+                assert [symbol["location"]["uri"] for symbol in symbols] == [renamed.as_uri()], symbols
+                symbols = request(client, "workspace/symbol", {"query": f"fixture::{new_name}::BufferOnly"})
                 assert [symbol["location"]["uri"] for symbol in symbols] == [renamed.as_uri()], symbols
                 symbols = request(client, "workspace/symbol", {"query": "fixture::colors::Palette"})
                 assert [symbol["location"]["uri"] for symbol in symbols] == [
                     (root / "colors.nia").as_uri()
                 ], symbols
+            client.notify("textDocument/didClose", {"textDocument": {"uri": renamed.as_uri()}})
+            client.wait_diagnostics(renamed.as_uri(), None, lambda items: not items)
+            assert not request(client, "workspace/symbol", {"query": "BufferOnly"})
 
             other = root / "next-workspace"
             other.mkdir()

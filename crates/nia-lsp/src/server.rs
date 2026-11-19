@@ -1073,8 +1073,13 @@ impl Server {
                 })
             }
             "workspace/didRenameFiles" => {
-                decode::<lsp_types::RenameFilesParams>(notification.params)
-                    .map(|_| self.disk_changed(DiskChanges::Configuration))
+                match decode::<lsp_types::RenameFilesParams>(notification.params) {
+                    Ok(params) => {
+                        self.did_rename_files(connection, params)?;
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
             }
             "workspace/didChangeWatchedFiles" => {
                 decode::<DidChangeWatchedFilesParams>(notification.params).map(|params| {
@@ -1193,6 +1198,41 @@ impl Server {
         self.workspace_disk_changes.merge(&changes);
         self.invalidate();
         self.refresh_needed = self.semantic_refresh && !self.documents.is_empty();
+    }
+
+    fn did_rename_files(
+        &mut self,
+        connection: &Connection,
+        params: lsp_types::RenameFilesParams,
+    ) -> Result<(), Error> {
+        let mut moves: Vec<_> = crate::rename::file_moves(params.files)
+            .into_iter()
+            .collect();
+        moves.sort_by_key(|(old, _)| std::cmp::Reverse(old.components().count()));
+        let relocated: Vec<_> = self
+            .documents
+            .keys()
+            .filter_map(|old| {
+                let new = crate::rewrite::relocated(&analysis::normalized(old), &moves)?;
+                let uri = analysis::uri(&new)?;
+                (old != &new).then(|| (old.clone(), new, uri))
+            })
+            .collect();
+        let mut moved = Vec::new();
+        for (old, new, uri) in relocated {
+            if let Some(mut open) = self.documents.remove(&old) {
+                self.token_results.remove(&old);
+                publish(connection, open.uri, None, Vec::new())?;
+                open.uri = uri;
+                moved.push((new, open));
+            }
+        }
+        for (path, open) in moved {
+            // A client may have opened the destination before sending its file notification.
+            self.documents.entry(path).or_insert(open);
+        }
+        self.disk_changed(DiskChanges::Configuration);
+        Ok(())
     }
 
     fn refresh_highlights(&mut self, connection: &Connection) -> Result<(), Error> {

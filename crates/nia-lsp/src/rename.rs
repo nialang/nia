@@ -92,12 +92,7 @@ impl Session {
         versioned: bool,
         cancel: &Cancellation,
     ) -> Result<Option<WorkspaceEdit>, String> {
-        let decode = |uri: &str| uri.parse().ok().and_then(|uri| path(&uri));
-        let moves: BTreeSet<_> = files
-            .iter()
-            .filter_map(|file| Some((decode(&file.old_uri)?, decode(&file.new_uri)?)))
-            .filter(|(old, new)| old != new)
-            .collect();
+        let moves = file_moves(files);
         let is_nia = |path: &Path| path.extension().is_some_and(|ext| ext == "nia");
         let Some(anchor) = moves.iter().find_map(|(old, _)| {
             if is_nia(old) {
@@ -584,6 +579,15 @@ fn field_shorthand(node: &nia_syntax::GreenNode, span: Span) -> bool {
 }
 
 type Moves = Vec<(PathBuf, PathBuf)>;
+
+pub(crate) fn file_moves(files: Vec<lsp_types::FileRename>) -> BTreeSet<(PathBuf, PathBuf)> {
+    let decode = |uri: &str| uri.parse().ok().and_then(|uri| path(&uri));
+    files
+        .iter()
+        .filter_map(|file| Some((decode(&file.old_uri)?, decode(&file.new_uri)?)))
+        .filter(|(old, new)| old != new)
+        .collect()
+}
 
 fn paths_overlap(first: &Path, second: &Path) -> bool {
     let case_sensitive = !cfg!(windows);
