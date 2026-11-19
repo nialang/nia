@@ -165,10 +165,15 @@ impl Session {
             && index.folders == folders
             && index.anchor == anchor
             && index.overlays == overlays
+            && self.changed_disk_sources.is_empty()
         {
             return Ok(index.clone());
         }
-        let mut changed = BTreeSet::new();
+        let mut changed: BTreeSet<_> = self
+            .changed_disk_sources
+            .iter()
+            .map(String::as_str)
+            .collect();
         let mut previous_entries = HashMap::<_, Vec<_>>::new();
         if let Some(previous) = previous {
             for (path, old) in &previous.overlays {
@@ -270,6 +275,7 @@ impl Session {
         index.overlays = overlays;
         let index = Arc::new(index);
         self.workspace_index = Some(index.clone());
+        self.changed_disk_sources.clear();
         Ok(index)
     }
 }

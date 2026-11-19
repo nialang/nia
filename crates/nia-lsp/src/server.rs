@@ -200,7 +200,7 @@ enum WorkerMessage {
 
 struct Work {
     revision: u64,
-    disk_revision: u64,
+    disk_changes: DiskChanges,
     documents: Documents,
     path: PathBuf,
     request: Option<Request>,
@@ -208,6 +208,26 @@ struct Work {
     versioned_edits: bool,
     resource_rename: bool,
     cancel: Cancellation,
+}
+
+#[derive(Clone, Default)]
+enum DiskChanges {
+    #[default]
+    None,
+    Sources(Arc<BTreeSet<PathBuf>>),
+    Configuration,
+}
+
+impl DiskChanges {
+    fn merge(&mut self, changes: &Self) {
+        match (self, changes) {
+            (_, Self::None) | (Self::Configuration, _) => {}
+            (Self::Sources(pending), Self::Sources(paths)) => {
+                Arc::make_mut(pending).extend(paths.iter().cloned());
+            }
+            (pending, changes) => *pending = changes.clone(),
+        }
+    }
 }
 
 struct Reply {
@@ -272,7 +292,6 @@ fn analyze(
     let mut session = Session::new(toolchain.clone());
     let mut completion_probe = None;
     let mut cached = None;
-    let mut disk_revision = 0;
     for message in queue {
         let WorkerMessage::Analyze(mut work) = message else {
             cached = None;
@@ -281,11 +300,15 @@ fn analyze(
             nia_alloc::collect_unused();
             continue;
         };
-        if disk_revision != work.disk_revision {
+        let changes = std::mem::take(&mut work.disk_changes);
+        if !matches!(changes, DiskChanges::None) {
             cached = None;
-            session.reload();
             completion_probe = None;
-            disk_revision = work.disk_revision;
+            if let DiskChanges::Sources(paths) = changes {
+                session.reload_changed_sources(&paths);
+            } else {
+                session.reload();
+            }
         }
         if work.cancel.check().is_err() {
             let response = work.request.map(|request| {
@@ -771,7 +794,8 @@ struct Server {
     editor: Option<Active>,
     workspace: Option<Active>,
     revision: u64,
-    disk_revision: u64,
+    editor_disk_changes: DiskChanges,
+    workspace_disk_changes: DiskChanges,
     release_analysis: bool,
 }
 
@@ -1041,28 +1065,37 @@ impl Server {
                         self.invalidate();
                     }
                 }),
-            "textDocument/didSave" => decode::<DidSaveTextDocumentParams>(notification.params)
-                .map(|_| self.disk_changed()),
+            "textDocument/didSave" => {
+                decode::<DidSaveTextDocumentParams>(notification.params).map(|params| {
+                    if let Some(path) = analysis::path(&params.text_document.uri) {
+                        self.disk_changed(DiskChanges::Sources(Arc::new(BTreeSet::from([path]))));
+                    }
+                })
+            }
             "workspace/didRenameFiles" => {
                 decode::<lsp_types::RenameFilesParams>(notification.params)
-                    .map(|_| self.disk_changed())
+                    .map(|_| self.disk_changed(DiskChanges::Configuration))
             }
             "workspace/didChangeWatchedFiles" => {
                 decode::<DidChangeWatchedFilesParams>(notification.params).map(|params| {
-                    if params
+                    let mut sources = BTreeSet::new();
+                    for path in params
                         .changes
                         .iter()
                         .filter_map(|event| analysis::path(&event.uri))
-                        .any(|path| {
-                            path.extension().is_some_and(|extension| extension == "nia")
-                                || path.file_name().is_some_and(|name| {
-                                    name == "nia.toml"
-                                        || name == "nia.lock"
-                                        || name == "build-plan.bin"
-                                })
-                        })
                     {
-                        self.disk_changed();
+                        if path.file_name().is_some_and(|name| {
+                            name == "nia.toml" || name == "nia.lock" || name == "build-plan.bin"
+                        }) {
+                            self.disk_changed(DiskChanges::Configuration);
+                            return;
+                        }
+                        if path.extension().is_some_and(|extension| extension == "nia") {
+                            sources.insert(path);
+                        }
+                    }
+                    if !sources.is_empty() {
+                        self.disk_changed(DiskChanges::Sources(Arc::new(sources)));
                     }
                 })
             }
@@ -1155,8 +1188,9 @@ impl Server {
         }
     }
 
-    fn disk_changed(&mut self) {
-        self.disk_revision += 1;
+    fn disk_changed(&mut self, changes: DiskChanges) {
+        self.editor_disk_changes.merge(&changes);
+        self.workspace_disk_changes.merge(&changes);
         self.invalidate();
         self.refresh_needed = self.semantic_refresh && !self.documents.is_empty();
     }
@@ -1182,12 +1216,24 @@ impl Server {
         diagnostics: bool,
     ) -> Result<(), Error> {
         if std::mem::take(&mut self.release_analysis) {
+            self.editor_disk_changes = DiskChanges::None;
+            self.workspace_disk_changes = DiskChanges::None;
             editor.send(WorkerMessage::ReleaseAnalysis)?;
             workspace.send(WorkerMessage::ReleaseAnalysis)?;
         }
-        for (lane, active, worker) in [
-            (Lane::Editor, &mut self.editor, editor),
-            (Lane::Workspace, &mut self.workspace, workspace),
+        for (lane, active, worker, disk_changes) in [
+            (
+                Lane::Editor,
+                &mut self.editor,
+                editor,
+                &mut self.editor_disk_changes,
+            ),
+            (
+                Lane::Workspace,
+                &mut self.workspace,
+                workspace,
+                &mut self.workspace_disk_changes,
+            ),
         ] {
             if active.is_some() {
                 continue;
@@ -1230,7 +1276,7 @@ impl Server {
             });
             worker.send(WorkerMessage::Analyze(Work {
                 revision: self.revision,
-                disk_revision: self.disk_revision,
+                disk_changes: std::mem::take(disk_changes),
                 documents: self.documents.clone(),
                 path,
                 request,
@@ -1407,7 +1453,14 @@ mod tests {
                 ),
             )
             .unwrap();
-        assert_eq!(server.disk_revision, 1);
+        assert!(matches!(
+            server.editor_disk_changes,
+            DiskChanges::Configuration
+        ));
+        assert!(matches!(
+            server.workspace_disk_changes,
+            DiskChanges::Configuration
+        ));
     }
 
     #[test]

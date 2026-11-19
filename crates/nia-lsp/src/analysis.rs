@@ -84,6 +84,7 @@ pub(crate) struct Session {
     overlays: BTreeMap<PathBuf, Arc<str>>,
     pub(crate) projects: Projects,
     pub(crate) workspace_index: Option<Arc<crate::workspace::WorkspaceIndex>>,
+    pub(crate) changed_disk_sources: BTreeSet<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -102,6 +103,7 @@ impl Session {
             overlays: BTreeMap::new(),
             projects: Projects::default(),
             workspace_index: None,
+            changed_disk_sources: BTreeSet::new(),
         }
     }
 
@@ -259,6 +261,17 @@ impl Session {
 
     pub(crate) fn reload(&mut self) {
         *self = Self::new(self.toolchain.clone());
+    }
+
+    pub(crate) fn reload_changed_sources(&mut self, paths: &BTreeSet<PathBuf>) {
+        let index = self.workspace_index.take();
+        let mut changed = std::mem::take(&mut self.changed_disk_sources);
+        changed.extend(paths.iter().map(|path| normalized(path)));
+        self.reload();
+        if let Some(index) = index {
+            self.workspace_index = Some(index);
+            self.changed_disk_sources = changed;
+        }
     }
 
     pub(crate) fn generated_definition(
@@ -2555,7 +2568,20 @@ mod tests {
     fn workspace_symbols_search_unopened_packages_and_use_active_buffer_declarations() {
         let _resources = acquire_test_resources(TestWorkload::Compiler);
         let root = test_dir("lsp-symbols");
-        std::fs::write(root.join("nia.toml"), "[workspace]\nmembers = [\"app\"]\n").unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[workspace]\nmembers = [\"app\", \"other\"]\n",
+        )
+        .unwrap();
+        let other = root.join("other");
+        let other_entry = other.join("root.nia");
+        std::fs::create_dir(&other).unwrap();
+        std::fs::write(
+            other.join("nia.toml"),
+            "[package]\nname = \"other\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+        )
+        .unwrap();
+        std::fs::write(&other_entry, "pub struct Other {}\n").unwrap();
         let app = root.join("app");
         std::fs::create_dir(&app).unwrap();
         std::fs::write(
@@ -2582,6 +2608,40 @@ mod tests {
         assert_eq!(symbols[0].kind, lsp_types::SymbolKind::STRUCT);
         assert!(index.symbols("Hidden", &cancel).unwrap().is_empty());
 
+        let other_entry = normalized(&other_entry);
+        let cached_other = index
+            .entries
+            .iter()
+            .find(|entry| entry.request.check.entry_path.as_str() == other_entry)
+            .unwrap();
+        std::fs::remove_file(&path).unwrap();
+        session.reload_changed_sources(&BTreeSet::from([path.clone()]));
+        let deleted = session
+            .index_workspace(None, &Documents::new(), &folders, &cancel)
+            .unwrap();
+        assert!(deleted.symbols("DiskValue", &cancel).unwrap().is_empty());
+        assert!(deleted.reference_coverage_warning().is_some());
+        assert!(
+            deleted
+                .entries
+                .iter()
+                .any(|entry| Arc::ptr_eq(entry, cached_other))
+        );
+
+        std::fs::write(&path, "pub struct NewValue {}\n").unwrap();
+        session.reload_changed_sources(&BTreeSet::from([path.clone()]));
+        let created = session
+            .index_workspace(None, &Documents::new(), &folders, &cancel)
+            .unwrap();
+        assert_eq!(created.symbols("NewValue", &cancel).unwrap().len(), 1);
+        assert!(created.reference_coverage_warning().is_none());
+        assert!(
+            created
+                .entries
+                .iter()
+                .any(|entry| Arc::ptr_eq(entry, cached_other))
+        );
+
         let documents = Documents::from([(
             path.clone(),
             OpenDocument {
@@ -2592,7 +2652,7 @@ mod tests {
         let index = session
             .index_workspace(None, &documents, &folders, &cancel)
             .unwrap();
-        assert!(index.symbols("DiskValue", &cancel).unwrap().is_empty());
+        assert!(index.symbols("NewValue", &cancel).unwrap().is_empty());
         assert_eq!(
             index.symbols("BufferValue", &cancel).unwrap()[0]
                 .location
