@@ -1436,18 +1436,55 @@ impl Analysis {
             return None;
         };
         let package = self.graph.current_package_root(module)?;
+        self.destination_parent(destination, Some(package))
+    }
+
+    pub(crate) fn destination_parent(
+        &self,
+        destination: &Path,
+        package: Option<ModuleId>,
+    ) -> Option<&str> {
         let name = destination.file_stem()?.to_str()?;
         let mut parents = self.graph.modules().filter(|candidate| {
-            self.graph.current_package_root(candidate.id) == Some(package)
-                && Path::new(
-                    candidate
-                        .path
-                        .derived_child_file(name, candidate.parent.is_none())
-                        .as_str(),
-                ) == destination
+            package.is_none_or(|package| {
+                self.graph.current_package_root(candidate.id) == Some(package)
+            }) && Path::new(
+                candidate
+                    .path
+                    .derived_child_file(name, candidate.parent.is_none())
+                    .as_str(),
+            ) == destination
         });
         let parent = parents.next()?;
         parents.next().is_none().then(|| parent.path.as_str())
+    }
+
+    pub(crate) fn module_source_path(&self, source: &str) -> Option<&SourcePath> {
+        Some(&self.graph.get(self.files.get(source)?.module)?.path)
+    }
+
+    pub(crate) fn module_package_root_path(&self, source: &str) -> Option<&SourcePath> {
+        let module = self.files.get(source)?.module;
+        Some(
+            &self
+                .graph
+                .get(self.graph.current_package_root(module)?)?
+                .path,
+        )
+    }
+
+    pub(crate) fn name_for_package_root(&self, source: &str, root: &SourcePath) -> Option<String> {
+        if self.module_package_root_path(source)?.identity_ref() == root.identity_ref() {
+            return Some("root".to_owned());
+        }
+        self.request
+            .check
+            .module_map
+            .declared_aliases(self.module_source_path(source)?)
+            .filter(|(_, _, path)| path.identity_ref() == root.identity_ref())
+            .map(|(_, name, _)| name)
+            .min_by_key(|name| (name.len(), *name))
+            .map(str::to_owned)
     }
 
     pub(crate) fn module_root_name(&self, source: &str, module_source: &str) -> Option<String> {

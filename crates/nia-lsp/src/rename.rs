@@ -26,7 +26,7 @@ type ShorthandFields = BTreeMap<String, BTreeMap<Span, (Site, usize)>>;
 
 mod generated;
 mod relocation;
-use relocation::{NamespaceRewrite, collect_relocation};
+use relocation::{NamespaceRewrite, RelocationDestination, collect_relocation};
 
 #[derive(Default)]
 struct RenamePlan {
@@ -34,6 +34,7 @@ struct RenamePlan {
     moves: Moves,
     shorthand: ShorthandFields,
     namespaces: Vec<NamespaceRewrite>,
+    transferred: Bindings,
 }
 
 impl Analysis {
@@ -187,29 +188,96 @@ impl Session {
                 collect_rename(analysis, &workspace, source, symbol, new_name, cancel)?
             } else {
                 let moved_source = normalized(old);
-                collect_relocation(analysis, &workspace, symbol, old, new, cancel, |site| {
-                    for (index, entry) in workspace.entries.iter().enumerate() {
-                        if !entry
-                            .bindings
-                            .get(site.source.as_ref())
-                            .is_some_and(|bindings| bindings.contains_key(&site.span))
-                        {
-                            continue;
-                        }
-                        let context = match use_analyses.entry(index) {
-                            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                            std::collections::hash_map::Entry::Vacant(slot) => {
-                                slot.insert(self.analyze_request(entry.request.clone(), cancel)?)
+                let original_root = analysis
+                    .module_package_root_path(&moved_source)
+                    .ok_or("Moving module package root is unavailable")?;
+                let local_parent = analysis.destination_module(symbol, new);
+                let (destination_parent, destination_suffix, destination_root) = match local_parent
+                {
+                    Some(parent) => relocation_destination(analysis, parent)?,
+                    None => {
+                        let destination_path = normalized(new);
+                        let mut destination = None;
+                        for (index, entry) in workspace.entries.iter().enumerate() {
+                            cancel.check()?;
+                            if !workspace.entry_may_reach(entry, &destination_path)
+                                || matches!(&entry.coverage, Coverage::Unavailable(_))
+                            {
+                                continue;
                             }
-                        };
-                        if let Some(root) = context.module_root_name(&site.source, &moved_source) {
-                            return Ok(Some(root));
+                            let context = match use_analyses.entry(index) {
+                                std::collections::hash_map::Entry::Occupied(entry) => {
+                                    entry.into_mut()
+                                }
+                                std::collections::hash_map::Entry::Vacant(slot) => slot
+                                    .insert(self.analyze_request(entry.request.clone(), cancel)?),
+                            };
+                            if let Some(parent) = context.destination_parent(new, None) {
+                                let candidate = relocation_destination(context, parent)?;
+                                if destination
+                                    .as_ref()
+                                    .is_some_and(|other| other != &candidate)
+                                {
+                                    return Err(
+                                        "A module destination must have a unique declaring parent"
+                                            .into(),
+                                    );
+                                }
+                                destination = Some(candidate);
+                            }
                         }
+                        destination
+                            .ok_or("A module destination must have a unique declaring parent")?
                     }
-                    Ok(None)
-                })?
+                };
+                let crosses_package =
+                    original_root.identity_ref() != destination_root.identity_ref();
+                let destination = RelocationDestination {
+                    file: new,
+                    parent: &destination_parent,
+                    suffix: &destination_suffix,
+                    crosses_package,
+                };
+                collect_relocation(
+                    analysis,
+                    &workspace,
+                    symbol,
+                    old,
+                    destination,
+                    cancel,
+                    |site| {
+                        for (index, entry) in workspace.entries.iter().enumerate() {
+                            if !entry
+                                .bindings
+                                .get(site.source.as_ref())
+                                .is_some_and(|bindings| bindings.contains_key(&site.span))
+                            {
+                                continue;
+                            }
+                            let context = match use_analyses.entry(index) {
+                                std::collections::hash_map::Entry::Occupied(entry) => {
+                                    entry.into_mut()
+                                }
+                                std::collections::hash_map::Entry::Vacant(slot) => slot
+                                    .insert(self.analyze_request(entry.request.clone(), cancel)?),
+                            };
+                            let root = if crosses_package {
+                                context.name_for_package_root(&site.source, &destination_root)
+                            } else {
+                                context.module_root_name(&site.source, &moved_source)
+                            };
+                            if let Some(root) = root {
+                                return Ok(Some(root));
+                            }
+                        }
+                        Ok(None)
+                    },
+                )?
             };
             plan.namespaces.extend(change.namespaces);
+            for (source, sites) in change.transferred {
+                plan.transferred.entry(source).or_default().extend(sites);
+            }
             for (source, spans) in change.edits {
                 let merged = plan.edits.entry(source).or_default();
                 for (span, text) in spans {
@@ -290,6 +358,7 @@ impl Session {
             moves,
             shorthand,
             namespaces,
+            transferred,
         } = plan;
         for (index, (old, new)) in moves.iter().enumerate() {
             let conflicts = moves[..index].iter().any(|(other_old, other_new)| {
@@ -398,6 +467,7 @@ impl Session {
         let mut verification = Session::new(self.toolchain.clone());
         verification.install_documents(&updated)?;
         let offsets = EditOffsets::new(&edits);
+        let transferred = shifted_bindings(transferred, &offsets, &moves, &shorthand, &namespaces);
         let destination_parents: Vec<_> = namespaces
             .iter()
             .filter_map(NamespaceRewrite::destination_parent)
@@ -430,13 +500,22 @@ impl Session {
             for rewrite in &namespaces {
                 rewrite.remove_new_prefixes(&mut actual, &offsets, &moves);
             }
-            let expected = shifted_bindings(
+            let mut expected = shifted_bindings(
                 entry.bindings.clone(),
                 &offsets,
                 &moves,
                 &shorthand,
                 &namespaces,
             );
+            for (source, sites) in &transferred {
+                if !actual.contains_key(source) {
+                    continue;
+                }
+                let bindings = expected.entry(source.clone()).or_default();
+                for (span, binding) in sites {
+                    bindings.entry(*span).or_insert_with(|| binding.clone());
+                }
+            }
             let workspace_file = |source: &str| {
                 workspace
                     .configuration
@@ -509,6 +588,19 @@ impl Session {
             Ok(text_workspace_edit(changes, versioned))
         }
     }
+}
+
+fn relocation_destination(
+    analysis: &Analysis,
+    parent: &str,
+) -> Result<(String, String, nia_source::SourcePath), String> {
+    let suffix = analysis
+        .module_path_suffix(parent)
+        .ok_or("Destination module path is unavailable")?;
+    let root = analysis
+        .module_package_root_path(parent)
+        .ok_or("Destination package root is unavailable")?;
+    Ok((parent.to_owned(), suffix, root.clone()))
 }
 
 fn collect_rename(
@@ -652,6 +744,7 @@ fn collect_rename(
         moves,
         shorthand,
         namespaces: Vec::new(),
+        transferred: Bindings::new(),
     })
 }
 

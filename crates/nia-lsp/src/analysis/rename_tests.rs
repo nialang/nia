@@ -781,6 +781,74 @@ fn files_can_move_between_declaring_modules() {
 }
 
 #[test]
+fn files_can_move_to_an_existing_package_dependency() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-move-to-dependency");
+    let write = |path: &str, text: &str| {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        path
+    };
+    write("nia.toml", "[workspace]\nmembers = [\"api\", \"kit\"]\n");
+    write(
+        "api/nia.toml",
+        "[package]\nname = \"api\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n[dependencies]\nhelper = { path = \"../kit\" }\n",
+    );
+    write(
+        "kit/nia.toml",
+        "[package]\nname = \"kit\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+    );
+    let api = write(
+        "api/root.nia",
+        "pub module data;\nfun run() i32 { data::value() + helper::base() }\npub fun base() i32 { 24 }\n",
+    );
+    let kit = write("kit/root.nia", "pub fun base() i32 { 12 }\n");
+    let old = write(
+        "api/data.nia",
+        "fun local() i32 { 42 }\npub fun value() i32 { root::data::local() }\n",
+    );
+    let new = root.join("kit/reading.nia");
+    let move_file = || {
+        test_session().will_rename_files(
+            vec![lsp_types::FileRename {
+                old_uri: uri(&old).unwrap().to_string(),
+                new_uri: uri(&new).unwrap().to_string(),
+            }],
+            &Documents::new(),
+            &[root.to_path_buf()],
+            true,
+            &Cancellation::default(),
+        )
+    };
+    let result = move_file().unwrap().unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(edits)) = result.document_changes else {
+        panic!("expected versioned document edits");
+    };
+    let edits_for = |path: &Path| {
+        let target = uri(path).unwrap();
+        edits
+            .iter()
+            .find(|edit| edit.text_document.uri == target)
+            .unwrap()
+            .edits
+            .iter()
+            .map(|edit| match edit {
+                lsp_types::OneOf::Left(edit) => edit.new_text.as_str(),
+                _ => panic!("expected a plain text edit"),
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(edits_for(&api), ["", "helper::reading"]);
+    assert_eq!(edits_for(&old), ["root::reading"]);
+    assert_eq!(edits_for(&kit), ["pub module reading;\n"],);
+
+    write("api/data.nia", "pub fun value() i32 { root::base() }\n");
+    let error = move_file().unwrap_err();
+    assert!(error.contains("change name resolution"), "{error}");
+}
+
+#[test]
 fn file_rename_updates_the_live_module_declaration_and_imports() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-file-rename-module");

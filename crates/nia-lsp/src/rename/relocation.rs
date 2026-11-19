@@ -87,23 +87,29 @@ pub(super) fn contains(outer: Span, inner: Span) -> bool {
     outer.start <= inner.start && inner.end <= outer.end
 }
 
+pub(super) struct RelocationDestination<'a> {
+    pub(super) file: &'a Path,
+    pub(super) parent: &'a str,
+    pub(super) suffix: &'a str,
+    pub(super) crosses_package: bool,
+}
+
 pub(super) fn collect_relocation(
     analysis: &Analysis,
     workspace: &WorkspaceIndex,
     symbol: Symbol,
     source: &Path,
-    destination: &Path,
+    destination: RelocationDestination<'_>,
     cancel: &Cancellation,
     mut resolve_root: impl FnMut(&Site) -> Result<Option<String>, String>,
 ) -> Result<RenamePlan, String> {
     let new_name = destination
+        .file
         .file_stem()
         .and_then(|name| name.to_str())
         .ok_or("Invalid module name")?;
     validate_new_name(symbol, new_name)?;
-    let parent = analysis
-        .destination_module(symbol, destination)
-        .ok_or("A module destination must have a unique declaring parent in its package")?;
+    let parent = destination.parent;
     let (declaring, name_span) = analysis
         .definitions
         .get(&symbol)
@@ -121,20 +127,18 @@ pub(super) fn collect_relocation(
         &old_file.text,
         item.token_span().ok_or("Missing module declaration")?,
     );
-    let new_file = analysis
-        .file(Path::new(parent))
+    let (_, new_text) = workspace
+        .files
+        .get(parent)
         .ok_or("Destination module source is unavailable")?;
-    let parent_suffix = analysis
-        .module_path_suffix(parent)
-        .ok_or("Destination module path is unavailable")?;
-    let insertion = Span::new(new_file.text.len(), new_file.text.len());
-    let newline = if new_file.text.contains("\r\n") {
+    let insertion = Span::new(new_text.len(), new_text.len());
+    let newline = if new_text.contains("\r\n") {
         "\r\n"
     } else {
         "\n"
     };
     let mut after = String::new();
-    if !new_file.text.is_empty() && !new_file.text.ends_with(['\n', '\r']) {
+    if !new_text.is_empty() && !new_text.ends_with(['\n', '\r']) {
         after.push_str(newline);
     }
     after.push_str(&old_file.text[old_range.start..name_span.start]);
@@ -145,12 +149,10 @@ pub(super) fn collect_relocation(
         after.push_str(newline);
     }
 
-    for (path, file) in [(declaring.as_str(), old_file), (parent, new_file)] {
-        if workspace.files.get(path).map(|(_, text)| text) != Some(&file.text) {
-            return Err("Module declaration changed during the file operation".into());
-        }
+    if workspace.files.get(declaring).map(|(_, text)| text) != Some(&old_file.text) {
+        return Err("Module declaration changed during the file operation".into());
     }
-    let moves = module_move_to(source, destination.to_path_buf(), workspace)?;
+    let moves = module_move_to(source, destination.file.to_path_buf(), workspace)?;
     let mut plan = RenamePlan {
         moves,
         namespaces: vec![NamespaceRewrite {
@@ -165,6 +167,20 @@ pub(super) fn collect_relocation(
         }],
         ..RenamePlan::default()
     };
+    if destination.crosses_package {
+        for (file, mut sites) in bindings(analysis, cancel)? {
+            if relocated(&file, &plan.moves).is_some() {
+                plan.transferred.insert(file, sites);
+            } else if file == *declaring
+                && let Some(declaration) = sites.remove(name_span)
+            {
+                plan.transferred
+                    .entry(file)
+                    .or_default()
+                    .insert(*name_span, declaration);
+            }
+        }
+    }
     plan.edits
         .entry(declaring.clone())
         .or_default()
@@ -221,10 +237,16 @@ pub(super) fn collect_relocation(
             .map_err(|_| "Cannot parse module use")?
             .tree
             .green_root();
-        let prefix = match analysis.rooted_module_path(&site.source, parent) {
+        let local_prefix =
+            if destination.crosses_package && relocated(&site.source, &plan.moves).is_some() {
+                Some(format!("root{}", destination.suffix))
+            } else {
+                analysis.rooted_module_path(&site.source, parent)
+            };
+        let prefix = match local_prefix {
             Some(prefix) => prefix,
             None => resolve_root(&site)?
-                .map(|root| root + &parent_suffix)
+                .map(|root| root + destination.suffix)
                 .ok_or_else(|| {
                     format!(
                         "Destination module has no visible path from {}",

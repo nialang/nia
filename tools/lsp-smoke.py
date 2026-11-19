@@ -696,6 +696,74 @@ def smoke_module_move(server, root):
                 process.kill()
 
 
+def smoke_package_move(server, root):
+    (root / "nia.toml").write_text('[workspace]\nmembers = ["api", "kit"]\n', encoding="utf-8")
+    api, kit = (root / name / "root.nia" for name in ("api", "kit"))
+    for entry in (api, kit):
+        entry.parent.mkdir()
+        manifest = (
+            f'[package]\nname = "{entry.parent.name}"\nversion = "0.1.0"\n'
+            '[library]\npath = "root.nia"\n'
+        )
+        if entry == api:
+            manifest += '[dependencies]\nhelper = { path = "../kit" }\n'
+        entry.with_name("nia.toml").write_text(manifest, encoding="utf-8")
+    old, new = api.with_name("data.nia"), kit.with_name("reading.nia")
+    sources = {
+        api: "pub module data;\nfun run() i32 { data::value() + helper::base() }\n",
+        kit: "pub fun base() i32 { 12 }\n",
+        old: "fun local() i32 { 42 }\npub fun value() i32 { root::data::local() }\n",
+    }
+    for file, source in sources.items():
+        file.write_text(source, encoding="utf-8", newline="\n")
+    with subprocess.Popen([str(server)], cwd=root,
+                          stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
+        try:
+            client = Client(process, 60)
+            request(client, "initialize", {
+                "processId": None, "rootUri": root.as_uri(), "capabilities": {"workspace": {
+                    "fileOperations": {"willRename": True, "didRename": True},
+                    "workspaceEdit": {"documentChanges": True},
+                }},
+            })
+            client.notify("initialized", {})
+            move = {"files": [{"oldUri": old.as_uri(), "newUri": new.as_uri()}]}
+            result = request(client, "workspace/willRenameFiles", move)
+            by_uri = {file.as_uri(): file for file in sources}
+            for change in result["documentChanges"]:
+                file = by_uri[change["textDocument"]["uri"]]
+                source = sources[file]
+                lines = source.splitlines(keepends=True)
+
+                def offset(point):
+                    return sum(map(len, lines[:point["line"]])) + point["character"]
+
+                for edit in reversed(change["edits"]):
+                    start, end = (offset(edit["range"][key]) for key in ("start", "end"))
+                    source = source[:start] + edit["newText"] + source[end:]
+                sources[file] = source
+                file.write_text(source, encoding="utf-8", newline="\n")
+            assert "helper::reading::value()" in sources[api], sources[api]
+            assert "root::reading::local()" in sources[old], sources[old]
+            old.rename(new)
+            client.notify("workspace/didRenameFiles", move)
+            client.notify("textDocument/didOpen", {"textDocument": {
+                "uri": api.as_uri(), "languageId": "nia", "version": 1, "text": sources[api],
+            }})
+            client.wait_diagnostics(api.as_uri(), 1, lambda items: not items)
+            target = request(client, "textDocument/definition", {
+                "textDocument": {"uri": api.as_uri()}, "position": position(sources[api], "value()"),
+            })
+            assert target["uri"] == new.as_uri(), target
+            request(client, "shutdown", None)
+            client.notify("exit", None)
+            process.stdin.close()
+            assert process.wait(timeout=30) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+
+
 def smoke_build_context(server, root):
     compiler = server.with_name("nia" + server.suffix)
     member = root / "app"
@@ -857,6 +925,8 @@ def main():
         smoke(server, Path(directory).resolve())
     with tempfile.TemporaryDirectory(prefix="nia-lsp-move-smoke-") as directory:
         smoke_module_move(server, Path(directory).resolve())
+    with tempfile.TemporaryDirectory(prefix="nia-lsp-package-move-smoke-") as directory:
+        smoke_package_move(server, Path(directory).resolve())
     with tempfile.TemporaryDirectory(prefix="nia-lsp-build-smoke-") as directory:
         smoke_build_context(server, Path(directory).resolve())
 
