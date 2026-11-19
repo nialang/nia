@@ -8,10 +8,12 @@ use std::{
 
 use nia_driver::CheckRequest;
 use nia_driver::NiaOptimizationLevel;
+use nia_imports::ModuleMap;
 use nia_package_metadata::DependencyScope;
 use nia_source::SourcePath;
 use nia_target::{CpuLevel, TargetConfig};
 use nia_target_config::BuildProfile;
+use nia_toolchain::{RuntimeSpec, RuntimeSpecError, ToolchainLayout};
 
 use crate::{
     ActionKind, ArtifactConfiguration, ArtifactKey, BuildPlan, CompilationMode, LogicalPath,
@@ -103,6 +105,50 @@ pub fn module_imports<'a>(
             true
         }
     })
+}
+
+/// A configured import whose source or namespace binding could not be resolved.
+#[derive(Debug)]
+pub enum ModuleImportError<E> {
+    /// The logical source path could not be projected.
+    Source { name: String, error: E },
+    /// The alias conflicts with the entry's module namespace.
+    Binding { name: String, reason: String },
+}
+
+/// Adds the configured imports to the namespace of the compiler entry.
+pub fn add_module_imports<E>(
+    map: &mut ModuleMap,
+    entry: &SourcePath,
+    module: &PlanModule,
+    classes: &BTreeMap<PackageKey, BTreeSet<DependencyScope>>,
+    mode: CompilationMode,
+    mut resolve: impl FnMut(&LogicalPath) -> Result<SourcePath, E>,
+) -> Result<(), ModuleImportError<E>> {
+    for import in module_imports(module, classes, mode) {
+        let path = resolve(&import.path).map_err(|error| ModuleImportError::Source {
+            name: import.name.clone(),
+            error,
+        })?;
+        map.insert_for_source(entry, &import.name, path)
+            .map_err(|reason| ModuleImportError::Binding {
+                name: import.name.clone(),
+                reason,
+            })?;
+    }
+    Ok(())
+}
+
+/// Resolves the target-specific runtime requested by a compiler action.
+pub fn runtime_spec(
+    runtime: Runtime,
+    toolchain: &ToolchainLayout,
+    target: &TargetConfig,
+) -> Result<RuntimeSpec, RuntimeSpecError> {
+    match runtime {
+        Runtime::Bare => Ok(RuntimeSpec::Bare),
+        Runtime::Freestanding => RuntimeSpec::freestanding(toolchain, target),
+    }
 }
 
 /// Physical directories that anchor the plan's logical paths.

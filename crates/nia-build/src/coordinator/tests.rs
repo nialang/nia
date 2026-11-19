@@ -1036,12 +1036,12 @@ fn all_optimization_and_runtime_modes_map_exactly() {
     let invocation = test_invocation();
     let target = target();
     assert_eq!(
-        runtime_spec(Runtime::Bare, &invocation.toolchain, &target),
-        Ok(RuntimeSpec::Bare)
+        crate::compiler_inputs::runtime_spec(Runtime::Bare, &invocation.toolchain, &target),
+        Ok(nia_toolchain::RuntimeSpec::Bare)
     );
     assert!(matches!(
-        runtime_spec(Runtime::Freestanding, &invocation.toolchain, &target),
-        Ok(RuntimeSpec::Source(_))
+        crate::compiler_inputs::runtime_spec(Runtime::Freestanding, &invocation.toolchain, &target),
+        Ok(nia_toolchain::RuntimeSpec::Source(_))
     ));
 }
 

@@ -506,13 +506,12 @@ fn analyze_editor_request(
             }
         }
     };
-    let runtime = match context.runtime {
-        nia_build_plan::Runtime::Bare => nia_toolchain::RuntimeSpec::Bare,
-        nia_build_plan::Runtime::Freestanding => {
-            nia_toolchain::RuntimeSpec::freestanding(&driver.config().toolchain, &context.target)
-                .map_err(|error| error.to_string())?
-        }
-    };
+    let runtime = nia_build::compiler_inputs::runtime_spec(
+        context.runtime,
+        &config.toolchain,
+        &context.target,
+    )
+    .map_err(|error| error.to_string())?;
     let check = request
         .check
         .clone()

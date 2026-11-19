@@ -42,8 +42,7 @@ use std::{
 
 use nia_driver::{
     CheckRequest, Driver, DriverConfig, DriverError, EmitObjectRequest, ExecutableCacheRestore,
-    LinkExecutableRequest, LinkTimeOptimization, ModuleMap, RuntimeSpec, SourceInputContent,
-    SourcePath,
+    LinkExecutableRequest, LinkTimeOptimization, ModuleMap, SourceInputContent, SourcePath,
 };
 use nia_linker::{ArchiveOptions, StaticArchiveLinkInput};
 use nia_package_metadata::DependencyScope;

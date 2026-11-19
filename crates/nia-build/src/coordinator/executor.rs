@@ -1569,29 +1569,31 @@ impl DriverActionExecutor {
             )
             .map_err(|error| CoordinatorError::Internal(nia_ice::Ice::new(error.to_string())))?;
         }
-        for import in
-            compiler_inputs::module_imports(module, &self.package_dependency_classes, mode)
-        {
-            let path = self.resolve_source_path(action, &import.path)?;
-            module_map
-                .insert_for_source(&entry, &import.name, path)
-                .map_err(|reason| {
-                    CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
-                        action: action.key.clone(),
-                        module: module.key.clone(),
-                        name: import.name.clone(),
-                        reason,
-                    }))
-                })?;
-        }
-        let target = *target;
-        let runtime =
-            runtime_spec(runtime, &self.invocation.toolchain, &target).map_err(|error| {
-                CoordinatorError::Driver {
+        compiler_inputs::add_module_imports(
+            &mut module_map,
+            &entry,
+            module,
+            &self.package_dependency_classes,
+            mode,
+            |path| self.resolve_source_path(action, path),
+        )
+        .map_err(|error| match error {
+            compiler_inputs::ModuleImportError::Source { error, .. } => error,
+            compiler_inputs::ModuleImportError::Binding { name, reason } => {
+                CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
                     action: action.key.clone(),
-                    error: Box::new(DriverError::Runtime(error)),
-                }
-            })?;
+                    module: module.key.clone(),
+                    name,
+                    reason,
+                }))
+            }
+        })?;
+        let target = *target;
+        let runtime = compiler_inputs::runtime_spec(runtime, &self.invocation.toolchain, &target)
+            .map_err(|error| CoordinatorError::Driver {
+            action: action.key.clone(),
+            error: Box::new(DriverError::Runtime(error)),
+        })?;
         Ok(compiler_inputs::check_request(entry, module, mode)
             .with_module_map(module_map)
             .with_profile(self.invocation.profile)

@@ -78,17 +78,6 @@ pub(super) fn unsupported(action: &PlanAction, kind: &'static str) -> Coordinato
     }
 }
 
-pub(super) fn runtime_spec(
-    runtime: Runtime,
-    toolchain: &nia_toolchain::ToolchainLayout,
-    target: &TargetConfig,
-) -> Result<RuntimeSpec, nia_toolchain::RuntimeSpecError> {
-    match runtime {
-        Runtime::Bare => Ok(RuntimeSpec::Bare),
-        Runtime::Freestanding => RuntimeSpec::freestanding(toolchain, target),
-    }
-}
-
 pub(crate) fn display_duration(duration: Duration) -> String {
     let millis = duration.as_millis();
     if millis < 1_000 {
