@@ -24,11 +24,15 @@ use crate::{
 
 type ShorthandFields = BTreeMap<String, BTreeMap<Span, (Site, usize)>>;
 
+mod relocation;
+use relocation::{NamespaceRewrite, collect_relocation};
+
 #[derive(Default)]
 struct RenamePlan {
     edits: Edits,
     moves: Moves,
     shorthand: ShorthandFields,
+    namespaces: Vec<NamespaceRewrite>,
 }
 
 impl Analysis {
@@ -153,9 +157,6 @@ impl Session {
                 .ok_or("A module source must have a parent directory")?;
             let parent = relocated(&normalized(old_parent), &directories)
                 .unwrap_or_else(|| old_parent.to_path_buf());
-            if Some(parent.as_path()) != new.parent() {
-                return Err("A module source must stay in its declaring module's directory".into());
-            }
             let declaration = declarations.first().expect("one declaration");
             let source = Path::new(declaration.source.as_ref());
             let analysis = match analyses.entry(source) {
@@ -180,7 +181,12 @@ impl Session {
             if analysis.module_file(symbol) != Some(normalized(old).as_str()) {
                 return Err("The module declaration changed during the file operation".into());
             }
-            let change = collect_rename(analysis, &workspace, source, symbol, new_name, cancel)?;
+            let change = if Some(parent.as_path()) == new.parent() {
+                collect_rename(analysis, &workspace, source, symbol, new_name, cancel)?
+            } else {
+                collect_relocation(analysis, &workspace, symbol, old, new, cancel)?
+            };
+            plan.namespaces.extend(change.namespaces);
             for (source, spans) in change.edits {
                 let merged = plan.edits.entry(source).or_default();
                 for (span, text) in spans {
@@ -260,6 +266,7 @@ impl Session {
             edits,
             moves,
             shorthand,
+            namespaces,
         } = plan;
         for (index, (old, new)) in moves.iter().enumerate() {
             let conflicts = moves[..index].iter().any(|(other_old, other_new)| {
@@ -309,6 +316,13 @@ impl Session {
             let uri = open.map_or(uri, |(_, open)| &open.uri);
             let version = open.map(|(_, open)| open.document.version);
             let original = crate::document::Lines::new(text);
+            let mut previous_end = 0;
+            for &span in spans.keys() {
+                if span.start < previous_end || text.get(span.start..span.end).is_none() {
+                    return Err(format!("Overlapping or invalid rename edits in {source}"));
+                }
+                previous_end = span.end;
+            }
             let mut changed = text.to_string();
             for (span, replacement) in spans.iter().rev() {
                 changed.replace_range(span.start..span.end, replacement);
@@ -372,8 +386,17 @@ impl Session {
                     error.path.as_str(),
                 ));
             }
-            let actual = bindings(&after, cancel)?;
-            let expected = shifted_bindings(entry.bindings.clone(), &offsets, &moves, &shorthand);
+            let mut actual = bindings(&after, cancel)?;
+            for rewrite in &namespaces {
+                rewrite.remove_new_prefixes(&mut actual, &offsets, &moves);
+            }
+            let expected = shifted_bindings(
+                entry.bindings.clone(),
+                &offsets,
+                &moves,
+                &shorthand,
+                &namespaces,
+            );
             let workspace_file = |source: &str| {
                 workspace
                     .editable
@@ -570,6 +593,7 @@ fn collect_rename(
         edits,
         moves,
         shorthand,
+        namespaces: Vec::new(),
     })
 }
 
@@ -641,7 +665,16 @@ fn module_moves(
     workspace: &WorkspaceIndex,
 ) -> Result<Moves, String> {
     let file = source.with_file_name(format!("{new_name}.nia"));
+    module_move_to(source, file, workspace)
+}
+
+fn module_move_to(
+    source: &Path,
+    file: PathBuf,
+    workspace: &WorkspaceIndex,
+) -> Result<Moves, String> {
     let subtree = source.with_extension("");
+    let target_subtree = file.with_extension("");
     let mut moves = vec![(source.to_path_buf(), file)];
     if subtree.exists() {
         if !subtree.is_dir() {
@@ -650,7 +683,7 @@ fn module_moves(
                 subtree.display()
             ));
         }
-        moves.push((subtree.clone(), subtree.with_file_name(new_name)));
+        moves.push((subtree, target_subtree));
     }
     for (old, new) in &moves {
         if !workspace.editable_source(old)
@@ -664,6 +697,20 @@ fn module_moves(
             return Err(format!(
                 "Cannot move a module outside the workspace ({})",
                 old.display()
+            ));
+        }
+        if old.parent() != new.parent()
+            && let Some(parent) = new
+                .parent()
+                .and_then(|parent| parent.ancestors().find(|path| path.exists()))
+            && parent
+                .canonicalize()
+                .ok()
+                .is_none_or(|path| normalized(&path) != normalized(parent))
+        {
+            return Err(format!(
+                "Cannot move a module through a linked destination ({})",
+                parent.display()
             ));
         }
         check_destination(old, new)?;
@@ -707,36 +754,72 @@ fn shifted_bindings(
     offsets: &EditOffsets<'_>,
     moves: &Moves,
     shorthand: &ShorthandFields,
+    namespaces: &[NamespaceRewrite],
 ) -> Bindings {
+    let mut rewrites = BTreeMap::<_, Vec<_>>::new();
+    for rewrite in namespaces {
+        rewrites
+            .entry(rewrite.before.source.as_ref())
+            .or_default()
+            .push(rewrite);
+    }
+    for spans in rewrites.values_mut() {
+        spans.sort_unstable_by_key(|rewrite| rewrite.old_range);
+    }
+    let rewrite_at = |source: &str, span: Span| {
+        let locations = rewrites.get(source)?;
+        let index = locations.partition_point(|rewrite| rewrite.old_range.start <= span.start);
+        let rewrite = locations.get(index.checked_sub(1)?)?;
+        relocation::contains(rewrite.old_range, span).then_some(*rewrite)
+    };
     let shift_site = |site: Site| Site {
         span: offsets.binding_span(&site.source, site.span),
         source: relocated(&site.source, moves).map_or(site.source, |path| normalized(&path).into()),
     };
-    before
-        .into_iter()
-        .map(|(source, occurrences)| {
-            let mut updated = BTreeMap::<_, BTreeSet<_>>::new();
-            for (span, candidates) in occurrences {
-                let shifted = offsets.binding_span(&source, span);
-                for binding in candidates {
-                    let binding_span = if let Some((target, name_len)) =
-                        shorthand.get(&source).and_then(|spans| spans.get(&span))
-                        && binding.alias.as_ref().or(binding.declaration.as_ref()) == Some(target)
-                    {
-                        Span::new(shifted.start - name_len - 2, shifted.start - 2)
-                    } else {
-                        shifted
-                    };
-                    updated.entry(binding_span).or_default().insert(Binding {
-                        declaration: binding.declaration.map(shift_site),
-                        alias: binding.alias.map(shift_site),
-                    });
+    let translate_site = |site: Site| {
+        rewrite_at(&site.source, site.span)
+            .and_then(|rewrite| rewrite.translated(site.span, offsets, moves))
+            .unwrap_or_else(|| shift_site(site))
+    };
+    let mut updated = Bindings::new();
+    for (source, occurrences) in before {
+        let moved =
+            relocated(&source, moves).map_or_else(|| source.clone(), |path| normalized(&path));
+        updated.entry(moved.clone()).or_default();
+        for (span, candidates) in occurrences {
+            if let Some(rewrite) = rewrite_at(&source, span) {
+                if let Some(projected) = rewrite.translated(span, offsets, moves) {
+                    let bindings = updated.entry(projected.source.to_string()).or_default();
+                    bindings
+                        .entry(projected.span)
+                        .or_default()
+                        .extend(candidates.into_iter().map(|binding| Binding {
+                            declaration: binding.declaration.map(translate_site),
+                            alias: binding.alias.map(translate_site),
+                        }));
                 }
+                continue;
             }
-            (
-                relocated(&source, moves).map_or(source, |path| normalized(&path)),
-                updated,
-            )
-        })
-        .collect()
+            let destination = updated.get_mut(&moved).expect("relocated binding source");
+            let shifted = offsets.binding_span(&source, span);
+            for binding in candidates {
+                let binding_span = if let Some((target, name_len)) =
+                    shorthand.get(&source).and_then(|spans| spans.get(&span))
+                    && binding.alias.as_ref().or(binding.declaration.as_ref()) == Some(target)
+                {
+                    Span::new(shifted.start - name_len - 2, shifted.start - 2)
+                } else {
+                    shifted
+                };
+                destination
+                    .entry(binding_span)
+                    .or_default()
+                    .insert(Binding {
+                        declaration: binding.declaration.map(translate_site),
+                        alias: binding.alias.map(translate_site),
+                    });
+            }
+        }
+    }
+    updated
 }

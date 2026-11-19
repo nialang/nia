@@ -557,6 +557,89 @@ def smoke(server, root):
                 process.kill()
 
 
+def smoke_module_move(server, root):
+    (root / "nia.toml").write_text(
+        '[package]\nname = "move_fixture"\nversion = "0.1.0"\n[library]\npath = "root.nia"\n',
+        encoding="utf-8",
+    )
+    entry, left, right = (root / name for name in ("root.nia", "left.nia", "right.nia"))
+    old, new = root / "left/value.nia", root / "right/amount.nia"
+    old_tree, new_tree = old.with_suffix(""), new.with_suffix("")
+    old_tree.mkdir(parents=True)
+    new.parent.mkdir()
+    sources = {
+        entry: (
+            "module left;\nmodule right;\n"
+            "using root::left::value as reading;\n"
+            "fun calculate() i32 { left::value::number() + reading::extra::bonus() }\n"
+        ),
+        left: "/// Reading data.\npub module value; // Keep this comment.\n",
+        right: "// Destination\n",
+        old: "pub module extra;\npub fun number() i32 { 42 }\n",
+        old_tree / "extra.nia": "pub fun bonus() i32 { 2 }\n",
+    }
+    for path, text in sources.items():
+        path.write_bytes(text.encode("utf-8"))
+    unsaved = sources[old] + "pub struct Unsaved {}\n"
+    with subprocess.Popen([str(server)], cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
+        try:
+            client = Client(process, 60)
+            capabilities = {"workspace": {
+                "fileOperations": {"willRename": True, "didRename": True},
+                "workspaceEdit": {"documentChanges": True},
+            }}
+            request(client, "initialize", {"processId": None, "rootUri": root.as_uri(),
+                                             "capabilities": capabilities})
+            client.notify("initialized", {})
+            client.notify("textDocument/didOpen", {"textDocument": {
+                "uri": old.as_uri(), "languageId": "nia", "version": 5, "text": unsaved,
+            }})
+            client.wait_diagnostics(old.as_uri(), 5, lambda items: not items)
+            move = {"files": [
+                {"oldUri": source.as_uri(), "newUri": dest.as_uri()}
+                for source, dest in [(old, new), (old_tree, new_tree)]
+            ]}
+            result = request(client, "workspace/willRenameFiles", move)
+            by_uri = {path.as_uri(): path for path in sources}
+            for change in result["documentChanges"]:
+                path = by_uri[change["textDocument"]["uri"]]
+                text = sources[path]
+                lines = text.splitlines(keepends=True) + [""]
+
+                def offset(position):
+                    line, column = position["line"], position["character"]
+                    return sum(map(len, lines[:line])) + column
+
+                for edit in reversed(change["edits"]):
+                    start, end = (offset(edit["range"][key]) for key in ("start", "end"))
+                    text = text[:start] + edit["newText"] + text[end:]
+                sources[path] = text
+                path.write_bytes(text.encode("utf-8"))
+            assert sources[left] == "", sources[left]
+            assert sources[right].endswith("/// Reading data.\npub module amount; // Keep this comment.\n")
+            assert "root::right::amount::number() + reading::extra::bonus()" in sources[entry]
+            old.rename(new)
+            old_tree.rename(new_tree)
+            client.notify("workspace/didRenameFiles", move)
+            client.wait_diagnostics(new.as_uri(), 5, lambda items: not items)
+            client.notify("textDocument/didOpen", {"textDocument": {
+                "uri": entry.as_uri(), "languageId": "nia", "version": 1, "text": sources[entry],
+            }})
+            target = request(client, "textDocument/definition", {
+                "textDocument": {"uri": entry.as_uri()}, "position": position(sources[entry], "bonus()"),
+            })
+            assert target["uri"] == (new_tree / "extra.nia").as_uri(), target
+            symbols = request(client, "workspace/symbol", {"query": "Unsaved"})
+            assert [symbol["location"]["uri"] for symbol in symbols] == [new.as_uri()], symbols
+            request(client, "shutdown", None)
+            client.notify("exit", None)
+            process.stdin.close()
+            assert process.wait(timeout=30) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+
+
 def smoke_build_context(server, root):
     compiler = server.with_name("nia" + server.suffix)
     member = root / "app"
@@ -697,6 +780,8 @@ def main():
     server = args.server.resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix="nia-lsp-smoke-") as directory:
         smoke(server, Path(directory).resolve())
+    with tempfile.TemporaryDirectory(prefix="nia-lsp-move-smoke-") as directory:
+        smoke_module_move(server, Path(directory).resolve())
     with tempfile.TemporaryDirectory(prefix="nia-lsp-build-smoke-") as directory:
         smoke_build_context(server, Path(directory).resolve())
 

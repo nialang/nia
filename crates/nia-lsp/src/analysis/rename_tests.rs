@@ -644,6 +644,82 @@ fn rename_moves_a_module_and_its_child_directory() {
 }
 
 #[test]
+fn files_can_move_between_declaring_modules() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-move-between-modules");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"fixture\"\nversion = \"1.0.0\"\n[library]\npath = \"root.nia\"\n",
+    )
+    .unwrap();
+    let entry = root.join("root.nia");
+    let source = concat!(
+        "module left;\nmodule right;\n",
+        "using root::left::value as reading;\n",
+        "fun calculate() i32 { left::value::number() + reading::number() }\n",
+    );
+    std::fs::write(&entry, source).unwrap();
+    std::fs::create_dir(root.join("left")).unwrap();
+    std::fs::create_dir(root.join("right")).unwrap();
+    let payload = root.join("left/value.nia");
+    let destination = root.join("right/amount.nia");
+    std::fs::write(&payload, "pub fun number() i32 { 42 }\n").unwrap();
+    std::fs::write(
+        root.join("left.nia"),
+        "/// A reading.\npub module value; // exported\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("right.nia"), "// Destination\n").unwrap();
+    let documents = Documents::from([(
+        payload.clone(),
+        OpenDocument {
+            uri: uri(&payload).unwrap(),
+            document: Document::new(3, "pub fun number() i32 { 99 }\n".into()),
+        },
+    )]);
+    let mut session = test_session();
+    let edit = session
+        .will_rename_files(
+            vec![lsp_types::FileRename {
+                old_uri: uri(&payload).unwrap().to_string(),
+                new_uri: uri(&destination).unwrap().to_string(),
+            }],
+            &documents,
+            &[root.to_path_buf()],
+            true,
+            &Cancellation::default(),
+        )
+        .unwrap()
+        .unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
+        panic!("expected versioned document edits");
+    };
+    let edits_for = |name| {
+        let source = uri(&root.join(name)).unwrap();
+        edits
+            .iter()
+            .find(|change| change.text_document.uri == source)
+            .unwrap()
+            .edits
+            .iter()
+            .map(|edit| match edit {
+                lsp_types::OneOf::Left(edit) => edit.new_text.as_str(),
+                _ => panic!("expected a plain text edit"),
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(edits_for("left.nia"), [""]);
+    assert_eq!(
+        edits_for("right.nia"),
+        ["/// A reading.\npub module amount; // exported\n"]
+    );
+    assert_eq!(
+        edits_for("root.nia"),
+        ["root::right::amount", "root::right::amount"]
+    );
+}
+
+#[test]
 fn file_rename_updates_the_live_module_declaration_and_imports() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-file-rename-module");
@@ -718,7 +794,7 @@ fn file_rename_updates_the_live_module_declaration_and_imports() {
     assert!(
         request(vec![rename("outer.nia", "sub/moved.nia")], true)
             .unwrap_err()
-            .contains("declaring module's directory")
+            .contains("unique declaring parent")
     );
     assert!(
         request(vec![rename("README.md", "README.txt")], true)

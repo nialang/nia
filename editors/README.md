@@ -61,6 +61,9 @@ In clients that send file rename requests, renaming a declared module beside
 its original file also updates the declaration and bound references. Include
 the module's child directory in the same operation when present. A batch
 can rename several independent modules in their respective directories.
+Moving a module to another declaring module in the same package relocates
+the declaration and updates its resolved paths. The server checks the moved
+source, including any unsaved buffer, under the destination namespace.
 Case-only renames follow the same checks.
 Generated files are read-only to the LSP and their producer owns changes
 to the generated declarations.

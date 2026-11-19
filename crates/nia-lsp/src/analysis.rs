@@ -1314,6 +1314,48 @@ impl Analysis {
         Some(self.graph.get(module)?.path.as_str())
     }
 
+    pub(crate) fn destination_module(&self, symbol: Symbol, destination: &Path) -> Option<&str> {
+        let Symbol::Module(module) = symbol else {
+            return None;
+        };
+        let package = self.graph.current_package_root(module)?;
+        let name = destination.file_stem()?.to_str()?;
+        let mut parents = self.graph.modules().filter(|candidate| {
+            self.graph.current_package_root(candidate.id) == Some(package)
+                && Path::new(
+                    candidate
+                        .path
+                        .derived_child_file(name, candidate.parent.is_none())
+                        .as_str(),
+                ) == destination
+        });
+        let parent = parents.next()?;
+        parents.next().is_none().then(|| parent.path.as_str())
+    }
+
+    pub(crate) fn rooted_module_path(&self, source: &str, module_source: &str) -> Option<String> {
+        let module = self.files.get(module_source)?.module;
+        let target = self.graph.get(module)?;
+        let target_package = self.graph.current_package_root(module)?;
+        let source_module = self.files.get(source)?.module;
+        let root = if self.graph.current_package_root(source_module)? == target_package {
+            "root".to_owned()
+        } else {
+            self.graph
+                .package_aliases(source_module)
+                .filter(|(_, root)| *root == target_package)
+                .filter_map(|(alias, _)| self.db.source_symbol_text(alias))
+                .min_by(|left, right| (left.len(), left).cmp(&(right.len(), right)))?
+                .to_string()
+        };
+        let mut path = root;
+        for segment in &target.module_path.segments {
+            path.push_str("::");
+            path.push_str(&self.db.source_symbol_text(*segment)?);
+        }
+        Some(path)
+    }
+
     pub(crate) fn module_declarations(&self) -> impl Iterator<Item = (&str, &str, Span)> {
         self.definitions
             .iter()
