@@ -247,17 +247,42 @@ impl ModuleMap {
         Ok(())
     }
 
-    fn source_scope(&self, source: &SourcePath) -> Option<&SymbolMap<SourcePath>> {
+    /// Binds an explicit import in the namespace that owns the entry source.
+    pub fn insert_for_source(
+        &mut self,
+        source: &SourcePath,
+        name: &str,
+        path: SourcePath,
+    ) -> Result<(), String> {
+        if let Some(scope) = self.source_scope_key(source) {
+            let scope = SourceIdentity::new(scope);
+            return self.insert_scoped(&scope, name, path);
+        }
+        if let Some(existing) = self.get(name)
+            && existing != &path
+        {
+            return Err(format!(
+                "package root `{name}` resolves to multiple package instances in the global module namespace"
+            ));
+        }
+        self.insert(name, path)
+    }
+
+    fn source_scope_key(&self, source: &SourcePath) -> Option<&str> {
         let identity = source.identity_ref().normalized_path();
         self.scopes
-            .iter()
-            .filter(|(prefix, _)| {
+            .keys()
+            .filter(|prefix| {
                 identity
                     .strip_prefix(prefix.as_str())
                     .is_some_and(|suffix| suffix.starts_with('/'))
             })
-            .max_by_key(|(prefix, _)| prefix.len())
-            .map(|(_, scope)| scope)
+            .max_by_key(|prefix| prefix.len())
+            .map(String::as_str)
+    }
+
+    fn source_scope(&self, source: &SourcePath) -> Option<&SymbolMap<SourcePath>> {
+        self.scopes.get(self.source_scope_key(source)?)
     }
 
     /// Reports whether a source belongs to an explicitly isolated package namespace.
@@ -2116,21 +2141,27 @@ mod tests {
 
     #[test]
     fn module_map_scoped_aliases_are_isolated_by_package_source() {
-        let first = SourceIdentity::new("build-package:workspace/first:/src/main.nia");
-        let second = SourceIdentity::new("build-package:workspace/second:/src/main.nia");
+        let first = SourcePath::with_identity(
+            "/workspace/first/src/main.nia",
+            "build-package:workspace/first:/src/main.nia",
+        );
+        let second = SourcePath::with_identity(
+            "/workspace/second/src/main.nia",
+            "build-package:workspace/second:/src/main.nia",
+        );
         let mut map = ModuleMap::new();
         map.add_scope(&SourceIdentity::new("build-package:workspace/first:/"));
         map.add_scope(&SourceIdentity::new("build-package:workspace/second:/"));
         map.try_insert("buildScript", SourcePath::new("build.nia"))
             .expect("explicit global root");
-        map.insert_scoped(
-            &SourceIdentity::new("build-package:workspace/first:/"),
+        map.insert_for_source(
+            &first,
             "shared",
             SourcePath::with_identity("/deps/first/root.nia", "build-package:first:/src/root.nia"),
         )
         .expect("first package alias");
-        map.insert_scoped(
-            &SourceIdentity::new("build-package:workspace/second:/"),
+        map.insert_for_source(
+            &second,
             "shared",
             SourcePath::with_identity(
                 "/deps/second/root.nia",
@@ -2141,19 +2172,15 @@ mod tests {
 
         assert!(map.get("shared").is_none());
         assert!(
-            map.for_source(&SourcePath::new(first.normalized_path()))
+            map.for_source(&first)
                 .get("shared")
                 .unwrap()
                 .as_str()
                 .contains("first")
         );
+        assert!(map.for_source(&first).get("buildScript").is_some());
         assert!(
-            map.for_source(&SourcePath::new(first.normalized_path()))
-                .get("buildScript")
-                .is_some()
-        );
-        assert!(
-            map.for_source(&SourcePath::new(second.normalized_path()))
+            map.for_source(&second)
                 .get("shared")
                 .unwrap()
                 .as_str()

@@ -3,8 +3,7 @@
 
 use super::*;
 use nia_build::compiler_inputs::{
-    CompilerContext, PlanCompilation, PlanDependencyScopes, PlanDirectories,
-    package_dependency_selected,
+    CompilerContext, PlanCompilation, PlanDependencyScopes, PlanDirectories, module_imports,
 };
 use nia_build_plan::{LogicalPathRoot, PlanPackageSource};
 
@@ -117,22 +116,22 @@ impl Package {
             };
             let scope = SourceIdentity::new(normalized(directory));
             modules.add_scope(&scope);
-            for import in &module.imports {
-                if let LogicalPathRoot::Package(package) = import.path.root()
-                    && !package_dependency_selected(&dependency_scopes, package, mode)
-                {
-                    continue;
-                }
+            let entry = SourcePath::new(normalized(&entry));
+            for import in module_imports(module, &dependency_scopes, mode) {
                 let path = directories
                     .resolve(plan, &import.path, package_root)
                     .map_err(|error| {
                         format!("Could not resolve import `{}`: {error:?}", import.name)
                     })?;
-                modules.insert_scoped(&scope, &import.name, SourcePath::new(normalized(&path)))?;
+                modules.insert_for_source(
+                    &entry,
+                    &import.name,
+                    SourcePath::new(normalized(&path)),
+                )?;
             }
             requests.push(EditorRequest {
                 check: input
-                    .check_request(SourcePath::new(normalized(&entry)))
+                    .check_request(entry)
                     .with_profile(context.profile)
                     .with_module_map(modules),
                 target: Some(context),

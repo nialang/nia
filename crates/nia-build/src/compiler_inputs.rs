@@ -15,8 +15,8 @@ use nia_target_config::BuildProfile;
 
 use crate::{
     ActionKind, ArtifactConfiguration, ArtifactKey, BuildPlan, CompilationMode, LogicalPath,
-    LogicalPathRoot, OptimizationMode, PackageKey, PlanAction, PlanConfiguration, PlanModule,
-    PlanPackage, PlanPackageSource, Runtime,
+    LogicalPathRoot, ModuleImport, OptimizationMode, PackageKey, PlanAction, PlanConfiguration,
+    PlanModule, PlanPackage, PlanPackageSource, Runtime,
 };
 
 /// Resolves the conventional entry point for a package's build script.
@@ -87,6 +87,21 @@ pub fn package_dependency_selected(
         scopes
             .iter()
             .any(|scope| artifact_dependency_visible(*scope, mode))
+    })
+}
+
+/// Lists a compiler module's explicit imports selected for the current mode.
+pub fn module_imports<'a>(
+    module: &'a PlanModule,
+    classes: &'a BTreeMap<PackageKey, BTreeSet<DependencyScope>>,
+    mode: CompilationMode,
+) -> impl Iterator<Item = &'a ModuleImport> {
+    module.imports.iter().filter(move |import| {
+        if let LogicalPathRoot::Package(package) = import.path.root() {
+            package_dependency_selected(classes, package, mode)
+        } else {
+            true
+        }
     })
 }
 

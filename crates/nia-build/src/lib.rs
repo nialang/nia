@@ -2022,18 +2022,7 @@ fn include_build_explanation_modules(
             continue;
         };
         packages.insert(module.key.package().clone());
-        for import in &module.imports {
-            let selected = match import.path.root() {
-                LogicalPathRoot::Package(package) => compiler_inputs::package_dependency_selected(
-                    package_dependency_classes,
-                    package,
-                    mode,
-                ),
-                _ => true,
-            };
-            if !selected {
-                continue;
-            }
+        for import in compiler_inputs::module_imports(module, package_dependency_classes, mode) {
             include_build_explanation_path(&import.path, packages);
             if let Some(imported_modules) = modules_by_source.get(&import.path) {
                 pending.extend(imported_modules.iter().cloned());
@@ -3757,23 +3746,6 @@ fn validate_module_roots(
         CompilationMode::Test,
     )?;
     add_own_library_module_root(&mut module_map, report, package_root)
-}
-
-pub(crate) fn insert_module_root(
-    module_map: &mut ModuleMap,
-    name: &str,
-    path: SourcePath,
-) -> Result<(), String> {
-    if let Some(existing) = module_map.get(name) {
-        return if existing == &path {
-            Ok(())
-        } else {
-            Err(format!(
-                "package root `{name}` resolves to multiple package instances in the global module namespace"
-            ))
-        };
-    }
-    module_map.try_insert(name, path)
 }
 
 fn validate_manifest_dependency_references(

@@ -11,9 +11,7 @@ use crate::compiler_inputs::{self, PlanDirectories, PlanPathError};
 use crate::lock::{LockWaitEvent, LockWaitObserver};
 use crate::progress::{ProgressActivity, ProgressSession, ProgressWaitKind, ProgressWaitOutcome};
 use crate::{ArtifactConfiguration, ArtifactLinkage, ArtifactLto, SystemLibraryMode};
-use crate::{
-    PlanPackageSource, add_manifest_module_roots, add_own_library_module_root, insert_module_root,
-};
+use crate::{PlanPackageSource, add_manifest_module_roots, add_own_library_module_root};
 use nia_driver::RootScope;
 use nia_linker::{ExecutableForm, Interpreter, LinkOptions};
 use nia_package_metadata::DependencyScope;
@@ -400,13 +398,12 @@ impl DriverActionExecutor {
             &module.root_source,
         ];
         package_paths.extend(
-            module
-                .imports
-                .iter()
-                .filter(|import| {
-                    self.package_dependency_selected(import.path.root(), artifact.mode)
-                })
-                .map(|import| &import.path),
+            compiler_inputs::module_imports(
+                module,
+                &self.package_dependency_classes,
+                artifact.mode,
+            )
+            .map(|import| &import.path),
         );
         package_paths.extend(command.inputs.iter());
         for input in &command.inputs {
@@ -1572,29 +1569,13 @@ impl DriverActionExecutor {
             )
             .map_err(|error| CoordinatorError::Internal(nia_ice::Ice::new(error.to_string())))?;
         }
-        for import in &module.imports {
-            if !self.package_dependency_selected(import.path.root(), mode) {
-                continue;
-            }
+        for import in
+            compiler_inputs::module_imports(module, &self.package_dependency_classes, mode)
+        {
             let path = self.resolve_source_path(action, &import.path)?;
-            let source_identity = entry.identity_ref().normalized_path();
-            if let Some((directory, _)) = source_identity.split_once(":/") {
-                let scope = nia_source::SourceIdentity::new(format!("{directory}:/"));
-                if module_map.has_scope(&entry) {
-                    module_map
-                        .insert_scoped(&scope, &import.name, path.clone())
-                        .map_err(|reason| {
-                            CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
-                                action: action.key.clone(),
-                                module: module.key.clone(),
-                                name: import.name.clone(),
-                                reason,
-                            }))
-                        })?;
-                }
-            }
-            if !module_map.has_scope(&entry) {
-                insert_module_root(&mut module_map, &import.name, path).map_err(|reason| {
+            module_map
+                .insert_for_source(&entry, &import.name, path)
+                .map_err(|reason| {
                     CoordinatorError::InvalidModuleImport(Box::new(InvalidModuleImport {
                         action: action.key.clone(),
                         module: module.key.clone(),
@@ -1602,7 +1583,6 @@ impl DriverActionExecutor {
                         reason,
                     }))
                 })?;
-            }
         }
         let target = *target;
         let runtime =
@@ -1617,17 +1597,6 @@ impl DriverActionExecutor {
             .with_profile(self.invocation.profile)
             .with_timings(self.invocation.timings)
             .with_runtime(runtime))
-    }
-
-    fn package_dependency_selected(&self, root: &LogicalPathRoot, mode: CompilationMode) -> bool {
-        let LogicalPathRoot::Package(package_key) = root else {
-            return true;
-        };
-        compiler_inputs::package_dependency_selected(
-            &self.package_dependency_classes,
-            package_key,
-            mode,
-        )
     }
 
     fn artifact(
@@ -1889,26 +1858,29 @@ mod package_manifest_import_tests {
     #[test]
     fn conflicting_manifest_module_aliases_are_rejected() {
         let mut module_map = ModuleMap::new();
-        insert_module_root(
-            &mut module_map,
-            "shared",
-            SourcePath::with_identity(
-                "/packages/first/src/root.nia",
-                "package:first:/src/root.nia",
-            ),
-        )
-        .unwrap();
-        assert!(
-            insert_module_root(
-                &mut module_map,
+        let entry = SourcePath::new("main.nia");
+        module_map
+            .insert_for_source(
+                &entry,
                 "shared",
                 SourcePath::with_identity(
-                    "/packages/second/src/root.nia",
-                    "package:second:/src/root.nia"
+                    "/packages/first/src/root.nia",
+                    "package:first:/src/root.nia",
                 ),
             )
-            .unwrap_err()
-            .contains("multiple package instances")
+            .unwrap();
+        assert!(
+            module_map
+                .insert_for_source(
+                    &entry,
+                    "shared",
+                    SourcePath::with_identity(
+                        "/packages/second/src/root.nia",
+                        "package:second:/src/root.nia"
+                    ),
+                )
+                .unwrap_err()
+                .contains("multiple package instances")
         );
     }
 }
