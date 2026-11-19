@@ -94,7 +94,12 @@ impl Session {
         entry: &Path,
         cancel: Option<&Cancellation>,
     ) -> Result<Analysis, String> {
-        self.install_documents(documents)?;
+        nia_timing::time_stage(
+            crate::timing_mode(),
+            nia_timing::TimingLevel::Summary,
+            "lsp.install_sources",
+            || self.install_documents(documents),
+        )?;
         let analyze = |request| {
             if let Some(cancel) = cancel {
                 cancel.check()?;
@@ -204,10 +209,19 @@ impl Session {
                 let document = &mut overlay.get_mut(path)?.document;
                 *document = Document::new(document.version, text);
             }
-            self.analyze(&overlay, path)
-                .ok()
-                .and_then(|checked| member.candidates(&checked, checked.file(path)?, &names))
-                .or(fields)
+            nia_timing::time_stage(
+                crate::timing_mode(),
+                nia_timing::TimingLevel::Summary,
+                "lsp.member_completion_analysis",
+                || {
+                    self.analyze(&overlay, path)
+                        .ok()
+                        .and_then(|checked| {
+                            member.candidates(&checked, checked.file(path)?, &names)
+                        })
+                        .or(fields)
+                },
+            )
         };
         Some(member.items(&file.text, &file.lines, candidates.unwrap_or_default()))
     }
@@ -286,7 +300,7 @@ fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<(), String
 
 fn analyze_request(driver: &Driver, request: CheckRequest) -> Result<Analysis, String> {
     driver
-        .analyze_for_editor(request, |db, program| {
+        .analyze_for_editor(request.with_timings(crate::timing_mode()), |db, program| {
             Analysis::from_program(driver, db, program)
         })
         .map_err(|error| error.to_string())

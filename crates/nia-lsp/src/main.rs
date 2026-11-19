@@ -13,6 +13,15 @@ mod workspace;
 
 nia_alloc::global_allocator!();
 
+fn timing_mode() -> nia_timing::TimingMode {
+    static MODE: std::sync::OnceLock<nia_timing::TimingMode> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("NIA_LSP_TIMINGS").as_deref() {
+        Ok("detail") => nia_timing::TimingMode::Detail,
+        Ok("summary") => nia_timing::TimingMode::Summary,
+        _ => nia_timing::TimingMode::Off,
+    })
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut args = std::env::args_os().skip(1);
     let resource_root: Option<std::path::PathBuf> = match args.next() {
@@ -35,5 +44,13 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Some(root) => nia_toolchain::ToolchainLayoutRequest::explicit(executable, root),
         None => nia_toolchain::ToolchainLayoutRequest::installed(executable),
     };
-    server::run(nia_toolchain::ToolchainLayout::resolve(request)?)
+    let toolchain = nia_toolchain::ToolchainLayout::resolve(request)?;
+    let mode = timing_mode();
+    if mode.enabled() {
+        let options =
+            nia_timing::TimingOptions::new(mode).with_format(nia_timing::TimingFormat::Json);
+        nia_timing::collect_to_stderr(options, || server::run(toolchain))
+    } else {
+        server::run(toolchain)
+    }
 }

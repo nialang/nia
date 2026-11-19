@@ -130,9 +130,25 @@ impl Driver {
             nia_compiler_query::CheckedProgramAnalysis,
         ) -> nia_query::QueryResult<T>,
     ) -> nia_query::QueryResult<T> {
-        let (database, _) = self.compilation_databases(&request, RootScope::Tree, true)?;
-        let analysis = database.analyze_entry_program()?;
-        consume(&database, analysis)
+        let timings = request.timings;
+        let (database, _) = nia_timing::time_stage(
+            timings,
+            nia_timing::TimingLevel::Summary,
+            "editor.load_graph",
+            || self.compilation_databases(&request, RootScope::Tree, true),
+        )?;
+        let analysis = nia_timing::time_stage(
+            timings,
+            nia_timing::TimingLevel::Summary,
+            "editor.semantic_queries",
+            || database.analyze_entry_program(),
+        )?;
+        nia_timing::time_stage(
+            timings,
+            nia_timing::TimingLevel::Summary,
+            "editor.consume_analysis",
+            || consume(&database, analysis),
+        )
     }
 
     /// Checks the requested roots and returns the exact source manifest alongside.

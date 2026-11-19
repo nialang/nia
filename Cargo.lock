@@ -1692,6 +1692,7 @@ dependencies = [
  "nia-target",
  "nia-target-config",
  "nia-test-support",
+ "nia-timing",
  "nia-toolchain",
  "nia-ty",
  "nia-type-resolve",

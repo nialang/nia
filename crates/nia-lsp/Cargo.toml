@@ -35,6 +35,7 @@ nia-symbol.workspace = true
 nia-syntax.workspace = true
 nia-target.workspace = true
 nia-target-config.workspace = true
+nia-timing.workspace = true
 nia-toolchain.workspace = true
 nia-ty.workspace = true
 nia-type-resolve.workspace = true

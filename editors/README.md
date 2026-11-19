@@ -69,6 +69,9 @@ python tools/lsp-latency.py --server target/release/nia-lsp --resource-root lib 
   --configuration "release"
 ```
 
+Set `NIA_LSP_TIMINGS=summary` for a JSON timing report on stderr at
+shutdown. Use `detail` to include individual compiler query timings.
+
 Build from the repository root with `cargo build --locked -p nia-lsp`.
 On Windows, use an x64 Developer PowerShell with the configured LLVM
 installation and add
