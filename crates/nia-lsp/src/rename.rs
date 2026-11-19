@@ -417,7 +417,7 @@ impl Session {
         for entry in &workspace.entries {
             cancel.check()?;
             let request = &entry.request;
-            let after = verification.analyze_request(request.clone())?;
+            let after = verification.analyze_request(request.clone(), cancel)?;
             if let Some(error) = after.first_error() {
                 return Err(format!(
                     "Rename would break {} ({error})",

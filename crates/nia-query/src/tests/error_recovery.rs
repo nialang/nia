@@ -145,7 +145,7 @@ fn reports_same_thread_query_cycles() {
     let error = db.get(Recursive).expect_err("cycle should be reported");
     let cycle = match error {
         QueryError::Cycle { cycle } => cycle,
-        QueryError::InvalidInput { .. } | QueryError::Internal(_) => {
+        QueryError::InvalidInput { .. } | QueryError::Internal(_) | QueryError::Canceled => {
             panic!("expected query cycle")
         }
     };
@@ -328,7 +328,7 @@ fn query_can_report_invalid_input_as_query_error() {
             assert_eq!(query.name, "invalid_input_query");
             assert_eq!(message, "bad fixture");
         }
-        QueryError::Cycle { .. } | QueryError::Internal(_) => {
+        QueryError::Cycle { .. } | QueryError::Internal(_) | QueryError::Canceled => {
             panic!("expected invalid input error")
         }
     }
@@ -348,7 +348,7 @@ fn get_many_reports_query_failures_as_values() {
             assert_eq!(query.name, "invalid_input_query");
             assert_eq!(message, "bad fixture");
         }
-        QueryError::Cycle { .. } | QueryError::Internal(_) => {
+        QueryError::Cycle { .. } | QueryError::Internal(_) | QueryError::Canceled => {
             panic!("expected invalid input error")
         }
     }
@@ -368,7 +368,7 @@ fn failed_parent_query_drops_speculative_dependencies() {
             assert_eq!(query.name, "invalid_after_dependency");
             assert_eq!(message, "failed after dependency");
         }
-        QueryError::Cycle { .. } | QueryError::Internal(_) => {
+        QueryError::Cycle { .. } | QueryError::Internal(_) | QueryError::Canceled => {
             panic!("expected invalid input error")
         }
     }

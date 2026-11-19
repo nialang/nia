@@ -438,7 +438,13 @@ fn analyze(
                 Ok(analysis) => query(analysis, &work, request, |position| {
                     let probe =
                         completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()));
-                    probe.complete(analysis, &work.documents, &work.path, position)
+                    probe.complete(
+                        analysis,
+                        &work.documents,
+                        &work.path,
+                        position,
+                        &work.cancel,
+                    )
                 }),
                 Err(error) => {
                     Response::new_err(request.id, ErrorCode::RequestFailed as i32, error.clone())

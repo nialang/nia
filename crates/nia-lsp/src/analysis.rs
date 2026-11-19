@@ -97,6 +97,7 @@ impl Session {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn analyze(
         &mut self,
         documents: &Documents,
@@ -111,6 +112,9 @@ impl Session {
         entry: &Path,
         cancel: Option<&Cancellation>,
     ) -> Result<Analysis, String> {
+        if let Some(cancel) = cancel {
+            cancel.check()?;
+        }
         nia_timing::time_stage(
             crate::timing_mode(),
             nia_timing::TimingLevel::Summary,
@@ -121,7 +125,13 @@ impl Session {
             if let Some(cancel) = cancel {
                 cancel.check()?;
             }
-            analyze_editor_request(&self.driver, &self.target_drivers, &self.overlays, request)
+            analyze_editor_request(
+                &self.driver,
+                &self.target_drivers,
+                &self.overlays,
+                request,
+                cancel,
+            )
         };
         let Some(package) = self.projects.package(entry)? else {
             return analyze(CheckRequest::new(normalized(entry)).into());
@@ -192,8 +202,18 @@ impl Session {
         Ok(())
     }
 
-    pub(crate) fn analyze_request(&self, request: EditorRequest) -> Result<Analysis, String> {
-        analyze_editor_request(&self.driver, &self.target_drivers, &self.overlays, request)
+    pub(crate) fn analyze_request(
+        &self,
+        request: EditorRequest,
+        cancel: &Cancellation,
+    ) -> Result<Analysis, String> {
+        analyze_editor_request(
+            &self.driver,
+            &self.target_drivers,
+            &self.overlays,
+            request,
+            Some(cancel),
+        )
     }
 
     pub(crate) fn reload(&mut self) {
@@ -206,6 +226,7 @@ impl Session {
         documents: &Documents,
         path: &Path,
         position: Position,
+        cancel: &Cancellation,
     ) -> Option<Vec<lsp_types::CompletionItem>> {
         let file = analysis.file(path)?;
         let offset = file.lines.offset(&file.text, position)?;
@@ -229,7 +250,7 @@ impl Session {
                 nia_timing::TimingLevel::Summary,
                 "lsp.member_completion_analysis",
                 || {
-                    self.analyze(&overlay, path)
+                    self.analyze_with_cancel(&overlay, path, Some(cancel))
                         .ok()
                         .and_then(|checked| {
                             member.candidates(&checked, checked.file(path)?, &names)
@@ -247,9 +268,10 @@ fn analyze_editor_request(
     drivers: &RefCell<HashMap<(nia_target::TargetConfig, nia_target::CpuLevel), Driver>>,
     overlays: &BTreeMap<PathBuf, Arc<str>>,
     request: EditorRequest,
+    cancel: Option<&Cancellation>,
 ) -> Result<Analysis, String> {
     let Some(context) = request.target else {
-        return analyze_request(driver, request.check);
+        return analyze_request(driver, request.check, cancel);
     };
     let mut drivers = drivers.borrow_mut();
     let configured = match drivers.entry((context.target, context.cpu)) {
@@ -284,6 +306,7 @@ fn analyze_editor_request(
                 }
                 nia_build_plan::CompilationMode::Test => nia_target_config::CompilationMode::Test,
             }),
+        cancel,
     )
 }
 
@@ -313,12 +336,18 @@ fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<(), String
     Ok(())
 }
 
-fn analyze_request(driver: &Driver, request: CheckRequest) -> Result<Analysis, String> {
+fn analyze_request(
+    driver: &Driver,
+    request: CheckRequest,
+    cancel: Option<&Cancellation>,
+) -> Result<Analysis, String> {
+    let cancel = cancel.map(Cancellation::token);
     driver
         .analyze_for_editor(
             request.with_timings(crate::timing_mode()),
+            cancel,
             |db, program, loader| {
-                Analysis::from_program(driver, db, program, loader.consulted_sources()?)
+                Analysis::from_program(driver, db, program, loader.consulted_sources()?, cancel)
             },
         )
         .map_err(|error| error.to_string())
@@ -442,7 +471,9 @@ impl Analysis {
         db: &CompilerDatabase,
         program: CheckedProgramAnalysis,
         consulted_sources: Arc<BTreeSet<String>>,
+        cancel: Option<&nia_query::CancellationToken>,
     ) -> nia_query::QueryResult<Self> {
+        let checkpoint = || cancel.map_or(Ok(()), nia_query::CancellationToken::check);
         let mut result = Self {
             files: BTreeMap::new(),
             definitions: HashMap::new(),
@@ -469,6 +500,7 @@ impl Analysis {
         let mut trait_members = HashMap::new();
         let mut projections = Vec::new();
         for node in program.graph.modules() {
+            checkpoint()?;
             let path = node.path.as_str();
             let Some(file) = driver.sources().source_for_id(node.source_id) else {
                 continue;
@@ -749,9 +781,11 @@ impl Analysis {
                 });
             }
         }
+        checkpoint()?;
         result.index_named_associated_types();
         result.index_namespaces(&import_scopes)?;
         for file in result.files.values_mut() {
+            checkpoint()?;
             file.occurrences
                 .sort_by_key(|item| (item.span, !item.declaration));
             for occurrence in &file.occurrences {
@@ -2512,7 +2546,13 @@ mod tests {
             documents.get_mut(&main).unwrap().document = Document::new(version, text);
             let checked = session.analyze(&documents, &main).unwrap();
             let completion = probe
-                .complete(&checked, &documents, &main, Position::new(3, cursor))
+                .complete(
+                    &checked,
+                    &documents,
+                    &main,
+                    Position::new(3, cursor),
+                    &Cancellation::default(),
+                )
                 .unwrap();
             let labels: Vec<_> = completion.iter().map(|item| item.label.as_str()).collect();
             let expected: &[&str] = if typed.is_empty() {
@@ -2557,7 +2597,13 @@ mod tests {
             .collect::<Documents>();
             let analysis = session.analyze(&documents, &main).unwrap();
             let items = probe
-                .complete(&analysis, &documents, &main, Position::new(2, column))
+                .complete(
+                    &analysis,
+                    &documents,
+                    &main,
+                    Position::new(2, column),
+                    &Cancellation::default(),
+                )
                 .unwrap();
             assert_eq!(
                 items
@@ -2638,6 +2684,7 @@ mod tests {
                     &documents,
                     &main,
                     Position::new(1, line.len() as u32 + prefix),
+                    &Cancellation::default(),
                 )
                 .unwrap();
             assert_eq!(

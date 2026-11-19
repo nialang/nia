@@ -51,7 +51,7 @@ use std::{
     num::NonZeroUsize,
     sync::{
         Arc, OnceLock, Weak,
-        atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     thread::JoinHandle,
 };
@@ -826,9 +826,31 @@ struct QueryDbRegistration<C> {
     inner: Weak<QueryDbInner<C>>,
 }
 
+/// A one-shot cancellation signal shared by a caller and its analysis.
+#[derive(Clone, Default)]
+pub struct CancellationToken(Arc<AtomicBool>);
+
+impl CancellationToken {
+    /// Requests cancellation at the next checkpoint.
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    /// Checks for cancellation between units of cached work.
+    pub fn check(&self) -> QueryResult<()> {
+        if self.0.load(Ordering::Relaxed) {
+            Err(QueryError::Canceled)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// Recoverable failure reported while executing or accessing a query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryError {
+    /// The caller canceled the enclosing analysis.
+    Canceled,
     /// A query execution or wait-for cycle was detected.
     Cycle {
         /// Ordered frames that close the cycle.
@@ -871,6 +893,7 @@ impl From<nia_ice::Ice> for QueryError {
 impl fmt::Display for QueryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            QueryError::Canceled => f.write_str("Analysis canceled"),
             QueryError::Cycle { cycle } => {
                 writeln!(f, "query cycle detected")?;
                 for frame in cycle {

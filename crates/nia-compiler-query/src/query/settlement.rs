@@ -134,16 +134,20 @@ pub(super) fn settle_provider_worklist<T>(
     discover_executable_providers: bool,
     compile: impl Fn(&CompilerDatabase) -> QueryResult<T>,
     provider_demands: impl Fn(&T) -> Vec<crate::ProviderDemand>,
+    cancel: Option<&CancellationToken>,
 ) -> QueryResult<T> {
+    let checkpoint = || cancel.map_or(Ok(()), CancellationToken::check);
+    checkpoint()?;
     // The loader fixed point and its deferred cache publications form one
     // session; concurrent top-level settlements must not mix either state.
     let _settlement = database.db.context().provider_settlement_scheduler.lock();
+    checkpoint()?;
     database.db.context().begin_frontend_cache_publications()?;
-    database.refresh_frontend_program_sources_snapshot()?;
     let result = (|| {
         let mut skip_executable_discovery = false;
         let mut rounds = 0_u64;
         loop {
+            checkpoint()?;
             rounds += 1;
             database.refresh_frontend_program_sources_snapshot()?;
             if discover_executable_providers && !skip_executable_discovery {
@@ -153,6 +157,7 @@ pub(super) fn settle_provider_worklist<T>(
                     &format!("executable_provider_demands.round_{rounds}"),
                     || database.executable_provider_demands(),
                 )?;
+                checkpoint()?;
                 emit_provider_demand_batch(database.db.context().timings(), rounds, &demands);
                 if let crate::ProviderGraphUpdate::Changed {
                     invalidates_resolved_body_facts,
@@ -169,6 +174,7 @@ pub(super) fn settle_provider_worklist<T>(
                 }
             }
             let output = compile(database)?;
+            checkpoint()?;
             match database.update_provider_demands_with_telemetry(
                 rounds,
                 "compile",

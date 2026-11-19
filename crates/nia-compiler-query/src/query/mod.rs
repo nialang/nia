@@ -56,9 +56,9 @@ use nia_public_surface::{
     compute_using_scopes_from_surfaces_with_symbols,
 };
 use nia_query::{
-    FingerprintDomain, QueryDb, QueryError, QueryFingerprint, QueryFingerprintBuilder,
-    QueryFingerprintPolicy, QueryFrame, QueryKey, QueryProviderPolicy, QueryResult,
-    QueryStoragePolicy, QueryTrace,
+    CancellationToken, FingerprintDomain, QueryDb, QueryError, QueryFingerprint,
+    QueryFingerprintBuilder, QueryFingerprintPolicy, QueryFrame, QueryKey, QueryProviderPolicy,
+    QueryResult, QueryStoragePolicy, QueryTrace,
 };
 use nia_source::{SourcePath, SourceVersion};
 use nia_span::Span;
@@ -366,10 +366,20 @@ impl CompilerDatabase {
 
     #[doc(hidden)]
     pub fn analyze_entry_program(&self) -> QueryResult<CheckedProgramAnalysis> {
-        self.settle_provider_worklist(
+        self.analyze_entry_program_with_cancellation(None)
+    }
+
+    /// Checks an entry and observes cancellation at provider settlement boundaries.
+    pub fn analyze_entry_program_with_cancellation(
+        &self,
+        cancel: Option<&CancellationToken>,
+    ) -> QueryResult<CheckedProgramAnalysis> {
+        settlement::settle_provider_worklist(
+            self,
             true,
             Self::entry_check_program_once,
             checked_provider_demands,
+            cancel,
         )
     }
 
@@ -539,6 +549,7 @@ impl CompilerDatabase {
             discover_executable_providers,
             compile,
             provider_demands,
+            None,
         )
     }
 
@@ -640,6 +651,9 @@ impl CompilerDatabase {
 
 pub(crate) fn query_error_diagnostic(err: QueryError) -> Diagnostic {
     match err {
+        QueryError::Canceled => {
+            Diagnostic::internal_error(codes::QUERY_ENGINE, err.to_string()).finish()
+        }
         QueryError::Cycle { cycle } => {
             let mut message = String::from("query cycle detected");
             for frame in cycle {

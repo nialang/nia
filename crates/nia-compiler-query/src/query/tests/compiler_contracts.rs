@@ -792,6 +792,33 @@ fn compiler_database_exposes_query_trace() {
 }
 
 #[test]
+fn canceled_provider_settlement_can_retry_cached_queries() {
+    let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
+    let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
+    let cancel = nia_query::CancellationToken::default();
+    let interrupted = crate::query::settlement::settle_provider_worklist(
+        &database,
+        false,
+        |database| {
+            let checked = database.entry_check_program_once()?;
+            cancel.cancel();
+            Ok(checked)
+        },
+        crate::query::settlement::checked_provider_demands,
+        Some(&cancel),
+    );
+    assert!(matches!(interrupted, Err(QueryError::Canceled)));
+    let retry = nia_query::CancellationToken::default();
+    assert!(
+        database
+            .analyze_entry_program_with_cancellation(Some(&retry))
+            .unwrap()
+            .diagnostics
+            .is_empty()
+    );
+}
+
+#[test]
 fn compiler_update_rejects_untracked_snapshot_provider() {
     let fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let database =

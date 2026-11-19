@@ -125,12 +125,15 @@ impl Driver {
     pub fn analyze_for_editor<T>(
         &self,
         request: CheckRequest,
+        cancel: Option<&nia_query::CancellationToken>,
         consume: impl FnOnce(
             &CompilerDatabase,
             nia_compiler_query::CheckedProgramAnalysis,
             &LoaderDatabase,
         ) -> nia_query::QueryResult<T>,
     ) -> nia_query::QueryResult<T> {
+        let checkpoint = || cancel.map_or(Ok(()), nia_query::CancellationToken::check);
+        checkpoint()?;
         let timings = request.timings;
         let (database, loader) = nia_timing::time_stage(
             timings,
@@ -142,8 +145,9 @@ impl Driver {
             timings,
             nia_timing::TimingLevel::Summary,
             "editor.semantic_queries",
-            || database.analyze_entry_program(),
+            || database.analyze_entry_program_with_cancellation(cancel),
         )?;
+        checkpoint()?;
         nia_timing::time_stage(
             timings,
             nia_timing::TimingLevel::Summary,

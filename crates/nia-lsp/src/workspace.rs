@@ -4,10 +4,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
-    sync::{
-        Arc, OnceLock,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, OnceLock},
 };
 
 use lsp_types::{Location, Position, SymbolInformation, SymbolKind, Uri};
@@ -22,19 +19,19 @@ use crate::{
 };
 
 #[derive(Clone, Default)]
-pub(crate) struct Cancellation(Arc<AtomicBool>);
+pub(crate) struct Cancellation(nia_query::CancellationToken);
 
 impl Cancellation {
     pub(crate) fn cancel(&self) {
-        self.0.store(true, Ordering::Relaxed);
+        self.0.cancel();
     }
 
     pub(crate) fn check(&self) -> Result<(), String> {
-        if self.0.load(Ordering::Relaxed) {
-            Err("Analysis canceled".into())
-        } else {
-            Ok(())
-        }
+        self.0.check().map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn token(&self) -> &nia_query::CancellationToken {
+        &self.0
     }
 }
 
@@ -220,7 +217,8 @@ impl Session {
                 Arc::clone(entry)
             } else {
                 analyzed += 1;
-                let analysis = self.analyze_request(request.clone());
+                let analysis = self.analyze_request(request.clone(), cancel);
+                cancel.check()?;
                 Arc::new(Entry::new(request, analysis, cancel)?)
             };
             index.merge(&entry, &workspace.package_names, cancel)?;
