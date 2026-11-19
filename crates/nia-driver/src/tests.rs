@@ -65,6 +65,34 @@ fn editor_graph_handle_replacement_preserves_the_prepared_loader_snapshot() {
 }
 
 #[test]
+fn editor_consumer_cancellation_leaves_the_snapshot_reusable() {
+    let root = common::temp_dir("editor_consumer_cancellation");
+    let main = root.join("main.nia");
+    common::write(&main, "fun main() i32 { 0 }\n");
+    let driver = common::test_driver();
+    let request = crate::CheckRequest::new(main.to_string_lossy().into_owned());
+    let cancel = nia_query::CancellationToken::default();
+    let interrupted = driver.analyze_for_editor(request.clone(), Some(&cancel), |_, _, loader| {
+        cancel.cancel();
+        assert!(matches!(
+            loader.module_graph(),
+            Err(nia_query::QueryError::Canceled)
+        ));
+        Ok(())
+    });
+    assert!(matches!(interrupted, Err(nia_query::QueryError::Canceled)));
+
+    let retry = nia_query::CancellationToken::default();
+    let module_count = driver
+        .analyze_for_editor(request, Some(&retry), |_, analysis, loader| {
+            assert!(analysis.diagnostics.is_empty());
+            Ok(loader.module_graph()?.modules().count())
+        })
+        .unwrap();
+    assert_eq!(module_count, 1);
+}
+
+#[test]
 fn source_manifest_checks_keep_the_requested_root_scope() {
     let root = common::temp_dir("source_manifest_root_scope");
     let path = root.join("main.nia");

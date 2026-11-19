@@ -147,7 +147,7 @@ impl Driver {
                 timings,
                 nia_timing::TimingLevel::Summary,
                 "editor.consume_analysis",
-                || consume(database, analysis, loader),
+                || nia_query::with_cancellation(cancel, || consume(database, analysis, loader)),
             )
         })
     }

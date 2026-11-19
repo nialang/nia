@@ -13,10 +13,12 @@ impl Analysis {
     pub(super) fn index_namespaces(
         &mut self,
         imports: &HashMap<ModuleId, LexicalUsingScopes>,
+        checkpoint: &impl Fn() -> nia_query::QueryResult<()>,
     ) -> nia_query::QueryResult<()> {
         let mut surfaces = HashMap::new();
         let mut scopes = HashMap::new();
         for (&module, defs) in &self.defs {
+            checkpoint()?;
             if let Some(surface) = self.db.source_exports(module)? {
                 surfaces.insert(module, surface);
                 if !defs.module_usings.is_empty() {
@@ -27,30 +29,29 @@ impl Analysis {
         let mut exported = ExportAliases::new();
         let mut first = true;
         loop {
-            let updates: Vec<_> = self
-                .files
-                .iter()
-                .filter_map(|(source, file)| {
-                    if !file.text.contains("::") && !file.text.contains("using") {
-                        return None;
-                    }
-                    let mut index = Namespaces {
-                        analysis: self,
-                        surfaces: &surfaces,
-                        module_scopes: &scopes,
-                        imports: imports.get(&file.module),
-                        exported: &exported,
-                        file,
-                        modules: Vec::new(),
-                        aliases: HashMap::new(),
-                        exports: HashMap::new(),
-                    };
-                    index.visit(file.syntax().tree.green_root(), false);
-                    Some((source.clone(), index.modules, index.aliases, index.exports))
-                })
-                .collect();
+            let mut updates = Vec::new();
+            for (source, file) in &self.files {
+                checkpoint()?;
+                if !file.text.contains("::") && !file.text.contains("using") {
+                    continue;
+                }
+                let mut index = Namespaces {
+                    analysis: self,
+                    surfaces: &surfaces,
+                    module_scopes: &scopes,
+                    imports: imports.get(&file.module),
+                    exported: &exported,
+                    file,
+                    modules: Vec::new(),
+                    aliases: HashMap::new(),
+                    exports: HashMap::new(),
+                };
+                index.visit(file.syntax().tree.green_root(), false);
+                updates.push((source.clone(), index.modules, index.aliases, index.exports));
+            }
             let mut changed = false;
             for (source, modules, aliases, exports) in updates {
+                checkpoint()?;
                 let file = self.files.get_mut(&source).expect("indexed source");
                 if first {
                     file.occurrences.extend(modules);

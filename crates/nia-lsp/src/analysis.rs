@@ -1015,8 +1015,8 @@ impl Analysis {
             }
         }
         checkpoint()?;
-        result.index_named_associated_types();
-        result.index_namespaces(&import_scopes)?;
+        result.index_named_associated_types(&checkpoint)?;
+        result.index_namespaces(&import_scopes, &checkpoint)?;
         for file in result.files.values_mut() {
             checkpoint()?;
             file.occurrences
@@ -1117,9 +1117,13 @@ impl Analysis {
         })
     }
 
-    fn index_named_associated_types(&mut self) {
+    fn index_named_associated_types(
+        &mut self,
+        checkpoint: &impl Fn() -> nia_query::QueryResult<()>,
+    ) -> nia_query::QueryResult<()> {
         let mut additions = Vec::new();
         for (source, file) in &self.files {
+            checkpoint()?;
             if !file.text.contains('=') || !file.text.contains('[') {
                 continue;
             }
@@ -1131,6 +1135,7 @@ impl Analysis {
             let file = self.files.get_mut(&source).expect("indexed source");
             file.occurrences.extend(indexed);
         }
+        Ok(())
     }
 
     fn named_associated_types(
