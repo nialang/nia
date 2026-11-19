@@ -522,6 +522,7 @@ pub(crate) struct Analysis {
     configuration_warning: Option<String>,
     trait_implementations: Vec<(GlobalDefId, String, Span)>,
     trait_members: HashMap<GlobalDefId, GlobalDefId>,
+    calls: Vec<(GlobalDefId, GlobalDefId, Span)>,
     db: CompilerDatabase,
     graph: ModuleGraphSnapshot,
     defs: HashMap<ModuleId, Arc<DefCollection>>,
@@ -605,6 +606,7 @@ impl Analysis {
             configuration_warning: None,
             trait_implementations: Vec::new(),
             trait_members: HashMap::new(),
+            calls: Vec::new(),
             db: db.clone(),
             graph: program.graph.clone(),
             defs: program
@@ -754,8 +756,35 @@ impl Analysis {
                         _ => None,
                     })
                     .collect();
+                let function_calls: HashMap<_, _> = module
+                    .semantic_facts
+                    .function_facts
+                    .iter()
+                    .flat_map(|(&caller, facts)| {
+                        facts
+                            .node_resolved_calls
+                            .iter()
+                            .filter_map(move |(key, call)| {
+                                let callee = match call {
+                                    ResolvedCall::Function(id)
+                                    | ResolvedCall::FunctionInstance { def_id: id, .. }
+                                    | ResolvedCall::Method { def_id: id, .. }
+                                    | ResolvedCall::TraitMethod { method_id: id, .. }
+                                    | ResolvedCall::DynamicTraitMethod { method_id: id, .. }
+                                    | ResolvedCall::TraitAssociatedFunction {
+                                        method_id: id, ..
+                                    } => *id,
+                                    _ => return None,
+                                };
+                                Some((key, (caller, callee)))
+                            })
+                    })
+                    .collect();
                 let mut method_calls = HashMap::new();
                 for (span, key) in db.source_origins(module.id)?.entries() {
+                    if let Some(&(caller, callee)) = function_calls.get(&key) {
+                        result.calls.push((caller, callee, span));
+                    }
                     if let Some(ty) = module.semantic_facts.node_expr_type(&key)
                         && ty != result.types.error()
                     {
@@ -1757,6 +1786,28 @@ impl Analysis {
                         Some((Symbol::Global(*member), source.as_str(), *span))
                     }),
             )
+    }
+
+    pub(crate) fn workspace_calls(&self) -> impl Iterator<Item = (Symbol, Symbol, Span)> + '_ {
+        self.calls
+            .iter()
+            .map(|&(caller, callee, span)| (Symbol::Global(caller), Symbol::Global(callee), span))
+    }
+
+    pub(crate) fn prepare_call_hierarchy(
+        &self,
+        path: &Path,
+        position: Position,
+        revision: u64,
+    ) -> Option<lsp_types::CallHierarchyItem> {
+        let symbol = self.symbol_at(path, position)?;
+        let (file, name) = self.declaration_file(symbol)?;
+        let context = crate::workspace::CallHierarchyContext {
+            anchor: self.file(path)?.uri.clone(),
+            revision,
+        };
+        self.callable_declaration(symbol)?
+            .hierarchy_item(&file.lines, &file.uri, name, &context)
     }
 
     pub(crate) fn hover(&self, path: &Path, position: Position) -> Option<lsp_types::Hover> {

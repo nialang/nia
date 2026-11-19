@@ -3,7 +3,7 @@
 `nia-lsp` is a Rust language server that uses the compiler's loader and
 semantic queries. Its current editor features are live diagnostics,
 definition and type-definition navigation, workspace symbol search,
-trait implementation navigation, hover at resolved names, workspace references,
+trait implementation navigation, call hierarchy, hover at resolved names, workspace references,
 occurrence highlighting in the current file, completion for
 local names, module members, receiver fields and methods, signature help for
 source functions and resolved methods, parameter name inlay hints,

@@ -71,6 +71,7 @@ def smoke(server, root):
             assert capabilities["positionEncoding"] == "utf-16"
             assert capabilities["documentFormattingProvider"]
             assert capabilities["inlayHintProvider"]
+            assert capabilities["callHierarchyProvider"]
             assert capabilities["semanticTokensProvider"]["full"]["delta"]
             assert capabilities["workspaceSymbolProvider"] and capabilities["typeDefinitionProvider"]
             assert set(capabilities["workspace"]["fileOperations"]) == {"willRename", "didRename"}
@@ -118,6 +119,18 @@ def smoke(server, root):
             assert hints == [{
                 "label": "high:", "position": hint_position, "kind": 2, "paddingRight": True,
             }], hints
+            callee, = request(client, "textDocument/prepareCallHierarchy", dict(
+                **params, position=position(source, "distance"),
+            ))
+            assert callee["name"] == "distance" and callee["uri"] == shapes.as_uri(), callee
+            incoming, = request(client, "callHierarchy/incomingCalls", {"item": callee})
+            assert incoming["from"]["name"] == "measure", incoming
+            outgoing, = request(client, "callHierarchy/outgoingCalls", {"item": incoming["from"]})
+            assert outgoing["to"] == callee, outgoing
+            assert outgoing["fromRanges"] == incoming["fromRanges"] == [{
+                "start": position(source, "shapes::distance"),
+                "end": dict(hint_position, character=hint_position["character"] + 3),
+            }], outgoing
 
             edit = request(client, "textDocument/rename", dict(**field, newName="height"))
             assert {item["textDocument"]["uri"] for item in edit["documentChanges"]} == {
@@ -147,6 +160,8 @@ def smoke(server, root):
             client.notify("textDocument/didSave", params)
             target = request(client, "textDocument/definition", field)
             assert target["uri"] == shapes.as_uri(), target
+            _, stale = client.wait(client.request("callHierarchy/incomingCalls", {"item": callee}))
+            assert stale["error"]["code"] == -32801, stale
 
             updated = source.replace("width", "height")
             typo = updated.replace("shape.height", "shapes::weigth()")

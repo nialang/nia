@@ -10,6 +10,8 @@ use std::{
 use crossbeam_channel::{Receiver, Sender, select, tick, unbounded};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
+    CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, CallHierarchyItem,
+    CallHierarchyOutgoingCall, CallHierarchyOutgoingCallsParams, CallHierarchyPrepareParams,
     Diagnostic, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     PublishDiagnosticsParams, SemanticTokens, SemanticTokensDelta, SemanticTokensDeltaParams,
@@ -23,7 +25,7 @@ use crate::{
     document::Document,
     highlight::{self, Resolved},
     rename::Rename,
-    workspace::Cancellation,
+    workspace::{CallHierarchyContext, Cancellation},
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -32,6 +34,9 @@ const SEMANTIC_DELTA: &str = "textDocument/semanticTokens/full/delta";
 const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
 const COMPLETION: &str = "textDocument/completion";
 const INLAY_HINT: &str = "textDocument/inlayHint";
+const CALL_PREPARE: &str = "textDocument/prepareCallHierarchy";
+const CALL_INCOMING: &str = "callHierarchy/incomingCalls";
+const CALL_OUTGOING: &str = "callHierarchy/outgoingCalls";
 const CODE_ACTION: &str = "textDocument/codeAction";
 const FORMATTING: &str = "textDocument/formatting";
 const RENAME: &str = "textDocument/rename";
@@ -122,6 +127,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 },
                 "hoverProvider": true,
                 "inlayHintProvider": true,
+                "callHierarchyProvider": true,
                 "documentSymbolProvider": true,
                 "workspaceSymbolProvider": true,
                 "foldingRangeProvider": true,
@@ -241,7 +247,13 @@ impl Lane {
     fn for_request(request: &Request) -> Self {
         if matches!(
             request.method.as_str(),
-            REFERENCES | RENAME | WORKSPACE_SYMBOL | IMPLEMENTATION | WILL_RENAME_FILES
+            REFERENCES
+                | RENAME
+                | WORKSPACE_SYMBOL
+                | IMPLEMENTATION
+                | WILL_RENAME_FILES
+                | CALL_INCOMING
+                | CALL_OUTGOING
         ) {
             Self::Workspace
         } else {
@@ -299,7 +311,7 @@ fn analyze(
         if let Some(request) = &work.request
             && matches!(
                 request.method.as_str(),
-                WORKSPACE_SYMBOL | WILL_RENAME_FILES
+                WORKSPACE_SYMBOL | WILL_RENAME_FILES | CALL_INCOMING | CALL_OUTGOING
             )
         {
             let request = work.request.take().expect("workspace request");
@@ -561,6 +573,9 @@ fn complete_declarations(session: &mut Session, work: &mut Work) -> Option<Respo
 }
 
 fn workspace_query(session: &mut Session, work: &Work, request: Request) -> Response {
+    if matches!(request.method.as_str(), CALL_INCOMING | CALL_OUTGOING) {
+        return expand_calls(session, work, request);
+    }
     let result = if request.method == WILL_RENAME_FILES {
         decode::<lsp_types::RenameFilesParams>(request.params).map(|params| {
             session
@@ -589,6 +604,62 @@ fn workspace_query(session: &mut Session, work: &Work, request: Request) -> Resp
             ErrorCode::InvalidParams as i32,
             error.to_string(),
         ),
+    }
+}
+
+fn expand_calls(session: &mut Session, work: &Work, request: Request) -> Response {
+    let incoming = request.method == CALL_INCOMING;
+    let params = if incoming {
+        decode::<CallHierarchyIncomingCallsParams>(request.params).map(|params| params.item)
+    } else {
+        decode::<CallHierarchyOutgoingCallsParams>(request.params).map(|params| params.item)
+    };
+    let (item, context) = match params.and_then(|mut item: CallHierarchyItem| {
+        let context = decode::<CallHierarchyContext>(item.data.take().unwrap_or_default())?;
+        Ok((item, context))
+    }) {
+        Ok(value) => value,
+        Err(error) => {
+            return Response::new_err(
+                request.id,
+                ErrorCode::InvalidParams as i32,
+                error.to_string(),
+            );
+        }
+    };
+    if context.revision != work.revision {
+        return Response::new_err(
+            request.id,
+            ErrorCode::ContentModified as i32,
+            "Document changed since the call hierarchy was prepared".into(),
+        );
+    }
+    let Some(anchor) = analysis::path(&context.anchor) else {
+        return Response::new_err(
+            request.id,
+            ErrorCode::InvalidParams as i32,
+            "Invalid call hierarchy anchor".into(),
+        );
+    };
+    let calls = session
+        .workspace_index(&anchor, &work.documents, &work.folders, &work.cancel)
+        .and_then(|index| index.call_relations(&item, &context, incoming, &work.cancel));
+    match calls {
+        Ok(calls) if incoming => Response::new_ok(
+            request.id,
+            calls
+                .into_iter()
+                .map(|(from, from_ranges)| CallHierarchyIncomingCall { from, from_ranges })
+                .collect::<Vec<_>>(),
+        ),
+        Ok(calls) => Response::new_ok(
+            request.id,
+            calls
+                .into_iter()
+                .map(|(to, from_ranges)| CallHierarchyOutgoingCall { to, from_ranges })
+                .collect::<Vec<_>>(),
+        ),
+        Err(error) => Response::new_err(request.id, ErrorCode::RequestFailed as i32, error),
     }
 }
 
@@ -637,6 +708,14 @@ fn query(
         }),
         INLAY_HINT => decode::<lsp_types::InlayHintParams>(params)
             .map(|params| json!(analysis.inlay_hints(path, params.range, &work.cancel))),
+        CALL_PREPARE => decode::<CallHierarchyPrepareParams>(params).map(|params| {
+            let item = analysis.prepare_call_hierarchy(
+                path,
+                params.text_document_position_params.position,
+                work.revision,
+            );
+            json!(item.into_iter().collect::<Vec<_>>())
+        }),
         CODE_ACTION => decode::<lsp_types::CodeActionParams>(params).map(|params| {
             json!(probe.expect("code action probe").code_actions(
                 analysis,
@@ -797,7 +876,7 @@ impl Server {
     fn request(&mut self, connection: &Connection, request: Request) -> Result<(), Error> {
         if matches!(
             request.method.as_str(),
-            WORKSPACE_SYMBOL | WILL_RENAME_FILES
+            WORKSPACE_SYMBOL | WILL_RENAME_FILES | CALL_INCOMING | CALL_OUTGOING
         ) {
             self.pending
                 .push_back((PathBuf::new(), self.revision, request));
@@ -815,6 +894,7 @@ impl Server {
                 | "textDocument/hover"
                 | COMPLETION
                 | INLAY_HINT
+                | CALL_PREPARE
                 | CODE_ACTION
                 | FORMATTING
                 | "textDocument/signatureHelp"

@@ -650,6 +650,8 @@ fn add_pattern_names<'a>(node: &GreenNode, source: &'a str, names: &mut Vec<&'a 
 pub(crate) struct CallableDeclaration<'a> {
     source: &'a str,
     function: &'a GreenNode,
+    member: bool,
+    start: usize,
     pub(crate) name: &'a str,
     pub(crate) signature: &'a str,
     pub(crate) documentation: Option<String>,
@@ -658,10 +660,16 @@ pub(crate) struct CallableDeclaration<'a> {
 impl<'a> CallableDeclaration<'a> {
     pub(crate) fn at(file: &'a File, declaration: Span) -> Option<Self> {
         let root = file.syntax()?.tree.green_root();
-        let (function, documentation_start) = enclosing_function(root, declaration, None)?;
-        let source = &file.text;
+        Self::in_tree(root, &file.text, declaration)
+    }
+
+    pub(crate) fn in_tree(root: &'a GreenNode, source: &'a str, declaration: Span) -> Option<Self> {
+        let (function, container) = enclosing_function(root, declaration, None)?;
         let name = function.token(&TokenKind::Ident)?.text();
         let start = function.first_token()?.span().start;
+        let declaration_start = container
+            .and_then(GreenNode::first_token)
+            .map_or(start, |token| token.span().start);
         let end = function
             .child(&SyntaxKind::Block)
             .and_then(GreenNode::first_token)
@@ -672,9 +680,35 @@ impl<'a> CallableDeclaration<'a> {
         Some(Self {
             source,
             function,
+            member: container.is_some_and(|node| node.kind() == &SyntaxKind::Member),
+            start: declaration_start,
             name,
             signature: source[start..end].trim().trim_end_matches(';'),
-            documentation: leading_documentation(source, documentation_start.unwrap_or(start)),
+            documentation: leading_documentation(source, declaration_start),
+        })
+    }
+
+    pub(crate) fn hierarchy_item(
+        &self,
+        lines: &crate::document::Lines,
+        uri: &lsp_types::Uri,
+        name: Span,
+        context: &crate::workspace::CallHierarchyContext,
+    ) -> Option<lsp_types::CallHierarchyItem> {
+        let span = Span::new(self.start, self.function.token_span()?.end);
+        Some(lsp_types::CallHierarchyItem {
+            name: self.name.to_owned(),
+            kind: if self.member {
+                lsp_types::SymbolKind::METHOD
+            } else {
+                lsp_types::SymbolKind::FUNCTION
+            },
+            tags: None,
+            detail: Some(self.signature.to_owned()),
+            uri: uri.clone(),
+            range: lines.range(self.source, span),
+            selection_range: lines.range(self.source, name),
+            data: Some(serde_json::json!(context)),
         })
     }
 
@@ -684,11 +718,11 @@ impl<'a> CallableDeclaration<'a> {
     }
 }
 
-fn enclosing_function(
-    node: &GreenNode,
+fn enclosing_function<'a>(
+    node: &'a GreenNode,
     declaration: Span,
-    documentation_start: Option<usize>,
-) -> Option<(&GreenNode, Option<usize>)> {
+    container: Option<&'a GreenNode>,
+) -> Option<(&'a GreenNode, Option<&'a GreenNode>)> {
     let span = node.span();
     if declaration.start >= span.end || declaration.end <= span.start {
         return None;
@@ -699,15 +733,15 @@ fn enclosing_function(
             declaration.start <= name.start && name.end <= declaration.end
         })
     {
-        return Some((node, documentation_start));
+        return Some((node, container));
     }
-    let documentation_start = if matches!(node.kind(), SyntaxKind::Item | SyntaxKind::Member) {
-        node.first_token().map(|token| token.span().start)
+    let container = if matches!(node.kind(), SyntaxKind::Item | SyntaxKind::Member) {
+        Some(node)
     } else {
-        documentation_start
+        container
     };
     node.child_nodes()
-        .find_map(|child| enclosing_function(child, declaration, documentation_start))
+        .find_map(|child| enclosing_function(child, declaration, container))
 }
 
 fn leading_documentation(source: &str, start: usize) -> Option<String> {

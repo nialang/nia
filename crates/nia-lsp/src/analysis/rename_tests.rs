@@ -260,8 +260,11 @@ fn workspace_implementation_search_follows_trait_and_member_bindings_across_pack
             uri: uri(&client).unwrap(),
             document: Document::new(
                 1,
-                "pub struct Value {}\nextend Value : api::Source { fun read(&self) i32 { 42 } }\n"
-                    .into(),
+                concat!(
+                    "pub struct Value {}\n",
+                    "extend Value : api::Source { fun read(&self) i32 { 42 } }\n",
+                    "fun consume[T](src: &T) i32 where T: api::Source { src.read() + src.read() }\n",
+                ).into(),
             ),
         },
     )]);
@@ -279,6 +282,27 @@ fn workspace_implementation_search_follows_trait_and_member_bindings_across_pack
         assert_eq!(locations[0].uri, uri(&client).unwrap());
         assert_eq!(locations[0].range.start, Position::new(1, expected_column));
     }
+    let method = analysis
+        .prepare_call_hierarchy(&api, Position::new(0, 24), 1)
+        .unwrap();
+    assert_eq!(method.kind, lsp_types::SymbolKind::METHOD);
+    let context: crate::workspace::CallHierarchyContext =
+        serde_json::from_value(method.data.clone().unwrap()).unwrap();
+    let incoming = index
+        .call_relations(&method, &context, true, &cancel)
+        .unwrap();
+    let [(caller, spans)] = incoming.as_slice() else {
+        panic!("expected one caller from the client package, got {incoming:?}");
+    };
+    assert_eq!(caller.uri, uri(&client).unwrap());
+    assert_eq!(caller.name, "consume");
+    assert_eq!(spans.len(), 2);
+    assert_eq!(
+        index
+            .call_relations(caller, &context, false, &cancel)
+            .unwrap(),
+        vec![(method, spans.clone())]
+    );
 }
 
 #[test]

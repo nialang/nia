@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use lsp_types::{Location, Position, SymbolInformation, SymbolKind, Uri};
+use lsp_types::{CallHierarchyItem, Location, Position, Range, SymbolInformation, SymbolKind, Uri};
 use nia_compiler_query::ProgramDiagnostic;
 use nia_lexer::TokenKind;
 use nia_span::Span;
@@ -16,6 +16,7 @@ use nia_syntax::SyntaxKind;
 use crate::{
     analysis::{Analysis, Documents, Session, Symbol, normalized},
     document::Lines,
+    editing::CallableDeclaration,
     project::EditorRequest,
 };
 
@@ -50,6 +51,26 @@ pub(crate) struct Binding {
 
 pub(crate) type Bindings = BTreeMap<String, BTreeMap<Span, BTreeSet<Binding>>>;
 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct CallHierarchyContext {
+    pub(crate) anchor: Uri,
+    pub(crate) revision: u64,
+}
+
+struct CallEdge {
+    caller: Site,
+    callee: Site,
+    span: Span,
+}
+
+type CallRelations = HashMap<Site, BTreeMap<Site, BTreeSet<Span>>>;
+
+#[derive(Default)]
+struct CallIndex {
+    incoming: CallRelations,
+    outgoing: CallRelations,
+}
+
 pub(crate) struct Entry {
     pub(crate) request: EditorRequest,
     pub(crate) bindings: Bindings,
@@ -59,6 +80,7 @@ pub(crate) struct Entry {
     symbols: Vec<(Site, WorkspaceDeclaration)>,
     implementations: Vec<(Site, Site)>,
     module_declarations: Vec<(String, Site)>,
+    calls: Vec<CallEdge>,
 }
 
 pub(crate) enum Coverage {
@@ -97,6 +119,7 @@ pub(crate) struct WorkspaceIndex {
     implementations: BTreeMap<Site, BTreeSet<Site>>,
     pub(crate) module_declarations: BTreeMap<String, BTreeSet<Site>>,
     references: OnceLock<HashMap<Site, BTreeSet<Site>>>,
+    calls: OnceLock<CallIndex>,
 }
 
 #[derive(Clone)]
@@ -193,6 +216,7 @@ impl Session {
             implementations: BTreeMap::new(),
             module_declarations: BTreeMap::new(),
             references: OnceLock::new(),
+            calls: OnceLock::new(),
         };
         let mut reused = 0;
         let mut analyzed = 0;
@@ -278,6 +302,7 @@ impl Entry {
                     symbols: Vec::new(),
                     implementations: Vec::new(),
                     module_declarations: Vec::new(),
+                    calls: Vec::new(),
                 });
             }
         };
@@ -333,6 +358,20 @@ impl Entry {
                 )
             })
             .collect();
+        let mut calls = Vec::new();
+        for (caller, callee, span) in analysis.workspace_calls() {
+            cancel.check()?;
+            if let (Some(caller), Some(callee)) = (
+                symbol_site(&analysis, caller),
+                symbol_site(&analysis, callee),
+            ) {
+                calls.push(CallEdge {
+                    caller,
+                    callee,
+                    span,
+                });
+            }
+        }
         Ok(Self {
             request,
             coverage,
@@ -341,6 +380,7 @@ impl Entry {
             symbols,
             implementations,
             module_declarations,
+            calls,
             files: analysis
                 .files
                 .into_iter()
@@ -369,6 +409,101 @@ impl Entry {
 }
 
 impl WorkspaceIndex {
+    pub(crate) fn call_relations(
+        &self,
+        item: &CallHierarchyItem,
+        context: &CallHierarchyContext,
+        incoming: bool,
+        cancel: &Cancellation,
+    ) -> Result<Vec<(CallHierarchyItem, Vec<Range>)>, String> {
+        let path = crate::analysis::path(&item.uri).ok_or("Invalid callable URI")?;
+        let source = normalized(&path);
+        let (_, text) = self
+            .files
+            .get(&source)
+            .ok_or("Callable source is outside the indexed workspace")?;
+        let lines = Lines::new(text);
+        let range = item.selection_range;
+        let start = lines
+            .offset(text, range.start)
+            .ok_or("Invalid callable range")?;
+        let end = lines
+            .offset(text, range.end)
+            .ok_or("Invalid callable range")?;
+        if text.get(start..end) != Some(&item.name) {
+            return Err("Callable selection changed".into());
+        }
+        let target = Site {
+            source: source.into(),
+            span: Span::new(start, end),
+        };
+        let calls = if let Some(calls) = self.calls.get() {
+            calls
+        } else {
+            let mut calls = CallIndex::default();
+            for entry in &self.entries {
+                for edge in &entry.calls {
+                    cancel.check()?;
+                    calls
+                        .incoming
+                        .entry(edge.callee.clone())
+                        .or_default()
+                        .entry(edge.caller.clone())
+                        .or_default()
+                        .insert(edge.span);
+                    calls
+                        .outgoing
+                        .entry(edge.caller.clone())
+                        .or_default()
+                        .entry(edge.callee.clone())
+                        .or_default()
+                        .insert(edge.span);
+                }
+            }
+            self.calls.get_or_init(|| calls)
+        };
+        let related = if incoming {
+            &calls.incoming
+        } else {
+            &calls.outgoing
+        };
+        let mut snapshots = HashMap::new();
+        let mut results = Vec::new();
+        for (site, spans) in related.get(&target).into_iter().flatten() {
+            cancel.check()?;
+            let Some((uri, other_text)) = self.files.get(site.source.as_ref()) else {
+                continue;
+            };
+            let (other_lines, parsed) =
+                snapshots.entry(site.source.as_ref()).or_insert_with(|| {
+                    (
+                        Lines::new(other_text),
+                        nia_syntax::parse(other_text, None).ok(),
+                    )
+                });
+            let Some(other) = parsed
+                .as_ref()
+                .and_then(|parsed| {
+                    CallableDeclaration::in_tree(parsed.tree.green_root(), other_text, site.span)
+                })
+                .and_then(|callable| callable.hierarchy_item(other_lines, uri, site.span, context))
+            else {
+                continue;
+            };
+            let (caller_lines, caller_text) = if incoming {
+                (&*other_lines, other_text)
+            } else {
+                (&lines, text)
+            };
+            let ranges = spans
+                .iter()
+                .map(|&span| caller_lines.range(caller_text, span))
+                .collect();
+            results.push((other, ranges));
+        }
+        Ok(results)
+    }
+
     fn merge(
         &mut self,
         entry: &Entry,
