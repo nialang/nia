@@ -15,7 +15,7 @@ use lsp_types::{
     Diagnostic, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     PublishDiagnosticsParams, SemanticTokens, SemanticTokensDelta, SemanticTokensDeltaParams,
-    SemanticTokensFullOptions, SemanticTokensParams, Uri,
+    SemanticTokensFullOptions, SemanticTokensParams, SemanticTokensRangeParams, Uri,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -31,6 +31,7 @@ use crate::{
 type Error = Box<dyn std::error::Error + Send + Sync>;
 const SEMANTIC_FULL: &str = "textDocument/semanticTokens/full";
 const SEMANTIC_DELTA: &str = "textDocument/semanticTokens/full/delta";
+const SEMANTIC_RANGE: &str = "textDocument/semanticTokens/range";
 const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
 const COMPLETION: &str = "textDocument/completion";
 const INLAY_HINT: &str = "textDocument/inlayHint";
@@ -133,7 +134,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "foldingRangeProvider": true,
                 "documentFormattingProvider": true,
                 "codeActionProvider": if code_actions { json!({ "codeActionKinds": ["quickfix", "source.organizeImports"] }) } else { json!(false) },
-                "semanticTokensProvider": { "legend": highlight::legend(), "full": { "delta": true } },
+                "semanticTokensProvider": { "legend": highlight::legend(), "full": { "delta": true }, "range": true },
                 "completionProvider": { "triggerCharacters": [":", "."] },
                 "signatureHelpProvider": { "triggerCharacters": ["(", ","], "retriggerCharacters": [","] }
             },
@@ -386,9 +387,12 @@ fn analyze(
             highlights: highlights.clone(),
         });
         let mut reference_coverage = None;
-        let semantic = work
-            .request
-            .take_if(|request| matches!(request.method.as_str(), SEMANTIC_FULL | SEMANTIC_DELTA));
+        let semantic = work.request.take_if(|request| {
+            matches!(
+                request.method.as_str(),
+                SEMANTIC_FULL | SEMANTIC_DELTA | SEMANTIC_RANGE
+            )
+        });
         let response = work
             .request
             .take()
@@ -778,14 +782,15 @@ struct Active {
 
 impl Server {
     fn semantic_tokens(&mut self, path: &std::path::Path, request: Request) -> Response {
-        let previous = if request.method == SEMANTIC_DELTA {
-            decode::<SemanticTokensDeltaParams>(request.params)
-                .map(|params| Some(params.previous_result_id))
-        } else {
-            decode::<SemanticTokensParams>(request.params).map(|_| None)
+        let params = match request.method.as_str() {
+            SEMANTIC_RANGE => decode::<SemanticTokensRangeParams>(request.params)
+                .map(|params| (Some(params.range), None)),
+            SEMANTIC_DELTA => decode::<SemanticTokensDeltaParams>(request.params)
+                .map(|params| (None, Some(params.previous_result_id))),
+            _ => decode::<SemanticTokensParams>(request.params).map(|_| (None, None)),
         };
-        let previous = match previous {
-            Ok(previous) => previous,
+        let (range, previous) = match params {
+            Ok(params) => params,
             Err(error) => {
                 return Response::new_err(
                     request.id,
@@ -794,14 +799,29 @@ impl Server {
                 );
             }
         };
+        let doc = &self.documents[path].document;
+        let span = if let Some(range) = range {
+            let start = doc.lines.offset(&doc.text, range.start);
+            let end = doc.lines.offset(&doc.text, range.end);
+            match (start, end) {
+                (Some(start), Some(end)) if start <= end => Some(nia_span::Span::new(start, end)),
+                _ => {
+                    return Response::new_err(
+                        request.id,
+                        ErrorCode::InvalidParams as i32,
+                        "Invalid semantic tokens range".into(),
+                    );
+                }
+            }
+        } else {
+            None
+        };
         let resolved = self.highlights.get(path);
         if resolved.is_none() && self.semantic_refresh {
             self.syntax_sent.insert(path.to_owned());
         }
-        let mut tokens = self.documents[path]
-            .document
-            .semantic_tokens(resolved.map(Arc::as_ref));
-        if !self.semantic_delta {
+        let mut tokens = doc.semantic_tokens(resolved.map(Arc::as_ref), span);
+        if span.is_some() || !self.semantic_delta {
             return Response::new_ok(request.id, tokens);
         }
         self.token_sequence += 1;
@@ -903,6 +923,7 @@ impl Server {
                 | "textDocument/foldingRange"
                 | SEMANTIC_FULL
                 | SEMANTIC_DELTA
+                | SEMANTIC_RANGE
         ) {
             connection.sender.send(
                 Response::new_err(request.id, ErrorCode::MethodNotFound as i32, request.method)
@@ -935,7 +956,10 @@ impl Server {
         {
             active.cancel.cancel();
         }
-        if matches!(request.method.as_str(), SEMANTIC_FULL | SEMANTIC_DELTA) {
+        if matches!(
+            request.method.as_str(),
+            SEMANTIC_FULL | SEMANTIC_DELTA | SEMANTIC_RANGE
+        ) {
             if self.highlights.contains_key(&path) || self.semantic_refresh {
                 connection
                     .sender

@@ -62,7 +62,7 @@ def smoke(server, root):
                             "codeActionLiteralSupport": {"codeActionKind": {"valueSet": ["quickfix"]}},
                         },
                         "semanticTokens": {
-                            "requests": {"full": {"delta": True}},
+                            "requests": {"full": {"delta": True}, "range": True},
                             "tokenTypes": [], "tokenModifiers": [], "formats": ["relative"],
                         },
                     },
@@ -73,6 +73,7 @@ def smoke(server, root):
             assert capabilities["inlayHintProvider"]
             assert capabilities["callHierarchyProvider"]
             assert capabilities["semanticTokensProvider"]["full"]["delta"]
+            assert capabilities["semanticTokensProvider"]["range"]
             assert capabilities["workspaceSymbolProvider"] and capabilities["typeDefinitionProvider"]
             assert set(capabilities["workspace"]["fileOperations"]) == {"willRename", "didRename"}
             assert set(capabilities["codeActionProvider"]["codeActionKinds"]) == {
@@ -170,6 +171,23 @@ def smoke(server, root):
                 "contentChanges": [{"text": typo}],
             })
             tokens = request(client, "textDocument/semanticTokens/full", params)
+            region = dict(**params, range={
+                "start": {"line": 4, "character": 0},
+                "end": {"line": 5, "character": 0},
+            })
+            visible_tokens = request(client, "textDocument/semanticTokens/range", region)
+            assert "resultId" not in visible_tokens
+            assert 0 < len(visible_tokens["data"]) < len(tokens["data"]), visible_tokens
+            line = 0
+            column = 0
+            full_line = []
+            for index in range(0, len(tokens["data"]), 5):
+                token = tokens["data"][index:index + 5]
+                line += token[0]
+                column = token[1] if token[0] else column + token[1]
+                if line == 4:
+                    full_line.extend(token if full_line else [line, column, *token[2:]])
+            assert visible_tokens["data"] == full_line, visible_tokens
             start = position(typo, "weigth")
             end = dict(start, character=start["character"] + len("weigth"))
             completions = request(client, "textDocument/completion", dict(

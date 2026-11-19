@@ -161,8 +161,19 @@ impl Document {
             .any(|token| refine(*token, Some(resolved)) != token.class)
     }
 
-    pub(crate) fn semantic_tokens(&self, resolved: Option<&Resolved>) -> SemanticTokens {
+    pub(crate) fn semantic_tokens(
+        &self,
+        resolved: Option<&Resolved>,
+        range: Option<Span>,
+    ) -> SemanticTokens {
+        let range = range.unwrap_or_else(|| Span::new(0, self.text.len()));
+        if range.is_empty() {
+            return SemanticTokens::default();
+        }
         let highlights = self.syntax_highlights();
+        let start = highlights.partition_point(|token| token.span.end <= range.start);
+        let end = highlights.partition_point(|token| token.span.start < range.end);
+        let highlights = &highlights[start..end];
         let mut data = Vec::with_capacity(highlights.len());
         let (mut previous_line, mut previous_start, mut previous_column, mut previous_end) =
             (0, 0, 0, 0);
@@ -455,7 +466,7 @@ mod tests {
             );
         }
 
-        let tokens = document.semantic_tokens(None);
+        let tokens = document.semantic_tokens(None, None);
         assert_eq!(tokens.data[0].length, "// A shape.".len() as u32);
         let (mut line, mut column) = (0, 0);
         let mut string = None;
