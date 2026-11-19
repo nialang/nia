@@ -112,11 +112,15 @@ def position(text, symbol):
     return dict(line=head.count("\n"), character=len(line.encode("utf-16-le")) // 2)
 
 
-def benchmark(client, source, root, symbol, repeat, replacement=None, cancel_delay_ms=0):
+def benchmark(client, source, root, symbol, repeat, replacement=None, cancel_delay_ms=0,
+              reopen_cycles=0):
     initialize = client.measure("initialize", {
         "processId": None,
         "rootUri": root.as_uri(),
-        "capabilities": {"workspace": {"semanticTokens": {"refreshSupport": True}}},
+        "capabilities": {"workspace": {
+            "semanticTokens": {"refreshSupport": True},
+            "workspaceFolders": bool(reopen_cycles),
+        }},
     })
     client.notify("initialized", {})
     text = source.read_text(encoding="utf-8")
@@ -224,14 +228,73 @@ def benchmark(client, source, root, symbol, repeat, replacement=None, cancel_del
             "textDocument/references", dict(**cursor, context=references["context"]),
         ))
     report["references_after_edit"] = summary(references_after_edit)
+    if reopen_cycles:
+        report["reopen"] = benchmark_reopen(
+            client, source, root, document, text, 3 * repeat + 1, reopen_cycles,
+        )
     if os.name == "nt":
-        report["peak_rss_bytes"] = windows_peak_rss(client.process.pid)
+        report["peak_rss_bytes"] = windows_working_set(client.process.pid)[1]
     client.measure("shutdown", None)
     client.notify("exit", None)
     return report
 
 
-def windows_peak_rss(pid):
+def benchmark_reopen(client, source, root, document, text, last_version, cycles):
+    workspace = {"uri": root.as_uri(), "name": root.name}
+    params = {"textDocument": document}
+    baseline = current_rss(client.process.pid)
+    idle_seconds = 0.25
+    samples = []
+    for version in range(last_version + 1, last_version + cycles + 1):
+        client.notify("textDocument/didClose", params)
+        client.wait_diagnostics(document["uri"], None, lambda items: not items)
+        client.notify("workspace/didChangeWorkspaceFolders", {
+            "event": {"added": [], "removed": [workspace]},
+        })
+        sleep(idle_seconds)
+        idle_rss = current_rss(client.process.pid)
+        client.notify("workspace/didChangeWorkspaceFolders", {
+            "event": {"added": [workspace], "removed": []},
+        })
+        source_text = text + f"\n// Unsaved reopen sample {version}\n"
+        started = perf_counter()
+        client.notify("textDocument/didOpen", {
+            "textDocument": dict(document, languageId="nia", version=version, text=source_text),
+        })
+        elapsed = client.measure("textDocument/semanticTokens/full", params)
+        published, _ = client.wait_diagnostics(document["uri"], version)
+        samples.append(dict(
+            version=version,
+            highlight_ms=round(elapsed, 2),
+            diagnostics_ms=round(1000 * (published - started), 2),
+            idle_rss_bytes=idle_rss,
+            open_rss_bytes=current_rss(client.process.pid),
+        ))
+    if source.read_text(encoding="utf-8") != text:
+        raise RuntimeError("source changed on disk during the reopen benchmark")
+    return dict(
+        idle_seconds=idle_seconds,
+        baseline_rss_bytes=baseline,
+        highlight=summary([sample["highlight_ms"] for sample in samples]),
+        diagnostics=summary([sample["diagnostics_ms"] for sample in samples]),
+        samples=samples,
+    )
+
+
+def current_rss(pid):
+    if os.name == "nt":
+        return windows_working_set(pid)[0]
+    if platform.system() == "Linux":
+        status = Path(f"/proc/{pid}/status").read_text(encoding="utf-8")
+        rss = next(line for line in status.splitlines() if line.startswith("VmRSS:"))
+        return int(rss.split()[1]) * 1024
+    if platform.system() == "Darwin":
+        value = subprocess.check_output(["ps", "-o", "rss=", "-p", str(pid)], text=True)
+        return int(value.strip()) * 1024
+    return None
+
+
+def windows_working_set(pid):
     import ctypes
     from ctypes import wintypes
 
@@ -263,7 +326,7 @@ def windows_peak_rss(pid):
         counters = ProcessMemoryCounters(size=ctypes.sizeof(ProcessMemoryCounters))
         if not kernel.K32GetProcessMemoryInfo(process, ctypes.byref(counters), counters.size):
             raise ctypes.WinError(ctypes.get_last_error())
-        return counters.peak_working_set
+        return counters.working_set, counters.peak_working_set
     finally:
         kernel.CloseHandle(process)
 
@@ -276,6 +339,8 @@ def main():
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--symbol", required=True, help="first exact substring to use as the cursor")
     parser.add_argument("--repeat", type=int, default=15)
+    parser.add_argument("--reopen-cycles", type=int, default=0,
+                        help="measure repeated close, workspace switch, and reopen in the same process")
     parser.add_argument("--timeout", type=float, default=120, help="seconds to wait for each message")
     parser.add_argument("--revision", help="commit used to build the server")
     parser.add_argument("--configuration", help="target and build settings used for the sample")
@@ -286,6 +351,8 @@ def main():
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be positive")
+    if args.reopen_cycles < 0:
+        parser.error("--reopen-cycles must be nonnegative")
     if not math.isfinite(args.cancel_delay_ms) or args.cancel_delay_ms < 0:
         parser.error("--cancel-delay-ms must be finite and nonnegative")
     source = args.source.resolve()
@@ -295,7 +362,7 @@ def main():
         try:
             report = benchmark(
                 Client(process, args.timeout), source, root, args.symbol, args.repeat,
-                args.replace, args.cancel_delay_ms,
+                args.replace, args.cancel_delay_ms, args.reopen_cycles,
             )
             process.stdin.close()
             process.wait(timeout=args.timeout)
