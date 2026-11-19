@@ -359,7 +359,8 @@ fn analyze(
         if !cached
             .as_ref()
             .is_some_and(|(revision, path, _)| (*revision, path) == (work.revision, &work.path))
-            && let Some(response) = complete_declarations(&mut session, &mut work)
+            && let Some(response) =
+                complete_declarations(&mut session, &mut completion_probe, &mut work)
         {
             if output
                 .send(Reply {
@@ -582,7 +583,11 @@ fn analyze(
     }
 }
 
-fn complete_declarations(session: &mut Session, work: &mut Work) -> Option<Response> {
+fn complete_declarations(
+    session: &mut Session,
+    probe: &mut Option<Session>,
+    work: &mut Work,
+) -> Option<Response> {
     let request = work
         .request
         .as_ref()
@@ -591,13 +596,22 @@ fn complete_declarations(session: &mut Session, work: &mut Work) -> Option<Respo
     let position = params.text_document_position.position;
     let doc = &work.documents.get(&work.path)?.document;
     let offset = doc.lines.offset(&doc.text, position)?;
-    if crate::editing::MemberCompletion::at(&doc.text, offset).is_some() {
-        return None;
-    }
-    let result = session.complete_names(&work.documents, &work.path, position, &work.cancel);
-    let items = result.ok().flatten()?;
+    let result = if let Some(member) = crate::editing::MemberCompletion::at(&doc.text, offset) {
+        let probe = probe.get_or_insert_with(|| Session::new(session.toolchain.clone()));
+        let items = probe.complete_members(&work.documents, &work.path, &member, &work.cancel)?;
+        lsp_types::CompletionResponse::List(lsp_types::CompletionList {
+            is_incomplete: true,
+            items,
+        })
+    } else {
+        let items = session
+            .complete_names(&work.documents, &work.path, position, &work.cancel)
+            .ok()
+            .flatten()?;
+        lsp_types::CompletionResponse::Array(items)
+    };
     let request = work.request.take().expect("completion request");
-    Some(Response::new_ok(request.id, items))
+    Some(Response::new_ok(request.id, result))
 }
 
 fn workspace_query(session: &mut Session, work: &Work, request: Request) -> Response {
@@ -1583,6 +1597,63 @@ mod tests {
             ErrorCode::ContentModified as i32
         );
         assert!(server.highlights.is_empty());
+    }
+
+    #[test]
+    fn member_completion_replies_before_full_analysis() {
+        use nia_test_support::{TestWorkload, acquire_test_resources, test_dir, workspace_root};
+        use nia_toolchain::{ToolchainLayout, ToolchainLayoutRequest};
+
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let toolchain = ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
+            std::env::current_exe().unwrap(),
+            workspace_root().join("lib"),
+        ))
+        .unwrap();
+        let path = test_dir("lsp-early-member").join("root.nia");
+        let uri = analysis::uri(&path).unwrap();
+        let source = "struct Shape { height: i32 }\nfun read(shape: &Shape) i32 { shape.he }\n";
+        let offset = source.find("he }").unwrap() + 2;
+        let document = Document::new(1, source.into());
+        let position = document.lines.position(&document.text, offset);
+        let documents = Documents::from([(
+            path.clone(),
+            OpenDocument {
+                uri: uri.clone(),
+                document,
+            },
+        )]);
+        let (queue, work) = unbounded();
+        let (output, replies) = unbounded();
+        queue
+            .send(WorkerMessage::Analyze(Work {
+                revision: 1,
+                disk_changes: DiskChanges::None,
+                documents,
+                path,
+                request: Some(Request::new(
+                    1.into(),
+                    COMPLETION.into(),
+                    json!({"textDocument": {"uri": uri}, "position": position}),
+                )),
+                folders: Vec::new(),
+                versioned_edits: false,
+                resource_rename: false,
+                cancel: Cancellation::default(),
+            }))
+            .unwrap();
+        drop(queue);
+        analyze(Arc::new(toolchain), Lane::Editor, work, output);
+
+        let reply = replies.try_recv().unwrap();
+        assert!(reply.publication.is_none());
+        let Some(QueryResponse::Value(response)) = reply.response else {
+            panic!("expected member completion response");
+        };
+        let list: lsp_types::CompletionList = decode(response.response_result.unwrap()).unwrap();
+        assert!(list.is_incomplete);
+        assert_eq!(list.items.len(), 1);
+        assert_eq!(list.items[0].label, "height");
     }
 
     #[test]

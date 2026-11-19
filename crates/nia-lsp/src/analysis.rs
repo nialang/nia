@@ -146,6 +146,28 @@ impl Session {
         .map_err(|error| error.to_string())
     }
 
+    pub(crate) fn complete_members(
+        &mut self,
+        documents: &Documents,
+        path: &Path,
+        member: &MemberCompletion,
+        cancel: &Cancellation,
+    ) -> Option<Vec<lsp_types::CompletionItem>> {
+        let document = &documents.get(path)?.document;
+        let mut overlay = documents.clone();
+        overlay.get_mut(path)?.document =
+            Document::new(document.version, member.probe(&document.text));
+        let analysis = self
+            .analyze_mode(&overlay, path, Some(cancel), AnalysisMode::Declarations)
+            .ok()?;
+        let file = analysis.file(path)?;
+        let receiver = member.receiver(file)?;
+        let names = analysis.method_names(member.prefix(&document.text));
+        let items = analysis.receiver_members(file, receiver, &names, cancel)?;
+        let items = member.items(&document.text, &document.lines, items);
+        (!items.is_empty()).then_some(items)
+    }
+
     fn analyze_mode(
         &mut self,
         documents: &Documents,

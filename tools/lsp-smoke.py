@@ -370,6 +370,32 @@ def smoke(server, root):
             })
             client.wait_diagnostics(main.as_uri(), 11, lambda items: not items)
 
+            member_source = updated.replace("shape.height", "shape.he")
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=12),
+                "contentChanges": [{"text": member_source}],
+            })
+            start = position(member_source, "he\n")
+            end = dict(start, character=start["character"] + 2)
+            completions = request(client, "textDocument/completion", dict(
+                **params, position=end, context={"triggerKind": 1},
+            ))
+            if isinstance(completions, dict):
+                assert completions["isIncomplete"], completions
+                completions = completions["items"]
+            height, = [item for item in completions if item["label"] == "height"]
+            assert height["textEdit"] == {
+                "range": {"start": start, "end": end}, "newText": "height",
+            }, height
+            client.wait_diagnostics(main.as_uri(), 12, lambda items: any(
+                diagnostic["severity"] == 1 and "`he`" in diagnostic["message"]
+                for diagnostic in items
+            ))
+            completions = request(client, "textDocument/completion", dict(
+                **params, position=end, context={"triggerKind": 3},
+            ))
+            assert [item["label"] for item in completions] == ["height"], completions
+
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)
             palette = root / "palette.nia"
