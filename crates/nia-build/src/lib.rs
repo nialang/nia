@@ -1152,6 +1152,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         prepare_build_directories(&invocation)
                     })
                 })?;
+                let configure_inputs = configure_file_inputs(&invocation.package_root);
                 nia_timing::emit_counter("build.runner_compilations", 1);
                 let runner = time_summary_stage(timings, "build_compile_runner", || {
                     progress_phase(progress_guard.session(), ProgressPhase::Runner, || {
@@ -1183,7 +1184,12 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         let mut configure_reused = false;
                         let draft = match reusable {
                             ConfigureCacheLookup::Hit(record) => {
-                                let manifest = record.manifest.encode().ok();
+                                let manifest = (configure_inputs.len() == 2
+                                    && configure_inputs.iter().all(|input| {
+                                        record.manifest.observations().contains(input)
+                                    }))
+                                .then(|| record.manifest.encode().ok())
+                                .flatten();
                                 match (ConfigureCache::decode_plan(&record).ok(), manifest) {
                                     (Some(plan), Some(observations)) => {
                                         configure_reused = true;
@@ -1211,6 +1217,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                                             &invocation,
                                             &runner_executable,
                                             &runner_cache_key,
+                                            &configure_inputs,
                                             process_output_writer.clone(),
                                             progress_guard.session(),
                                         )
@@ -1224,6 +1231,7 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                                     &invocation,
                                     &runner_executable,
                                     &runner_cache_key,
+                                    &configure_inputs,
                                     process_output_writer.clone(),
                                     progress_guard.session(),
                                 )
@@ -1247,9 +1255,9 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         path: invocation.plan_draft.clone(),
                         detail,
                     })?;
-                if !configure_reused {
+                if !configure_reused || read_build_plan_draft(&invocation.plan_path).is_err() {
                     time_build_stage(timings, "build_publish_configure_plan", || {
-                        publish_build_plan(&invocation.plan_path, &draft.plan).map_err(|error| {
+                        publish_build_plan(&invocation.plan_path, &draft).map_err(|error| {
                             BuildError::PublishBuildPlan {
                                 path: invocation.plan_path.clone(),
                                 error,
@@ -3819,10 +3827,23 @@ fn prepare_build_directories(invocation: &BuildInvocation) -> Result<(), BuildEr
     })
 }
 
+fn configure_file_inputs(root: &Path) -> Vec<ConfigureObservation> {
+    ["build.nia", "nia.toml"]
+        .into_iter()
+        .filter_map(|path| match observe_file_contents(root, path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                observe_file_presence(root, path).ok()
+            }
+            observation => observation.ok(),
+        })
+        .collect()
+}
+
 fn run_build_runner(
     invocation: &BuildInvocation,
     runner_executable: &Path,
     runner_cache_key: &str,
+    configure_inputs: &[ConfigureObservation],
     process_output_writer: Option<Arc<dyn ProcessOutputWriter>>,
     progress: Option<&ProgressSession>,
 ) -> Result<BuildDraft, BuildError> {
@@ -3863,7 +3884,7 @@ fn run_build_runner(
             });
             match draft {
                 Ok(mut draft) => {
-                    let mut manifest = if draft.observations.is_empty() {
+                    let observed = if draft.observations.is_empty() {
                         ConfigureManifest::new(ObservationPolicy::Disallow)
                     } else {
                         decode_and_validate_runner_observations(
@@ -3877,27 +3898,15 @@ fn run_build_runner(
                             }
                         })?
                     };
-                    if manifest.observations().is_empty()
-                        && let Ok(observation) =
-                            observe_file_contents(&invocation.package_root, "build.nia").or_else(
-                                |error| {
-                                    if error.kind() == io::ErrorKind::NotFound {
-                                        observe_file_presence(&invocation.package_root, "build.nia")
-                                    } else {
-                                        Err(error)
-                                    }
-                                },
-                            )
-                    {
-                        manifest
-                            .push(observation)
-                            .map_err(|_| BuildError::RunnerObservations {
-                                path: invocation.plan_draft.clone(),
-                                error: io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "duplicate configure observation",
-                                ),
-                            })?;
+                    let mut manifest = ConfigureManifest::new(if configure_inputs.len() == 2 {
+                        observed.policy()
+                    } else {
+                        ObservationPolicy::Poison
+                    });
+                    for input in configure_inputs.iter().chain(observed.observations()) {
+                        // Prefer the input captured before compiling the runner when
+                        // the script also probes the same file while configuring.
+                        let _ = manifest.push(input.clone());
                     }
                     draft.observations =
                         manifest
@@ -3980,24 +3989,9 @@ fn run_build_runner(
 }
 
 fn read_build_draft(path: &Path) -> Result<BuildDraft, BuildError> {
-    let bytes = fs::read(path).map_err(|error| BuildError::ReadPlanDraft {
+    read_build_plan_draft(path).map_err(|error| BuildError::ReadPlanDraft {
         path: path.to_path_buf(),
-        error: PlanHandoffError::Read {
-            path: path.to_path_buf(),
-            error,
-        },
-    })?;
-    BuildDraft::decode(&bytes).map_err(|error| BuildError::ReadPlanDraft {
-        path: path.to_path_buf(),
-        error: PlanHandoffError::Decode {
-            path: path.to_path_buf(),
-            error: match error {
-                BuildDraftError::Plan(error) => error,
-                BuildDraftError::TooLarge | BuildDraftError::InvalidEnvelope => {
-                    PlanCodecError::BadMagic
-                }
-            },
-        },
+        error,
     })
 }
 
@@ -4193,14 +4187,22 @@ fn run_and_cleanup_build_runner(
     runner_executable: &Path,
     runner_cache_key: &str,
 ) -> Result<BuildPlan, BuildError> {
-    run_and_cleanup_build_runner_draft(invocation, runner_executable, runner_cache_key, None, None)
-        .map(|draft| draft.plan)
+    run_and_cleanup_build_runner_draft(
+        invocation,
+        runner_executable,
+        runner_cache_key,
+        &configure_file_inputs(&invocation.package_root),
+        None,
+        None,
+    )
+    .map(|draft| draft.plan)
 }
 
 fn run_and_cleanup_build_runner_draft(
     invocation: &BuildInvocation,
     runner_executable: &Path,
     runner_cache_key: &str,
+    configure_inputs: &[ConfigureObservation],
     process_output_writer: Option<Arc<dyn ProcessOutputWriter>>,
     progress: Option<&ProgressSession>,
 ) -> Result<BuildDraft, BuildError> {
@@ -4209,6 +4211,7 @@ fn run_and_cleanup_build_runner_draft(
             invocation,
             runner_executable,
             runner_cache_key,
+            configure_inputs,
             process_output_writer,
             progress,
         )

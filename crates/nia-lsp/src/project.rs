@@ -8,7 +8,8 @@ use std::{
 };
 
 use nia_build::compiler_inputs::build_script_path;
-use nia_build_plan::{BuildPlan, PlanHandoffError, read_build_plan};
+use nia_build::{ConfigureManifest, ObservationValidation};
+use nia_build_plan::{BuildPlan, PlanHandoffError, read_build_plan_draft};
 use nia_driver::CheckRequest;
 use nia_imports::ModuleMap;
 use nia_package_metadata::{
@@ -244,8 +245,20 @@ impl Package {
         let error = |error: std::io::Error| format!("{}: {error}", root.join("nia.toml").display());
         let layout = BuildLayout::for_package(root).map_err(error)?;
         let manifest = PackageManifest::read(layout.package_root()).map_err(error)?;
-        let plan = match read_build_plan(&layout.out_dir().join("build-plan.bin")) {
-            Ok(plan) => Ok(Some(plan)),
+        let plan_path = layout.out_dir().join("build-plan.bin");
+        let plan = match read_build_plan_draft(&plan_path) {
+            Ok(draft) if draft.observations.is_empty() => Ok(Some(draft.plan)),
+            Ok(draft) => ConfigureManifest::decode(&draft.observations)
+                .map_err(|error| format!("Invalid observations in `{}`: {error:?}", plan_path.display()))
+                .and_then(|observations| match observations.validate_filesystem(layout.package_root()) {
+                    ObservationValidation::Match => Ok(Some(draft.plan)),
+                    ObservationValidation::Changed { path, kind } => Err(format!(
+                        "Build plan is stale. The {kind} observation for `{}` has changed.", path.display()
+                    )),
+                    ObservationValidation::Missing { path, kind } => Err(format!(
+                        "Build plan is stale. The {kind} observation for `{}` could not be read.", path.display()
+                    )),
+                }),
             Err(PlanHandoffError::Open { error, .. })
                 if error.kind() == std::io::ErrorKind::NotFound =>
             {

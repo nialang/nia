@@ -5,7 +5,7 @@
 //! atomically, and syncs the parent. The already decoded plan remains execution
 //! truth; `build-plan.bin` is the last completed durable observation.
 
-use super::{BuildPlan, PlanCodecError, codec::MAX_PLAN_BYTES};
+use super::{BuildDraft, BuildDraftError, BuildPlan, MAX_DRAFT_BYTES, PlanCodecError};
 use std::{
     fmt, fs,
     io::{self, Read, Write},
@@ -19,7 +19,7 @@ static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug)]
 pub enum PlanHandoffError {
     /// Canonical plan encoding failed.
-    Encode(PlanCodecError),
+    Encode(BuildDraftError),
     /// The destination path has no parent directory.
     MissingParent {
         /// Path whose parent was required.
@@ -81,7 +81,7 @@ pub enum PlanHandoffError {
         /// Plan path containing invalid bytes.
         path: PathBuf,
         /// Codec error describing the invalid payload.
-        error: PlanCodecError,
+        error: BuildDraftError,
     },
 }
 
@@ -135,9 +135,36 @@ impl fmt::Display for PlanHandoffError {
 
 impl std::error::Error for PlanHandoffError {}
 
-/// Atomically publishes `plan` through a synced same-directory temporary file.
-pub fn publish_build_plan(path: &Path, plan: &BuildPlan) -> Result<(), PlanHandoffError> {
-    let encoded = plan.encode().map_err(PlanHandoffError::Encode)?;
+/// Input accepted by the durable plan handoff.
+pub trait BuildPlanPublication {
+    /// Encodes the canonical handoff payload.
+    fn encode_publication(&self) -> Result<Vec<u8>, BuildDraftError>;
+}
+
+impl BuildPlanPublication for BuildDraft {
+    fn encode_publication(&self) -> Result<Vec<u8>, BuildDraftError> {
+        self.encode()
+    }
+}
+
+impl BuildPlanPublication for BuildPlan {
+    fn encode_publication(&self) -> Result<Vec<u8>, BuildDraftError> {
+        BuildDraft {
+            plan: self.clone(),
+            observations: Vec::new(),
+        }
+        .encode()
+    }
+}
+
+/// Atomically publishes the plan and its configuration observations together.
+pub fn publish_build_plan<T: BuildPlanPublication>(
+    path: &Path,
+    draft: &T,
+) -> Result<(), PlanHandoffError> {
+    let encoded = draft
+        .encode_publication()
+        .map_err(PlanHandoffError::Encode)?;
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -184,20 +211,25 @@ fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Reads a bounded canonical build-plan payload and revalidates its semantic form.
+/// Reads the plan from a bounded, validated configuration handoff.
 pub fn read_build_plan(path: &Path) -> Result<BuildPlan, PlanHandoffError> {
+    Ok(read_build_plan_draft(path)?.plan)
+}
+
+/// Reads a validated plan together with the observations published alongside it.
+pub fn read_build_plan_draft(path: &Path) -> Result<BuildDraft, PlanHandoffError> {
     let file = fs::File::open(path).map_err(|error| PlanHandoffError::Open {
         path: path.to_path_buf(),
         error,
     })?;
     let mut bytes = Vec::new();
-    file.take((MAX_PLAN_BYTES + 1) as u64)
+    file.take((MAX_DRAFT_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|error| PlanHandoffError::Read {
             path: path.to_path_buf(),
             error,
         })?;
-    BuildPlan::decode(&bytes).map_err(|error| PlanHandoffError::Decode {
+    BuildDraft::decode(&bytes).map_err(|error| PlanHandoffError::Decode {
         path: path.to_path_buf(),
         error,
     })
@@ -288,15 +320,21 @@ mod tests {
     fn atomic_handoff_round_trips_and_replaces_previous_plan() {
         let dir = test_dir("replace");
         let path = dir.join("build.plan");
-        let first = BuildPlan::freeze(draft(false)).unwrap();
+        let first = BuildDraft {
+            plan: BuildPlan::freeze(draft(false)).unwrap(),
+            observations: b"first observation payload".to_vec(),
+        };
         publish_build_plan(&path, &first).unwrap();
-        assert_eq!(read_build_plan(&path).unwrap(), first);
+        assert_eq!(read_build_plan_draft(&path).unwrap(), first);
 
         let mut changed = draft(false);
         changed.selected_step = changed.default_step.clone();
-        let second = BuildPlan::freeze(changed).unwrap();
+        let second = BuildDraft {
+            plan: BuildPlan::freeze(changed).unwrap(),
+            observations: b"second observation payload".to_vec(),
+        };
         publish_build_plan(&path, &second).unwrap();
-        assert_eq!(read_build_plan(&path).unwrap(), second);
+        assert_eq!(read_build_plan_draft(&path).unwrap(), second);
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         fs::remove_dir_all(dir).unwrap();
     }
@@ -318,9 +356,12 @@ mod tests {
         let dir = test_dir("cleanup");
         let destination = dir.join("build.plan");
         fs::create_dir(&destination).unwrap();
-        let plan = BuildPlan::freeze(draft(false)).unwrap();
+        let draft = BuildDraft {
+            plan: BuildPlan::freeze(draft(false)).unwrap(),
+            observations: Vec::new(),
+        };
         assert!(matches!(
-            publish_build_plan(&destination, &plan),
+            publish_build_plan(&destination, &draft),
             Err(PlanHandoffError::Publish { .. })
         ));
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);

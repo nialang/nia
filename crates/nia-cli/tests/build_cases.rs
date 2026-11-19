@@ -550,7 +550,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
     );
 
     let base_bytes = std::fs::read(root.join("build/out/build-plan.bin")).unwrap();
-    let base_plan = nia_build::BuildPlan::decode(&base_bytes).unwrap();
+    let base_plan = nia_build::BuildDraft::decode(&base_bytes).unwrap().plan;
     let run_action = base_plan
         .actions()
         .iter()

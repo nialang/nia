@@ -1038,7 +1038,30 @@ impl ConfigureManifest {
 
     /// Compares every persisted observation with the current package root.
     pub fn validate(&self, root: &Path) -> ObservationValidation {
-        for observation in &self.observations {
+        self.validate_matching(root, |_| true)
+    }
+
+    /// Checks the captured filesystem facts without running host probes.
+    pub fn validate_filesystem(&self, root: &Path) -> ObservationValidation {
+        self.validate_matching(root, |kind| {
+            matches!(
+                kind,
+                ObservationKind::FileContents
+                    | ObservationKind::FileMetadata
+                    | ObservationKind::DirectoryContents
+                    | ObservationKind::DirectoryMetadata
+                    | ObservationKind::FilePresence
+                    | ObservationKind::DirectoryPresence
+            )
+        })
+    }
+
+    fn validate_matching(
+        &self,
+        root: &Path,
+        include: impl Fn(ObservationKind) -> bool,
+    ) -> ObservationValidation {
+        for observation in self.observations.iter().filter(|item| include(item.kind)) {
             match observation.refresh(root) {
                 Ok(current) if current.fingerprint() == observation.fingerprint() => {}
                 Ok(_) => {

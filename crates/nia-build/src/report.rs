@@ -257,7 +257,7 @@ fn build_error_diagnostics(error: &BuildError) -> Vec<Diagnostic> {
         BuildError::ReadPlanDraft {
             error:
                 crate::PlanHandoffError::Decode {
-                    error: crate::PlanCodecError::Semantic(error),
+                    error: crate::BuildDraftError::Plan(crate::PlanCodecError::Semantic(error)),
                     ..
                 },
             ..
