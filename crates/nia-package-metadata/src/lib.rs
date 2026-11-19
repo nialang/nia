@@ -1057,13 +1057,14 @@ struct PackageFetcher {
     registry_fetch: Option<RegistryFetch>,
 }
 
-struct RegistryResolution {
+struct RegistryResolution<'a> {
     registries: BTreeMap<String, RegistryEndpoint>,
     overrides: BTreeMap<RegistryPackageName, PackageId>,
     refresh_names: Option<BTreeSet<String>>,
     fetch: Option<RegistryFetch>,
     transaction_lock: Option<PathBuf>,
     attempt: usize,
+    manifest_edits: Option<&'a BTreeMap<PathBuf, String>>,
 }
 
 impl fmt::Debug for PackageFetcher {
@@ -2372,8 +2373,38 @@ impl PackageGraph {
                 fetch: None,
                 transaction_lock: None,
                 attempt: 0,
+                manifest_edits: None,
             },
         )
+    }
+
+    /// Checks proposed dependency edits against the installed package graph.
+    ///
+    /// Keys are package directories. Workspace membership and inherited
+    /// defaults come from the current workspace. This operation only reads
+    /// installed dependencies and never publishes package state.
+    pub fn verify_installed_manifest_edits(
+        root: &Path,
+        edits: &BTreeMap<PathBuf, String>,
+    ) -> io::Result<()> {
+        let edits = edits
+            .iter()
+            .map(|(root, text)| Ok((canonical_real_directory(root)?, text.clone())))
+            .collect::<io::Result<BTreeMap<_, _>>>()?;
+        Self::resolve_with_registry_overrides(
+            root,
+            LockPolicy::default(),
+            RegistryResolution {
+                registries: BTreeMap::new(),
+                overrides: BTreeMap::new(),
+                refresh_names: None,
+                fetch: None,
+                transaction_lock: None,
+                attempt: 0,
+                manifest_edits: Some(&edits),
+            },
+        )
+        .map(drop)
     }
 
     /// Resolves one graph containing every selected workspace member.
@@ -2430,6 +2461,7 @@ impl PackageGraph {
                 fetch: None,
                 transaction_lock: None,
                 attempt: 0,
+                manifest_edits: None,
             },
         )
     }
@@ -2451,6 +2483,7 @@ impl PackageGraph {
                 fetch: registry_fetch,
                 transaction_lock: Some(transaction_lock),
                 attempt: 0,
+                manifest_edits: None,
             },
         )
     }
@@ -2458,7 +2491,7 @@ impl PackageGraph {
     fn resolve_with_registry_overrides(
         root: &Path,
         policy: LockPolicy,
-        resolution: RegistryResolution,
+        resolution: RegistryResolution<'_>,
     ) -> io::Result<Self> {
         Self::resolve_roots_with_registry_overrides(
             vec![(root.to_path_buf(), String::new())],
@@ -2470,7 +2503,7 @@ impl PackageGraph {
     fn resolve_roots_with_registry_overrides(
         roots: Vec<(PathBuf, String)>,
         policy: LockPolicy,
-        resolution: RegistryResolution,
+        resolution: RegistryResolution<'_>,
     ) -> io::Result<Self> {
         let root = roots
             .first()
@@ -2481,15 +2514,23 @@ impl PackageGraph {
                     "package graph requires at least one root",
                 )
             })?;
-        let mut fetcher = PackageFetcher::for_root_with_registries(
-            root,
-            policy,
-            resolution.registries.clone(),
-            resolution.overrides,
-            resolution.refresh_names.clone(),
-            resolution.fetch.clone(),
-            resolution.transaction_lock.clone(),
-        )?;
+        let manifest_edits = resolution.manifest_edits;
+        let installed = manifest_edits
+            .map(|_| InstalledDependencies::read(&BuildLayout::for_package(root)?))
+            .transpose()?;
+        let mut fetcher = if installed.is_none() {
+            Some(PackageFetcher::for_root_with_registries(
+                root,
+                policy,
+                resolution.registries.clone(),
+                resolution.overrides,
+                resolution.refresh_names.clone(),
+                resolution.fetch.clone(),
+                resolution.transaction_lock.clone(),
+            )?)
+        } else {
+            None
+        };
         let mut nodes = Vec::new();
         let mut pending = roots
             .iter()
@@ -2528,20 +2569,23 @@ impl PackageGraph {
                 ));
             }
             let in_node = |error| dependency_context(&logical_root, error);
-            let manifest = PackageManifest::read(&canonical)
-                .or_else(|error| {
-                    if error.kind() == io::ErrorKind::NotFound && is_root {
-                        Ok(PackageManifest::implicit(
-                            canonical
-                                .file_name()
-                                .and_then(|v| v.to_str())
-                                .unwrap_or("root"),
-                        ))
-                    } else {
-                        Err(error)
-                    }
-                })
-                .map_err(in_node)?;
+            let manifest = match manifest_edits.and_then(|edits| edits.get(&canonical)) {
+                Some(text) => PackageManifest::read_with_text(&canonical, text),
+                None => PackageManifest::read(&canonical),
+            }
+            .or_else(|error| {
+                if error.kind() == io::ErrorKind::NotFound && is_root {
+                    Ok(PackageManifest::implicit(
+                        canonical
+                            .file_name()
+                            .and_then(|v| v.to_str())
+                            .unwrap_or("root"),
+                    ))
+                } else {
+                    Err(error)
+                }
+            })
+            .map_err(in_node)?;
             manifest.validate_protocol_epoch().map_err(in_node)?;
             if let Some(library_path) = &manifest.library_path {
                 validate_library_entry(&canonical, library_path).map_err(in_node)?;
@@ -2551,12 +2595,17 @@ impl PackageGraph {
                     validate_library_entry(&canonical, &artifact.path).map_err(in_node)?;
                 }
             }
-            let source = package_source_identity_with_selection(
-                &canonical,
-                manifest.package.clone(),
-                &manifest.source,
-            )
-            .map_err(in_node)?;
+            let source_fingerprint = if installed.is_some() {
+                [0; 32]
+            } else {
+                package_source_identity_with_selection(
+                    &canonical,
+                    manifest.package.clone(),
+                    &manifest.source,
+                )
+                .map_err(in_node)?
+                .source_fingerprint
+            };
             let package_chain = if chain.is_empty() {
                 vec![manifest.package.canonical_text()]
             } else {
@@ -2588,17 +2637,33 @@ impl PackageGraph {
                 }
                 let mut dependency_chain = package_chain.clone();
                 dependency_chain.push(dependency.name.clone());
-                let path = fetcher
-                    .resolve(&canonical, &manifest.package, dependency, &dependency_chain)
-                    .and_then(|path| {
-                        canonical_real_directory(&path).map_err(|error| {
-                            io::Error::new(
-                                error.kind(),
-                                format!("`{}`: {error}", display_path(&path)),
-                            )
-                        })
+                let path = match (&installed, &mut fetcher) {
+                    (Some(installed), _) => {
+                        installed
+                            .source_root(&canonical, dependency)
+                            .and_then(|source| {
+                                source.ok_or_else(|| {
+                                    io::Error::new(
+                                        io::ErrorKind::NotFound,
+                                        "dependency is not installed",
+                                    )
+                                })
+                            })
+                    }
+                    (_, Some(fetcher)) => fetcher.resolve(
+                        &canonical,
+                        &manifest.package,
+                        dependency,
+                        &dependency_chain,
+                    ),
+                    _ => unreachable!("one package source resolver is required"),
+                }
+                .and_then(|path| {
+                    canonical_real_directory(&path).map_err(|error| {
+                        io::Error::new(error.kind(), format!("`{}`: {error}", display_path(&path)))
                     })
-                    .map_err(|error| dependency_context(&child_root, error))?;
+                })
+                .map_err(|error| dependency_context(&child_root, error))?;
                 edges.push((
                     logical_root.clone(),
                     dependency.clone(),
@@ -2613,7 +2678,7 @@ impl PackageGraph {
             nodes.push(PackageGraphNode {
                 manifest,
                 root: logical_root,
-                source_fingerprint: source.source_fingerprint,
+                source_fingerprint,
             });
             if nodes.len() > 1024 {
                 return Err(io::Error::new(
@@ -2640,33 +2705,35 @@ impl PackageGraph {
             (&left.owner_root, &left.dependency.name)
                 .cmp(&(&right.owner_root, &right.dependency.name))
         });
-        if let Some((package, selected)) = fetcher.registry_restart.take() {
-            if resolution.attempt >= 64 {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!(
-                        "registry dependency resolution did not converge for {}/{}",
-                        package.namespace, package.name
-                    ),
-                ));
+        if let Some(mut fetcher) = fetcher {
+            if let Some((package, selected)) = fetcher.registry_restart.take() {
+                if resolution.attempt >= 64 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "registry dependency resolution did not converge for {}/{}",
+                            package.namespace, package.name
+                        ),
+                    ));
+                }
+                let mut next_fetcher = fetcher;
+                next_fetcher.state_lock.take();
+                let mut overrides = std::mem::take(&mut next_fetcher.registry_overrides);
+                overrides.insert(package, selected);
+                drop(next_fetcher);
+                return Self::resolve_roots_with_registry_overrides(
+                    roots,
+                    policy,
+                    RegistryResolution {
+                        overrides,
+                        attempt: resolution.attempt + 1,
+                        ..resolution
+                    },
+                );
             }
-            let mut next_fetcher = fetcher;
-            next_fetcher.state_lock.take();
-            let mut overrides = std::mem::take(&mut next_fetcher.registry_overrides);
-            overrides.insert(package, selected);
-            drop(next_fetcher);
-            return Self::resolve_roots_with_registry_overrides(
-                roots,
-                policy,
-                RegistryResolution {
-                    overrides,
-                    attempt: resolution.attempt + 1,
-                    ..resolution
-                },
-            );
+            fetcher.prune_unreachable()?;
+            fetcher.finish()?;
         }
-        fetcher.prune_unreachable()?;
-        fetcher.finish()?;
         Ok(Self {
             nodes,
             dependencies,
@@ -2925,6 +2992,13 @@ impl PackageManifest {
     /// Reads a bounded `nia.toml` package manifest.
     pub fn read(root: &Path) -> io::Result<Self> {
         let (raw, workspace) = read_package_manifest(root)?;
+        Self::from_raw(root, raw, workspace)
+    }
+
+    /// Parses proposed package manifest text using the current workspace defaults.
+    pub fn read_with_text(root: &Path, text: &str) -> io::Result<Self> {
+        let raw = parse_raw_manifest(text)?;
+        let workspace = package_manifest_workspace(root, &raw)?;
         Self::from_raw(root, raw, workspace)
     }
 
@@ -3646,6 +3720,14 @@ fn read_package_manifest(
     root: &Path,
 ) -> io::Result<(RawPackageManifest, Option<WorkspaceManifest>)> {
     let raw = read_raw_manifest(root)?;
+    let workspace = package_manifest_workspace(root, &raw)?;
+    Ok((raw, workspace))
+}
+
+fn package_manifest_workspace(
+    root: &Path,
+    raw: &RawPackageManifest,
+) -> io::Result<Option<WorkspaceManifest>> {
     let workspace = if raw.workspace.is_some() {
         Some(WorkspaceManifest::read(root)?)
     } else {
@@ -3692,7 +3774,7 @@ fn read_package_manifest(
             ));
         }
     }
-    Ok((raw, workspace))
+    Ok(workspace)
 }
 
 fn read_raw_manifest(root: &Path) -> io::Result<RawPackageManifest> {
@@ -3709,6 +3791,16 @@ fn read_raw_manifest(root: &Path) -> io::Result<RawPackageManifest> {
     }
     let text = std::str::from_utf8(&contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    parse_raw_manifest(text)
+}
+
+fn parse_raw_manifest(text: &str) -> io::Result<RawPackageManifest> {
+    if text.len() > MAX_MANIFEST_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "package manifest is too large",
+        ));
+    }
     toml::from_str(text).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 
@@ -9510,6 +9602,37 @@ source_fingerprint = "blake3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         .unwrap();
         let error = PackageGraph::resolve(&root).unwrap_err();
         assert!(error.to_string().contains("dependency cycle"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn verify_installed_manifest_edits_checks_cycles_without_writing_state() {
+        let root = std::env::temp_dir().join(format!("nia-preview-deps-{}", std::process::id()));
+        let dep = root.join("dep");
+        std::fs::create_dir_all(&dep).unwrap();
+        let root_manifest = "[package]\nname = \"root\"\nversion = \"1.0.0\"\n";
+        let dep_manifest = "[package]\nname = \"dep\"\nversion = \"1.0.0\"\n";
+        let root_file = root.join("nia.toml");
+        let dep_file = dep.join("nia.toml");
+        std::fs::write(&root_file, root_manifest).unwrap();
+        std::fs::write(&dep_file, dep_manifest).unwrap();
+
+        let mut edits = BTreeMap::from([(
+            root.clone(),
+            format!("{root_manifest}[dependencies]\ndep = {{ path = \"dep\" }}\n"),
+        )]);
+        PackageGraph::verify_installed_manifest_edits(&root, &edits).unwrap();
+
+        edits.insert(
+            dep.clone(),
+            format!("{dep_manifest}[dependencies]\nroot = {{ path = \"..\" }}\n"),
+        );
+        let error = PackageGraph::verify_installed_manifest_edits(&root, &edits).unwrap_err();
+        assert!(error.to_string().contains("dependency cycle"));
+        assert_eq!(std::fs::read_to_string(root_file).unwrap(), root_manifest);
+        assert_eq!(std::fs::read_to_string(dep_file).unwrap(), dep_manifest);
+        assert!(!root.join("nia.lock").exists());
+        assert!(!root.join("build").exists());
         std::fs::remove_dir_all(root).unwrap();
     }
 
