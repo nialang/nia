@@ -3877,65 +3877,58 @@ fn run_build_runner(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     prepare_process_group(&mut command);
-    let result = match time_build_stage(invocation.timings, "build_runner_execute_process", || {
-        execute_runner_process(
-            &mut command,
-            invocation.forward_output,
-            process_output_writer,
-        )
-    }) {
-        Ok(output) if output.status.success() => {
-            let draft = time_build_stage(invocation.timings, "build_runner_read_plan", || {
-                read_build_draft(&invocation.plan_draft)
-            });
-            match draft {
-                Ok(mut draft) => {
-                    let observed = if draft.observations.is_empty() {
-                        ConfigureManifest::new(ObservationPolicy::Disallow)
-                    } else {
-                        decode_and_validate_runner_observations(
-                            &invocation.package_root,
-                            &draft.observations,
-                        )
-                        .map_err(|error| {
-                            BuildError::RunnerObservations {
-                                path: invocation.plan_draft.clone(),
-                                error,
-                            }
-                        })?
-                    };
-                    let mut manifest = ConfigureManifest::new(if configure_inputs.len() == 2 {
-                        observed.policy()
-                    } else {
-                        ObservationPolicy::Poison
-                    });
-                    for input in configure_inputs.iter().chain(observed.observations()) {
-                        // Prefer the input captured before compiling the runner when
-                        // the script also probes the same file while configuring.
-                        let _ = manifest.push(input.clone());
-                    }
-                    draft.observations =
-                        manifest
-                            .encode()
-                            .map_err(|error| BuildError::RunnerObservations {
-                                path: invocation.plan_draft.clone(),
-                                error: io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    format!("observation manifest encoding failed: {error:?}"),
-                                ),
-                            })?;
-                    if !draft.observations.is_empty() {
+    let result =
+        match time_build_stage(invocation.timings, "build_runner_execute_process", || {
+            execute_runner_process(
+                &mut command,
+                invocation.forward_output,
+                process_output_writer,
+            )
+        }) {
+            Ok(output) if output.status.success() => {
+                let draft = time_build_stage(invocation.timings, "build_runner_read_plan", || {
+                    read_build_draft(&invocation.plan_draft)
+                });
+                match draft {
+                    Ok(mut draft) => {
+                        let observed = if draft.observations.is_empty() {
+                            ConfigureManifest::new(ObservationPolicy::Disallow)
+                        } else {
+                            decode_and_validate_runner_observations(
+                                &invocation.package_root,
+                                &draft.observations,
+                            )
+                            .map_err(|error| {
+                                BuildError::RunnerObservations {
+                                    path: invocation.plan_draft.clone(),
+                                    error,
+                                }
+                            })?
+                        };
+                        let mut manifest = ConfigureManifest::new(if configure_inputs.len() == 2 {
+                            observed.policy()
+                        } else {
+                            ObservationPolicy::Poison
+                        });
+                        for input in configure_inputs.iter().chain(observed.observations()) {
+                            // Prefer the input captured before compiling the runner when
+                            // the script also probes the same file while configuring.
+                            let _ = manifest.push(input.clone());
+                        }
+                        draft.observations =
+                            manifest
+                                .encode()
+                                .map_err(|error| BuildError::RunnerObservations {
+                                    path: invocation.plan_draft.clone(),
+                                    error: io::Error::new(
+                                        io::ErrorKind::InvalidData,
+                                        format!("observation manifest encoding failed: {error:?}"),
+                                    ),
+                                })?;
                         nia_timing::emit_counter(
                             "build.configure_observations_bytes",
                             draft.observations.len() as u64,
                         );
-                    }
-                    let manifest = if draft.observations.is_empty() {
-                        Some(ConfigureManifest::new(ObservationPolicy::Poison))
-                    } else {
-                        ConfigureManifest::decode(&draft.observations).ok()
-                    };
-                    if let Some(manifest) = manifest {
                         let identity = ConfigureIdentity::new(
                             runner_cache_key,
                             invocation_identity(invocation),
@@ -3952,25 +3945,24 @@ fn run_build_runner(
                         } else {
                             nia_timing::emit_counter("build.configure_cache_failures", 1);
                         }
+                        Ok(draft)
                     }
-                    Ok(draft)
+                    Err(error) => Err(error),
                 }
-                Err(error) => Err(error),
             }
-        }
-        Ok(output) => Err(BuildError::RunnerFailed {
-            path: runner_executable.to_path_buf(),
-            status: output.status,
-            stdout: output.stdout,
-            stderr: output.stderr,
-        }),
-        Err(error) => Err(BuildError::RunRunner {
-            path: runner_executable.to_path_buf(),
-            error: error.error,
-            stdout: error.stdout,
-            stderr: error.stderr,
-        }),
-    };
+            Ok(output) => Err(BuildError::RunnerFailed {
+                path: runner_executable.to_path_buf(),
+                status: output.status,
+                stdout: output.stdout,
+                stderr: output.stderr,
+            }),
+            Err(error) => Err(BuildError::RunRunner {
+                path: runner_executable.to_path_buf(),
+                error: error.error,
+                stdout: error.stdout,
+                stderr: error.stderr,
+            }),
+        };
     let plan_cleanup = match fs::remove_file(&invocation.plan_draft) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),

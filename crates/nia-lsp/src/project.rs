@@ -304,9 +304,6 @@ impl Package {
         let manifest = PackageManifest::read(layout.package_root()).map_err(error)?;
         let plan_path = layout.out_dir().join("build-plan.bin");
         let (plan, configuration) = match read_configured_plan(&plan_path) {
-            Ok((draft, config)) if draft.observations.is_empty() => {
-                (Some((draft.plan, config)), ConfigurationStatus::Ready)
-            }
             Ok((draft, config)) => match ConfigureManifest::decode(&draft.observations) {
                 Err(error) => (
                     None,

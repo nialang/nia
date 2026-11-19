@@ -860,23 +860,36 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
     .unwrap();
     let output = directory.join("build/out");
     std::fs::create_dir_all(&output).unwrap();
-    publish_build_plan(
-        &output.join("build-plan.bin"),
-        &nia_build_plan::BuildDraft {
-            plan,
-            observations: Vec::new(),
-        },
-        nia_build_plan::PlanConfiguration::default(),
-    )
-    .unwrap();
+    let plan_path = output.join("build-plan.bin");
+    let mut draft = nia_build_plan::BuildDraft {
+        plan,
+        observations: Vec::new(),
+    };
+    let config = nia_build_plan::PlanConfiguration::default();
+    publish_build_plan(&plan_path, &draft, config).unwrap();
 
     let mut session = test_session();
     let toolchain = Arc::clone(&session.toolchain);
-    let package = session
+    let entry = directory.join("root.nia");
+    let error = session
         .projects
-        .package(&directory.join("root.nia"))
+        .package(&entry)
         .unwrap()
+        .unwrap()
+        .configured_requests(&toolchain)
+        .err()
+        .expect("plan has no configuration evidence");
+    assert!(error.contains("build plan is corrupt"), "{error}");
+
+    let mut observations =
+        nia_build::ConfigureManifest::new(nia_build::ObservationPolicy::Disallow);
+    observations
+        .push(nia_build::observe_file_contents(&directory, "nia.toml").unwrap())
         .unwrap();
+    draft.observations = observations.encode().unwrap();
+    publish_build_plan(&plan_path, &draft, config).unwrap();
+    session.reload();
+    let package = session.projects.package(&entry).unwrap().unwrap();
     let requests = package.configured_requests(&toolchain).unwrap();
     assert_eq!(requests.len(), 2);
     assert_eq!(
