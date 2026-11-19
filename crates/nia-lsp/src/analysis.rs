@@ -1284,8 +1284,13 @@ impl Analysis {
     }
 
     pub(crate) fn declaration_source(&self, symbol: Symbol) -> Option<(&str, Span)> {
+        let (file, span) = self.declaration_file(symbol)?;
+        Some((&file.text, span))
+    }
+
+    pub(crate) fn declaration_file(&self, symbol: Symbol) -> Option<(&File, Span)> {
         let (source, span) = self.definitions.get(&symbol)?;
-        Some((&self.files.get(source)?.text, *span))
+        Some((self.files.get(source)?, *span))
     }
 
     pub(crate) fn names(
@@ -1607,8 +1612,25 @@ impl Analysis {
     }
 
     pub(crate) fn hover(&self, path: &Path, position: Position) -> Option<lsp_types::Hover> {
-        let (source, span) = self.definitions.get(&self.symbol_at(path, position)?)?;
-        let file = self.files.get(source)?;
+        let symbol = self.symbol_at(path, position)?;
+        let (file, span) = self.declaration_file(symbol)?;
+        if let Some(callable) = self.callable_declaration(symbol) {
+            let signature = lsp_types::MarkedString::LanguageString(lsp_types::LanguageString {
+                language: "nia".into(),
+                value: callable.signature.to_owned(),
+            });
+            let contents = match callable.documentation {
+                Some(docs) => lsp_types::HoverContents::Array(vec![
+                    signature,
+                    lsp_types::MarkedString::String(docs),
+                ]),
+                None => lsp_types::HoverContents::Scalar(signature),
+            };
+            return Some(lsp_types::Hover {
+                contents,
+                range: None,
+            });
+        }
         let start = file.text[..span.start]
             .rfind(['\r', '\n'])
             .map_or(0, |index| index + 1);
@@ -2706,7 +2728,15 @@ mod tests {
         let math = root.join("math.nia");
         std::fs::write(
             &math,
-            "pub fun add(a: i32, b: i32) i32 { a + b }\nfun hidden() i32 { 0 }\n",
+            concat!(
+                "/// Adds two integers.\n",
+                "/// The parameters are evaluated first.\n",
+                "pub fun add(\n",
+                "    a: i32,\n",
+                "    b: i32,\n",
+                ") i32 { a + b }\n",
+                "fun hidden() i32 { 0 }\n",
+            ),
         )
         .unwrap();
         let mut session = test_session();
@@ -2763,6 +2793,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["add"]
         );
+        let signature = "fun add(\n    a: i32,\n    b: i32,\n) i32";
+        let documentation = Some(lsp_types::Documentation::String(
+            "Adds two integers.\nThe parameters are evaluated first.".into(),
+        ));
+        assert_eq!(completion[0].detail.as_deref(), Some(signature));
+        assert_eq!(completion[0].documentation, documentation);
 
         let incomplete =
             "module math;\nusing root::math as calc;\nfun run() i32 { calc::add((1, 2).0, \n";
@@ -2771,7 +2807,8 @@ mod tests {
             .signature_help(&main, Position::new(2, 35))
             .unwrap();
         assert_eq!(help.active_parameter, Some(1));
-        assert_eq!(help.signatures[0].label, "fun add(a: i32, b: i32) i32");
+        assert_eq!(help.signatures[0].label, signature);
+        assert_eq!(help.signatures[0].documentation, documentation);
         let params = help.signatures[0].parameters.as_ref().unwrap();
         assert_eq!(
             params[1].label,

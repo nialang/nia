@@ -4,8 +4,8 @@
 use std::{collections::BTreeMap, path::Path};
 
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionTextEdit, ParameterInformation, ParameterLabel,
-    Position, SignatureHelp, SignatureInformation, TextEdit,
+    CompletionItem, CompletionItemKind, CompletionTextEdit, Documentation, ParameterInformation,
+    ParameterLabel, Position, SignatureHelp, SignatureInformation, TextEdit,
 };
 use nia_defs::DefKind;
 use nia_lexer::{LosslessTokenKind, TokenKind, tokenize_lossless};
@@ -136,24 +136,43 @@ impl Analysis {
         }
         let mut candidates = BTreeMap::new();
         for name in self.names(file, start, &qualifier).ok()? {
-            candidates
-                .entry(name.name.to_string())
-                .or_insert(name.kind.map(completion_kind));
+            candidates.entry(name.name.to_string()).or_insert((
+                name.kind.map(completion_kind),
+                name.symbol,
+                false,
+            ));
         }
         if qualifier.is_empty()
             && let Some(parsed) = file.syntax()
         {
             for name in local_names(parsed.tree.green_root(), &file.text, start) {
-                candidates.insert(name.to_owned(), Some(CompletionItemKind::VARIABLE));
+                candidates.insert(
+                    name.to_owned(),
+                    (Some(CompletionItemKind::VARIABLE), None, true),
+                );
             }
         }
         let range = file.lines.range(&file.text, Span::new(start, end));
         Some(
             candidates
                 .into_iter()
-                .filter_map(|(name, kind)| {
-                    name.starts_with(prefix)
-                        .then(|| completion_item(name, kind, range))
+                .filter_map(|(name, (kind, symbol, local))| {
+                    if !name.starts_with(prefix) {
+                        return None;
+                    }
+                    let sort_text = format!("{}:{name}", u8::from(!local));
+                    let mut item = completion_item(name, kind, range);
+                    item.sort_text = Some(sort_text);
+                    if matches!(
+                        kind,
+                        Some(CompletionItemKind::FUNCTION | CompletionItemKind::METHOD)
+                    ) && let Some(callable) =
+                        symbol.and_then(|symbol| self.callable_declaration(symbol))
+                    {
+                        item.detail = Some(callable.signature.to_owned());
+                        item.documentation = callable.documentation.map(Documentation::String);
+                    }
+                    Some(item)
                 })
                 .collect(),
         )
@@ -164,10 +183,9 @@ impl Analysis {
         let offset = file.lines.offset(&file.text, position)?;
         let call = call_at(&file.text, offset)?;
         let symbol = self.callee(file, &call)?;
-        let (source, declaration) = self.declaration_source(symbol)?;
-        let parsed = nia_syntax::parse(source, None).ok()?;
-        let function = enclosing_function(parsed.tree.green_root(), declaration)?;
-        let parameters = function.child(&SyntaxKind::ParamList)?;
+        let callable = self.callable_declaration(symbol)?;
+        let source = callable.source;
+        let parameters = callable.function.child(&SyntaxKind::ParamList)?;
         let mut params = parameters
             .child_nodes()
             .filter(|node| *node.kind() == SyntaxKind::Param)
@@ -192,22 +210,37 @@ impl Analysis {
                 documentation: None,
             });
         }
-        let start = function.first_token()?.span().start;
-        let end = function
-            .child(&SyntaxKind::Block)
-            .and_then(GreenNode::first_token)
-            .map_or_else(|| function.span().end, |token| token.span().start);
-        let label = source[start..end].trim().trim_end_matches(';').to_owned();
         let active = (!info.is_empty()).then(|| call.argument.min(info.len() as u32 - 1));
         Some(SignatureHelp {
             signatures: vec![SignatureInformation {
-                label,
-                documentation: None,
+                label: callable.signature.to_owned(),
+                documentation: callable.documentation.map(Documentation::String),
                 parameters: Some(info),
                 active_parameter: active,
             }],
             active_signature: Some(0),
             active_parameter: active,
+        })
+    }
+
+    pub(crate) fn callable_declaration(&self, symbol: Symbol) -> Option<CallableDeclaration<'_>> {
+        let (file, name) = self.declaration_file(symbol)?;
+        let root = file.syntax()?.tree.green_root();
+        let (function, documentation_start) = enclosing_function(root, name, None)?;
+        let source = &file.text;
+        let start = function.first_token()?.span().start;
+        let end = function
+            .child(&SyntaxKind::Block)
+            .and_then(GreenNode::first_token)
+            .map_or_else(
+                || function.last_token().map(|token| token.span().end),
+                |token| Some(token.span().start),
+            )?;
+        Some(CallableDeclaration {
+            source,
+            function,
+            signature: source[start..end].trim().trim_end_matches(';'),
+            documentation: leading_documentation(source, documentation_start.unwrap_or(start)),
         })
     }
 
@@ -221,7 +254,7 @@ impl Analysis {
         let name = &file.text[call.name.start..call.name.end];
         let (qualifier, _) = qualifier(&file.text, call.name.start);
         if qualifier.is_empty()
-            && let Ok(parsed) = nia_syntax::parse(&file.text, None)
+            && let Some(parsed) = file.syntax()
             && local_names(parsed.tree.green_root(), &file.text, call.name.start).contains(&name)
         {
             return None;
@@ -425,7 +458,18 @@ fn add_pattern_names<'a>(node: &GreenNode, source: &'a str, names: &mut Vec<&'a 
     }
 }
 
-fn enclosing_function(node: &GreenNode, name: Span) -> Option<&GreenNode> {
+pub(crate) struct CallableDeclaration<'a> {
+    source: &'a str,
+    function: &'a GreenNode,
+    pub(crate) signature: &'a str,
+    pub(crate) documentation: Option<String>,
+}
+
+fn enclosing_function(
+    node: &GreenNode,
+    name: Span,
+    documentation_start: Option<usize>,
+) -> Option<(&GreenNode, Option<usize>)> {
     let span = node.span();
     if name.start < span.start || name.end > span.end {
         return None;
@@ -435,10 +479,36 @@ fn enclosing_function(node: &GreenNode, name: Span) -> Option<&GreenNode> {
             .token(&TokenKind::Ident)
             .is_some_and(|token| token.span() == name)
     {
-        return Some(node);
+        return Some((node, documentation_start));
     }
+    let documentation_start = if matches!(node.kind(), SyntaxKind::Item | SyntaxKind::Member) {
+        node.first_token().map(|token| token.span().start)
+    } else {
+        documentation_start
+    };
     node.child_nodes()
-        .find_map(|child| enclosing_function(child, name))
+        .find_map(|child| enclosing_function(child, name, documentation_start))
+}
+
+fn leading_documentation(source: &str, start: usize) -> Option<String> {
+    let mut preceding = source[..start].rsplit('\n');
+    if !preceding.next()?.trim().is_empty() {
+        return None;
+    }
+    let mut lines: Vec<_> = preceding
+        .map_while(|line| {
+            let doc = line
+                .trim_end_matches('\r')
+                .trim_start()
+                .strip_prefix("///")?;
+            Some(doc.strip_prefix(' ').unwrap_or(doc))
+        })
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    lines.reverse();
+    Some(lines.join("\n"))
 }
 
 struct Call {

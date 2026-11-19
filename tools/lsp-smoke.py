@@ -35,7 +35,11 @@ def smoke(server, root):
     main = root / "root.nia"
     main.write_text(source, encoding="utf-8")
     shapes = root / "shapes.nia"
-    shapes_source = "pub struct Shape { width: i32 }\npub fun weight() i32 { 1 }\n"
+    shapes_source = (
+        "pub struct Shape { width: i32 }\n"
+        "/// Returns the weight.\n"
+        "pub fun weight() i32 { 1 }\n"
+    )
     shapes.write_text(shapes_source, encoding="utf-8")
     with subprocess.Popen([str(server)], cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
         try:
@@ -128,6 +132,16 @@ def smoke(server, root):
             ))
             start = position(typo, "weigth")
             end = dict(start, character=start["character"] + len("weigth"))
+            completions = request(client, "textDocument/completion", dict(
+                **params, position=dict(start, character=start["character"] + len("weig")),
+            ))
+            completion, = completions
+            assert completion["label"] == "weight", completion
+            assert completion["detail"] == "fun weight() i32", completion
+            assert completion["documentation"] == "Returns the weight.", completion
+            assert completion["textEdit"] == {
+                "range": {"start": start, "end": end}, "newText": "weight",
+            }, completion
             code_action = dict(**params, range={"start": start, "end": end})
             actions = request(client, "textDocument/codeAction", dict(
                 **code_action, context={"diagnostics": diagnostics, "only": ["quickfix"]},
@@ -148,6 +162,10 @@ def smoke(server, root):
                 "contentChanges": [{"range": replacement["range"], "text": replacement["newText"]}],
             })
             client.wait_diagnostics(main.as_uri(), 4, lambda items: not items)
+            hover = request(client, "textDocument/hover", dict(**params, position=start))
+            signature, docs = hover["contents"]
+            assert signature == {"language": "nia", "value": "fun weight() i32"}
+            assert docs == "Returns the weight."
             assert not request(client, "textDocument/codeAction", dict(
                 **code_action, context={"diagnostics": diagnostics},
             ))
