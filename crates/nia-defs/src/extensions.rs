@@ -283,6 +283,18 @@ impl ExtensionMethods {
             .collect()
     }
 
+    /// Iterates methods from one module in insertion order.
+    pub fn methods_for_module(
+        &self,
+        module_id: ModuleId,
+    ) -> impl Iterator<Item = &ExtensionMethod> {
+        self.by_module
+            .get(&module_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|def_id| self.by_id.get(def_id))
+    }
+
     /// Iterates every indexed method.
     pub fn all_methods(&self) -> impl Iterator<Item = &ExtensionMethod> {
         self.by_id.values()
@@ -391,27 +403,16 @@ impl ExtensionAssociatedValues {
         }
     }
 
-    /// Visits values from the current module and imported modules admitted by
-    /// the module graph. Item visibility is preserved for the resolving phase.
-    pub fn for_each_value_in_modules(
+    /// Iterates associated values from one module in insertion order.
+    pub fn values_for_module(
         &self,
-        current_module: ModuleId,
-        imported_modules: impl IntoIterator<Item = ModuleId>,
-        mut f: impl FnMut(&ExtensionAssociatedValue),
-    ) {
-        let mut visited_modules = HashSet::new();
-        for module_id in std::iter::once(current_module).chain(imported_modules) {
-            if !visited_modules.insert(module_id) {
-                continue;
-            }
-            if let Some(value_ids) = self.by_module.get(&module_id) {
-                for def_id in value_ids {
-                    if let Some(value) = self.by_id.get(def_id) {
-                        f(value);
-                    }
-                }
-            }
-        }
+        module_id: ModuleId,
+    ) -> impl Iterator<Item = &ExtensionAssociatedValue> {
+        self.by_module
+            .get(&module_id)
+            .into_iter()
+            .flatten()
+            .filter_map(|def_id| self.by_id.get(def_id))
     }
 
     /// Collects the values visited by [`Self::for_each_visible_value`].

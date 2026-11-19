@@ -715,9 +715,7 @@ pub(super) fn provide_visible_extensions(
 ) -> QueryResult<VisibleExtensionsValue> {
     let graph = QueryModuleGraphLookup::new(db)?;
     let defs = SharedProgramDefsResolver::new(db);
-    let public_surfaces = QueryPublicSurfaceLookup::new(db);
     let query_failure = RefCell::new(None);
-    let using_scope = db.get(ModuleUsingScopeQuery(module_id))?;
     let extension_method_normalization = |module_id| {
         capture_query_failure(
             &query_failure,
@@ -728,53 +726,54 @@ pub(super) fn provide_visible_extensions(
             ),
         )
     };
-    let mut visible_modules = visible_provider_modules_for_module(db, module_id)?;
-    visible_modules.sort();
-    visible_modules.dedup();
+    let visible_modules = visible_provider_modules_for_module(db, module_id)?;
     let trait_witness_modules = visible_trait_impl_modules_for_module(db, module_id)?;
     let mut fact_modules = visible_modules.clone();
     fact_modules.extend(trait_witness_modules.iter().copied());
     fact_modules.sort();
     fact_modules.dedup();
-    let mut extension_methods = nia_defs::ExtensionMethods::default();
-    let mut associated_values = nia_defs::ExtensionAssociatedValues::default();
-    for provider_module in fact_modules {
-        let facts = db.get(ExtensionProviderModuleFactsQuery(provider_module))?;
-        if visible_modules.contains(&provider_module) {
-            extension_methods.extend(facts.methods.clone());
-            associated_values.extend(facts.associated_values.clone());
-        } else {
-            // Trait implementations, of builtin and source traits alike, are
-            // facts wherever they are witnesses; inherent extension methods
-            // stay scoped to imports.
-            for method in facts.methods.all_methods() {
-                if method.trait_id.is_some() {
-                    extension_methods.insert(provider_module, method.clone());
-                }
-            }
-            for value in facts.associated_values.all_values() {
-                if value.trait_id.is_some() {
-                    associated_values.insert(provider_module, value.clone());
-                }
-            }
-        }
+    // Keep local extensions first, followed by imported and witness modules.
+    if let Ok(index) = fact_modules.binary_search(&module_id) {
+        fact_modules[..=index].rotate_right(1);
     }
-    let visible_extensions = visible_extensions_for_module(VisibleExtensionsInput {
-        module_id,
-        graph: &graph,
-        using_scope: &using_scope,
-        public_surfaces: &public_surfaces,
-        defs: &defs,
-        normalizations: &extension_method_normalization,
-        extensions: &extension_methods,
-        associated_values: &associated_values,
-        visible_modules: Some(visible_modules.as_slice()),
-        trait_witness_modules: &trait_witness_modules,
-    });
+    let mut providers = Vec::with_capacity(fact_modules.len());
+    for provider in fact_modules {
+        let facts = db.get(ExtensionProviderModuleFactsQuery(provider))?;
+        let in_scope = visible_modules.binary_search(&provider).is_ok();
+        providers.push((provider, facts, in_scope));
+    }
+    // A module brought in solely as a witness contributes its trait members.
+    let methods = providers
+        .iter()
+        .flat_map(|&(provider, ref facts, in_scope)| {
+            facts
+                .methods
+                .methods_for_module(provider)
+                .filter(move |method| in_scope || method.trait_id.is_some())
+        });
+    let values = providers
+        .iter()
+        .flat_map(|&(provider, ref facts, in_scope)| {
+            facts
+                .associated_values
+                .values_for_module(provider)
+                .filter(move |value| in_scope || value.trait_id.is_some())
+        });
+    let visible_extensions = visible_extensions_for_module(
+        VisibleExtensionsInput {
+            module_id,
+            graph: &graph,
+            defs: &defs,
+            normalizations: &extension_method_normalization,
+            visible_modules: &visible_modules,
+            trait_witness_modules: &trait_witness_modules,
+        },
+        methods,
+        values,
+    );
     if let Some(error) = query_failure
         .into_inner()
         .or_else(|| graph.take_failure())
-        .or_else(|| public_surfaces.take_failure())
         .or_else(|| defs.take_failure())
     {
         Err(error)
