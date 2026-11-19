@@ -161,7 +161,6 @@ jobs:
           test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --version)" = 23.1.2
           test "$("${LLVM_SYS_231_PREFIX}/bin/llvm-config" --shared-mode)" = static
           cd nia-source
-          cargo build --release -p nia-cli --no-default-features --features llvm-static
           LLVM_SYS_231_PREFIX="${LLVM_SYS_231_PREFIX}" NIA_REPO_ROOT="$GITHUB_WORKSPACE/nia-source" \
             NIA_RELEASE_PLATFORM='${{ matrix.platform }}' ../release-tools/tools/release/package.sh
           archive_root="target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}"
@@ -174,7 +173,7 @@ jobs:
           if ((& $llvmConfig --version).Trim() -ne '23.1.2') { throw 'unexpected LLVM version' }
           if ((& $llvmConfig --shared-mode).Trim() -ne 'static') { throw 'release LLVM must be static' }
           Push-Location nia-source
-          cargo build --release -p nia-cli --no-default-features --features llvm-static --target x86_64-pc-windows-msvc
+          cargo build --locked --release -p nia-cli -p nia-lsp --no-default-features --features nia-cli/llvm-static,nia-lsp/llvm-static --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw 'Windows release compiler build failed' }
           Pop-Location
           $env:NIA_REPO_ROOT = "$env:GITHUB_WORKSPACE\nia-source"
@@ -189,17 +188,26 @@ jobs:
           archive="nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.tar.gz"
           entries="$(tar -tzf "${archive}")"
           grep -Eq '/bin/nia$' <<<"${entries}"
+          grep -Eq '/bin/nia-lsp$' <<<"${entries}"
           grep -Eq '/lib/toolchain.meta$' <<<"${entries}"
           grep -Eq '/libexec/ld.lld$' <<<"${entries}"
+          unpacked="$(mktemp -d)"
+          tar -xzf "${archive}" -C "${unpacked}"
+          python3 nia-source/tools/lsp-smoke.py "${unpacked}/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}/bin/nia-lsp"
       - name: Verify Windows archive layout
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $archive = "nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.zip"
           $entries = @(tar -tf $archive)
-          foreach ($suffix in @('/bin/nia.exe', '/lib/toolchain.meta', '/libexec/ld.lld.exe')) {
+          foreach ($suffix in @('/bin/nia.exe', '/bin/nia-lsp.exe', '/lib/toolchain.meta', '/libexec/ld.lld.exe')) {
             if (-not ($entries -match [regex]::Escape($suffix) + '$')) { throw "archive is missing $suffix" }
           }
+          $unpacked = Join-Path $env:RUNNER_TEMP ("nia-relocated-" + [guid]::NewGuid().ToString("N"))
+          Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
+          $server = Join-Path $unpacked "nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}\bin\nia-lsp.exe"
+          python .\nia-source\tools\lsp-smoke.py $server
+          if ($LASTEXITCODE -ne 0) { throw 'packaged Windows language server failed protocol checks' }
       - name: Upload platform release assets
         uses: actions/upload-artifact@v7
         with:

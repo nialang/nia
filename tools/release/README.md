@@ -1,11 +1,10 @@
 # Nia Release Build
 
-`build.sh` is the release compiler build entry point. It requires the pinned
+`build.sh` builds the release compiler and language server. It requires the pinned
 LLVM 23.1.2 static prefix produced by [`../llvm/build-static.sh`](../llvm/README.md),
-builds `nia-cli` with the `llvm-static` feature, and checks the result. It
-rejects a prefix whose `llvm-config --shared-mode` is not `static`, and on ELF
-hosts it also rejects a binary with a shared LLVM or LLD dependency (the check
-reads the dynamic section with `readelf`). Standard-library sources remain part
+and uses the `llvm-static` feature for both binaries. It checks the static
+prefix and checks both binaries for shared LLVM or LLD dependencies with
+`readelf` on Linux and `otool` on macOS. Standard-library sources remain part
 of the toolchain resources and are compiled through the normal source pipeline.
 
 Run it from any directory:
@@ -30,12 +29,11 @@ NIA_RELEASE_PLATFORM=darwin-aarch64 tools/release/package.sh
 ```
 
 `package.ps1` assembles the matching `windows-x86_64` ZIP archive on a Windows
-MSVC host. It does not build the compiler; build
-`target\x86_64-pc-windows-msvc\release\nia.exe` first with the static LLVM
-prefix:
+MSVC host. Build the compiler and language server with the static LLVM prefix
+before running it.
 
 ```powershell
-cargo build --release -p nia-cli --no-default-features --features llvm-static --target x86_64-pc-windows-msvc
+cargo build --locked --release -p nia-cli -p nia-lsp --no-default-features --features nia-cli/llvm-static,nia-lsp/llvm-static --target x86_64-pc-windows-msvc
 tools\release\package.ps1
 ```
 
@@ -56,6 +54,7 @@ nia-<version>-<platform>/
 ├── LICENSE.md
 ├── release-manifest.txt   version, Git revision, platform, LLVM version
 ├── bin/nia                (bin/nia.exe on Windows)
+├── bin/nia-lsp            (bin/nia-lsp.exe on Windows)
 ├── lib/                   toolchain.meta, std/, runtime/, imports/
 └── libexec/ld.lld         (libexec/ld.lld.exe on Windows)
 ```

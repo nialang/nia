@@ -6,6 +6,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 llvm_prefix="${LLVM_SYS_231_PREFIX:-${repo_root}/target/llvm-static/install}"
 binary="${repo_root}/target/release/nia"
+server="${repo_root}/target/release/nia-lsp"
 
 llvm_config="${llvm_prefix}/bin/llvm-config"
 lld_name=ld.lld
@@ -35,17 +36,25 @@ fi
 
 cd "${repo_root}"
 LLVM_SYS_231_PREFIX="${llvm_prefix}" \
-    cargo build --release -p nia-cli --no-default-features --features llvm-static
+    cargo build --locked --release -p nia-cli -p nia-lsp --no-default-features \
+        --features nia-cli/llvm-static,nia-lsp/llvm-static
 
-if [[ ! -x "${binary}" ]]; then
-    printf 'release compiler was not produced: %s\n' "${binary}" >&2
-    exit 1
-fi
-if readelf -d "${binary}" 2>/dev/null | grep -Eqi 'libLLVM|liblld'; then
-    printf 'release compiler has a shared LLVM/LLD dependency\n' >&2
-    exit 1
-fi
+for executable in "${binary}" "${server}"; do
+    if [[ ! -x "${executable}" ]]; then
+        printf 'release executable was not produced: %s\n' "${executable}" >&2
+        exit 1
+    fi
+    case "$(uname -s)" in
+        Darwin) dependencies="$(otool -L "${executable}")" ;;
+        *) dependencies="$(readelf -d "${executable}")" ;;
+    esac
+    if grep -Eqi 'libLLVM|liblld' <<<"${dependencies}"; then
+        printf 'release executable has a shared LLVM/LLD dependency: %s\n' "${executable}" >&2
+        exit 1
+    fi
+done
 
 printf 'release compiler: %s\n' "${binary}"
+printf 'release language server: %s\n' "${server}"
 printf 'LLVM linkage: static (%s)\n' "${llvm_prefix}"
 printf 'bundled linker candidate: %s\n' "${lld}"
