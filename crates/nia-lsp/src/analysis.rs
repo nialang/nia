@@ -209,7 +209,9 @@ impl Session {
         let previous = previous.filter(|probe| Arc::ptr_eq(&probe.analysis, &analysis));
         if let Some(probe) = previous
             && probe.receiver == (file.module, receiver)
-            && probe.names == names
+            && names
+                .iter()
+                .all(|name| probe.names.binary_search(name).is_ok())
         {
             let items = member.items(&document.text, &document.lines, probe.candidates.clone());
             self.member_probe = Some(probe);
@@ -2495,7 +2497,9 @@ mod tests {
         let cancel = Cancellation::default();
         let mut complete = |version, field, prefix: &str| {
             let text = format!(
-                "struct Shape {{ {field}: i32 }}\nfun read(shape: &Shape) i32 {{ shape.{prefix} }}\n"
+                "struct Shape {{ {field}: i32 }}\n\
+                 extend Shape {{ fun help(&self) i32 {{ 1 }} }}\n\
+                 fun read(shape: &Shape) i32 {{ shape.{prefix} }}\n"
             );
             let cursor = text.rfind(prefix).unwrap() + prefix.len();
             let member = MemberCompletion::at(&text, cursor).unwrap();
@@ -2509,13 +2513,18 @@ mod tests {
             let items = session
                 .complete_members(&documents, &path, &member, &cancel)
                 .unwrap();
-            let snapshot = session.member_probe.as_ref().unwrap().analysis.clone();
-            (items, snapshot)
+            let probe = session.member_probe.as_ref().unwrap();
+            (items, probe.analysis.clone(), probe.names.clone())
         };
-        let (first, before) = complete(1, "height", "he");
-        let (second, after) = complete(2, "height", "hei");
+        let (first, before, broad_names) = complete(1, "height", "he");
+        let (second, after, retained_names) = complete(2, "height", "hei");
+        assert_eq!(broad_names.len(), 1);
+        assert_eq!(retained_names, broad_names);
         assert!(Arc::ptr_eq(&before, &after));
+        assert_eq!(first.len(), 2);
         assert_eq!(first[0].label, "height");
+        assert_eq!(first[1].label, "help");
+        assert_eq!(second.len(), 1);
         assert_eq!(second[0].label, "height");
         let range = |item: &lsp_types::CompletionItem| match &item.text_edit {
             Some(lsp_types::CompletionTextEdit::Edit(edit)) => edit.range,
@@ -2527,7 +2536,7 @@ mod tests {
             range(&first[0]).end.character + 1
         );
 
-        let (edited, current) = complete(3, "heavy", "he");
+        let (edited, current, _) = complete(3, "heavy", "he");
         assert!(!Arc::ptr_eq(&before, &current));
         assert_eq!(edited[0].label, "heavy");
     }
