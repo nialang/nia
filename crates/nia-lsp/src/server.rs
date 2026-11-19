@@ -1205,10 +1205,9 @@ impl Server {
         connection: &Connection,
         params: lsp_types::RenameFilesParams,
     ) -> Result<(), Error> {
-        let mut moves: Vec<_> = crate::rename::file_moves(params.files)
+        let moves: Vec<_> = crate::rename::file_moves(params.files)
             .into_iter()
             .collect();
-        moves.sort_by_key(|(old, _)| std::cmp::Reverse(old.components().count()));
         let relocated: Vec<_> = self
             .documents
             .keys()

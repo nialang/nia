@@ -130,6 +130,11 @@ impl Session {
         }
         let mut plan = RenamePlan::default();
         let mut analyses = BTreeMap::new();
+        let directories: Moves = moves
+            .iter()
+            .filter(|(old, _)| old.is_dir())
+            .cloned()
+            .collect();
         for (old, new, declarations) in declared {
             cancel.check()?;
             if declarations.len() != 1 {
@@ -143,7 +148,12 @@ impl Session {
                 .and_then(|name| name.to_str())
                 .filter(|_| is_nia(new))
                 .ok_or("A module destination must be a Nia source file")?;
-            if old.parent() != new.parent() {
+            let old_parent = old
+                .parent()
+                .ok_or("A module source must have a parent directory")?;
+            let parent = relocated(&normalized(old_parent), &directories)
+                .unwrap_or_else(|| old_parent.to_path_buf());
+            if Some(parent.as_path()) != new.parent() {
                 return Err("A module source must stay in its declaring module's directory".into());
             }
             let declaration = declarations.first().expect("one declaration");
@@ -179,13 +189,19 @@ impl Session {
                     }
                 }
             }
-            plan.moves.extend(change.moves);
+            plan.moves
+                .extend(change.moves.into_iter().map(|(old, new)| {
+                    let destination = relocated(&normalized(&new), &directories).unwrap_or(new);
+                    (old, destination)
+                }));
         }
-        if plan.moves.len() != moves.len()
-            || plan
-                .moves
+        if plan
+            .moves
+            .iter()
+            .any(|operation| !moves.contains(operation))
+            || moves
                 .iter()
-                .any(|operation| !moves.contains(operation))
+                .any(|(old, new)| relocated(&normalized(old), &plan.moves).as_ref() != Some(new))
         {
             return Err("The file operation must match each module source and its child directory, if present".into());
         }
@@ -247,7 +263,9 @@ impl Session {
         } = plan;
         for (index, (old, new)) in moves.iter().enumerate() {
             let conflicts = moves[..index].iter().any(|(other_old, other_new)| {
-                paths_overlap(old, other_old) || paths_overlap(new, other_new)
+                (paths_overlap(old, other_old) || paths_overlap(new, other_new))
+                    && !moves_inside(old, new, other_old, other_new)
+                    && !moves_inside(other_old, other_new, old, new)
             });
             if conflicts {
                 return Err(format!("Overlapping module moves at {}", old.display()));
@@ -607,6 +625,14 @@ fn paths_overlap(first: &Path, second: &Path) -> bool {
         }
     };
     matches(first, second) || matches(second, first)
+}
+
+fn moves_inside(source: &Path, destination: &Path, from: &Path, to: &Path) -> bool {
+    // The nested operation can change the name in its transported directory.
+    source
+        .parent()
+        .and_then(|parent| parent.strip_prefix(from).ok())
+        .is_some_and(|relative| destination.parent() == Some(to.join(relative).as_path()))
 }
 
 fn module_moves(

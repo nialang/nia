@@ -46,13 +46,17 @@ pub(crate) fn preserves_bindings(
 }
 
 pub(crate) fn relocated(source: &str, moves: &[(PathBuf, PathBuf)]) -> Option<PathBuf> {
-    moves.iter().find_map(|(old, new)| {
-        let tail = Path::new(source).strip_prefix(old).ok()?;
-        Some(if tail.as_os_str().is_empty() {
-            new.clone()
-        } else {
-            new.join(tail)
+    let (_, new, tail) = moves
+        .iter()
+        .filter_map(|(old, new)| {
+            let tail = Path::new(source).strip_prefix(old).ok()?;
+            Some((old, new, tail))
         })
+        .max_by_key(|(old, _, _)| old.components().count())?;
+    Some(if tail.as_os_str().is_empty() {
+        new.clone()
+    } else {
+        new.join(tail)
     })
 }
 

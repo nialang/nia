@@ -742,6 +742,34 @@ fn file_rename_updates_the_live_module_declaration_and_imports() {
             .collect::<Vec<_>>(),
         [(1, "moved"), (2, "moved"), (2, "renamed"), (3, "renamed")]
     );
+    let nested = request(
+        vec![
+            file.clone(),
+            directory.clone(),
+            rename("outer/inner.nia", "moved/leaf.nia"),
+        ],
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        nested.changes.unwrap()[&entry_uri]
+            .iter()
+            .map(|edit| edit.new_text.as_str())
+            .collect::<Vec<_>>(),
+        ["moved", "moved", "leaf"],
+    );
+    let transported = request(
+        vec![
+            file.clone(),
+            directory.clone(),
+            rename("outer/inner.nia", "moved/inner.nia"),
+        ],
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(transported.changes.unwrap()[&entry_uri].len(), 2);
     let shared_destination = vec![
         file.clone(),
         directory.clone(),
