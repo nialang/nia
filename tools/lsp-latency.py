@@ -121,14 +121,21 @@ def benchmark(client, source, root, symbol, repeat):
     client.notify("initialized", {})
     text = source.read_text(encoding="utf-8")
     document = dict(uri=source.as_uri())
+    text_document = dict(textDocument=document)
+    cursor = dict(**text_document, position=position(text, symbol))
+    references = dict(**cursor, context=dict(includeDeclaration=True))
     opened = perf_counter()
     client.notify("textDocument/didOpen", {
         "textDocument": dict(**document, languageId="nia", version=1, text=text),
     })
-    text_document = dict(textDocument=document)
-    cursor = dict(**text_document, position=position(text, symbol))
-    references = dict(**cursor, context=dict(includeDeclaration=True))
-    first_highlight = client.measure("textDocument/semanticTokens/full", text_document)
+    highlight_request = client.request("textDocument/semanticTokens/full", text_document)
+    definition_request = client.request("textDocument/definition", cursor)
+    first_highlight, highlight_response = client.wait(highlight_request)
+    if "error" in highlight_response:
+        raise RuntimeError(highlight_response["error"]["message"])
+    cold_definition, definition_response = client.wait(definition_request)
+    if "error" in definition_response:
+        raise RuntimeError(definition_response["error"]["message"])
     first_diagnostics, _ = client.wait_diagnostics(document["uri"], 1)
     client.measure("textDocument/semanticTokens/full", text_document)
     cold_semantic = 1000 * (perf_counter() - opened)
@@ -138,7 +145,7 @@ def benchmark(client, source, root, symbol, repeat):
         "cold_diagnostics": summary([1000 * (first_diagnostics - opened)]),
         "cold_semantic_highlight": summary([cold_semantic]),
         "folding": summary([client.measure("textDocument/foldingRange", text_document) for _ in range(repeat)]),
-        "first_definition": summary([client.measure("textDocument/definition", cursor)]),
+        "cold_definition": dict(summary([cold_definition]), resolved=bool(definition_response["result"])),
         "warm_definition": summary([client.measure("textDocument/definition", cursor) for _ in range(repeat)]),
         "cold_references": summary([client.measure("textDocument/references", references)]),
         "warm_references": summary([client.measure("textDocument/references", references) for _ in range(repeat)]),
