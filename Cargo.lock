@@ -1709,6 +1709,7 @@ dependencies = [
  "nia-type-resolve",
  "serde",
  "serde_json",
+ "toml_edit",
  "url",
 ]
 

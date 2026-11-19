@@ -845,10 +845,7 @@ fn files_can_move_to_an_existing_package_dependency() {
 
     write("api/data.nia", "pub fun value() i32 { root::base() }\n");
     let error = move_file().unwrap_err();
-    assert!(
-        error.contains("needs a dependency on the original package"),
-        "{error}"
-    );
+    assert!(error.contains("package dependency cycle"), "{error}");
 }
 
 #[test]
@@ -868,7 +865,7 @@ fn package_move_preserves_paths_to_the_original_package() {
     );
     write(
         "kit/nia.toml",
-        "[package]\nname = \"kit\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n[dependencies]\noriginal = { path = \"../api\" }\n",
+        "[package]\nname = \"kit\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
     );
     write(
         "api/root.nia",
@@ -918,7 +915,7 @@ fn package_move_preserves_paths_to_the_original_package() {
             let lsp_types::OneOf::Left(edit) = edit else {
                 panic!("expected a plain text edit");
             };
-            assert_eq!(edit.new_text, "original");
+            assert_eq!(edit.new_text, "api");
         }
     }
 }

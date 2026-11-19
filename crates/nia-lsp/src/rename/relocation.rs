@@ -334,10 +334,10 @@ fn retain_relative_paths(
     }) {
         cancel.check()?;
         let mut edits = plan.edits.remove(file).unwrap_or_default();
-        let previous_root = if destination.crosses_package {
-            destination.previous_package_alias.as_deref()
+        let mut previous_root = if destination.crosses_package {
+            destination.previous_package_alias.clone()
         } else {
-            Some("root")
+            Some("root".to_owned())
         };
         for [token, separator] in tokenize(text).array_windows() {
             let suffix = match token.kind {
@@ -350,9 +350,16 @@ fn retain_relative_paths(
             {
                 continue;
             }
-            let previous_root = previous_root.ok_or_else(|| {
-                format!("The destination package needs a dependency on the original package to preserve a path in {file}")
-            })?;
+            if previous_root.is_none() {
+                previous_root = Some(plan.manifests.require(
+                    workspace,
+                    Path::new(&destination.parent),
+                    Path::new(declaring),
+                )?);
+            }
+            let previous_root = previous_root
+                .as_deref()
+                .expect("a replacement package root");
             let replacement = format!("{previous_root}{suffix}");
             let site = Site {
                 source: Arc::from(file.as_str()),

@@ -25,7 +25,9 @@ use crate::{
 type ShorthandFields = BTreeMap<String, BTreeMap<Span, (Site, usize)>>;
 
 mod generated;
+mod manifests;
 mod relocation;
+use manifests::ManifestEdits;
 use relocation::{NamespaceRewrite, RelocationDestination, collect_relocation};
 
 #[derive(Default)]
@@ -35,6 +37,7 @@ struct RenamePlan {
     shorthand: ShorthandFields,
     namespaces: Vec<NamespaceRewrite>,
     transferred: Bindings,
+    manifests: ManifestEdits,
 }
 
 impl Analysis {
@@ -271,6 +274,7 @@ impl Session {
             for (source, sites) in change.transferred {
                 plan.transferred.entry(source).or_default().extend(sites);
             }
+            plan.manifests.merge(change.manifests)?;
             for (source, spans) in change.edits {
                 let merged = plan.edits.entry(source).or_default();
                 for (span, text) in spans {
@@ -352,6 +356,7 @@ impl Session {
             shorthand,
             namespaces,
             transferred,
+            manifests,
         } = plan;
         for (index, (old, new)) in moves.iter().enumerate() {
             let conflicts = moves[..index].iter().any(|(other_old, other_new)| {
@@ -379,7 +384,8 @@ impl Session {
         let generated = self.project_generated_rename(workspace, documents, &mut edits, cancel)?;
         let files = &workspace.files;
         let mut updated = documents.clone();
-        let mut changes = Vec::new();
+        let manifest_edits = manifests.prepare(documents, cancel)?;
+        let mut changes = manifest_edits.text_edits()?;
         for (source, spans) in &edits {
             cancel.check()?;
             let path = PathBuf::from(source);
@@ -482,7 +488,15 @@ impl Session {
         });
         for entry in affected {
             cancel.check()?;
-            let request = &entry.request;
+            let proposed;
+            let request = if manifest_edits.proposed.is_empty() {
+                &entry.request
+            } else {
+                proposed = entry
+                    .request
+                    .with_manifest_edits(&mut verification.projects, &manifest_edits.proposed)?;
+                &proposed
+            };
             let after = verification
                 .analyze_request(request.clone(), cancel)
                 .map_err(|error| format!("Cannot verify rename in {request} ({error})"))?;
@@ -591,6 +605,7 @@ impl Session {
             check_destination(old, new)?;
         }
         self.verify_workspace_configuration(documents, cancel)?;
+        manifest_edits.verify_current()?;
         if resource_rename && !moves.is_empty() {
             let mut operations: Vec<_> = changes
                 .into_iter()
@@ -783,6 +798,7 @@ fn collect_rename(
         shorthand,
         namespaces: Vec::new(),
         transferred: Bindings::new(),
+        manifests: ManifestEdits::default(),
     })
 }
 

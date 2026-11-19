@@ -144,6 +144,7 @@ impl Package {
                     .with_module_map(modules),
                 context,
                 module: Some(module.key.clone()),
+                manifest_context: None,
             });
         }
         Ok(requests)

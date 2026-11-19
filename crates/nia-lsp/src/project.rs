@@ -51,6 +51,7 @@ pub(crate) struct EditorRequest {
     pub(crate) check: CheckRequest,
     pub(crate) context: CompilerContext,
     module: Option<ModuleKey>,
+    manifest_context: Option<Context>,
 }
 
 impl EditorRequest {
@@ -76,7 +77,30 @@ impl EditorRequest {
             check,
             context,
             module: None,
+            manifest_context: None,
         }
+    }
+
+    pub(crate) fn with_manifest_edits(
+        &self,
+        projects: &mut Projects,
+        edits: &BTreeMap<PathBuf, String>,
+    ) -> Result<Self, String> {
+        let Some(context) = self.manifest_context else {
+            if self.module.is_some() {
+                return Err(
+                    "An affected build plan must be regenerated to change its dependencies".into(),
+                );
+            }
+            return Ok(self.clone());
+        };
+        let entry = Path::new(self.check.entry_path.as_str());
+        let package = projects
+            .package(entry)?
+            .ok_or("Compilation package is unavailable")?;
+        let mut request = self.clone();
+        request.check.module_map = package.module_map_with_manifests(context, edits)?;
+        Ok(request)
     }
 }
 
@@ -495,7 +519,9 @@ impl Package {
             self.build_request(path, toolchain)
         } else {
             let check = self.request(path, context)?;
-            Ok(EditorRequest::manifest(check, *toolchain.artifact_target()))
+            let mut request = EditorRequest::manifest(check, *toolchain.artifact_target());
+            request.manifest_context = Some(context);
+            Ok(request)
         }
     }
 
@@ -535,10 +561,20 @@ impl Package {
             .request(path, Context::Build)?
             .with_profile(profile)
             .with_optimization(nia_driver::NiaOptimizationLevel::O0);
-        Ok(EditorRequest::manifest(check, target))
+        let mut request = EditorRequest::manifest(check, target);
+        request.manifest_context = Some(Context::Build);
+        Ok(request)
     }
 
     fn module_map(&self, context: Context) -> Result<ModuleMap, String> {
+        self.module_map_with_manifests(context, &BTreeMap::new())
+    }
+
+    fn module_map_with_manifests(
+        &self,
+        context: Context,
+        edits: &BTreeMap<PathBuf, String>,
+    ) -> Result<ModuleMap, String> {
         let root = self.layout.package_root();
         let installed = InstalledDependencies::read(&self.layout).map_err(|error| {
             format!(
@@ -548,7 +584,19 @@ impl Package {
         })?;
         let mut modules = ModuleMap::new();
         let mut seen = BTreeSet::new();
-        let mut pending = vec![(root.to_path_buf(), self.manifest.clone())];
+        let read = |root: &Path| {
+            if let Some(text) = edits.get(Path::new(&normalized(root))) {
+                PackageManifest::read_with_text(root, text)
+            } else if root == self.layout.package_root() {
+                Ok(self.manifest.clone())
+            } else {
+                PackageManifest::read(root)
+            }
+        };
+        let mut pending = vec![(
+            root.to_path_buf(),
+            read(root).map_err(|error| error.to_string())?,
+        )];
         while let Some((owner, manifest)) = pending.pop() {
             if !seen.insert(owner.clone()) {
                 continue;
@@ -585,7 +633,7 @@ impl Package {
                 else {
                     continue;
                 };
-                let target_manifest = PackageManifest::read(&target).map_err(|error| {
+                let target_manifest = read(&target).map_err(|error| {
                     format!(
                         "{}: dependency `{}`: {error}",
                         owner.display(),
