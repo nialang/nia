@@ -514,6 +514,99 @@ fn rename_moves_a_module_and_its_child_directory() {
 }
 
 #[test]
+fn file_rename_updates_the_live_module_declaration_and_imports() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-file-rename-module");
+    let entry = root.join("root.nia");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"example\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+    )
+    .unwrap();
+    let source = "module outer;\nfun use_it() i32 { outer::inner::value() }\n";
+    std::fs::write(&entry, source).unwrap();
+    std::fs::create_dir(root.join("outer")).unwrap();
+    std::fs::write(root.join("outer.nia"), "pub module inner;\n").unwrap();
+    std::fs::write(root.join("outer/inner.nia"), "pub fun value() i32 { 2 }\n").unwrap();
+    let entry_uri = uri(&entry).unwrap();
+    let documents = Documents::from([(
+        entry,
+        OpenDocument {
+            uri: entry_uri.clone(),
+            document: Document::new(7, format!("// Unsaved comment\n{source}")),
+        },
+    )]);
+    let rename = |from: &str, to: &str| lsp_types::FileRename {
+        old_uri: uri(&root.join(from)).unwrap().to_string(),
+        new_uri: uri(&root.join(to)).unwrap().to_string(),
+    };
+    let file = rename("outer.nia", "moved.nia");
+    let directory = rename("outer", "moved");
+    let mut session = test_session();
+    let folders = [root.to_path_buf()];
+    let mut request = |moves, versioned| {
+        session.will_rename_files(
+            moves,
+            &documents,
+            &folders,
+            versioned,
+            &Cancellation::default(),
+        )
+    };
+    let edit = request(vec![file.clone(), directory.clone()], true)
+        .unwrap()
+        .unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
+        panic!("expected text edits only");
+    };
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].text_document.uri, entry_uri);
+    assert_eq!(edits[0].text_document.version, Some(7));
+    let lines: Vec<_> = edits[0]
+        .edits
+        .iter()
+        .map(|edit| match edit {
+            lsp_types::OneOf::Left(edit) => {
+                assert_eq!(edit.new_text, "moved");
+                edit.range.start.line
+            }
+            _ => panic!("expected a plain text edit"),
+        })
+        .collect();
+    assert_eq!(lines, [1, 2]);
+    assert!(
+        request(vec![file.clone()], true)
+            .unwrap_err()
+            .contains("child directory")
+    );
+    assert!(
+        request(vec![directory.clone()], true)
+            .unwrap_err()
+            .contains("source file")
+    );
+    assert!(
+        request(vec![rename("outer.nia", "sub/moved.nia")], true)
+            .unwrap_err()
+            .contains("declaring module's directory")
+    );
+    assert!(
+        request(vec![rename("README.md", "README.txt")], true)
+            .unwrap()
+            .is_none()
+    );
+    let edit = request(vec![file.clone(), directory.clone()], false)
+        .unwrap()
+        .unwrap();
+    assert_eq!(edit.changes.unwrap()[&entry_uri].len(), 2);
+    std::fs::write(root.join("moved.nia"), "").unwrap();
+    assert!(
+        request(vec![file, directory], true)
+            .unwrap_err()
+            .contains("destination already exists")
+    );
+}
+
+#[test]
 fn rename_updates_fields_and_trait_methods_at_their_semantic_uses() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-rename-members");

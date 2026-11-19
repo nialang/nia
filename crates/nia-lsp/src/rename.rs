@@ -16,7 +16,7 @@ use nia_lexer::{TokenKind, tokenize};
 use nia_span::Span;
 
 use crate::{
-    analysis::{Analysis, Documents, OpenDocument, Session, Symbol, normalized, uri},
+    analysis::{Analysis, Documents, OpenDocument, Session, Symbol, normalized, path, uri},
     document::Document,
     workspace::{Binding, Bindings, Cancellation, Site, WorkspaceIndex, bindings},
 };
@@ -77,11 +77,111 @@ pub(crate) struct Rename<'a> {
 }
 
 impl Session {
+    pub(crate) fn will_rename_files(
+        &mut self,
+        files: Vec<lsp_types::FileRename>,
+        documents: &Documents,
+        folders: &[PathBuf],
+        versioned: bool,
+        cancel: &Cancellation,
+    ) -> Result<Option<WorkspaceEdit>, String> {
+        let decode = |uri: &str| uri.parse().ok().and_then(|uri| path(&uri));
+        let moves: BTreeSet<_> = files
+            .iter()
+            .filter_map(|file| Some((decode(&file.old_uri)?, decode(&file.new_uri)?)))
+            .filter(|(old, new)| old != new)
+            .collect();
+        let is_nia = |path: &Path| path.extension().is_some_and(|ext| ext == "nia");
+        let Some(anchor) = moves.iter().find_map(|(old, _)| {
+            if is_nia(old) {
+                return Some(old.clone());
+            }
+            // Module subtrees may have dots in an ancestor path. Append the extension
+            // to the final component, which is the module name.
+            let sibling = old.with_file_name(format!("{}.nia", old.file_name()?.to_str()?));
+            (old.is_dir() && sibling.is_file()).then_some(sibling)
+        }) else {
+            return Ok(None);
+        };
+        let workspace = self.workspace_index(&anchor, documents, folders, cancel)?;
+        let mut declared = moves.iter().filter_map(|(old, new)| {
+            Some((
+                old,
+                new,
+                workspace.module_declarations.get(&normalized(old))?,
+            ))
+        });
+        let Some((old, new, declarations)) = declared.next() else {
+            if moves.iter().any(|(old, _)| {
+                old.is_dir()
+                    && workspace.module_declarations.keys().any(|module| {
+                        Path::new(module).starts_with(old)
+                            || Path::new(module).with_extension("") == *old
+                    })
+            }) {
+                return Err("A module subtree must move with its source file".into());
+            }
+            return Ok(None);
+        };
+        if declared.next().is_some() || declarations.len() != 1 {
+            return Err("The file operation has multiple module declarations to update".into());
+        }
+        let new_name = new
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .filter(|_| is_nia(new))
+            .ok_or("A module destination must be a Nia source file")?;
+        if old.parent() != new.parent() {
+            return Err("A module source must stay in its declaring module's directory".into());
+        }
+        let declaration = declarations.first().expect("one declaration");
+        let source = Path::new(declaration.source.as_ref());
+        let analysis = self.analyze_with_cancel(documents, source, Some(cancel))?;
+        let file = analysis
+            .file(source)
+            .ok_or("Module declaration is unavailable")?;
+        if workspace
+            .files
+            .get(declaration.source.as_ref())
+            .map(|(_, text)| text)
+            != Some(&file.text)
+        {
+            return Err("The module declaration changed during the file operation".into());
+        }
+        let position = file.lines.range(&file.text, declaration.span).start;
+        self.rename_checked(
+            &analysis,
+            documents,
+            Rename {
+                path: source,
+                position,
+                new_name,
+                folders,
+                versioned,
+                resource_rename: false,
+            },
+            Some(&moves),
+            cancel,
+        )
+        .map(Some)
+    }
+
     pub(crate) fn rename(
         &mut self,
         analysis: &Analysis,
         documents: &Documents,
         request: Rename<'_>,
+        cancel: &Cancellation,
+    ) -> Result<WorkspaceEdit, String> {
+        self.rename_checked(analysis, documents, request, None, cancel)
+    }
+
+    fn rename_checked(
+        &mut self,
+        analysis: &Analysis,
+        documents: &Documents,
+        request: Rename<'_>,
+        client_moves: Option<&BTreeSet<(PathBuf, PathBuf)>>,
         cancel: &Cancellation,
     ) -> Result<WorkspaceEdit, String> {
         let Rename {
@@ -105,6 +205,11 @@ impl Session {
             .ok_or("The declaration is unavailable")?;
         let old = &analysis.files[source].text[span.start..span.end];
         if old == new_name {
+            if client_moves.is_some() {
+                return Err(
+                    "The module declaration does not match the requested file rename".into(),
+                );
+            }
             return Ok(WorkspaceEdit::default());
         }
         let target = Site {
@@ -120,13 +225,21 @@ impl Session {
             ));
         }
         let moves = if let Some(path) = analysis.module_file(symbol) {
-            if !resource_rename {
+            if !resource_rename && client_moves.is_none() {
                 return Err("The editor must support rename file operations".to_owned());
             }
             module_moves(Path::new(path), new_name, &workspace)?
         } else {
             Vec::new()
         };
+        if let Some(client_moves) = client_moves
+            && (moves.len() != client_moves.len()
+                || moves
+                    .iter()
+                    .any(|operation| !client_moves.contains(operation)))
+        {
+            return Err("The file operation must match the module source and its child directory, if present".into());
+        }
         if workspace
             .entries
             .iter()
@@ -351,18 +464,15 @@ impl Session {
                 return Err(format!("Source changed on disk ({source})"));
             }
         }
-        if !moves.is_empty() {
+        for (_, new) in &moves {
+            check_destination(new)?;
+        }
+        if !moves.is_empty() && client_moves.is_none() {
             let mut operations: Vec<_> = changes
                 .into_iter()
                 .map(DocumentChangeOperation::Edit)
                 .collect();
             for (old, new) in moves {
-                if new.exists() {
-                    return Err(format!(
-                        "Module destination already exists ({})",
-                        new.display()
-                    ));
-                }
                 operations.push(DocumentChangeOperation::Op(ResourceOp::Rename(
                     RenameFile {
                         old_uri: uri(&old).ok_or("Cannot form a source URI")?,
@@ -450,14 +560,23 @@ fn module_moves(
                 old.display()
             ));
         }
-        if std::fs::symlink_metadata(new).is_ok() {
-            return Err(format!(
-                "Module destination already exists ({})",
-                new.display()
-            ));
-        }
+        check_destination(new)?;
     }
     Ok(moves)
+}
+
+fn check_destination(path: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(_) => Err(format!(
+            "Module destination already exists ({})",
+            path.display()
+        )),
+        Err(error) => Err(format!(
+            "Cannot inspect module destination ({}) ({error})",
+            path.display()
+        )),
+    }
 }
 
 fn relocated(source: &str, moves: &Moves) -> Option<PathBuf> {

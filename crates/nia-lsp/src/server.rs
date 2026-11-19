@@ -34,6 +34,7 @@ const PREPARE_RENAME: &str = "textDocument/prepareRename";
 const REFERENCES: &str = "textDocument/references";
 const WORKSPACE_SYMBOL: &str = "workspace/symbol";
 const IMPLEMENTATION: &str = "textDocument/implementation";
+const WILL_RENAME_FILES: &str = "workspace/willRenameFiles";
 
 pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error> {
     let (connection, io) = Connection::stdio();
@@ -56,6 +57,18 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         },
     );
     let workspace = params.capabilities.workspace.unwrap_or_default();
+    let file_operations = workspace.file_operations.unwrap_or_default();
+    let mut file_rename = serde_json::Map::new();
+    let rename_filters = json!({ "filters": [
+        { "scheme": "file", "pattern": { "glob": "**/*.nia" } },
+        { "scheme": "file", "pattern": { "glob": "**", "matches": "folder" } }
+    ] });
+    if file_operations.will_rename.unwrap_or_default() {
+        file_rename.insert("willRename".into(), rename_filters.clone());
+    }
+    if file_operations.did_rename.unwrap_or_default() {
+        file_rename.insert("didRename".into(), rename_filters);
+    }
     let edit = workspace.workspace_edit.unwrap_or_default();
     let versioned_edits = edit.document_changes.unwrap_or_default();
     let resource_rename = versioned_edits
@@ -88,7 +101,10 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "referencesProvider": true,
                 "documentHighlightProvider": true,
                 "renameProvider": { "prepareProvider": true },
-                "workspace": { "workspaceFolders": { "supported": true, "changeNotifications": true } },
+                "workspace": {
+                    "workspaceFolders": { "supported": true, "changeNotifications": true },
+                    "fileOperations": file_rename
+                },
                 "hoverProvider": true,
                 "documentSymbolProvider": true,
                 "workspaceSymbolProvider": true,
@@ -183,7 +199,7 @@ impl Lane {
     fn for_request(request: &Request) -> Self {
         if matches!(
             request.method.as_str(),
-            REFERENCES | RENAME | WORKSPACE_SYMBOL | IMPLEMENTATION
+            REFERENCES | RENAME | WORKSPACE_SYMBOL | IMPLEMENTATION | WILL_RENAME_FILES
         ) {
             Self::Workspace
         } else {
@@ -238,25 +254,13 @@ fn analyze(
             continue;
         }
         if let Some(request) = &work.request
-            && request.method == WORKSPACE_SYMBOL
+            && matches!(
+                request.method.as_str(),
+                WORKSPACE_SYMBOL | WILL_RENAME_FILES
+            )
         {
-            let request = work.request.take().expect("workspace symbol request");
-            let response = match decode::<lsp_types::WorkspaceSymbolParams>(request.params) {
-                Ok(params) => match session
-                    .index_workspace(None, &work.documents, &work.folders, &work.cancel)
-                    .and_then(|index| index.symbols(&params.query, &work.cancel))
-                {
-                    Ok(symbols) => Response::new_ok(request.id, symbols),
-                    Err(error) => {
-                        Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
-                    }
-                },
-                Err(error) => Response::new_err(
-                    request.id,
-                    ErrorCode::InvalidParams as i32,
-                    error.to_string(),
-                ),
-            };
+            let request = work.request.take().expect("workspace request");
+            let response = workspace_query(&mut session, &work, request);
             if output
                 .send(Reply {
                     lane,
@@ -463,6 +467,38 @@ fn analyze(
     }
 }
 
+fn workspace_query(session: &mut Session, work: &Work, request: Request) -> Response {
+    let result = if request.method == WILL_RENAME_FILES {
+        decode::<lsp_types::RenameFilesParams>(request.params).map(|params| {
+            session
+                .will_rename_files(
+                    params.files,
+                    &work.documents,
+                    &work.folders,
+                    work.versioned_edits,
+                    &work.cancel,
+                )
+                .map(|edit| json!(edit))
+        })
+    } else {
+        decode::<lsp_types::WorkspaceSymbolParams>(request.params).map(|params| {
+            session
+                .index_workspace(None, &work.documents, &work.folders, &work.cancel)
+                .and_then(|index| index.symbols(&params.query, &work.cancel))
+                .map(|symbols| json!(symbols))
+        })
+    };
+    match result {
+        Ok(Ok(result)) => Response::new_ok(request.id, result),
+        Ok(Err(error)) => Response::new_err(request.id, ErrorCode::RequestFailed as i32, error),
+        Err(error) => Response::new_err(
+            request.id,
+            ErrorCode::InvalidParams as i32,
+            error.to_string(),
+        ),
+    }
+}
+
 fn semantic_response(
     request: Request,
     document: &Document,
@@ -591,7 +627,10 @@ impl Server {
     }
 
     fn request(&mut self, connection: &Connection, request: Request) -> Result<(), Error> {
-        if request.method == WORKSPACE_SYMBOL {
+        if matches!(
+            request.method.as_str(),
+            WORKSPACE_SYMBOL | WILL_RENAME_FILES
+        ) {
             self.pending
                 .push_back((PathBuf::new(), self.revision, request));
             return Ok(());
@@ -707,6 +746,10 @@ impl Server {
                 }),
             "textDocument/didSave" => decode::<DidSaveTextDocumentParams>(notification.params)
                 .map(|_| self.disk_changed()),
+            "workspace/didRenameFiles" => {
+                decode::<lsp_types::RenameFilesParams>(notification.params)
+                    .map(|_| self.disk_changed())
+            }
             "workspace/didChangeWatchedFiles" => {
                 decode::<DidChangeWatchedFilesParams>(notification.params).map(|params| {
                     if params

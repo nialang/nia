@@ -45,11 +45,13 @@ def smoke(server, root):
                 "capabilities": {"workspace": {
                     "semanticTokens": {"refreshSupport": True},
                     "didChangeWatchedFiles": {"dynamicRegistration": True},
+                    "fileOperations": {"willRename": True, "didRename": True},
                     "workspaceFolders": True,
                 }},
             })["capabilities"]
             assert capabilities["positionEncoding"] == "utf-16"
             assert capabilities["workspaceSymbolProvider"] and capabilities["typeDefinitionProvider"]
+            assert set(capabilities["workspace"]["fileOperations"]) == {"willRename", "didRename"}
             client.notify("initialized", {})
 
             canceled = client.request("workspace/symbol", {"query": "fixture::shapes::Shape"})
@@ -107,6 +109,27 @@ def smoke(server, root):
 
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)
+            renamed = root / "geometry.nia"
+            move = {"files": [{"oldUri": shapes.as_uri(), "newUri": renamed.as_uri()}]}
+            edit = request(client, "workspace/willRenameFiles", move)
+            assert set(edit) == {"changes"} and set(edit["changes"]) == {main.as_uri()}, edit
+            assert [item["newText"] for item in edit["changes"][main.as_uri()]] == [
+                "geometry", "geometry",
+            ], edit
+            updated = source.replace("width", "height")
+            lines = updated.splitlines(keepends=True)
+            for item in reversed(edit["changes"][main.as_uri()]):
+                start, end = item["range"]["start"], item["range"]["end"]
+                assert start["line"] == end["line"]
+                line = lines[start["line"]]
+                assert line[start["character"]:end["character"]] == "shapes"
+                lines[start["line"]] = line[:start["character"]] + item["newText"] + line[end["character"]:]
+            main.write_text("".join(lines), encoding="utf-8")
+            shapes.rename(renamed)
+            client.notify("workspace/didRenameFiles", move)
+            symbols = request(client, "workspace/symbol", {"query": "fixture::geometry::Shape"})
+            assert [symbol["location"]["uri"] for symbol in symbols] == [renamed.as_uri()], symbols
+
             other = root / "next-workspace"
             other.mkdir()
             (other / "nia.toml").write_text(manifest.replace("fixture", "next"), encoding="utf-8")

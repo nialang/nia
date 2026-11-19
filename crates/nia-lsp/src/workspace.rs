@@ -67,6 +67,7 @@ pub(crate) struct WorkspaceIndex {
     folders: Vec<PathBuf>,
     symbols: BTreeMap<(String, Span), WorkspaceDeclaration>,
     implementations: BTreeMap<Site, BTreeSet<Site>>,
+    pub(crate) module_declarations: BTreeMap<String, BTreeSet<Site>>,
     references: OnceLock<HashMap<Site, BTreeSet<Site>>>,
 }
 
@@ -134,6 +135,7 @@ impl Session {
             folders: folders.to_vec(),
             symbols: BTreeMap::new(),
             implementations: BTreeMap::new(),
+            module_declarations: BTreeMap::new(),
             references: OnceLock::new(),
         };
         for (request, kind) in workspace
@@ -168,6 +170,16 @@ impl Session {
                 Ok(analysis) => {
                     let error = analysis.first_error().map(str::to_owned);
                     let bindings = bindings(&analysis, cancel)?;
+                    for (module, source, span) in analysis.module_declarations() {
+                        index
+                            .module_declarations
+                            .entry(module.to_owned())
+                            .or_default()
+                            .insert(Site {
+                                source: Arc::from(source),
+                                span,
+                            });
+                    }
                     for (symbol, source, span) in analysis.workspace_implementations() {
                         cancel.check()?;
                         if let Some(target) = symbol_site(&analysis, symbol) {

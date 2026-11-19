@@ -963,6 +963,14 @@ impl Analysis {
         Some(self.graph.get(module)?.path.as_str())
     }
 
+    pub(crate) fn module_declarations(&self) -> impl Iterator<Item = (&str, &str, Span)> {
+        self.definitions
+            .iter()
+            .filter_map(|(&symbol, (source, span))| {
+                Some((self.module_file(symbol)?, source.as_str(), *span))
+            })
+    }
+
     pub(crate) fn first_error(&self) -> Option<&str> {
         self.diagnostics
             .iter()
