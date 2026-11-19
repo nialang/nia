@@ -655,8 +655,8 @@ fn files_can_move_between_declaring_modules() {
     let entry = root.join("root.nia");
     let source = concat!(
         "module left;\nmodule right;\n",
-        "using root::left::value as reading;\n",
-        "fun calculate() i32 { left::value::number() + reading::number() }\n",
+        "using root::left::{value as reading, retained};\n",
+        "fun calculate() i32 { left::value::number() + reading::number() + retained() }\n",
     );
     std::fs::write(&entry, source).unwrap();
     std::fs::create_dir(root.join("left")).unwrap();
@@ -666,7 +666,7 @@ fn files_can_move_between_declaring_modules() {
     std::fs::write(&payload, "pub fun number() i32 { 42 }\n").unwrap();
     std::fs::write(
         root.join("left.nia"),
-        "/// A reading.\npub module value; // exported\n",
+        "/// A reading.\npub module value; // exported\npub fun retained() i32 { 0 }\n",
     )
     .unwrap();
     std::fs::write(root.join("right.nia"), "// Destination\n").unwrap();
@@ -715,7 +715,11 @@ fn files_can_move_between_declaring_modules() {
     );
     assert_eq!(
         edits_for("root.nia"),
-        ["root::right::amount", "root::right::amount"]
+        [
+            "",
+            "\nusing root::right::amount as reading;",
+            "root::right::amount"
+        ]
     );
 }
 

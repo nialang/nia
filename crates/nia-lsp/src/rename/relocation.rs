@@ -9,7 +9,13 @@ pub(super) struct NamespaceRewrite {
     pub(super) old_range: Span,
     destination: Site,
     name: Span,
-    qualified: bool,
+    form: NamespaceForm,
+}
+
+enum NamespaceForm {
+    Declaration,
+    Path,
+    Import { suffix_end: usize },
 }
 
 impl NamespaceRewrite {
@@ -21,12 +27,18 @@ impl NamespaceRewrite {
     ) -> Option<Site> {
         let relative = if original == self.before.span {
             self.name
-        } else if self.qualified {
-            return None;
-        } else if original.end <= self.before.span.start {
+        } else if matches!(self.form, NamespaceForm::Declaration)
+            && original.end <= self.before.span.start
+        {
             let start = self.name.start - (self.before.span.start - original.start);
             Span::new(start, start + original.len())
-        } else if self.before.span.end <= original.start {
+        } else if self.before.span.end <= original.start
+            && match self.form {
+                NamespaceForm::Declaration => true,
+                NamespaceForm::Path => false,
+                NamespaceForm::Import { suffix_end } => original.end <= suffix_end,
+            }
+        {
             let start = self.name.end + original.start - self.before.span.end;
             Span::new(start, start + original.len())
         } else {
@@ -48,7 +60,7 @@ impl NamespaceRewrite {
         offsets: &EditOffsets<'_>,
         moves: &Moves,
     ) {
-        if self.qualified
+        if !matches!(self.form, NamespaceForm::Declaration)
             && let Some(name) = self.translated(self.before.span, offsets, moves)
         {
             let prefix = Span::new(name.span.start - self.name.start, name.span.start);
@@ -133,7 +145,7 @@ pub(super) fn collect_relocation(
                 span: insertion,
             },
             name,
-            qualified: false,
+            form: NamespaceForm::Declaration,
         }],
         ..RenamePlan::default()
     };
@@ -169,6 +181,7 @@ pub(super) fn collect_relocation(
         }
     }
     let mut tokens = BTreeMap::new();
+    let mut syntax = BTreeMap::new();
     for site in uses {
         cancel.check()?;
         if workspace.entries.iter().any(|entry| {
@@ -184,6 +197,27 @@ pub(super) fn collect_relocation(
             ));
         }
         let (_, text) = &workspace.files[site.source.as_ref()];
+        let parsed = syntax
+            .entry(site.source.clone())
+            .or_insert_with(|| nia_syntax::parse(text, None));
+        let root = parsed
+            .as_ref()
+            .map_err(|_| "Cannot parse module use")?
+            .tree
+            .green_root();
+        let prefix = analysis
+            .rooted_module_path(&site.source, parent)
+            .ok_or_else(|| {
+                format!(
+                    "Destination module has no visible path from {}",
+                    site.source
+                )
+            })?;
+        let replacement = format!("{prefix}::{new_name}");
+        if let Some(group) = grouped_import(root, site.span) {
+            move_grouped_import(&mut plan, text, site, &replacement, new_name.len(), group)?;
+            continue;
+        }
         let file_tokens = tokens
             .entry(site.source.clone())
             .or_insert_with(|| tokenize(text));
@@ -195,15 +229,6 @@ pub(super) fn collect_relocation(
                 site.source
             ));
         }
-        let prefix = analysis
-            .rooted_module_path(&site.source, parent)
-            .ok_or_else(|| {
-                format!(
-                    "Destination module has no visible path from {}",
-                    site.source
-                )
-            })?;
-        let replacement = format!("{prefix}::{new_name}");
         let name = Span::new(prefix.len() + 2, replacement.len());
         let edits = plan.edits.entry(site.source.to_string()).or_default();
         if edits
@@ -221,10 +246,147 @@ pub(super) fn collect_relocation(
                 span: range,
             },
             name,
-            qualified: true,
+            form: NamespaceForm::Path,
         });
     }
     Ok(plan)
+}
+
+struct GroupedImport {
+    directive: Span,
+    header_end: usize,
+    suffix_end: usize,
+    siblings: Option<(Span, Span)>,
+}
+
+fn grouped_import(root: &GreenNode, name: Span) -> Option<GroupedImport> {
+    let mut path = vec![root];
+    while let Some(child) = path
+        .last()?
+        .child_nodes()
+        .find(|child| contains(child.span(), name))
+    {
+        path.push(child);
+    }
+    let directive = path
+        .iter()
+        .position(|node| matches!(node.kind(), SyntaxKind::UsingStmt | SyntaxKind::UsingDecl))?;
+    let tree = path[directive]
+        .child(&SyntaxKind::UsingTree)?
+        .token_span()?;
+    let item = if path[directive - 1].kind() == &SyntaxKind::Item {
+        path[directive - 1]
+    } else {
+        path[directive]
+    };
+    let mut groups = path
+        .windows(2)
+        .filter(|pair| pair[0].kind() == &SyntaxKind::UsingGroup)
+        .rev();
+    let deepest = groups.next()?;
+    let selector = deepest[1].token_span()?;
+    let siblings = std::iter::once(deepest).chain(groups).find_map(|pair| {
+        let selected = pair[1].token_span()?;
+        let siblings = pair[0]
+            .child_nodes()
+            .filter_map(GreenNode::token_span)
+            .filter(|span| *span != selected);
+        siblings
+            .min_by_key(|span| span.start.abs_diff(selected.start))
+            .map(|neighbor| (selected, neighbor))
+    });
+    Some(GroupedImport {
+        directive: item.token_span()?,
+        header_end: tree.start,
+        suffix_end: selector.end,
+        siblings,
+    })
+}
+
+fn move_grouped_import(
+    plan: &mut RenamePlan,
+    text: &str,
+    site: Site,
+    replacement: &str,
+    name_len: usize,
+    group: GroupedImport,
+) -> Result<(), String> {
+    let mut rewritten = String::new();
+    let erase;
+    let destination;
+    if let Some((selector, neighbor)) = group.siblings {
+        let (gap, removed) = if selector.start < neighbor.start {
+            (
+                &text[selector.end..neighbor.start],
+                Span::new(selector.start, neighbor.start),
+            )
+        } else {
+            (
+                &text[neighbor.end..selector.start],
+                Span::new(neighbor.end, selector.end),
+            )
+        };
+        if !matches!(gap.trim(), "," | "") || gap.contains("//") {
+            return Err("Cannot move a grouped import across a comment".into());
+        }
+        erase = removed;
+        let line = text[..group.directive.start]
+            .rfind('\n')
+            .map_or(0, |line| line + 1);
+        let indent = &text[line..group.directive.start];
+        let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        let ending = text[group.directive.end..]
+            .find('\n')
+            .map_or(text.len(), |line| group.directive.end + line);
+        if text[group.directive.end..ending]
+            .trim_start()
+            .starts_with("//")
+        {
+            let ending = group.directive.end
+                + text[group.directive.end..ending]
+                    .trim_end_matches('\r')
+                    .len();
+            destination = Span::new(ending, ending);
+        } else {
+            destination = Span::new(group.directive.end, group.directive.end);
+        };
+        rewritten.push_str(newline);
+        if indent.trim().is_empty() {
+            rewritten.push_str(indent);
+        }
+    } else {
+        erase = group.directive;
+        destination = group.directive;
+    }
+    if text[erase.start..site.span.start].contains("//")
+        || text[group.suffix_end..erase.end.max(group.suffix_end)].contains("//")
+    {
+        return Err("Cannot drop a comment while moving a grouped import".into());
+    }
+    rewritten.push_str(&text[group.directive.start..group.header_end]);
+    rewritten.push_str(replacement);
+    let name = Span::new(rewritten.len() - name_len, rewritten.len());
+    rewritten.push_str(&text[site.span.end..group.suffix_end]);
+    rewritten.push(';');
+    let edits = plan.edits.entry(site.source.to_string()).or_default();
+    if erase != destination && edits.insert(erase, String::new()).is_some()
+        || edits.insert(destination, rewritten).is_some()
+    {
+        return Err("Grouped import moves require overlapping edits".into());
+    }
+    plan.namespaces.push(NamespaceRewrite {
+        before: site.clone(),
+        old_range: erase,
+        destination: Site {
+            source: site.source,
+            span: destination,
+        },
+        name,
+        form: NamespaceForm::Import {
+            suffix_end: group.suffix_end,
+        },
+    });
+    Ok(())
 }
 
 fn declaration_item(root: &GreenNode, name: Span) -> Option<&GreenNode> {

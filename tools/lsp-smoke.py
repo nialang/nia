@@ -570,11 +570,11 @@ def smoke_module_move(server, root):
     sources = {
         entry: (
             "module left;\nmodule right;\n"
-            "using root::left::value as reading;\n"
-            "fun calculate() i32 { left::value::number() + reading::extra::bonus() }\n"
+            "using root::{left::{value as reading}, right::base}; // Keep the import comment.\n"
+            "fun calculate() i32 { left::value::number() + reading::extra::bonus() + base() }\n"
         ),
         left: "/// Reading data.\npub module value; // Keep this comment.\n",
-        right: "// Destination\n",
+        right: "// Destination\npub fun base() i32 { 3 }\n",
         old: "pub module extra;\npub fun number() i32 { 42 }\n",
         old_tree / "extra.nia": "pub fun bonus() i32 { 2 }\n",
     }
@@ -617,7 +617,9 @@ def smoke_module_move(server, root):
                 path.write_bytes(text.encode("utf-8"))
             assert sources[left] == "", sources[left]
             assert sources[right].endswith("/// Reading data.\npub module amount; // Keep this comment.\n")
-            assert "root::right::amount::number() + reading::extra::bonus()" in sources[entry]
+            assert "root::right::amount::number() + reading::extra::bonus() + base()" in sources[entry]
+            assert "using root::{right::base}; // Keep the import comment." in sources[entry]
+            assert "using root::right::amount as reading;" in sources[entry]
             old.rename(new)
             old_tree.rename(new_tree)
             client.notify("workspace/didRenameFiles", move)
