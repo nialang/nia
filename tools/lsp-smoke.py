@@ -2,6 +2,7 @@
 """Exercise a packaged Nia language server over stdio."""
 
 import argparse
+import json
 from pathlib import Path
 import runpy
 import subprocess
@@ -420,12 +421,148 @@ def smoke(server, root):
                 process.kill()
 
 
+def smoke_build_context(server, root):
+    compiler = server.with_name("nia" + server.suffix)
+    member = root / "app"
+
+    def write(path, text):
+        file = root / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(text, encoding="utf-8", newline="\n")
+        return file
+
+    write('nia.toml', '[workspace]\nmembers = ["app", "flags"]\n')
+    flags = write('flags/root.nia', 'pub fun marker() i32 { 1 }\n')
+    write('flags/nia.toml', '[package]\nname = "flags"\nversion = "1.0.0"\n[library]\npath = "root.nia"\n')
+    write('app/nia.toml', '''[package]
+name = "matrix"
+version = "1.0.0"
+[library]
+path = "root.nia"
+[[test]]
+name = "unit"
+path = "unit.nia"
+[build-dependencies]
+flags = { path = "../flags" }
+''')
+    library = write('app/root.nia', 'pub fun answer() i32 { 42 }\n')
+    unit_src = '''using matrix;
+using std::process;
+@[test] fun test_value() i32 { matrix::answer() }
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    _ = test_value();
+    !()
+}
+'''
+    unit = write('app/unit.nia', unit_src)
+    build_src = r'''using std::build;
+using std::fs;
+using flags;
+pub fun build(b: &mut build::Build) build::Error!() {
+    _ = flags::marker();
+    let generated = build::BuildPathView::init("generated.nia");
+    _ = b.addGeneratedFileStep("generate", generated, b"pub fun marker() i32 { 1 }\n").?;
+    let imports = [build::ModuleImport::fromBuild("generated", generated)];
+    let app = b.addModule(build::ModuleOptions::init("app", fs::PathView::init("main.nia")).withImports(imports)).?;
+    let exe = b.addExecutable(build::ExecutableOptions::init("app", app)).?;
+    _ = b.addCheckExecutableStep("check", exe).?;
+    !()
+}
+'''
+    build = write('app/build.nia', build_src)
+    app_src = '''using generated;
+using std::process;
+@[debug] @[if os == "windows" and not hasFeature("avx2")] fun selected() i32 { 0 }
+@[release] @[if os == "linux" and hasFeature("avx2")] fun selected() i32 { 1 }
+pub fun main(init: process::Init) process::ExitCode!() {
+    _ = init;
+    _ = selected();
+    _ = generated::marker();
+    !()
+}
+'''
+    app = write('app/main.nia', app_src)
+    plan = root / 'build/out/app/build-plan.bin'
+    generated = plan.with_name('generated.nia')
+
+    def run(step, *args, status=0):
+        command = [str(compiler), "build", step, "--diagnostics-format=json", *args]
+        completed = subprocess.run(
+            command, cwd=member, capture_output=True, text=True, encoding="utf-8", timeout=180,
+        )
+        assert completed.returncode == status, completed.stdout + completed.stderr
+        assert plan.is_file(), plan
+        if status:
+            return json.loads(completed.stderr)["diagnostics"]
+
+    run('library')
+    run("check", "--debug", "--cpu", "baseline", "--target", "x86_64-pc-windows-msvc")
+    with subprocess.Popen([str(server)], cwd=root,
+                          stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
+        try:
+            client = Client(process, 60)
+            request(client, 'initialize', {'processId': None, 'rootUri': root.as_uri(), 'capabilities': {}})
+            client.notify('initialized', {})
+
+            def opened(file, source):
+                client.notify('textDocument/didOpen', {'textDocument': {
+                    'uri': file.as_uri(), 'languageId': 'nia', 'version': 1, 'text': source,
+                }})
+                _, diagnostics = client.wait_diagnostics(file.as_uri(), 1)
+                return diagnostics
+
+            def definition(file, source, needle):
+                return request(client, 'textDocument/definition', {'textDocument': {'uri': file.as_uri()},
+                                                                   'position': position(source, needle)})
+
+            def changed(file):
+                client.notify('workspace/didChangeWatchedFiles', {'changes': [{'uri': file.as_uri(), 'type': 2}]})
+
+            assert opened(app, app_src) == []
+            assert definition(app, app_src, 'selected();')['range']['start']['line'] == 2
+            assert definition(app, app_src, 'marker();')['uri'] == generated.as_uri()
+            assert opened(build, build_src) == []
+            assert definition(build, build_src, 'marker();')['uri'] == flags.as_uri()
+            run('check', '--release', '--cpu', 'x86_64-v3', '--target', 'x86_64-unknown-linux')
+            changed(plan)
+            assert definition(app, app_src, 'selected();')['range']['start']['line'] == 3
+            assert definition(app, app_src, 'marker();')['uri'] == generated.as_uri()
+            build_error, = run("check", "--release", "--cpu", "baseline", "--target",
+                               "x86_64-unknown-linux", status=1)
+            assert Path(build_error["path"]).resolve() == app, build_error
+            assert "selected" in build_error["summary"], build_error
+            changed(plan)
+            _, diagnostics = client.wait_diagnostics(app.as_uri(), 1, lambda items: any(
+                diagnostic["severity"] == 1 and build_error["summary"] in diagnostic["message"]
+                for diagnostic in items
+            ))
+            diagnostic, = diagnostics
+            assert diagnostic["code"] == build_error["code"], (diagnostic, build_error)
+            assert diagnostic["range"]["start"] == position(app_src, "selected();"), diagnostic
+            run('unit')
+            changed(plan)
+            assert opened(unit, unit_src) == []
+            assert definition(unit, unit_src, 'answer()')['uri'] == library.as_uri()
+            assert definition(unit, unit_src, 'test_value();')['range']['start']['line'] == 2
+            request(client, 'shutdown', None)
+            client.notify('exit', None)
+            process.stdin.close()
+            assert process.wait(timeout=30) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("server", type=Path)
     args = parser.parse_args()
+    server = args.server.resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix="nia-lsp-smoke-") as directory:
-        smoke(args.server.resolve(strict=True), Path(directory).resolve())
+        smoke(server, Path(directory).resolve())
+    with tempfile.TemporaryDirectory(prefix="nia-lsp-build-smoke-") as directory:
+        smoke_build_context(server, Path(directory).resolve())
 
 
 if __name__ == "__main__":
