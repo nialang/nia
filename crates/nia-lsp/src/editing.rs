@@ -150,12 +150,43 @@ impl Analysis {
                 continue;
             }
             pending.extend(node.child_nodes());
-            if node.kind() != &SyntaxKind::CallExpr
-                || syntax
-                    .errors
-                    .iter()
-                    .any(|error| span.start <= error.span.start && error.span.start < span.end)
+            if !matches!(
+                node.kind(),
+                SyntaxKind::CallExpr | SyntaxKind::LetStmt | SyntaxKind::ForStmt
+            ) || syntax
+                .errors
+                .iter()
+                .any(|error| span.start <= error.span.start && error.span.start < span.end)
             {
+                continue;
+            }
+            if node.kind() != &SyntaxKind::CallExpr {
+                if !node.child_nodes().any(|child| child.kind().is_type())
+                    && let Some(pattern) =
+                        node.child_nodes().find(|child| child.kind().is_pattern())
+                {
+                    let mut patterns = vec![pattern];
+                    while let Some(pattern) = patterns.pop() {
+                        cancel.check().ok()?;
+                        patterns.extend(pattern.child_nodes());
+                        if pattern.kind() == &SyntaxKind::BindPattern
+                            && let Some(name) = pattern.token(&TokenKind::Ident)
+                            && (start..end).contains(&name.span().end)
+                            && let Some(label) = self.local_type_hint(file, name.span())
+                        {
+                            hints.push(InlayHint {
+                                position: file.lines.position(&file.text, name.span().end),
+                                label: format!(": {label}").into(),
+                                kind: Some(InlayHintKind::TYPE),
+                                text_edits: None,
+                                tooltip: None,
+                                padding_left: None,
+                                padding_right: None,
+                                data: None,
+                            });
+                        }
+                    }
+                }
                 continue;
             }
             let Some(arguments) = node.child(&SyntaxKind::ArgList) else {

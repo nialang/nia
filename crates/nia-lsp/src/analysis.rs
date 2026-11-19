@@ -1271,6 +1271,70 @@ impl Analysis {
         }
     }
 
+    pub(crate) fn local_type_hint(&self, file: &File, declaration: Span) -> Option<String> {
+        let ty = *file.expr_types.get(&declaration)?;
+        self.type_hint(ty, 16)
+    }
+
+    fn type_hint(&self, ty: InternedTyId, depth: usize) -> Option<String> {
+        let depth = depth.checked_sub(1)?;
+        let render = |ty| self.type_hint(ty, depth);
+        let list = |types: &[InternedTyId]| {
+            types
+                .iter()
+                .map(|&ty| render(ty))
+                .collect::<Option<Vec<_>>>()
+                .map(|names| names.join(", "))
+        };
+        let mutability = |readonly| if readonly { "" } else { "mut " };
+        Some(match self.types.get(ty)? {
+            TyKind::Primitive(primitive) => primitive.name().to_owned(),
+            TyKind::BuiltinType(builtin) => builtin.name().to_owned(),
+            TyKind::SelfParam => "Self".to_owned(),
+            TyKind::GenericParam(name) => self.db.source_symbol_text(*name)?.to_string(),
+            TyKind::Tuple(types) if types.len() == 1 => format!("({},)", render(types[0])?),
+            TyKind::Tuple(types) => format!("({})", list(types)?),
+            TyKind::Optional { elem } => format!("?{}", render(*elem)?),
+            TyKind::ErrorUnion { error, value } => {
+                format!("{}!{}", render(*error)?, render(*value)?)
+            }
+            TyKind::Pointer { is_readonly, elem } => {
+                format!("&{}{}", mutability(*is_readonly), render(*elem)?)
+            }
+            TyKind::VolatilePointer { is_readonly, elem } => {
+                format!("^{}{}", mutability(*is_readonly), render(*elem)?)
+            }
+            TyKind::Slice { is_readonly, elem } => {
+                format!("&{}[{}]", mutability(*is_readonly), render(*elem)?)
+            }
+            TyKind::SlicePointee { elem } => format!("[{}]", render(*elem)?),
+            TyKind::Array { len, elem } => {
+                let length = match len {
+                    nia_ty::ArrayLenTy::ConstValue(length) => length.to_string(),
+                    nia_ty::ArrayLenTy::GenericParam(name) => {
+                        self.db.source_symbol_text(*name)?.to_string()
+                    }
+                    _ => return None,
+                };
+                format!("[{}; {length}]", render(*elem)?)
+            }
+            TyKind::Nominal {
+                def_id,
+                args,
+                const_args,
+            } if const_args.is_empty() => {
+                let def = self.defs.get(&def_id.module_id)?.defs.get(def_id.def_id)?;
+                let name = self.db.source_symbol_text(def.name)?;
+                if args.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name}[{}]", list(args)?)
+                }
+            }
+            _ => return None,
+        })
+    }
+
     fn nominal_fields(&self, id: GlobalDefId) -> Option<&nia_defs::NameTable> {
         let defs = self.defs.get(&id.module_id)?;
         let scope = defs
@@ -2807,6 +2871,61 @@ mod tests {
         };
         assert_eq!(hint.position, range.start);
         assert!(matches!(&hint.label, lsp_types::InlayHintLabel::String(name) if name == "value:"));
+    }
+
+    #[test]
+    fn inlay_hints_show_types_of_unannotated_binding_patterns() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let path = test_dir("lsp-inferred-hints").join("main.nia");
+        let source = concat!(
+            "struct Boxed[T] { item: T }\n",
+            "fun make() Boxed[i32] { .{ item: 1 } }\n",
+            "fun inspect() () {\n",
+            "    let value = make();\n",
+            "    let (number, flag) = (3i32, true);\n",
+            "    let explicit: i32 = number;\n",
+            "    _ = (value, flag, explicit);\n",
+            "}\n",
+        );
+        let document = Document::new(1, source.into());
+        let documents = Documents::from([(
+            path.clone(),
+            OpenDocument {
+                uri: uri(&path).unwrap(),
+                document: document.clone(),
+            },
+        )]);
+        let analysis = test_session().analyze(&documents, &path).unwrap();
+        assert_eq!(analysis.first_error(), None);
+        let range = document.lines.range(source, Span::new(0, source.len()));
+        let hints = analysis
+            .inlay_hints(&path, range, &Cancellation::default())
+            .unwrap();
+        let labels: Vec<_> = hints
+            .into_iter()
+            .filter_map(|hint| {
+                if let lsp_types::InlayHintLabel::String(label) = hint.label {
+                    Some((hint.position, hint.kind, label))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let hint = |line, column, label: &str| {
+            (
+                Position::new(line, column),
+                Some(lsp_types::InlayHintKind::TYPE),
+                label.into(),
+            )
+        };
+        assert_eq!(
+            labels,
+            [
+                hint(3, 13, ": Boxed[i32]"),
+                hint(4, 15, ": i32"),
+                hint(4, 21, ": bool")
+            ]
+        );
     }
 
     #[test]

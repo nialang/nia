@@ -6,15 +6,16 @@ definition and type-definition navigation, workspace symbol search,
 trait implementation navigation, call hierarchy, hover at resolved names, workspace references,
 occurrence highlighting in the current file, completion for
 local names, module members, receiver fields and methods, signature help for
-source functions and resolved methods, parameter name inlay hints,
+source functions and resolved methods, parameter name and inferred local type hints,
 diagnostic quick fixes, document formatting, outline, folding, and semantic
 highlighting. Callable completions, hovers, and signature help include
 declaration signatures and adjacent triple-slash documentation. Named field accesses
 also support definition navigation and references. Receiver completion
 checks method names from declarations in the current analysis graph.
-When an unqualified name has no visible completion, the server can offer a
-unique import from the analyzed modules. It checks the completed name and
-the added `using` together against the compiler before returning the edits.
+When an unqualified name has no visible completion, the server searches
+available modules and declared dependencies for imports. It checks each
+completed name and added `using` together against the compiler before
+returning the edits.
 Definition and reference lookup cover resolved type names, module and block
 `using` selectors for types and values, and module alias bindings.
 Outline and folding use the current buffer's syntax tree, including unsaved
