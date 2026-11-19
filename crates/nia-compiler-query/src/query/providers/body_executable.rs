@@ -1060,7 +1060,10 @@ pub(in crate::query) fn editor_receiver_methods(
     module_id: ModuleId,
     receiver: nia_span::Span,
     names: &[SymbolId],
-) -> QueryResult<(Vec<SymbolId>, Vec<crate::ProviderDemand>)> {
+) -> QueryResult<(
+    Vec<nia_body_check::EditorMethodCandidate>,
+    Vec<crate::ProviderDemand>,
+)> {
     let defs = full_module_defs_semantic(db, module_id)?;
     let owner = defs
         .defs

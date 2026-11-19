@@ -234,7 +234,7 @@ impl Session {
             return analysis.complete(path, position);
         };
         let names = analysis.method_names(member.prefix(&file.text));
-        let fields = member.candidates(analysis, file, &[]);
+        let fields = member.candidates(analysis, file, &[], cancel);
         let candidates = if names.is_empty() && fields.is_some() {
             fields
         } else {
@@ -253,7 +253,7 @@ impl Session {
                     self.analyze_with_cancel(&overlay, path, Some(cancel))
                         .ok()
                         .and_then(|checked| {
-                            member.candidates(&checked, checked.file(path)?, &names)
+                            member.candidates(&checked, checked.file(path)?, &names, cancel)
                         })
                         .or(fields)
                 },
@@ -1068,21 +1068,36 @@ impl Analysis {
         file: &File,
         receiver: Span,
         names: &[SymbolId],
-    ) -> Option<Vec<(String, CompletionItemKind)>> {
+        cancel: &Cancellation,
+    ) -> Option<Vec<lsp_types::CompletionItem>> {
         let mut members: Vec<_> = self
             .receiver_fields(file, receiver)?
             .into_iter()
-            .map(|name| (name, CompletionItemKind::FIELD))
+            .map(|label| lsp_types::CompletionItem {
+                label,
+                kind: Some(CompletionItemKind::FIELD),
+                ..lsp_types::CompletionItem::default()
+            })
             .collect();
-        if let Ok(methods) = self
-            .db
-            .source_receiver_methods(file.module, receiver, names)
+        if let Ok(methods) =
+            self.db
+                .source_receiver_methods(file.module, receiver, names, Some(cancel.token()))
         {
-            members.extend(methods.into_iter().filter_map(|name| {
-                Some((
-                    self.db.source_symbol_text(name)?.to_string(),
-                    CompletionItemKind::METHOD,
-                ))
+            members.extend(methods.into_iter().filter_map(|method| {
+                let label = self.db.source_symbol_text(method.name)?.to_string();
+                let mut item = lsp_types::CompletionItem {
+                    label,
+                    kind: Some(CompletionItemKind::METHOD),
+                    ..lsp_types::CompletionItem::default()
+                };
+                if let Some((source, span)) = method.declaration
+                    && let Some(source) = self.files.get(source.as_str())
+                    && let Some(callable) = crate::editing::CallableDeclaration::at(source, span)
+                    && callable.name == item.label
+                {
+                    callable.describe_completion(&mut item);
+                }
+                Some(item)
             }));
         }
         Some(members)
@@ -2655,6 +2670,7 @@ mod tests {
                 "pub trait Scored { fun score(&self) i32; }\n",
                 "extend Counter : Scored { fun score(&self) i32 { self.value } }\n",
                 "extend Counter {\n",
+                "    /// Reads the counter plus an offset.\n",
                 "    pub fun read(&self, extra: i32) i32 { self.value + extra }\n",
                 "    pub fun reset(&mut self) { self.value = 0; }\n",
                 "    pub fun create() i32 { 0 }\n",
@@ -2723,6 +2739,21 @@ mod tests {
                 expected,
                 "{line}{suffix}"
             );
+            if let Some(read) = items.iter().find(|item| item.label == "read") {
+                assert_eq!(
+                    read.detail.as_deref(),
+                    Some("fun read(&self, extra: i32) i32")
+                );
+                assert_eq!(
+                    read.documentation,
+                    Some(lsp_types::Documentation::String(
+                        "Reads the counter plus an offset.".into(),
+                    ))
+                );
+            }
+            if let Some(score) = items.iter().find(|item| item.label == "score") {
+                assert_eq!(score.detail.as_deref(), Some("fun score(&self) i32"));
+            }
         }
     }
 

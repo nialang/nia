@@ -51,6 +51,14 @@ pub struct SourceTraitImplementations {
     /// Local member definition and the trait member it implements.
     pub members: Vec<(DefId, GlobalDefId)>,
 }
+
+/// Source metadata for an applicable receiver method.
+pub struct SourceReceiverMethod {
+    /// Method spelling.
+    pub name: SymbolId,
+    /// Physical source and declaration span when the receiver identifies one member.
+    pub declaration: Option<(SourcePath, Span)>,
+}
 use nia_public_surface::{
     TypeExposureIndex, compute_exported_public_surfaces_with_symbols,
     compute_using_scopes_from_surfaces_with_symbols,
@@ -333,16 +341,41 @@ impl CompilerDatabase {
         module: ModuleId,
         receiver: nia_span::Span,
         names: &[SymbolId],
-    ) -> QueryResult<Vec<SymbolId>> {
+        cancel: Option<&CancellationToken>,
+    ) -> QueryResult<Vec<SourceReceiverMethod>> {
         if names.is_empty() {
             return Ok(Vec::new());
         }
-        let (candidates, _) = self.settle_provider_worklist(
+        let (candidates, _) = settlement::settle_provider_worklist(
+            self,
             false,
             |database| editor_receiver_methods(&database.db, module, receiver, names),
             |(_, demands)| demands.clone(),
+            cancel,
         )?;
-        Ok(candidates)
+        let graph = self.current_graph()?;
+        candidates
+            .into_iter()
+            .map(|candidate| {
+                if let Some(cancel) = cancel {
+                    cancel.check()?;
+                }
+                let declaration = match candidate.declaration {
+                    Some(id) => {
+                        let definitions = self.source_definitions(id.module_id)?;
+                        graph
+                            .get(id.module_id)
+                            .zip(definitions.defs.get(id.def_id))
+                            .map(|(module, def)| (module.path.clone(), def.span))
+                    }
+                    None => None,
+                };
+                Ok(SourceReceiverMethod {
+                    name: candidate.name,
+                    declaration,
+                })
+            })
+            .collect()
     }
 
     /// Checks every loaded module after settling provider-demand fixed points.

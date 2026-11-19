@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::BodyChecker;
 use crate::calls::args::CallTarget;
 use crate::calls::generic_args::InferableGenerics;
+use crate::{BodyChecker, EditorMethodCandidate};
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_defs::VisibleExtensionMethod;
 use nia_diagnostic::{Diagnostic, codes};
@@ -109,30 +109,43 @@ impl<'a> BodyChecker<'a> {
         receiver: &Expr,
         ty: InternedTyId,
         names: &[SymbolId],
-    ) -> Vec<SymbolId> {
+    ) -> Vec<EditorMethodCandidate> {
         names
             .iter()
             .copied()
-            .filter(|name| {
-                let resolution = self.method_receiver_resolution(receiver, ty, name);
+            .filter_map(|name| {
+                let resolution = self.method_receiver_resolution(receiver, ty, &name);
                 if resolution.candidates.is_empty()
                     && resolution.trait_candidates.is_empty()
                     && resolution.dynamic_candidates.is_empty()
                 {
-                    self.record_method_provider_demand(resolution.receiver_ty, *name);
+                    self.record_method_provider_demand(resolution.receiver_ty, name);
                 }
-                resolution.candidates.iter().any(|candidate| {
-                    candidate.inaccessible_visibility.is_none()
+                let mut declarations = Vec::new();
+                for candidate in &resolution.candidates {
+                    if candidate.inaccessible_visibility.is_none()
                         && self
                             .resolved_function_signature(candidate.method.def_id)
                             .is_some_and(|resolved| {
                                 self.editor_receiver_accepts(receiver, ty, &resolved.signature)
                             })
-                }) || resolution.trait_candidates.iter().any(|candidate| {
-                    self.editor_receiver_accepts(receiver, ty, &candidate.signature)
-                }) || resolution.dynamic_candidates.iter().any(|candidate| {
-                    self.editor_receiver_accepts(receiver, ty, &candidate.signature)
-                })
+                    {
+                        declarations.push(candidate.method.def_id);
+                    }
+                }
+                for candidate in &resolution.trait_candidates {
+                    if self.editor_receiver_accepts(receiver, ty, &candidate.signature) {
+                        declarations.push(candidate.trait_method_id);
+                    }
+                }
+                for candidate in &resolution.dynamic_candidates {
+                    if self.editor_receiver_accepts(receiver, ty, &candidate.signature) {
+                        declarations.push(candidate.method_id);
+                    }
+                }
+                let first = *declarations.first()?;
+                let declaration = declarations.iter().all(|&id| id == first).then_some(first);
+                Some(EditorMethodCandidate { name, declaration })
             })
             .collect()
     }

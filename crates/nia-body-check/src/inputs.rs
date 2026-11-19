@@ -1,11 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+/// A receiver method checked in the current lexical scope.
+pub struct EditorMethodCandidate {
+    /// Callable member name.
+    pub name: SymbolId,
+    /// Declaration when all accepted candidates have the same source.
+    pub declaration: Option<GlobalDefId>,
+}
+
 /// One editor-only receiver lookup in the lexical context of its expression.
 pub struct EditorMethodProbe<'a> {
     pub(crate) receiver: Span,
     pub(crate) names: &'a [SymbolId],
-    pub(crate) result: RefCell<Option<Vec<SymbolId>>>,
+    pub(crate) result: RefCell<Option<Vec<EditorMethodCandidate>>>,
 }
 
 impl<'a> EditorMethodProbe<'a> {
@@ -17,7 +25,7 @@ impl<'a> EditorMethodProbe<'a> {
         }
     }
 
-    pub fn into_candidates(self) -> Vec<SymbolId> {
+    pub fn into_candidates(self) -> Vec<EditorMethodCandidate> {
         self.result.into_inner().unwrap_or_default()
     }
 }

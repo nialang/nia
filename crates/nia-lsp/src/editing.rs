@@ -14,6 +14,7 @@ use nia_symbol::SymbolId;
 use nia_syntax::{GreenNode, SyntaxKind};
 
 use crate::analysis::{Analysis, File, Symbol};
+use crate::workspace::Cancellation;
 
 pub(crate) struct MemberCompletion {
     dot: usize,
@@ -55,10 +56,11 @@ impl MemberCompletion {
         analysis: &Analysis,
         file: &File,
         names: &[SymbolId],
-    ) -> Option<Vec<(String, CompletionItemKind)>> {
+        cancel: &Cancellation,
+    ) -> Option<Vec<CompletionItem>> {
         let root = file.syntax()?.tree.green_root();
         let receiver = receiver_at_dot(root, self.dot)?;
-        analysis.receiver_members(file, receiver, names)
+        analysis.receiver_members(file, receiver, names, cancel)
     }
 
     pub(crate) fn prefix<'a>(&self, source: &'a str) -> &'a str {
@@ -69,16 +71,21 @@ impl MemberCompletion {
         &self,
         source: &str,
         lines: &crate::document::Lines,
-        candidates: Vec<(String, CompletionItemKind)>,
+        mut candidates: Vec<CompletionItem>,
     ) -> Vec<CompletionItem> {
         let prefix = self.prefix(source);
         let range = lines.range(source, self.replace);
-        let mut candidates = candidates;
-        candidates.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        candidates.sort_unstable_by(|left, right| left.label.cmp(&right.label));
         candidates
             .into_iter()
-            .filter(|(name, _)| name.starts_with(prefix))
-            .map(|(name, kind)| completion_item(name, Some(kind), range))
+            .filter(|item| item.label.starts_with(prefix))
+            .map(|mut item| {
+                item.text_edit = Some(CompletionTextEdit::Edit(TextEdit::new(
+                    range,
+                    item.label.clone(),
+                )));
+                item
+            })
             .collect()
     }
 }
@@ -194,8 +201,7 @@ impl Analysis {
                     ) && let Some(callable) =
                         symbol.and_then(|symbol| self.callable_declaration(symbol))
                     {
-                        item.detail = Some(callable.signature.to_owned());
-                        item.documentation = callable.documentation.map(Documentation::String);
+                        callable.describe_completion(&mut item);
                     }
                     Some(item)
                 })
@@ -250,23 +256,7 @@ impl Analysis {
 
     pub(crate) fn callable_declaration(&self, symbol: Symbol) -> Option<CallableDeclaration<'_>> {
         let (file, name) = self.declaration_file(symbol)?;
-        let root = file.syntax()?.tree.green_root();
-        let (function, documentation_start) = enclosing_function(root, name, None)?;
-        let source = &file.text;
-        let start = function.first_token()?.span().start;
-        let end = function
-            .child(&SyntaxKind::Block)
-            .and_then(GreenNode::first_token)
-            .map_or_else(
-                || function.last_token().map(|token| token.span().end),
-                |token| Some(token.span().start),
-            )?;
-        Some(CallableDeclaration {
-            source,
-            function,
-            signature: source[start..end].trim().trim_end_matches(';'),
-            documentation: leading_documentation(source, documentation_start.unwrap_or(start)),
-        })
+        CallableDeclaration::at(file, name)
     }
 
     fn callee(&self, file: &File, call: &Call) -> Option<Symbol> {
@@ -529,23 +519,54 @@ fn add_pattern_names<'a>(node: &GreenNode, source: &'a str, names: &mut Vec<&'a 
 pub(crate) struct CallableDeclaration<'a> {
     source: &'a str,
     function: &'a GreenNode,
+    pub(crate) name: &'a str,
     pub(crate) signature: &'a str,
     pub(crate) documentation: Option<String>,
 }
 
+impl<'a> CallableDeclaration<'a> {
+    pub(crate) fn at(file: &'a File, declaration: Span) -> Option<Self> {
+        let root = file.syntax()?.tree.green_root();
+        let (function, documentation_start) = enclosing_function(root, declaration, None)?;
+        let source = &file.text;
+        let name = function.token(&TokenKind::Ident)?.text();
+        let start = function.first_token()?.span().start;
+        let end = function
+            .child(&SyntaxKind::Block)
+            .and_then(GreenNode::first_token)
+            .map_or_else(
+                || function.last_token().map(|token| token.span().end),
+                |token| Some(token.span().start),
+            )?;
+        Some(Self {
+            source,
+            function,
+            name,
+            signature: source[start..end].trim().trim_end_matches(';'),
+            documentation: leading_documentation(source, documentation_start.unwrap_or(start)),
+        })
+    }
+
+    pub(crate) fn describe_completion(self, item: &mut CompletionItem) {
+        item.detail = Some(self.signature.to_owned());
+        item.documentation = self.documentation.map(Documentation::String);
+    }
+}
+
 fn enclosing_function(
     node: &GreenNode,
-    name: Span,
+    declaration: Span,
     documentation_start: Option<usize>,
 ) -> Option<(&GreenNode, Option<usize>)> {
     let span = node.span();
-    if name.start < span.start || name.end > span.end {
+    if declaration.start >= span.end || declaration.end <= span.start {
         return None;
     }
     if *node.kind() == SyntaxKind::FunctionDecl
-        && node
-            .token(&TokenKind::Ident)
-            .is_some_and(|token| token.span() == name)
+        && node.token(&TokenKind::Ident).is_some_and(|token| {
+            let name = token.span();
+            declaration.start <= name.start && name.end <= declaration.end
+        })
     {
         return Some((node, documentation_start));
     }
@@ -555,7 +576,7 @@ fn enclosing_function(
         documentation_start
     };
     node.child_nodes()
-        .find_map(|child| enclosing_function(child, name, documentation_start))
+        .find_map(|child| enclosing_function(child, declaration, documentation_start))
 }
 
 fn leading_documentation(source: &str, start: usize) -> Option<String> {
