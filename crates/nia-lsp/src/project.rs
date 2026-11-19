@@ -112,7 +112,7 @@ impl Projects {
                     .map(|path| PathBuf::from(normalized(&path))),
             );
             if let Some(build) = package.build_candidate() {
-                build_candidates.push(package.request(&build, Context::Build)?.into());
+                build_candidates.push(package.build_request(&build, toolchain)?);
             }
             let planned = package.configured_requests(toolchain)?;
             entries.extend(
@@ -200,8 +200,31 @@ pub(crate) struct Package {
     layout: BuildLayout,
     manifest: PackageManifest,
     maps: HashMap<Context, ModuleMap>,
-    plan: Result<Option<BuildPlan>, String>,
+    plan: Option<BuildPlan>,
+    configuration: ConfigurationStatus,
     planned_requests: OnceLock<Result<Vec<EditorRequest>, String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ConfigurationStatus {
+    Missing,
+    Ready,
+    Corrupt(String),
+    Stale(String),
+}
+
+impl ConfigurationStatus {
+    pub(crate) fn message(&self) -> Option<String> {
+        match self {
+            Self::Missing | Self::Ready => None,
+            Self::Corrupt(detail) => Some(format!(
+                "Configured build plan is corrupt. Using manifest entries. {detail}"
+            )),
+            Self::Stale(detail) => Some(format!(
+                "Configured build plan is stale. Using manifest entries. {detail}"
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -246,33 +269,55 @@ impl Package {
         let layout = BuildLayout::for_package(root).map_err(error)?;
         let manifest = PackageManifest::read(layout.package_root()).map_err(error)?;
         let plan_path = layout.out_dir().join("build-plan.bin");
-        let plan = match read_build_plan_draft(&plan_path) {
-            Ok(draft) if draft.observations.is_empty() => Ok(Some(draft.plan)),
-            Ok(draft) => ConfigureManifest::decode(&draft.observations)
-                .map_err(|error| format!("Invalid observations in `{}`: {error:?}", plan_path.display()))
-                .and_then(|observations| match observations.validate_filesystem(layout.package_root()) {
-                    ObservationValidation::Match => Ok(Some(draft.plan)),
-                    ObservationValidation::Changed { path, kind } => Err(format!(
-                        "Build plan is stale. The {kind} observation for `{}` has changed.", path.display()
+        let (plan, configuration) = match read_build_plan_draft(&plan_path) {
+            Ok(draft) if draft.observations.is_empty() => {
+                (Some(draft.plan), ConfigurationStatus::Ready)
+            }
+            Ok(draft) => match ConfigureManifest::decode(&draft.observations) {
+                Err(error) => (
+                    None,
+                    ConfigurationStatus::Corrupt(format!(
+                        "Invalid observations in `{}`: {error:?}",
+                        plan_path.display()
                     )),
-                    ObservationValidation::Missing { path, kind } => Err(format!(
-                        "Build plan is stale. The {kind} observation for `{}` could not be read.", path.display()
-                    )),
-                }),
+                ),
+                Ok(observations) => match observations.validate_filesystem(layout.package_root()) {
+                    ObservationValidation::Match => (Some(draft.plan), ConfigurationStatus::Ready),
+                    ObservationValidation::Changed { path, kind } => (
+                        None,
+                        ConfigurationStatus::Stale(format!(
+                            "The {kind} observation for `{}` has changed.",
+                            path.display()
+                        )),
+                    ),
+                    ObservationValidation::Missing { path, kind } => (
+                        None,
+                        ConfigurationStatus::Stale(format!(
+                            "The {kind} observation for `{}` could not be read.",
+                            path.display()
+                        )),
+                    ),
+                },
+            },
             Err(PlanHandoffError::Open { error, .. })
                 if error.kind() == std::io::ErrorKind::NotFound =>
             {
-                Ok(None)
+                (None, ConfigurationStatus::Missing)
             }
-            Err(error) => Err(error.to_string()),
+            Err(error) => (None, ConfigurationStatus::Corrupt(error.to_string())),
         };
         Ok(Self {
             layout,
             manifest,
             maps: HashMap::new(),
             plan,
+            configuration,
             planned_requests: OnceLock::new(),
         })
+    }
+
+    pub(crate) fn configuration_message(&self) -> Option<String> {
+        self.configuration.message()
     }
 
     pub(crate) fn entries(&self, entry: &Path) -> Vec<(PathBuf, Context)> {
@@ -334,6 +379,26 @@ impl Package {
             } else {
                 CompilationMode::Normal
             }))
+    }
+
+    fn build_request(
+        &mut self,
+        path: &Path,
+        toolchain: &nia_toolchain::ToolchainLayout,
+    ) -> Result<EditorRequest, String> {
+        let target = *toolchain.host_target();
+        let check = self
+            .request(path, Context::Build)?
+            .with_profile(nia_target_config::BuildProfile::Debug)
+            .with_optimization(nia_driver::NiaOptimizationLevel::O0);
+        Ok(EditorRequest {
+            check,
+            target: Some((
+                target,
+                nia_target::CpuLevel::default(),
+                nia_build_plan::Runtime::Bare,
+            )),
+        })
     }
 
     fn module_map(&self, context: Context) -> Result<ModuleMap, String> {
@@ -418,6 +483,23 @@ impl Package {
 mod tests {
     use super::*;
     use nia_package_metadata::{LOCKFILE_VERSION, LockedPackage, LockedSource, PackageLock};
+
+    #[test]
+    fn configuration_states_keep_missing_corrupt_and_stale_distinct() {
+        assert_eq!(ConfigurationStatus::Missing.message(), None);
+        assert!(
+            ConfigurationStatus::Corrupt("decode failed".into())
+                .message()
+                .unwrap()
+                .contains("corrupt")
+        );
+        assert!(
+            ConfigurationStatus::Stale("nia.toml changed".into())
+                .message()
+                .unwrap()
+                .contains("stale")
+        );
+    }
 
     #[test]
     fn maps_materialized_git_and_registry_dependencies_from_the_workspace_lock() {

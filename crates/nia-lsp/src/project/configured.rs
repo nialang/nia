@@ -21,7 +21,10 @@ impl Package {
         &self,
         toolchain: &nia_toolchain::ToolchainLayout,
     ) -> Result<Vec<EditorRequest>, String> {
-        let Some(plan) = self.plan.as_ref().map_err(Clone::clone)? else {
+        let Some(plan) = self.plan.as_ref() else {
+            if let Some(message) = self.configuration_message() {
+                return Err(message);
+            }
             return Ok(Vec::new());
         };
         let installed =

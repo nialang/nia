@@ -105,16 +105,17 @@ impl Session {
             return analyze(CheckRequest::new(normalized(entry)));
         };
         let entry_path = normalized(entry);
-        let (mut configured, configuration_warning) =
-            match package.configured_requests(&self.toolchain) {
-                Ok(configured) => (configured, None),
-                Err(error) => (
-                    Vec::new(),
-                    Some(format!(
-                        "Build plan unavailable. Using manifest entries. {error}"
-                    )),
-                ),
-            };
+        let (mut configured, configuration_warning) = match package
+            .configured_requests(&self.toolchain)
+        {
+            Ok(configured) => (configured, package.configuration_message()),
+            Err(error) => (
+                Vec::new(),
+                Some(format!(
+                    "Configured build plan could not be applied. Using manifest entries. {error}"
+                )),
+            ),
+        };
         configured.sort_by_key(|request| request.check.entry_path.as_str() != entry_path);
         for request in configured {
             if let Some(cancel) = cancel {

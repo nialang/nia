@@ -128,9 +128,16 @@ fn build_hook_still_contributes_its_independent_context() {
     let index = session
         .workspace_index(&entry, &Documents::new(), &[], &Cancellation::default())
         .unwrap();
-    assert!(index.entries.iter().any(|entry| {
-        entry.request.check.entry_path.as_str() == normalized(&build) && entry.error.is_none()
-    }));
+    let build_entry = index
+        .entries
+        .iter()
+        .find(|entry| entry.request.check.entry_path.as_str() == normalized(&build))
+        .expect("build candidate is indexed");
+    assert!(build_entry.error.is_none());
+    assert_eq!(
+        build_entry.request.target.map(|(_, _, runtime)| runtime),
+        Some(nia_build_plan::Runtime::Bare)
+    );
 }
 
 #[test]
