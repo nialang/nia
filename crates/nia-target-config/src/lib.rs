@@ -23,7 +23,7 @@ use nia_item_tree::{
 };
 use nia_span::Span;
 use nia_symbol::{SymbolMap, SymbolText, known, symbol_text_from_optional_resolver};
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 /// Build profile used for profile-conditional source selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -83,6 +83,7 @@ pub fn prune_item_tree(
         context,
         symbols,
         diagnostics: Vec::new(),
+        inactive_statements: HashSet::new(),
     };
     let active_item_tree = pruner.prune_item_tree(item_tree);
     PruneResult {
@@ -95,6 +96,7 @@ struct Pruner<'a> {
     context: &'a ConditionContext,
     symbols: Option<&'a dyn SymbolText>,
     diagnostics: Vec<Diagnostic>,
+    inactive_statements: HashSet<Span>,
 }
 
 fn item_needs_nested_pruning(item: &Item) -> bool {
@@ -152,9 +154,13 @@ impl Pruner<'_> {
                 }
             })
             .collect();
+        let mut inactive_spans = active_item_tree.inactive_spans;
+        if !self.inactive_statements.is_empty() {
+            Arc::make_mut(&mut inactive_spans).extend(self.inactive_statements.drain());
+        }
         ActiveModuleItemTree::from_shared_parts(
             ItemTreeItems::from_shared_items(items),
-            Arc::clone(&active_item_tree.inactive_spans),
+            inactive_spans,
         )
     }
 
@@ -222,6 +228,7 @@ impl Pruner<'_> {
 
     fn prune_stmt(&mut self, stmt: Stmt) -> Vec<Stmt> {
         if !self.attributes_active(&stmt.attributes, stmt.span) {
+            self.inactive_statements.insert(stmt.span);
             return Vec::new();
         }
         match stmt.kind {

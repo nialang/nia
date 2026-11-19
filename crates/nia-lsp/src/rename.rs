@@ -482,9 +482,14 @@ fn collect_rename(
                         })
                         && &text[token.span.start..token.span.end] == old
                         && !occurrences.contains_key(&token.span)
+                        && !(entry.inactive_at(source, token.span)
+                            && workspace.has_resolved_binding(source, token.span))
                 })
             {
-                return Err(format!("Cannot determine every use of `{old}` in {source}"));
+                return Err(format!(
+                    "Cannot determine every use of `{old}` in {source} under {}",
+                    entry.request
+                ));
             }
             for (&span, candidates) in occurrences {
                 if &text[span.start..span.end] == old && candidates.iter().any(matches_target) {

@@ -75,6 +75,7 @@ pub(crate) struct Entry {
     pub(crate) request: EditorRequest,
     pub(crate) bindings: Bindings,
     pub(crate) coverage: Coverage,
+    inactive: BTreeMap<String, Arc<[Span]>>,
     consulted_sources: Option<Arc<BTreeSet<String>>>,
     files: BTreeMap<String, (Uri, Arc<str>)>,
     symbols: Vec<(Site, WorkspaceDeclaration)>,
@@ -296,6 +297,7 @@ impl Entry {
                 return Ok(Self {
                     request,
                     coverage: Coverage::Unavailable(error),
+                    inactive: BTreeMap::new(),
                     bindings: Bindings::new(),
                     consulted_sources: None,
                     files: BTreeMap::new(),
@@ -376,6 +378,11 @@ impl Entry {
             request,
             coverage,
             bindings,
+            inactive: analysis
+                .files
+                .iter()
+                .filter_map(|(source, file)| Some((source.clone(), file.inactive.clone()?)))
+                .collect(),
             consulted_sources: Some(analysis.consulted_sources),
             symbols,
             implementations,
@@ -397,6 +404,12 @@ impl Entry {
                 .is_some_and(|paths| paths.contains(source))
     }
 
+    pub(crate) fn inactive_at(&self, source: &str, span: Span) -> bool {
+        self.inactive
+            .get(source)
+            .is_some_and(|ranges| inactive_at(ranges, span))
+    }
+
     pub(crate) fn observes_move(&self, from: &Path, to: &Path) -> bool {
         self.files
             .keys()
@@ -409,6 +422,20 @@ impl Entry {
 }
 
 impl WorkspaceIndex {
+    pub(crate) fn has_resolved_binding(&self, source: &str, span: Span) -> bool {
+        self.entries.iter().any(|entry| {
+            entry
+                .bindings
+                .get(source)
+                .and_then(|bindings| bindings.get(&span))
+                .is_some_and(|bindings| {
+                    bindings
+                        .iter()
+                        .any(|binding| binding.declaration.is_some() || binding.alias.is_some())
+                })
+        })
+    }
+
     pub(crate) fn call_relations(
         &self,
         item: &CallHierarchyItem,
@@ -783,6 +810,9 @@ pub(crate) fn bindings(analysis: &Analysis, cancel: &Cancellation) -> Result<Bin
         cancel.check()?;
         let mut occurrences = BTreeMap::<Span, BTreeSet<Binding>>::new();
         for (span, symbol, alias) in analysis.rename_occurrences(file) {
+            if inactive_at(file.inactive.as_deref().unwrap_or_default(), span) {
+                continue;
+            }
             occurrences.entry(span).or_default().insert(Binding {
                 declaration: declaration(symbol),
                 alias: alias.and_then(declaration),
@@ -791,4 +821,10 @@ pub(crate) fn bindings(analysis: &Analysis, cancel: &Cancellation) -> Result<Bin
         result.insert(source.clone(), occurrences);
     }
     Ok(result)
+}
+
+fn inactive_at(ranges: &[Span], span: Span) -> bool {
+    // The compiler prunes a subtree before visiting its children.
+    let index = ranges.partition_point(|range| range.start <= span.start);
+    index > 0 && span.end <= ranges[index - 1].end
 }

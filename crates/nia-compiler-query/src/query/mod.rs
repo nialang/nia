@@ -195,6 +195,12 @@ impl CompilerDatabase {
         self.db.context().module_origins(&self.db, module)
     }
 
+    /// Returns the ranges excluded by the current target, profile, and compilation mode.
+    pub fn source_inactive_spans(&self, module: ModuleId) -> QueryResult<Arc<HashSet<Span>>> {
+        let items = self.db.get(FullActiveModuleItemTreeQuery(module))?;
+        Ok(Arc::clone(&items.inactive_spans))
+    }
+
     /// Returns the effective import scope at a source position.
     pub fn source_imports(
         &self,

@@ -927,6 +927,8 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
         "@[test] @[if hasFeature(\"avx2\")] fun feature() i32 { 1 }\n",
         "@[test] @[if hasFeature(\"avx2\")] fun feature_use() i32 { feature() }\n",
         "@[if not hasFeature(\"avx2\")] pub fun taken() i32 { 2 }\n",
+        "@[test] fun test_use() i32 { amount() }\n",
+        "fun test_statement() () { @[test] _ = amount(); }\n",
     );
     std::fs::write(&entry, source).unwrap();
     let documents = Documents::new();
@@ -959,21 +961,24 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
         .unwrap();
     assert_eq!(index.entries.len(), 2);
     assert!(index.reference_coverage_warning().is_none());
-    let error = session
-        .rename(
+    let mut rename = |new_name| {
+        session.rename(
             &analysis,
             &documents,
             crate::rename::Rename {
                 path: &entry,
                 position,
-                new_name: "taken",
+                new_name,
                 folders: &[],
                 versioned: false,
                 resource_rename: false,
             },
             &cancel,
         )
-        .unwrap_err();
+    };
+    let edit = rename("quantity").unwrap();
+    assert_eq!(edit.changes.unwrap()[&uri(&entry).unwrap()].len(), 4);
+    let error = rename("taken").unwrap_err();
     let native_context =
         format!("target {target}, CPU baseline, Bare runtime, Release profile, Normal mode");
     assert!(

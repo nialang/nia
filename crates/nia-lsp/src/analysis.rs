@@ -89,6 +89,7 @@ pub(crate) struct Session {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AnalysisMode {
     Full,
+    Workspace,
     Declarations,
 }
 
@@ -252,7 +253,7 @@ impl Session {
             &self.overlays,
             request,
             Some(cancel),
-            AnalysisMode::Full,
+            AnalysisMode::Workspace,
         )
     }
 
@@ -432,20 +433,22 @@ fn analyze_request(
     let cancel = cancel.map(Cancellation::token);
     let request = request.with_timings(crate::timing_mode());
     let result = match mode {
-        AnalysisMode::Full => driver.analyze_for_editor(request, cancel, |db, program, loader| {
-            Analysis::from_program(
-                driver,
-                db,
-                ProgramSources {
-                    graph: program.graph,
-                    modules: program.modules,
-                    diagnostics: program.diagnostics,
-                    consulted_sources: loader.consulted_sources()?,
-                    mode,
-                },
-                cancel,
-            )
-        }),
+        AnalysisMode::Full | AnalysisMode::Workspace => {
+            driver.analyze_for_editor(request, cancel, |db, program, loader| {
+                Analysis::from_program(
+                    driver,
+                    db,
+                    ProgramSources {
+                        graph: program.graph,
+                        modules: program.modules,
+                        diagnostics: program.diagnostics,
+                        consulted_sources: loader.consulted_sources()?,
+                        mode,
+                    },
+                    cancel,
+                )
+            })
+        }
         AnalysisMode::Declarations => driver.inspect_for_editor(request, cancel, |db, loader| {
             nia_timing::time_stage(
                 crate::timing_mode(),
@@ -501,6 +504,7 @@ pub(crate) struct File {
     pub(crate) uri: Uri,
     pub(crate) text: Arc<str>,
     pub(crate) lines: Lines,
+    pub(crate) inactive: Option<Arc<[Span]>>,
     occurrences: Vec<Occurrence>,
     locals: HashMap<LocalId, (Kind, bool)>,
     type_highlights: Resolved,
@@ -886,7 +890,7 @@ impl Analysis {
                     );
                 }
             }
-            if program.mode == AnalysisMode::Full
+            if program.mode != AnalysisMode::Declarations
                 && tokens
                     .iter()
                     .any(|token| token.kind == LosslessTokenKind::Token(TokenKind::Using))
@@ -910,12 +914,21 @@ impl Analysis {
                 import_scopes.insert(node.id, scopes);
             }
             occurrences.sort_by_key(|occurrence| (occurrence.span, !occurrence.declaration));
+            let inactive = if program.mode == AnalysisMode::Workspace {
+                let mut spans: Vec<_> =
+                    db.source_inactive_spans(node.id)?.iter().copied().collect();
+                spans.sort_unstable();
+                (!spans.is_empty()).then(|| Arc::from(spans))
+            } else {
+                None
+            };
             result.files.insert(
                 path.to_owned(),
                 File {
                     module: node.id,
                     uri: file_uri,
                     lines: Lines::new(&file.text),
+                    inactive,
                     text: file.text,
                     occurrences,
                     locals,
