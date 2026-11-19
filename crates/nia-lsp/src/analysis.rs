@@ -510,6 +510,13 @@ impl Analysis {
                 }
             }
             if let Some(module) = module {
+                let local_types: HashMap<_, _> = module
+                    .semantic_facts
+                    .function_facts
+                    .values()
+                    .flat_map(|facts| facts.local_types.iter())
+                    .map(|(&id, &ty)| (id, ty))
+                    .collect();
                 if file.text.contains("extend") {
                     trait_members.extend(db.source_trait_member_bindings(module)?.into_iter().map(
                         |(definition, member)| {
@@ -542,6 +549,9 @@ impl Analysis {
                     };
                     if let Some(&span) = name {
                         declare(Symbol::Local(module.id, id), span);
+                        if let Some(&ty) = local_types.get(&id) {
+                            expr_types.insert(span, module.type_normalization.normalize(ty));
+                        }
                     }
                 }
                 let call_targets: HashMap<_, _> = module
@@ -1389,7 +1399,68 @@ impl Analysis {
     }
 
     pub(crate) fn definition(&self, path: &Path, position: Position) -> Option<Location> {
-        let (source, span) = self.definitions.get(&self.symbol_at(path, position)?)?;
+        self.symbol_location(self.symbol_at(path, position)?)
+    }
+
+    pub(crate) fn type_definition(&self, path: &Path, position: Position) -> Option<Location> {
+        let file = self.file(path)?;
+        let offset = file.lines.offset(&file.text, position)?;
+        if let Some(Symbol::Global(id)) = self.symbol_at_offset(file, offset)
+            && self
+                .defs
+                .get(&id.module_id)
+                .and_then(|defs| defs.defs.get(id.def_id))
+                .is_some_and(|def| {
+                    matches!(
+                        def.kind,
+                        DefKind::Struct
+                            | DefKind::Enum
+                            | DefKind::Union
+                            | DefKind::Trait
+                            | DefKind::TypeAlias
+                            | DefKind::TraitAssociatedType
+                    )
+                })
+        {
+            return self.symbol_location(Symbol::Global(id));
+        }
+
+        let (_, &inferred) = file
+            .expr_types
+            .iter()
+            .filter(|(span, _)| span.start <= offset && offset < span.end)
+            .min_by_key(|(span, _)| (span.len(), span.start))?;
+        let mut ty = inferred;
+        let id = loop {
+            match self.types.get(ty)? {
+                TyKind::Nominal { def_id, .. } => break *def_id,
+                TyKind::TraitObject {
+                    trait_id: nia_ty::TraitId::Source(id),
+                    ..
+                }
+                | TyKind::TraitObjectPointee {
+                    trait_id: nia_ty::TraitId::Source(id),
+                    ..
+                } => break *id,
+                TyKind::Projection {
+                    trait_id: nia_ty::TraitId::Source(id),
+                    name,
+                    ..
+                } => {
+                    break self.associated_member(*id, *name, DefKind::TraitAssociatedType)?;
+                }
+                TyKind::Pointer { elem, .. }
+                | TyKind::VolatilePointer { elem, .. }
+                | TyKind::Optional { elem } => ty = *elem,
+                TyKind::FunctionItem { return_type, .. } => ty = *return_type,
+                _ => return None,
+            }
+        };
+        self.symbol_location(Symbol::Global(id))
+    }
+
+    fn symbol_location(&self, symbol: Symbol) -> Option<Location> {
+        let (source, span) = self.definitions.get(&symbol)?;
         let file = self.files.get(source)?;
         Some(Location::new(
             file.uri.clone(),
@@ -2204,6 +2275,16 @@ mod tests {
         let target = checked.definition(&main, Position::new(3, 8)).unwrap();
         assert_eq!(target.uri, uri(&types).unwrap());
         assert_eq!(target.range.start, Position::new(0, 19));
+        for position in [Position::new(1, 12), Position::new(3, 4)] {
+            let target = checked.type_definition(&main, position).unwrap();
+            assert_eq!(target.uri, uri(&types).unwrap());
+            assert_eq!(target.range.start, Position::new(0, 11));
+        }
+        assert!(
+            checked
+                .type_definition(&main, Position::new(3, 8))
+                .is_none()
+        );
         let references = checked.references(&main, Position::new(3, 8), true);
         assert_eq!(references.len(), 2);
         assert!(references.contains(&target));

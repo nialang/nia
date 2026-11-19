@@ -81,6 +81,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "positionEncoding": "utf-16",
                 "textDocumentSync": { "openClose": true, "change": 2, "save": true },
                 "definitionProvider": true,
+                "typeDefinitionProvider": true,
                 "referencesProvider": true,
                 "documentHighlightProvider": true,
                 "renameProvider": { "prepareProvider": true },
@@ -414,15 +415,12 @@ fn query(
 ) -> Response {
     let Request { id, method, params } = request;
     let result = match method.as_str() {
-        "textDocument/definition" | "textDocument/hover" => {
-            decode::<lsp_types::TextDocumentPositionParams>(params).map(|params| {
-                if method == "textDocument/hover" {
-                    json!(analysis.hover(path, params.position))
-                } else {
-                    json!(analysis.definition(path, params.position))
-                }
-            })
-        }
+        "textDocument/definition" => decode::<lsp_types::TextDocumentPositionParams>(params)
+            .map(|params| json!(analysis.definition(path, params.position))),
+        "textDocument/typeDefinition" => decode::<lsp_types::TextDocumentPositionParams>(params)
+            .map(|params| json!(analysis.type_definition(path, params.position))),
+        "textDocument/hover" => decode::<lsp_types::TextDocumentPositionParams>(params)
+            .map(|params| json!(analysis.hover(path, params.position))),
         "textDocument/documentHighlight" => decode::<lsp_types::TextDocumentPositionParams>(params)
             .map(|params| json!(analysis.document_highlights(path, params.position))),
         PREPARE_RENAME => decode::<lsp_types::TextDocumentPositionParams>(params)
@@ -524,6 +522,7 @@ impl Server {
         if !matches!(
             request.method.as_str(),
             "textDocument/definition"
+                | "textDocument/typeDefinition"
                 | REFERENCES
                 | "textDocument/documentHighlight"
                 | RENAME
