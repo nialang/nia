@@ -175,6 +175,11 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
     result
 }
 
+enum WorkerMessage {
+    Analyze(Work),
+    ReleaseAnalysis,
+}
+
 struct Work {
     revision: u64,
     disk_revision: u64,
@@ -219,15 +224,22 @@ impl Lane {
 fn analyze(
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
     lane: Lane,
-    queue: Receiver<Work>,
+    queue: Receiver<WorkerMessage>,
     output: Sender<Reply>,
 ) {
     let mut session = Session::new(toolchain.clone());
     let mut completion_probe = None;
     let mut cached = None;
     let mut disk_revision = 0;
-    for mut work in queue {
+    for message in queue {
+        let WorkerMessage::Analyze(mut work) = message else {
+            cached = None;
+            completion_probe = None;
+            session.reload();
+            continue;
+        };
         if disk_revision != work.disk_revision {
+            cached = None;
             session.reload();
             completion_probe = None;
             disk_revision = work.disk_revision;
@@ -580,6 +592,7 @@ struct Server {
     workspace: Option<Active>,
     revision: u64,
     disk_revision: u64,
+    release_analysis: bool,
 }
 
 struct Active {
@@ -591,8 +604,8 @@ impl Server {
     fn serve(
         &mut self,
         connection: &Connection,
-        work: &Sender<Work>,
-        workspace: &Sender<Work>,
+        work: &Sender<WorkerMessage>,
+        workspace: &Sender<WorkerMessage>,
         replies: &Receiver<Reply>,
     ) -> Result<(), Error> {
         let idle = tick(Duration::from_millis(90));
@@ -804,6 +817,7 @@ impl Server {
                         {
                             publish(connection, uri, None, Vec::new())?;
                             self.invalidate();
+                            self.release_analysis |= self.documents.is_empty();
                         }
                         Ok(())
                     }
@@ -827,6 +841,7 @@ impl Server {
                         .filter_map(|folder| analysis::path(&folder.uri)),
                 );
                 self.invalidate();
+                self.release_analysis = true;
             }),
             "$/cancelRequest" => match decode::<Cancel>(notification.params) {
                 Ok(params) => {
@@ -902,10 +917,14 @@ impl Server {
     fn schedule(
         &mut self,
         connection: &Connection,
-        editor: &Sender<Work>,
-        workspace: &Sender<Work>,
+        editor: &Sender<WorkerMessage>,
+        workspace: &Sender<WorkerMessage>,
         diagnostics: bool,
     ) -> Result<(), Error> {
+        if std::mem::take(&mut self.release_analysis) {
+            editor.send(WorkerMessage::ReleaseAnalysis)?;
+            workspace.send(WorkerMessage::ReleaseAnalysis)?;
+        }
         for (lane, active, worker) in [
             (Lane::Editor, &mut self.editor, editor),
             (Lane::Workspace, &mut self.workspace, workspace),
@@ -949,7 +968,7 @@ impl Server {
                 request: request.as_ref().map(|request| request.id.clone()),
                 cancel: cancel.clone(),
             });
-            worker.send(Work {
+            worker.send(WorkerMessage::Analyze(Work {
                 revision: self.revision,
                 disk_revision: self.disk_revision,
                 documents: self.documents.clone(),
@@ -959,7 +978,7 @@ impl Server {
                 versioned_edits: self.versioned_edits,
                 resource_rename: self.resource_rename,
                 cancel,
-            })?;
+            }))?;
         }
         Ok(())
     }
@@ -1114,6 +1133,87 @@ mod tests {
     }
 
     #[test]
+    fn closing_the_last_document_releases_analysis_and_discards_inflight_results() {
+        let (connection, client) = Connection::memory();
+        let (editor, editor_work) = unbounded();
+        let (workspace, workspace_work) = unbounded();
+        let mut server = Server::default();
+        let path = std::env::current_dir().unwrap().join("root.nia");
+        let uri = analysis::uri(&path).unwrap();
+        server
+            .notification(
+                &connection,
+                Notification::new(
+                    "textDocument/didOpen".into(),
+                    json!({
+                        "textDocument": {"uri": uri, "version": 1, "languageId": "nia", "text": ""}
+                    }),
+                ),
+            )
+            .unwrap();
+        let path = analysis::path(&uri).unwrap();
+        server.pending.push_back((
+            path.clone(),
+            server.revision,
+            Request::new(1.into(), COMPLETION.into(), ()),
+        ));
+        server
+            .schedule(&connection, &editor, &workspace, false)
+            .unwrap();
+        let WorkerMessage::Analyze(active) = editor_work.try_recv().unwrap() else {
+            panic!("expected editor analysis");
+        };
+        server
+            .notification(
+                &connection,
+                Notification::new(
+                    "textDocument/didClose".into(),
+                    json!({
+                        "textDocument": {"uri": uri}
+                    }),
+                ),
+            )
+            .unwrap();
+        assert!(active.cancel.check().is_err());
+        assert!(matches!(
+            client.receiver.try_recv().unwrap(),
+            Message::Notification(_)
+        ));
+        server
+            .schedule(&connection, &editor, &workspace, false)
+            .unwrap();
+        for work in [&editor_work, &workspace_work] {
+            assert!(matches!(
+                work.try_recv().unwrap(),
+                WorkerMessage::ReleaseAnalysis
+            ));
+        }
+        server
+            .reply(
+                &connection,
+                Reply {
+                    lane: Lane::Editor,
+                    revision: active.revision,
+                    path,
+                    diagnostics: Ok(Vec::new()),
+                    highlights: Arc::default(),
+                    response: Some(Response::new_ok(1.into(), ())),
+                    reference_coverage: None,
+                },
+            )
+            .unwrap();
+        let Message::Response(response) = client.receiver.try_recv().unwrap() else {
+            panic!("expected failure for the closed document");
+        };
+        assert_eq!(response.id, 1.into());
+        assert_eq!(
+            response.response_result.unwrap_err().code,
+            ErrorCode::ContentModified as i32
+        );
+        assert!(server.highlights.is_empty());
+    }
+
+    #[test]
     fn workspace_cancellation_leaves_the_editor_lane_available() {
         let (server_connection, client) = Connection::memory();
         let (editor, editor_work) = unbounded();
@@ -1125,7 +1225,9 @@ mod tests {
         server
             .schedule(&server_connection, &editor, &workspace, false)
             .unwrap();
-        let scanning = workspace_work.try_recv().unwrap();
+        let WorkerMessage::Analyze(scanning) = workspace_work.try_recv().unwrap() else {
+            panic!("expected workspace analysis");
+        };
 
         server
             .notification(
@@ -1139,7 +1241,10 @@ mod tests {
         server
             .schedule(&server_connection, &editor, &workspace, false)
             .unwrap();
-        assert!(editor_work.try_recv().unwrap().cancel.check().is_ok());
+        let WorkerMessage::Analyze(completing) = editor_work.try_recv().unwrap() else {
+            panic!("expected completion analysis");
+        };
+        assert!(completing.cancel.check().is_ok());
 
         server
             .reply(
