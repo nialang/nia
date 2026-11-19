@@ -107,9 +107,65 @@ def summary(samples):
 
 def position(text, symbol):
     offset = text.index(symbol)
+    return position_at(text, offset)
+
+
+def position_at(text, offset):
     head = text[:offset]
     line = head.rsplit("\n", 1)[-1]
     return dict(line=head.count("\n"), character=len(line.encode("utf-16-le")) // 2)
+
+
+def benchmark_members(client, source, root, repeat, member):
+    original, receiver, name = member
+    text = source.read_text(encoding="utf-8")
+    if not original or text.count(original) != 1 or not receiver or not name:
+        raise ValueError("--member requires one exact source match, a receiver, and a member name")
+    before, after = text.split(original)
+    client.measure("initialize", {
+        "processId": None, "rootUri": root.as_uri(), "capabilities": {},
+    })
+    client.notify("initialized", {})
+    document = dict(uri=source.as_uri())
+    client.notify("textDocument/didOpen", {
+        "textDocument": dict(**document, languageId="nia", version=1, text=text),
+    })
+    client.wait_diagnostics(document["uri"], 1)
+    samples = []
+    version = 1
+    for cycle in range(repeat):
+        for length in range(len(name) + 1):
+            version += 1
+            prefix = name[:length]
+            expression = f"{receiver}.{prefix}"
+            edited = before + expression + after + f"\n// member latency cycle {cycle + 1}\n"
+            started = perf_counter()
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=version),
+                "contentChanges": [dict(text=edited)],
+            })
+            elapsed, response = client.wait(client.request("textDocument/completion", {
+                "textDocument": document,
+                "position": position_at(edited, len(before) + len(expression)),
+            }))
+            if "error" in response:
+                raise RuntimeError(f"Member completion failed for {expression!r}: {response['error']}")
+            result = response["result"]
+            items = result["items"] if isinstance(result, dict) else result or []
+            if not any(item["label"] == name for item in items):
+                raise RuntimeError(f"Member completion for {expression!r} omitted {name!r}")
+            published, _ = client.wait_diagnostics(document["uri"], version)
+            samples.append(dict(cycle=cycle + 1, prefix=prefix, completion_ms=round(elapsed, 2),
+                                diagnostics_ms=round(1000 * (published - started), 2)))
+    client.measure("shutdown", None)
+    client.notify("exit", None)
+    return dict(
+        first_dot=samples[0],
+        bare_dot=summary([sample["completion_ms"] for sample in samples if not sample["prefix"]]),
+        prefix=summary([sample["completion_ms"] for sample in samples if sample["prefix"]]),
+        diagnostics=summary([sample["diagnostics_ms"] for sample in samples]),
+        members=samples,
+    )
 
 
 def benchmark(client, source, root, symbol, repeat, replacement=None, cancel_delay_ms=0,
@@ -337,7 +393,10 @@ def main():
     parser.add_argument("--resource-root", type=Path, required=True)
     parser.add_argument("--workspace", type=Path)
     parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--symbol", required=True, help="first exact substring to use as the cursor")
+    workload = parser.add_mutually_exclusive_group(required=True)
+    workload.add_argument("--symbol", help="first exact substring to use as the cursor")
+    workload.add_argument("--member", nargs=3, metavar=("ORIGINAL", "RECEIVER", "NAME"),
+                          help="replace one expression and type NAME character by character after RECEIVER.")
     parser.add_argument("--repeat", type=int, default=15)
     parser.add_argument("--reopen-cycles", type=int, default=0,
                         help="measure repeated close, workspace switch, and reopen in the same process")
@@ -355,15 +414,19 @@ def main():
         parser.error("--reopen-cycles must be nonnegative")
     if not math.isfinite(args.cancel_delay_ms) or args.cancel_delay_ms < 0:
         parser.error("--cancel-delay-ms must be finite and nonnegative")
+    if args.member and (args.replace or args.reopen_cycles or args.cancel_delay_ms):
+        parser.error("--replace, --reopen-cycles, and --cancel-delay-ms require --symbol")
     source = args.source.resolve()
     root = args.workspace.resolve() if args.workspace else source.parent
     command = [str(args.server.resolve()), "--resource-root", str(args.resource_root.resolve())]
     with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
         try:
-            report = benchmark(
-                Client(process, args.timeout), source, root, args.symbol, args.repeat,
-                args.replace, args.cancel_delay_ms, args.reopen_cycles,
-            )
+            client = Client(process, args.timeout)
+            if args.member:
+                report = benchmark_members(client, source, root, args.repeat, args.member)
+            else:
+                report = benchmark(client, source, root, args.symbol, args.repeat,
+                                   args.replace, args.cancel_delay_ms, args.reopen_cycles)
             process.stdin.close()
             process.wait(timeout=args.timeout)
             if process.returncode:
@@ -384,6 +447,7 @@ def main():
         revision=args.revision,
         configuration=args.configuration,
         replacement=args.replace,
+        member=args.member,
         cancel_delay_ms=args.cancel_delay_ms,
     )
     print(json.dumps(report, indent=2))

@@ -131,6 +131,13 @@ python tools/lsp-latency.py --server target/release/nia-lsp --resource-root lib 
 Set `NIA_LSP_TIMINGS=summary` for a JSON timing report on stderr at
 shutdown. Use `detail` to include individual compiler query timings.
 
+To measure member completion and the diagnostics that follow each edit, use
+`--member "self.len() == 0" self isEmpty` in place of `--symbol ArrayList`.
+Each repetition types the member one character at a time and checks that the
+server returns it at every prefix. The report includes the first dot request
+in the session, later dot requests, and the individual prefix and diagnostic
+latencies. Use `--repeat 3` for a short run.
+
 Build from the repository root with `cargo build --locked -p nia-lsp`.
 On Windows, use an x64 Developer PowerShell with the configured LLVM
 installation and add
