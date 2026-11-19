@@ -20,6 +20,10 @@ enum NamespaceForm {
 }
 
 impl NamespaceRewrite {
+    pub(super) fn destination_parent(&self) -> Option<&str> {
+        matches!(self.form, NamespaceForm::Declaration).then_some(self.destination.source.as_ref())
+    }
+
     pub(super) fn translated(
         &self,
         original: Span,
@@ -90,7 +94,7 @@ pub(super) fn collect_relocation(
     source: &Path,
     destination: &Path,
     cancel: &Cancellation,
-    mut resolve_prefix: impl FnMut(&Site, &str) -> Result<Option<String>, String>,
+    mut resolve_root: impl FnMut(&Site) -> Result<Option<String>, String>,
 ) -> Result<RenamePlan, String> {
     let new_name = destination
         .file_stem()
@@ -120,6 +124,9 @@ pub(super) fn collect_relocation(
     let new_file = analysis
         .file(Path::new(parent))
         .ok_or("Destination module source is unavailable")?;
+    let parent_suffix = analysis
+        .module_path_suffix(parent)
+        .ok_or("Destination module path is unavailable")?;
     let insertion = Span::new(new_file.text.len(), new_file.text.len());
     let newline = if new_file.text.contains("\r\n") {
         "\r\n"
@@ -216,12 +223,14 @@ pub(super) fn collect_relocation(
             .green_root();
         let prefix = match analysis.rooted_module_path(&site.source, parent) {
             Some(prefix) => prefix,
-            None => resolve_prefix(&site, parent)?.ok_or_else(|| {
-                format!(
-                    "Destination module has no visible path from {}",
-                    site.source
-                )
-            })?,
+            None => resolve_root(&site)?
+                .map(|root| root + &parent_suffix)
+                .ok_or_else(|| {
+                    format!(
+                        "Destination module has no visible path from {}",
+                        site.source
+                    )
+                })?,
         };
         let replacement = format!("{prefix}::{new_name}");
         if let Some(group) = grouped_import(root, site.span) {

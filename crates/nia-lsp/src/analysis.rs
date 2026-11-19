@@ -1450,22 +1450,30 @@ impl Analysis {
         parents.next().is_none().then(|| parent.path.as_str())
     }
 
-    pub(crate) fn rooted_module_path(&self, source: &str, module_source: &str) -> Option<String> {
+    pub(crate) fn module_root_name(&self, source: &str, module_source: &str) -> Option<String> {
         let module = self.files.get(module_source)?.module;
-        let target = self.graph.get(module)?;
         let target_package = self.graph.current_package_root(module)?;
         let source_module = self.files.get(source)?.module;
-        let root = if self.graph.current_package_root(source_module)? == target_package {
-            "root".to_owned()
+        if self.graph.current_package_root(source_module)? == target_package {
+            Some("root".to_owned())
         } else {
             self.graph
                 .package_aliases(source_module)
                 .filter(|(_, root)| *root == target_package)
                 .filter_map(|(alias, _)| self.db.source_symbol_text(alias))
-                .min_by(|left, right| (left.len(), left).cmp(&(right.len(), right)))?
-                .to_string()
-        };
-        let mut path = root;
+                .min_by(|left, right| (left.len(), left).cmp(&(right.len(), right)))
+                .map(|alias| alias.to_string())
+        }
+    }
+
+    pub(crate) fn rooted_module_path(&self, source: &str, module_source: &str) -> Option<String> {
+        let root = self.module_root_name(source, module_source)?;
+        Some(root + &self.module_path_suffix(module_source)?)
+    }
+
+    pub(crate) fn module_path_suffix(&self, source: &str) -> Option<String> {
+        let target = self.graph.get(self.files.get(source)?.module)?;
+        let mut path = String::new();
         for segment in &target.module_path.segments {
             path.push_str("::");
             path.push_str(&self.db.source_symbol_text(*segment)?);

@@ -186,36 +186,28 @@ impl Session {
             let change = if Some(parent.as_path()) == new.parent() {
                 collect_rename(analysis, &workspace, source, symbol, new_name, cancel)?
             } else {
-                collect_relocation(
-                    analysis,
-                    &workspace,
-                    symbol,
-                    old,
-                    new,
-                    cancel,
-                    |site, parent| {
-                        for (index, entry) in workspace.entries.iter().enumerate() {
-                            if !entry
-                                .bindings
-                                .get(site.source.as_ref())
-                                .is_some_and(|bindings| bindings.contains_key(&site.span))
-                            {
-                                continue;
-                            }
-                            let context = match use_analyses.entry(index) {
-                                std::collections::hash_map::Entry::Occupied(entry) => {
-                                    entry.into_mut()
-                                }
-                                std::collections::hash_map::Entry::Vacant(slot) => slot
-                                    .insert(self.analyze_request(entry.request.clone(), cancel)?),
-                            };
-                            if let Some(prefix) = context.rooted_module_path(&site.source, parent) {
-                                return Ok(Some(prefix));
-                            }
+                let moved_source = normalized(old);
+                collect_relocation(analysis, &workspace, symbol, old, new, cancel, |site| {
+                    for (index, entry) in workspace.entries.iter().enumerate() {
+                        if !entry
+                            .bindings
+                            .get(site.source.as_ref())
+                            .is_some_and(|bindings| bindings.contains_key(&site.span))
+                        {
+                            continue;
                         }
-                        Ok(None)
-                    },
-                )?
+                        let context = match use_analyses.entry(index) {
+                            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                            std::collections::hash_map::Entry::Vacant(slot) => {
+                                slot.insert(self.analyze_request(entry.request.clone(), cancel)?)
+                            }
+                        };
+                        if let Some(root) = context.module_root_name(&site.source, &moved_source) {
+                            return Ok(Some(root));
+                        }
+                    }
+                    Ok(None)
+                })?
             };
             plan.namespaces.extend(change.namespaces);
             for (source, spans) in change.edits {
@@ -406,6 +398,15 @@ impl Session {
         let mut verification = Session::new(self.toolchain.clone());
         verification.install_documents(&updated)?;
         let offsets = EditOffsets::new(&edits);
+        let destination_parents: Vec<_> = namespaces
+            .iter()
+            .filter_map(NamespaceRewrite::destination_parent)
+            .map(|source| {
+                let moved = relocated(source, &moves)
+                    .map_or_else(|| source.to_owned(), |path| normalized(&path));
+                (source, moved)
+            })
+            .collect();
         let affected = workspace.entries.iter().filter(|entry| {
             edits.keys().any(|source| entry.depends_on(source))
                 || moves.iter().any(|(from, to)| entry.observes_move(from, to))
@@ -443,16 +444,31 @@ impl Session {
                     .iter()
                     .any(|root| Path::new(source).starts_with(root))
             };
-            // A new method spelling can discover extra external providers.
-            // Check every shared file and require the same workspace sources.
+            // A destination parent can enter this compilation for the first
+            // time. Its projected declarations still have to resolve.
+            let newly_reached_parent = |source: &str| {
+                destination_parents.iter().any(|(original, moved)| {
+                    moved == source && !entry.bindings.contains_key(*original)
+                })
+            };
             if expected.iter().any(|(source, before)| {
-                actual
-                    .get(source)
-                    .map_or_else(|| workspace_file(source), |after| after != before)
-            }) || actual
-                .keys()
-                .any(|source| workspace_file(source) && !expected.contains_key(source))
-            {
+                actual.get(source).map_or_else(
+                    || workspace_file(source),
+                    |after| {
+                        if newly_reached_parent(source) {
+                            before
+                                .iter()
+                                .any(|(span, binding)| after.get(span) != Some(binding))
+                        } else {
+                            after != before
+                        }
+                    },
+                )
+            }) || actual.keys().any(|source| {
+                workspace_file(source)
+                    && !newly_reached_parent(source)
+                    && !expected.contains_key(source)
+            }) {
                 return Err(format!("Rename would change name resolution in {request}"));
             }
         }

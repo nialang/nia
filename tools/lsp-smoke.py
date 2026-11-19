@@ -602,16 +602,16 @@ def smoke_module_move(server, root):
     sources = {
         entry: (
             "pub module left;\npub module right;\n"
-            "using root::{left::{value as reading}, right::base}; // Keep the import comment.\n"
-            "fun calculate() i32 { left::value::number() + reading::extra::bonus() + base() }\n"
+            "using root::{left::{value as reading, origin}}; // Keep the import comment.\n"
+            "fun calculate() i32 { left::value::number() + reading::extra::bonus() + origin() }\n"
         ),
         left: "/// Reading data.\npub module value; // Keep this comment.\npub fun origin() i32 { 40 }\n",
         right: "// Destination\npub fun base() i32 { 3 }\n",
         old: "pub module extra;\npub fun number() i32 { super::origin() }\n",
         old_tree / "extra.nia": "pub fun bonus() i32 { 2 }\n",
         downstream: (
-            "using facade::{left::{value as remote}, right::base};\n"
-            "fun calculate() i32 { facade::left::value::number() + remote::extra::bonus() + base() }\n"
+            "using facade::{left::{value as remote}};\n"
+            "fun calculate() i32 { facade::left::value::number() + remote::extra::bonus() }\n"
         ),
     }
     for path, text in sources.items():
@@ -661,8 +661,8 @@ def smoke_module_move(server, root):
                     path.write_bytes(text.encode("utf-8"))
             assert sources[left] == "pub fun origin() i32 { 40 }\n", sources[left]
             assert sources[right].endswith("/// Reading data.\npub module amount; // Keep this comment.\n")
-            assert "root::right::amount::number() + reading::extra::bonus() + base()" in sources[entry]
-            assert "using root::{right::base}; // Keep the import comment." in sources[entry]
+            assert "root::right::amount::number() + reading::extra::bonus() + origin()" in sources[entry]
+            assert "using root::{left::{origin}}; // Keep the import comment." in sources[entry]
             assert "using root::right::amount as reading;" in sources[entry]
             assert "using facade::right::amount as remote;" in sources[downstream]
             assert "facade::right::amount::number()" in sources[downstream]
