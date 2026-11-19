@@ -46,9 +46,11 @@ jobs:
           - name: x86_64
             runner: macos-15-intel
             target: x86_64-apple-macos
+            release_platform: darwin-x86_64
           - name: arm64
             runner: macos-15
             target: aarch64-apple-macos
+            release_platform: darwin-aarch64
     env:
       CARGO_TERM_COLOR: always
       MACOSX_DEPLOYMENT_TARGET: "15.0"
@@ -122,6 +124,23 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy -p nia-package-metadata -p nia-cli --tests --no-default-features --features llvm-static -- -D warnings
 
+      - name: Exercise the packaged Darwin language server
+        id: darwin-lsp
+        shell: bash
+        env:
+          NIA_RELEASE_PLATFORM: ${{ matrix.release_platform }}
+        run: |
+          mkdir -p target/platform-evidence
+          {
+            export NIA_RELEASE_OUTPUT="${RUNNER_TEMP}/nia-${NIA_RELEASE_PLATFORM}-lsp"
+            tools/release/package.sh
+            archive=("${NIA_RELEASE_OUTPUT}"/nia-*-${NIA_RELEASE_PLATFORM}.tar.gz)
+            unpacked="$(mktemp -d)"
+            tar -xzf "${archive[0]}" -C "${unpacked}"
+            server=("${unpacked}"/nia-*-${NIA_RELEASE_PLATFORM}/bin/nia-lsp)
+            python3 tools/lsp-smoke.py "${server[0]}"
+          } 2>&1 | tee target/platform-evidence/lsp.log
+
       - name: Run Darwin package, executable and standard-library suites
         id: darwin-suite
         shell: bash
@@ -136,6 +155,7 @@ jobs:
           mkdir -p target/platform-evidence
           {
             printf 'suite_status=%s\n' '${{ steps.darwin-suite.outcome }}'
+            printf 'lsp_status=%s\n' '${{ steps.darwin-lsp.outcome }}'
             printf 'commit=%s\n' "${GITHUB_SHA}"
             printf 'run_id=%s\n' "${GITHUB_RUN_ID}"
             printf 'job=%s\n' "${GITHUB_JOB}"
@@ -157,5 +177,6 @@ jobs:
           path: |
             target/platform-evidence/${{ matrix.name }}.txt
             target/platform-evidence/suite.log
+            target/platform-evidence/lsp.log
           if-no-files-found: warn
           retention-days: 30
