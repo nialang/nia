@@ -196,6 +196,7 @@ jobs:
           python3 nia-source/tools/lsp-smoke.py "${unpacked}/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}/bin/nia-lsp"
       - name: Verify Windows archive layout
         if: runner.os == 'Windows'
+        id: windows-archive
         shell: pwsh
         run: |
           $archive = "nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.zip"
@@ -208,11 +209,53 @@ jobs:
           $server = Join-Path $unpacked "nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}\bin\nia-lsp.exe"
           python .\nia-source\tools\lsp-smoke.py $server
           if ($LASTEXITCODE -ne 0) { throw 'packaged Windows language server failed protocol checks' }
+          "server=$server" >> $env:GITHUB_OUTPUT
+      - name: Set up Node.js for the VSIX
+        if: runner.os == 'Windows'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: nia-source/editors/vscode/package-lock.json
+      - name: Build the VS Code extension
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: nia-source/editors/vscode
+        run: |
+          npm.cmd ci
+          if ($LASTEXITCODE -ne 0) { throw 'VS Code extension dependency installation failed' }
+          npm.cmd exec --yes --package=@vscode/vsce@4.1.1 -- vsce package --out ../../target/release-package/nia-${{ needs.validate.outputs.version }}.vsix
+          if ($LASTEXITCODE -ne 0) { throw 'VSIX packaging failed' }
+      - name: Verify the VSIX with the unpacked Windows toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        timeout-minutes: 10
+        env:
+          NIA_SMOKE_SERVER: ${{ steps.windows-archive.outputs.server }}
+          VSCODE_VERSION: '1.147.0'
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP "vscode-$env:VSCODE_VERSION.zip"
+          $desktop = Join-Path $env:RUNNER_TEMP "vscode-$env:VSCODE_VERSION"
+          $url = "https://update.code.visualstudio.com/$env:VSCODE_VERSION/win32-x64-archive/stable"
+          curl.exe --fail --location --retry 3 --silent --show-error $url -o $zip
+          if ($LASTEXITCODE -ne 0) { throw 'VS Code desktop download failed' }
+          Expand-Archive -LiteralPath $zip -DestinationPath $desktop
+          $vsix = "nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}.vsix"
+          python nia-source/tools/lsp-vscode-smoke.py --code "$desktop/Code.exe" --cli "$desktop/bin/code.cmd" $env:NIA_SMOKE_SERVER $vsix
+          if ($LASTEXITCODE -ne 0) { throw 'VS Code client smoke test failed' }
       - name: Upload platform release assets
         uses: actions/upload-artifact@v7
         with:
           name: nia-release-${{ matrix.platform }}
           path: nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}.*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload verified VS Code extension
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: nia-release-vscode
+          path: nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}.vsix
           if-no-files-found: error
           retention-days: 7
 

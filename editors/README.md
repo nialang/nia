@@ -150,12 +150,15 @@ the adjacent resources without an argument.
 
 ## VS Code
 
-Put the release archive's `bin` directory on `PATH` or set
-`nia.server.path` to the installed server executable. Build a VSIX from
-`editors/vscode` with `npm ci` and `npx @vscode/vsce package --skip-license`.
-Use **Extensions: Install from VSIX…** to install the resulting file. For an
-uninstalled checkout build, set `nia.server.resourceRoot` to its `lib` directory.
-The repository license is available here. [LICENSE.md](../LICENSE.md)
+Download `nia-<version>.vsix` and the matching toolchain archive for your
+platform. Use **Extensions: Install from VSIX…** to install the extension.
+Put the unpacked toolchain's `bin` directory on `PATH` or set `nia.server.path`
+to the installed server executable. [Nia releases](https://github.com/nialang/nia/releases)
+
+To build the VSIX from a checkout, run `npm ci` and
+`npm exec --yes --package=@vscode/vsce@4.1.1 -- vsce package` in `editors/vscode`
+with Node.js 24. For an uninstalled checkout build of `nia-lsp`, set
+`nia.server.resourceRoot` to its `lib` directory.
 
 The extension uses the existing Nia square brand icon. Select **Nia File Icons**
 from **Preferences: File Icon Theme** to enable it for `.nia` files.

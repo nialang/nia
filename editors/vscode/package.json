@@ -45,7 +45,6 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run copy-icon",
-    "copy-icon": "node -e \"require('node:fs').copyFileSync('../../assets/brand/nia-icon.svg', 'assets/nia-icon.svg')\""
+    "vscode:prepublish": "node -e \"const { copyFileSync } = require('node:fs'); copyFileSync('../../assets/brand/nia-icon.svg', 'assets/nia-icon.svg'); copyFileSync('../../LICENSES/GPL-3.0-or-later.txt', 'LICENSE.txt')\""
   }
 }
