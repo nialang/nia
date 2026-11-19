@@ -305,6 +305,7 @@ fn build_module_graph(
     // module targets through declared-module edges before the graph traversal
     // reaches those targets, then apply semantic/body selection in either the
     // fresh or incremental path.
+    let mut pending_provider_targets = Vec::new();
     for demand in new_provider_demands {
         let (module_path, is_body) = match &demand.request {
             nia_loader_contract::ProviderRequest::ModuleSemantic { module_path } => {
@@ -327,6 +328,8 @@ fn build_module_graph(
                 mark_semantic_used_paths_and_process(db, &mut graph, module_id, &mut fact_memo)
             };
             record_traversal_diagnostic(activation, &mut fresh_diagnostics, module_path)?;
+        } else {
+            pending_provider_targets.push((&demand.source_path, module_path));
         }
     }
     let existing_nodes = graph.modules().take(index).cloned().collect::<Vec<_>>();
@@ -390,7 +393,7 @@ fn build_module_graph(
         }
         ensure_missing_provider_targets(
             &mut graph,
-            new_provider_demands,
+            &mut pending_provider_targets,
             &mut fact_memo,
             &mut fresh_diagnostics,
         )?;
@@ -478,29 +481,17 @@ fn provider_demand_target_identity(demand: &nia_loader_contract::ProviderDemand)
 
 fn ensure_missing_provider_targets(
     graph: &mut ModuleGraph,
-    demands: &std::collections::HashSet<nia_loader_contract::ProviderDemand>,
+    pending: &mut Vec<(&SourcePath, &SourcePath)>,
     fact_memo: &mut ModuleGraphFactMemo<'_>,
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
 ) -> QueryResult<()> {
-    for demand in demands {
-        let module_path = match &demand.request {
-            nia_loader_contract::ProviderRequest::ModuleSemantic { module_path }
-            | nia_loader_contract::ProviderRequest::ModuleBody { module_path } => module_path,
-            nia_loader_contract::ProviderRequest::Method { .. }
-            | nia_loader_contract::ProviderRequest::TraitImpl { .. } => continue,
-        };
-        if graph
-            .module_id_for_source_identity(&module_path.identity())
+    pending.retain(|(_, module)| {
+        graph
+            .module_id_for_source_identity(&module.identity())
             .is_none()
-        {
-            let _ = ensure_provider_target_module(
-                graph,
-                &demand.source_path,
-                module_path,
-                fact_memo,
-                diagnostics,
-            )?;
-        }
+    });
+    for &(requester, module) in pending.iter() {
+        ensure_provider_target_module(graph, requester, module, fact_memo, diagnostics)?;
     }
     Ok(())
 }
