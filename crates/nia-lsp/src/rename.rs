@@ -24,6 +24,7 @@ use crate::{
 
 type ShorthandFields = BTreeMap<String, BTreeMap<Span, (Site, usize)>>;
 
+mod generated;
 mod relocation;
 use relocation::{NamespaceRewrite, collect_relocation};
 
@@ -254,7 +255,7 @@ impl Session {
     }
 
     fn verify_rename(
-        &self,
+        &mut self,
         workspace: &WorkspaceIndex,
         documents: &Documents,
         plan: RenamePlan,
@@ -263,7 +264,7 @@ impl Session {
         cancel: &Cancellation,
     ) -> Result<WorkspaceEdit, String> {
         let RenamePlan {
-            edits,
+            mut edits,
             moves,
             shorthand,
             namespaces,
@@ -291,6 +292,7 @@ impl Session {
         {
             return Err("A module move would relocate a declared build entry".to_owned());
         }
+        let generated = self.project_generated_rename(workspace, documents, &mut edits, cancel)?;
         let files = &workspace.files;
         let mut updated = documents.clone();
         let mut changes = Vec::new();
@@ -298,7 +300,8 @@ impl Session {
             cancel.check()?;
             let path = PathBuf::from(source);
             let physical = path.canonicalize().map(|path| normalized(&path));
-            if !workspace.editable_source(&path)
+            let projected = generated.outputs.contains(source);
+            if (!workspace.editable_source(&path) && !projected)
                 || physical.as_ref().is_ok_and(|physical| physical != source)
                 || (path.exists() && physical.is_err())
             {
@@ -306,7 +309,10 @@ impl Session {
                     "A rename would edit a file outside the workspace ({source})"
                 ));
             }
-            let (uri, text) = files.get(source).ok_or("Rename source disappeared")?;
+            let (uri, text) = files
+                .get(source)
+                .or_else(|| generated.inputs.get(source))
+                .ok_or("Rename source disappeared")?;
             let open = documents
                 .iter()
                 .find(|(path, _)| normalized(path) == *source);
@@ -334,6 +340,9 @@ impl Session {
                     document: Document::new(version.unwrap_or_default(), changed),
                 },
             );
+            if projected {
+                continue;
+            }
             changes.push(TextDocumentEdit {
                 text_document: OptionalVersionedTextDocumentIdentifier {
                     uri: uri.clone(),
@@ -417,7 +426,7 @@ impl Session {
             }
         }
         let open: BTreeSet<_> = documents.keys().map(|path| normalized(path)).collect();
-        for (source, (_, text)) in files {
+        for (source, (_, text)) in files.iter().chain(&generated.inputs) {
             cancel.check()?;
             if !open.contains(source)
                 && std::fs::read_to_string(source).ok().as_deref() != Some(text)
@@ -425,6 +434,7 @@ impl Session {
                 return Err(format!("Source changed on disk ({source})"));
             }
         }
+        generated.verify_current(cancel)?;
         for (old, new) in &moves {
             check_destination(old, new)?;
         }

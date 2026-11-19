@@ -18,6 +18,62 @@ pub struct GeneratedSourceMap<'a> {
     entries: Vec<Mapping>,
     root: nia_build_plan::PackageKey,
     inputs: Vec<LogicalPath>,
+    snapshot: GeneratedSourceSnapshot,
+}
+
+/// The generated source and mapping observed during validation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GeneratedSourceSnapshot {
+    generated: PathBuf,
+    generated_digest: String,
+    map: PathBuf,
+    map_digest: blake3::Hash,
+}
+
+impl GeneratedSourceSnapshot {
+    /// Checks that the producer outputs still match the validated snapshots on disk.
+    pub fn verify_current(&self) -> io::Result<()> {
+        if canonical_file(&self.generated)? != normalize_path(&self.generated.to_string_lossy())
+            || canonical_file(&self.map)? != normalize_path(&self.map.to_string_lossy())
+            || !matches_digest(&read_source_text(&self.generated)?, &self.generated_digest)
+            || blake3::hash(read_source_text(&self.map)?.as_bytes()) != self.map_digest
+        {
+            return Err(invalid("generated source or source map changed"));
+        }
+        Ok(())
+    }
+}
+
+/// Lists Nia outputs of commands that consume the given root package input.
+pub fn outputs_reading_input(
+    plan: &BuildPlan,
+    output: &Path,
+    relative_input: &str,
+) -> Vec<PathBuf> {
+    let Ok(input) = LogicalPath::new(
+        LogicalPathRoot::Package(plan.root_package().clone()),
+        relative_input,
+    ) else {
+        return Vec::new();
+    };
+    plan.actions()
+        .iter()
+        .filter_map(|action| match &action.kind {
+            ActionKind::ExternalCommand(command) | ActionKind::RunExecutable(command)
+                if command.inputs.iter().any(|path| {
+                    path.root() == input.root() && input.components().starts_with(path.components())
+                }) =>
+            {
+                Some(command)
+            }
+            _ => None,
+        })
+        .flat_map(|command| &command.outputs)
+        .filter(|path| {
+            path.root() == &LogicalPathRoot::Build && path.protocol_path().ends_with(".nia")
+        })
+        .map(|path| output.join(path.protocol_path()))
+        .collect()
 }
 
 /// The current producer input corresponding to a range in generated source.
@@ -28,6 +84,8 @@ pub struct SourceOrigin {
     pub text: Arc<str>,
     /// Input range chosen by the producer.
     pub span: Span,
+    /// The producer declares that identifier edits in this byte copy propagate to its output.
+    pub editable: bool,
 }
 
 #[derive(Deserialize)]
@@ -45,6 +103,8 @@ struct Mapping {
     source_path: String,
     source_digest: String,
     source: [usize; 2],
+    #[serde(default)]
+    editable: bool,
 }
 
 impl<'a> GeneratedSourceMap<'a> {
@@ -86,11 +146,12 @@ impl<'a> GeneratedSourceMap<'a> {
                 "generated source map resolves outside its declared path",
             ));
         }
+        let map_text = read_source_text(&map)?;
         let Manifest {
             version,
             generated_digest,
             mut mappings,
-        } = serde_json::from_str(&read_source_text(map)?).map_err(io::Error::other)?;
+        } = serde_json::from_str(&map_text).map_err(io::Error::other)?;
         if version != 1 || !matches_digest(generated_text, &generated_digest) {
             return Err(invalid(
                 "generated source map has an unsupported version or stale digest",
@@ -111,7 +172,18 @@ impl<'a> GeneratedSourceMap<'a> {
             entries: mappings,
             root: plan.root_package().clone(),
             inputs: producer.inputs.clone(),
+            snapshot: GeneratedSourceSnapshot {
+                generated: generated.to_owned(),
+                generated_digest,
+                map,
+                map_digest: blake3::hash(map_text.as_bytes()),
+            },
         }))
+    }
+
+    /// Returns the identity of the validated source and map snapshots.
+    pub fn snapshot(&self) -> &GeneratedSourceSnapshot {
+        &self.snapshot
     }
 
     /// Finds a unique enclosing generated range and validates the mapped input
@@ -169,7 +241,52 @@ impl<'a> GeneratedSourceMap<'a> {
         } else {
             source_span
         };
-        Ok(Some(SourceOrigin { path, text, span }))
+        Ok(Some(SourceOrigin {
+            path,
+            text,
+            span,
+            editable: copied && mapping.editable,
+        }))
+    }
+
+    /// Projects an input edit through all verbatim copies declared by the producer.
+    /// Rejects edits that cross a mapping boundary or touch a transformed range.
+    pub fn input_copies(
+        &self,
+        package_root: &Path,
+        path: &Path,
+        text: &str,
+        span: Span,
+    ) -> io::Result<Vec<Span>> {
+        let Ok(relative) = path.strip_prefix(package_root) else {
+            return Ok(Vec::new());
+        };
+        let name = normalize_path(&relative.to_string_lossy());
+        let mut copies = Vec::new();
+        for mapping in &self.entries {
+            if normalize_path(&mapping.source_path) != name
+                || span.end <= mapping.source[0]
+                || mapping.source[1] <= span.start
+            {
+                continue;
+            }
+            let range = checked_span(text, mapping.source)
+                .ok_or_else(|| invalid("mapped source range is invalid"))?;
+            if !mapping.editable
+                || !matches_digest(text, &mapping.source_digest)
+                || range.start > span.start
+                || span.end > range.end
+                || text[range.start..range.end]
+                    != self.generated_text[mapping.generated[0]..mapping.generated[1]]
+            {
+                return Err(invalid(
+                    "generated input edit touches a range without an editable byte copy",
+                ));
+            }
+            let start = mapping.generated[0] + span.start - range.start;
+            copies.push(Span::new(start, start + span.len()));
+        }
+        Ok(copies)
     }
 }
 
@@ -286,6 +403,12 @@ mod tests {
         let map = GeneratedSourceMap::read(&plan, &output, &generated_path, generated)
             .unwrap()
             .unwrap();
+        assert_eq!(
+            outputs_reading_input(&plan, &output, "definitions.nia"),
+            std::slice::from_ref(&generated_path)
+        );
+        assert!(outputs_reading_input(&plan, &output, "other.nia").is_empty());
+        map.snapshot().verify_current().unwrap();
         for (span, expected) in [
             (Span::new(0, 6), Span::new(input_span[0], input_span[1])),
             (
@@ -302,6 +425,7 @@ mod tests {
                 .unwrap();
             assert_eq!(origin.path, root.join("definitions.nia"));
             assert_eq!(origin.span, expected);
+            assert!(!origin.editable);
         }
         assert!(
             map.origin(&root, &output, Span::new(0, 6), |_| Ok(Arc::from(
@@ -317,6 +441,44 @@ mod tests {
         );
         manifest["mappings"][1]["generated"] = serde_json::json!([5, 16]);
         std::fs::write(&map_path, manifest.to_string()).unwrap();
+        assert!(map.snapshot().verify_current().is_err());
         assert!(GeneratedSourceMap::read(&plan, &output, &generated_path, generated).is_err());
+    }
+
+    #[test]
+    fn editable_input_copies_account_for_every_mapped_occurrence() {
+        let input = "amount";
+        let generated = "amount amount changed";
+        let root = Path::new("/package");
+        let digest = blake3::hash(input.as_bytes()).to_hex().to_string();
+        let mapping = |generated, editable| Mapping {
+            generated,
+            source_path: "definitions.nia".into(),
+            source_digest: digest.clone(),
+            source: [0, input.len()],
+            editable,
+        };
+        let mut map = GeneratedSourceMap {
+            generated_text: generated,
+            entries: vec![mapping([0, 6], true), mapping([7, 13], true)],
+            root: nia_build_plan::PackageKey::root(),
+            inputs: Vec::new(),
+            snapshot: GeneratedSourceSnapshot {
+                generated: root.join("out/generated.nia"),
+                generated_digest: blake3::hash(generated.as_bytes()).to_hex().to_string(),
+                map: root.join("out/generated.nia.map"),
+                map_digest: blake3::hash(b""),
+            },
+        };
+        let path = root.join("definitions.nia");
+        let range = Span::new(1, 5);
+        assert_eq!(
+            map.input_copies(root, &path, input, range).unwrap(),
+            [Span::new(1, 5), Span::new(8, 12)],
+        );
+        map.entries[1].editable = false;
+        assert!(map.input_copies(root, &path, input, range).is_err());
+        map.entries[1] = mapping([14, 21], true);
+        assert!(map.input_copies(root, &path, input, range).is_err());
     }
 }

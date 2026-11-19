@@ -65,8 +65,8 @@ Moving a module to another declaring module in the same package relocates
 the declaration and updates its resolved paths. The server checks the moved
 source, including any unsaved buffer, under the destination namespace.
 Case-only renames follow the same checks.
-Generated files are read-only to the LSP and their producer owns changes
-to the generated declarations.
+Renaming a generated declaration can edit the producer input when the
+producer declares an editable byte copy and all generated edits can be verified.
 
 A generator can publish a `.nia.map` file beside its generated `.nia` file
 in the package's build output directory. The configured command must declare
@@ -95,6 +95,12 @@ Definition, type-definition, references, and implementation navigation use the
 map when both snapshots match the producer's digests. Byte-identical ranges preserve the location
 within the mapped text. Transformed ranges link to the entire input range.
 Unsaved changes to either file are checked against the same digests.
+
+For rename support, set `"editable": true` on a byte-identical mapping whose
+producer preserves identifier replacements on regeneration. Map every affected
+copy, including copies in other declared Nia outputs. The language server checks
+the projected generated sources with the compiler and sends edits to the input
+files and their handwritten callers. The build regenerates the outputs.
 
 Workspace references and rename share an index for the current document
 revision. Reference results can include resolved sources from entries

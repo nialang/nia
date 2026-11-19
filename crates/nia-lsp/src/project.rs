@@ -308,14 +308,39 @@ impl Package {
         span: nia_span::Span,
         load: impl FnOnce(&Path) -> std::io::Result<std::sync::Arc<str>>,
     ) -> Option<nia_build::source_map::SourceOrigin> {
-        let (plan, _) = self.plan.as_ref()?;
-        let output = PathBuf::from(normalized(&self.layout.out_dir()));
-        let source_map =
-            nia_build::source_map::GeneratedSourceMap::read(plan, &output, generated, text)
-                .ok()??;
+        let source_map = self.generated_source_map(generated, text).ok()??;
         source_map
-            .origin(self.layout.package_root(), &output, span, load)
+            .origin(self.layout.package_root(), &self.output_root(), span, load)
             .ok()?
+    }
+
+    pub(crate) fn generated_source_map<'a>(
+        &self,
+        generated: &Path,
+        text: &'a str,
+    ) -> std::io::Result<Option<nia_build::source_map::GeneratedSourceMap<'a>>> {
+        let Some((plan, _)) = self.plan.as_ref() else {
+            return Ok(None);
+        };
+        nia_build::source_map::GeneratedSourceMap::read(plan, &self.output_root(), generated, text)
+    }
+
+    pub(crate) fn source_root(&self) -> PathBuf {
+        PathBuf::from(normalized(self.layout.package_root()))
+    }
+
+    pub(crate) fn output_root(&self) -> PathBuf {
+        PathBuf::from(normalized(&self.layout.out_dir()))
+    }
+
+    pub(crate) fn generated_outputs_reading(&self, source: &Path) -> Vec<PathBuf> {
+        let Some((plan, _)) = &self.plan else {
+            return Vec::new();
+        };
+        let Some(relative) = source.strip_prefix(self.source_root()).ok().map(normalized) else {
+            return Vec::new();
+        };
+        nia_build::source_map::outputs_reading_input(plan, &self.output_root(), &relative)
     }
 
     fn build_candidate(&self) -> Option<PathBuf> {

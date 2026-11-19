@@ -1256,7 +1256,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
     assert!(
         rename_at(&path, "amount as", "renamed")
             .unwrap_err()
-            .contains("outside the workspace")
+            .contains("Missing generated source map")
     );
     assert_eq!(std::fs::read_to_string(&generated).unwrap(), generated_text);
 
