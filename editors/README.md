@@ -7,7 +7,9 @@ trait implementation navigation, hover at resolved names, workspace references,
 occurrence highlighting in the current file, completion for
 local names, module members, receiver fields and methods, signature help for
 source functions and resolved methods,
-document outline, folding, and semantic highlighting. Named field accesses
+diagnostic quick fixes, document formatting, outline, folding, and semantic
+highlighting. Callable completions, hovers, and signature help include
+declaration signatures and adjacent triple-slash documentation. Named field accesses
 also support definition navigation and references. Receiver completion
 checks method names from declarations in the current analysis graph.
 Definition and reference lookup cover resolved type names, module and block
@@ -50,6 +52,10 @@ modules. The workspace edit updates paths in source and moves the module's
 library, executable, test, and build-script entries, including unopened
 files. It rejects edits that would break compilation, change binding, or
 require changing a generated file or a source outside the workspace.
+In clients that send file rename requests, renaming a declared module beside
+its original file also updates the declaration and bound references. Include
+the module's child directory in the same operation when present. Case-only
+renames follow the same checks.
 Generated files are read-only to the LSP and their producer owns changes
 to the generated declarations.
 
@@ -59,6 +65,11 @@ that have diagnostics. Workspace requests run independently of interactive
 analysis and stop at the next cancellation checkpoint when the input changes.
 Workspace symbol searches accept names and qualifiers such as
 `app::geometry::Point` and include declarations in unsaved buffers.
+
+Formatting uses the lossless syntax tree and preserves comments, literals, and
+existing line breaks. The editor sends its indentation setting. The CLI
+command `nia fmt path/to/file.nia` prints the formatted text to stdout with
+four-space indentation.
 
 For a repeatable latency sample, run the stdio benchmark with Python 3.9+
 and a release server binary. It reports request round trips, versioned
