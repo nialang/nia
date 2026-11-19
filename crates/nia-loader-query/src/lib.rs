@@ -432,6 +432,11 @@ impl LoaderDatabase {
         &self.sources
     }
 
+    /// Returns the cached grammar tree for a current source revision.
+    pub fn source_syntax(&self, version: SourceVersion) -> QueryResult<Arc<nia_syntax::Parse>> {
+        self.db.get(queries::SyntaxModuleQuery(version))
+    }
+
     /// Replaces source text after retiring the previous revision under one quiescent barrier.
     pub fn set_source(
         &self,

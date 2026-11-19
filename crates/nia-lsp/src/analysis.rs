@@ -17,6 +17,7 @@ use nia_driver::{CheckRequest, Driver, DriverConfig};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_imports::{ModuleGraphSnapshot, ModuleRootSegment};
 use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
+use nia_loader_query::LoaderDatabase;
 use nia_sema_ir::{ResolvedCall, SemanticValueUse};
 use nia_source::SourcePath;
 use nia_span::Span;
@@ -161,9 +162,16 @@ impl Session {
             .analyze_mode(&overlay, path, Some(cancel), AnalysisMode::Declarations)
             .ok()?;
         let file = analysis.file(path)?;
-        let receiver = member.receiver(file)?;
-        let names = analysis.method_names(member.prefix(&document.text));
-        let items = analysis.receiver_members(file, receiver, &names, cancel)?;
+        let items = nia_timing::time_stage(
+            crate::timing_mode(),
+            nia_timing::TimingLevel::Summary,
+            "lsp.member_receiver_check",
+            || {
+                let receiver = member.receiver(file)?;
+                let names = analysis.method_names(member.prefix(&document.text));
+                analysis.receiver_members(file, receiver, &names, cancel)
+            },
+        )?;
         let items = member.items(&document.text, &document.lines, items);
         (!items.is_empty()).then_some(items)
     }
@@ -495,7 +503,7 @@ fn analyze_request(
         AnalysisMode::Full | AnalysisMode::Workspace => {
             driver.analyze_for_editor(check, cancel, |db, program, loader| {
                 Analysis::from_program(
-                    driver,
+                    loader,
                     db,
                     ProgramSources {
                         request,
@@ -517,7 +525,7 @@ fn analyze_request(
                 || {
                     nia_query::with_cancellation(cancel, || {
                         Analysis::from_program(
-                            driver,
+                            loader,
                             db,
                             ProgramSources {
                                 request,
@@ -571,16 +579,14 @@ pub(crate) struct File {
     locals: HashMap<LocalId, (Kind, bool)>,
     type_highlights: Resolved,
     expr_types: HashMap<Span, InternedTyId>,
-    syntax: OnceLock<Option<nia_syntax::Parse>>,
+    syntax: Arc<nia_syntax::Parse>,
     field_uses: OnceLock<Vec<(Span, GlobalDefId)>>,
     rename_aliases: HashMap<Span, Symbol>,
 }
 
 impl File {
-    pub(crate) fn syntax(&self) -> Option<&nia_syntax::Parse> {
-        self.syntax
-            .get_or_init(|| nia_syntax::parse(&self.text, None).ok())
-            .as_ref()
+    pub(crate) fn syntax(&self) -> &nia_syntax::Parse {
+        &self.syntax
     }
 }
 
@@ -626,16 +632,11 @@ impl Analysis {
         if !matches!(def.kind, DefKind::Function | DefKind::Global) {
             return None;
         }
-        let item = file
-            .syntax()?
-            .tree
-            .green_root()
-            .child_nodes()
-            .find(|node| {
-                node.kind() == &SyntaxKind::Item
-                    && node.span().start <= name.start
-                    && name.end <= node.span().end
-            })?;
+        let item = file.syntax().tree.green_root().child_nodes().find(|node| {
+            node.kind() == &SyntaxKind::Item
+                && node.span().start <= name.start
+                && name.end <= node.span().end
+        })?;
         let decl = item.child_nodes().find(|node| {
             matches!(
                 node.kind(),
@@ -663,7 +664,7 @@ impl Analysis {
     }
 
     fn from_program(
-        driver: &Driver,
+        loader: &LoaderDatabase,
         db: &CompilerDatabase,
         program: ProgramSources,
         cancel: Option<&nia_query::CancellationToken>,
@@ -699,7 +700,7 @@ impl Analysis {
         for node in program.graph.modules() {
             checkpoint()?;
             let path = node.path.as_str();
-            let Some(file) = driver.sources().source_for_id(node.source_id) else {
+            let Some(file) = loader.sources().source_for_id(node.source_id) else {
                 continue;
             };
             let Some(file_uri) = uri(Path::new(path)) else {
@@ -736,7 +737,7 @@ impl Analysis {
             let mut locals = HashMap::new();
             let mut type_highlights = Resolved::new();
             let mut expr_types = HashMap::new();
-            let syntax = OnceLock::new();
+            let syntax = loader.source_syntax(file.version())?;
             let mut rename_aliases = HashMap::new();
             let mut declare = |symbol, span| {
                 result.definitions.insert(symbol, (path.to_owned(), span));
@@ -943,12 +944,9 @@ impl Analysis {
                         method_calls.insert(span, id);
                     }
                 }
-                if !method_calls.is_empty()
-                    && let Some(parsed) =
-                        syntax.get_or_init(|| nia_syntax::parse(&file.text, None).ok())
-                {
+                if !method_calls.is_empty() {
                     index_method_calls(
-                        parsed.tree.green_root(),
+                        syntax.tree.green_root(),
                         &mut method_calls,
                         &mut occurrences,
                     );
@@ -958,8 +956,6 @@ impl Analysis {
                 && tokens
                     .iter()
                     .any(|token| token.kind == LosslessTokenKind::Token(TokenKind::Using))
-                && let Some(parsed) =
-                    syntax.get_or_init(|| nia_syntax::parse(&file.text, None).ok())
             {
                 let mut imports = ImportOccurrences {
                     graph: &program.graph,
@@ -971,7 +967,7 @@ impl Analysis {
                     bindings: HashMap::new(),
                 };
                 let scopes = db.source_import_scopes(node.id)?;
-                imports.index(parsed.tree.green_root(), &defs, &scopes);
+                imports.index(syntax.tree.green_root(), &defs, &scopes);
                 for (span, symbol) in imports.bindings {
                     result.definitions.insert(symbol, (path.to_owned(), span));
                 }
@@ -1127,11 +1123,9 @@ impl Analysis {
             if !file.text.contains('=') || !file.text.contains('[') {
                 continue;
             }
-            if let Some(syntax) = file.syntax() {
-                let mut indexed = Vec::new();
-                self.named_associated_types(file, syntax.tree.green_root(), &mut indexed);
-                additions.push((source.clone(), indexed));
-            }
+            let mut indexed = Vec::new();
+            self.named_associated_types(file, file.syntax().tree.green_root(), &mut indexed);
+            additions.push((source.clone(), indexed));
         }
         for (source, indexed) in additions {
             let file = self.files.get_mut(&source).expect("indexed source");
@@ -1194,7 +1188,7 @@ impl Analysis {
             return None;
         }
         let (source, span) = self.definitions.get(&symbol)?;
-        let root = self.files.get(source)?.syntax()?.tree.green_root();
+        let root = self.files.get(source)?.syntax().tree.green_root();
         let item = root.child_nodes().find(|node| {
             let item = node.span();
             item.start <= span.start && span.end <= item.end
@@ -1445,37 +1439,36 @@ impl Analysis {
             if file.expr_types.is_empty() {
                 return uses;
             }
-            if let Some(syntax) = file.syntax() {
-                field_accesses(syntax.tree.green_root(), &mut |name, receiver| {
-                    // A dot may introduce a resolved method call instead of a field access.
-                    if file
-                        .occurrences
-                        .binary_search_by_key(&name, |item| item.span)
-                        .is_ok()
-                    {
-                        return;
-                    }
-                    let Some(TyKind::Nominal { def_id, .. }) = self.receiver_type(file, receiver)
-                    else {
-                        return;
-                    };
-                    let symbol =
-                        SymbolId::from_stable_hash(stable_hash(&file.text[name.start..name.end]));
-                    if let Some(field) = self
-                        .nominal_fields(*def_id)
-                        .and_then(|fields| fields.get(&symbol))
-                    {
-                        uses.push((
-                            name,
-                            GlobalDefId {
-                                module_id: def_id.module_id,
-                                def_id: field,
-                            },
-                        ));
-                    }
-                });
-                self.named_fields(file, syntax.tree.green_root(), &mut uses);
-            }
+            let root = file.syntax().tree.green_root();
+            field_accesses(root, &mut |name, receiver| {
+                // A dot may introduce a resolved method call instead of a field access.
+                if file
+                    .occurrences
+                    .binary_search_by_key(&name, |item| item.span)
+                    .is_ok()
+                {
+                    return;
+                }
+                let Some(TyKind::Nominal { def_id, .. }) = self.receiver_type(file, receiver)
+                else {
+                    return;
+                };
+                let symbol =
+                    SymbolId::from_stable_hash(stable_hash(&file.text[name.start..name.end]));
+                if let Some(field) = self
+                    .nominal_fields(*def_id)
+                    .and_then(|fields| fields.get(&symbol))
+                {
+                    uses.push((
+                        name,
+                        GlobalDefId {
+                            module_id: def_id.module_id,
+                            def_id: field,
+                        },
+                    ));
+                }
+            });
+            self.named_fields(file, root, &mut uses);
             uses.sort_unstable();
             uses.dedup();
             uses

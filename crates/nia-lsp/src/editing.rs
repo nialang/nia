@@ -49,7 +49,7 @@ impl MemberCompletion {
     }
 
     pub(crate) fn receiver(&self, file: &File) -> Option<Span> {
-        let root = file.syntax()?.tree.green_root();
+        let root = file.syntax().tree.green_root();
         receiver_at_dot(root, self.dot)
     }
 
@@ -140,7 +140,7 @@ impl Analysis {
         let file = self.file(path)?;
         let start = file.lines.offset(&file.text, range.start)?;
         let end = file.lines.offset(&file.text, range.end)?;
-        let syntax = file.syntax()?;
+        let syntax = file.syntax();
         let mut pending = vec![syntax.tree.green_root()];
         let mut hints = Vec::new();
         while let Some(node) = pending.pop() {
@@ -255,7 +255,7 @@ impl Analysis {
         if inside_literal_or_comment(&file.text, offset) {
             return Some(Vec::new());
         }
-        let root = file.syntax().map(|parsed| parsed.tree.green_root());
+        let root = file.syntax().tree.green_root();
         let context = CompletionContext::at(root, start);
         let mut candidates = BTreeMap::new();
         for name in self.names(file, start, &qualifier).ok()? {
@@ -288,9 +288,7 @@ impl Analysis {
                     (Some(CompletionItemKind::TYPE_PARAMETER), None, true),
                 );
             }
-        } else if qualifier.is_empty()
-            && let Some(root) = root
-        {
+        } else if qualifier.is_empty() {
             for name in local_names(root, &file.text, start) {
                 candidates.insert(
                     name.to_owned(),
@@ -383,8 +381,8 @@ impl Analysis {
         let name = &file.text[call.name.start..call.name.end];
         let (qualifier, _) = qualifier(&file.text, call.name.start);
         if qualifier.is_empty()
-            && let Some(parsed) = file.syntax()
-            && local_names(parsed.tree.green_root(), &file.text, call.name.start).contains(&name)
+            && local_names(file.syntax().tree.green_root(), &file.text, call.name.start)
+                .contains(&name)
         {
             return None;
         }
@@ -405,9 +403,9 @@ struct CompletionContext<'a> {
 }
 
 impl<'a> CompletionContext<'a> {
-    fn at(root: Option<&'a GreenNode>, offset: usize) -> Self {
+    fn at(root: &'a GreenNode, offset: usize) -> Self {
         let mut context = Self::default();
-        let mut node = root;
+        let mut node = Some(root);
         while let Some(current) = node {
             if current.kind() == &SyntaxKind::TypeOrConstArg {
                 // A bare argument path can denote a const as well as a type.
@@ -495,7 +493,7 @@ pub(crate) fn unqualified_completion(
             .bytes()
             .take_while(|&byte| is_name_byte(byte))
             .count();
-    let root = file.syntax()?.tree.green_root();
+    let root = file.syntax().tree.green_root();
     let span = Span::new(start, end);
     let mut node = root;
     let mut kind = None;
@@ -679,7 +677,7 @@ pub(crate) struct CallableDeclaration<'a> {
 
 impl<'a> CallableDeclaration<'a> {
     pub(crate) fn at(file: &'a File, declaration: Span) -> Option<Self> {
-        let root = file.syntax()?.tree.green_root();
+        let root = file.syntax().tree.green_root();
         Self::in_tree(root, &file.text, declaration)
     }
 

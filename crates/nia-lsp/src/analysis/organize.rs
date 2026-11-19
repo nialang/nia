@@ -28,7 +28,7 @@ impl Session {
         if file.text != open.document.text || analysis.errors().next().is_some() {
             return None;
         }
-        let parsed = file.syntax()?;
+        let parsed = file.syntax();
         if !parsed.errors.is_empty() {
             return None;
         }

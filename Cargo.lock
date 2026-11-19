@@ -1691,6 +1691,7 @@ dependencies = [
  "nia-ids",
  "nia-imports",
  "nia-lexer",
+ "nia-loader-query",
  "nia-local-resolve",
  "nia-package-metadata",
  "nia-query",

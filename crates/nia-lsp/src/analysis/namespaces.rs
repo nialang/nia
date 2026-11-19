@@ -45,7 +45,7 @@ impl Analysis {
                         aliases: HashMap::new(),
                         exports: HashMap::new(),
                     };
-                    index.visit(file.syntax()?.tree.green_root(), false);
+                    index.visit(file.syntax().tree.green_root(), false);
                     Some((source.clone(), index.modules, index.aliases, index.exports))
                 })
                 .collect();
