@@ -284,27 +284,39 @@ impl Session {
     }
 
     pub(crate) fn install_documents(&mut self, documents: &Documents) -> Result<(), String> {
-        // A fresh source database lets closed files return to disk ownership.
-        if self
+        let closed: Vec<_> = self
             .overlays
             .keys()
-            .any(|path| !documents.contains_key(path))
-        {
-            self.driver = Driver::new(self.toolchain.clone());
-            self.target_drivers.get_mut().clear();
-            self.overlays.clear();
+            .filter(|path| !documents.contains_key(*path))
+            .cloned()
+            .collect();
+        for path in closed {
+            let Ok(text) = nia_source::read_source_text(&path) else {
+                // Reload when a closed path has no readable disk snapshot.
+                self.driver = Driver::new(self.toolchain.clone());
+                self.target_drivers.get_mut().clear();
+                self.overlays.clear();
+                break;
+            };
+            if self.overlays[&path].as_ref() != text {
+                self.replace_source(&path, text.into())?;
+            }
+            self.overlays.remove(&path);
         }
         for (path, open) in documents {
             let text = &open.document.text;
             if self.overlays.get(path).is_some_and(|old| old == text) {
                 continue;
             }
-            for driver in
-                std::iter::once(&self.driver).chain(self.target_drivers.get_mut().values())
-            {
-                set_source(driver, path, text.clone())?;
-            }
+            self.replace_source(path, text.clone())?;
             self.overlays.insert(path.clone(), text.clone());
+        }
+        Ok(())
+    }
+
+    fn replace_source(&mut self, path: &Path, text: Arc<str>) -> Result<(), String> {
+        for driver in std::iter::once(&self.driver).chain(self.target_drivers.get_mut().values()) {
+            set_source(driver, path, text.clone())?;
         }
         Ok(())
     }
@@ -2254,6 +2266,44 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn closing_an_overlay_restores_disk_bindings_in_the_same_session() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-close-overlay");
+        let entry = root.join("root.nia");
+        let child = root.join("child.nia");
+        let entry_text = "module child;\nfun read() i32 { child::value() }\n";
+        let disk = "pub fun value() i32 { 42 }\n";
+        let edited = "pub fun changed() i32 { 42 }\n";
+        std::fs::write(&entry, entry_text).unwrap();
+        std::fs::write(&child, disk).unwrap();
+        let open = |path: &Path, text: &str| OpenDocument {
+            uri: uri(path).unwrap(),
+            document: Document::new(1, text.into()),
+        };
+        let mut documents = Documents::from([
+            (entry.clone(), open(&entry, entry_text)),
+            (child.clone(), open(&child, edited)),
+        ]);
+        let mut session = test_session();
+        let before = session.analyze(&documents, &entry).unwrap();
+        assert!(before.first_error().is_some());
+
+        documents.remove(&child);
+        let after = session.analyze(&documents, &entry).unwrap();
+        assert!(before.db.query_session().ptr_eq(&after.db.query_session()));
+        assert_eq!(after.first_error(), None);
+        assert_eq!(after.file(&child).unwrap().text.as_ref(), disk);
+
+        documents.insert(child.clone(), open(&child, edited));
+        session.analyze(&documents, &entry).unwrap();
+        std::fs::remove_file(&child).unwrap();
+        documents.remove(&child);
+        let missing = session.analyze(&documents, &entry).unwrap();
+        assert!(missing.first_error().is_some());
+        assert!(missing.file(&child).is_none());
     }
 
     #[test]
