@@ -260,6 +260,7 @@ struct Publication {
 
 struct CurrentAnalysis {
     revision: u64,
+    source_revision: u64,
     path: PathBuf,
     analysis: Result<Arc<Analysis>, String>,
     highlights: Arc<Resolved>,
@@ -390,8 +391,8 @@ fn analyze(
         } else {
             let previous = cached
                 .as_ref()
-                .filter(|cached| lane == Lane::Editor && cached.revision == work.revision)
-                .and_then(|cached| cached.analysis.as_ref().ok());
+                .filter(|_| lane == Lane::Editor)
+                .and_then(|cached| Some((cached.source_revision, cached.analysis.as_ref().ok()?)));
             let analysis = session.analyze_editor_snapshot(
                 &work.documents,
                 &work.path,
@@ -410,6 +411,7 @@ fn analyze(
             ));
             let current = Arc::new(CurrentAnalysis {
                 revision: work.revision,
+                source_revision: session.source_revision(),
                 path: work.path.clone(),
                 analysis,
                 highlights,

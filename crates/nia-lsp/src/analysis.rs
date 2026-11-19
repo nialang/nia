@@ -83,6 +83,7 @@ pub(crate) struct Session {
     driver: Driver,
     target_drivers: RefCell<HashMap<(nia_target::TargetConfig, nia_target::CpuLevel), Driver>>,
     overlays: BTreeMap<PathBuf, Arc<str>>,
+    source_revision: u64,
     pub(crate) projects: Projects,
     pub(crate) workspace_index: Option<Arc<crate::workspace::WorkspaceIndex>>,
     pub(crate) changed_disk_sources: BTreeSet<String>,
@@ -102,6 +103,7 @@ impl Session {
             target_drivers: RefCell::default(),
             toolchain,
             overlays: BTreeMap::new(),
+            source_revision: 0,
             projects: Projects::default(),
             workspace_index: None,
             changed_disk_sources: BTreeSet::new(),
@@ -131,9 +133,13 @@ impl Session {
         documents: &Documents,
         entry: &Path,
         cancel: &Cancellation,
-        previous: Option<&Arc<Analysis>>,
+        previous: Option<(u64, &Arc<Analysis>)>,
     ) -> Result<Arc<Analysis>, String> {
         self.analyze_mode(documents, entry, Some(cancel), AnalysisMode::Full, previous)
+    }
+
+    pub(crate) fn source_revision(&self) -> u64 {
+        self.source_revision
     }
 
     pub(crate) fn complete_names(
@@ -203,7 +209,7 @@ impl Session {
         entry: &Path,
         cancel: Option<&Cancellation>,
         mode: AnalysisMode,
-        mut previous: Option<&Arc<Analysis>>,
+        previous: Option<(u64, &Arc<Analysis>)>,
     ) -> Result<Arc<Analysis>, String> {
         if let Some(cancel) = cancel {
             cancel.check()?;
@@ -214,13 +220,16 @@ impl Session {
             "lsp.install_sources",
             || self.install_documents(documents),
         )?;
+        let mut previous = previous
+            .filter(|(revision, _)| *revision == self.source_revision)
+            .map(|(_, analysis)| analysis);
         let mut analyze = |request, warning: Option<&str>| {
             if let Some(cancel) = cancel {
                 cancel.check()?;
             }
-            // The worker only offers an analysis from this source revision.
-            // Reuse it after the normal entry selection reaches its exact
-            // compilation request. A different request may update the DB.
+            // Reuse an unchanged source revision after the normal entry
+            // selection reaches its exact compilation request. A different
+            // request may update the DB.
             if let Some(previous) = previous.take()
                 && previous.request == request
                 && previous.configuration_warning.as_deref() == warning
@@ -296,6 +305,7 @@ impl Session {
                 self.driver = Driver::new(self.toolchain.clone());
                 self.target_drivers.get_mut().clear();
                 self.overlays.clear();
+                self.source_revision += 1;
                 break;
             };
             if self.overlays[&path].as_ref() != text {
@@ -315,6 +325,7 @@ impl Session {
     }
 
     fn replace_source(&mut self, path: &Path, text: Arc<str>) -> Result<(), String> {
+        self.source_revision += 1;
         for driver in std::iter::once(&self.driver).chain(self.target_drivers.get_mut().values()) {
             set_source(driver, path, text.clone())?;
         }
@@ -355,7 +366,10 @@ impl Session {
     }
 
     pub(crate) fn reload(&mut self) {
-        *self = Self::new(self.toolchain.clone());
+        *self = Self {
+            source_revision: self.source_revision + 1,
+            ..Self::new(self.toolchain.clone())
+        };
     }
 
     pub(crate) fn reload_changed_sources(&mut self, paths: &BTreeSet<PathBuf>) {
@@ -2288,11 +2302,23 @@ mod tests {
             (child.clone(), open(&child, edited)),
         ]);
         let mut session = test_session();
-        let before = session.analyze(&documents, &entry).unwrap();
+        let cancel = Cancellation::default();
+        let before = session
+            .analyze_editor_snapshot(&documents, &entry, &cancel, None)
+            .unwrap();
+        let edited_revision = session.source_revision();
         assert!(before.first_error().is_some());
 
         documents.remove(&child);
-        let after = session.analyze(&documents, &entry).unwrap();
+        let after = session
+            .analyze_editor_snapshot(
+                &documents,
+                &entry,
+                &cancel,
+                Some((edited_revision, &before)),
+            )
+            .unwrap();
+        assert!(!Arc::ptr_eq(&before, &after));
         assert!(before.db.query_session().ptr_eq(&after.db.query_session()));
         assert_eq!(after.first_error(), None);
         assert_eq!(after.file(&child).unwrap().text.as_ref(), disk);
@@ -2322,7 +2348,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let documents = [
+        let mut documents: Documents = [
             (
                 &entry,
                 "module child;\npub fun read() i32 { child::value() }\n",
@@ -2347,13 +2373,34 @@ mod tests {
         let parent = session
             .analyze_editor_snapshot(&documents, &entry, &cancel, None)
             .unwrap();
+        let source_revision = session.source_revision();
         let nested = session
-            .analyze_editor_snapshot(&documents, &child, &cancel, Some(&parent))
+            .analyze_editor_snapshot(
+                &documents,
+                &child,
+                &cancel,
+                Some((source_revision, &parent)),
+            )
             .unwrap();
         assert!(Arc::ptr_eq(&parent, &nested));
         assert_eq!(nested.first_error(), None);
+        documents.remove(&child);
+        let remaining = session
+            .analyze_editor_snapshot(
+                &documents,
+                &entry,
+                &cancel,
+                Some((source_revision, &nested)),
+            )
+            .unwrap();
+        assert!(Arc::ptr_eq(&parent, &remaining));
         let other = session
-            .analyze_editor_snapshot(&documents, &example, &cancel, Some(&nested))
+            .analyze_editor_snapshot(
+                &documents,
+                &example,
+                &cancel,
+                Some((source_revision, &remaining)),
+            )
             .unwrap();
         assert!(!Arc::ptr_eq(&nested, &other));
         assert_eq!(
