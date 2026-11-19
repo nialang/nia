@@ -3264,7 +3264,7 @@ mod tests {
             "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
         )
         .unwrap();
-        std::fs::write(app.join("root.nia"), "module types;\n").unwrap();
+        std::fs::write(app.join("root.nia"), "pub module types;\n").unwrap();
         let path = app.join("types.nia");
         std::fs::write(
             &path,
@@ -3342,6 +3342,32 @@ mod tests {
                 .uri,
             uri(&path).unwrap()
         );
+
+        std::fs::write(
+            other.join("nia.toml"),
+            concat!(
+                "[package]\nname = \"other\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+                "[dependencies]\napp = { path = \"../app\" }\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(&other_entry, "pub using app::types::BufferValue;\n").unwrap();
+        session.reload();
+        let index = session
+            .index_workspace(None, &documents, &folders, &cancel)
+            .unwrap();
+        assert!(
+            index
+                .entries
+                .iter()
+                .all(|entry| matches!(entry.coverage, crate::workspace::Coverage::Complete))
+        );
+        for query in ["BufferValue", "app::types::BufferValue"] {
+            let symbols = index.symbols(query, &cancel).unwrap();
+            assert_eq!(symbols.len(), 1);
+            assert_eq!(symbols[0].location.uri, uri(&path).unwrap());
+            assert_eq!(symbols[0].container_name.as_deref(), Some("app::types"));
+        }
     }
 
     #[test]

@@ -2,7 +2,8 @@
 //! Compiler bindings with source identities that survive separate entry analyses.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
 };
@@ -114,7 +115,7 @@ pub(crate) struct WorkspaceIndex {
     toolchain_sources: PathBuf,
     pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
     package_names: BTreeMap<PathBuf, String>,
-    symbols: OnceLock<WorkspaceSymbols>,
+    symbol_packages: OnceLock<HashMap<String, Option<String>>>,
     implementations: BTreeMap<Site, BTreeSet<Site>>,
     pub(crate) module_declarations: BTreeMap<String, BTreeSet<Site>>,
     calls: OnceLock<CallIndex>,
@@ -127,13 +128,20 @@ pub(crate) struct WorkspaceSnapshot {
     overlays: BTreeMap<String, Arc<str>>,
 }
 
-type WorkspaceSymbols = BTreeMap<Site, WorkspaceDeclaration>;
-
-#[derive(Clone)]
 struct WorkspaceDeclaration {
     name: String,
     kind: SymbolKind,
     container: String,
+}
+
+impl WorkspaceDeclaration {
+    fn container_name<'a>(&'a self, package: Option<&'a str>) -> Cow<'a, str> {
+        match package {
+            Some(package) if self.container.is_empty() => Cow::Borrowed(package),
+            Some(package) => Cow::Owned(format!("{package}::{}", self.container)),
+            None => Cow::Borrowed(&self.container),
+        }
+    }
 }
 
 enum EntryKind {
@@ -300,7 +308,7 @@ impl Session {
                 toolchain_sources: PathBuf::from(normalized(self.toolchain.resource_root())),
                 unavailable_plans: workspace.unavailable_plans,
                 package_names: workspace.package_names,
-                symbols: OnceLock::new(),
+                symbol_packages: OnceLock::new(),
                 implementations: BTreeMap::new(),
                 module_declarations: BTreeMap::new(),
                 calls: OnceLock::new(),
@@ -659,9 +667,12 @@ impl WorkspaceIndex {
         Ok(())
     }
 
-    fn symbol_index(&self, cancel: &Cancellation) -> Result<&WorkspaceSymbols, String> {
-        if let Some(symbols) = self.symbols.get() {
-            return Ok(symbols);
+    fn symbol_packages(
+        &self,
+        cancel: &Cancellation,
+    ) -> Result<&HashMap<String, Option<String>>, String> {
+        if let Some(packages) = self.symbol_packages.get() {
+            return Ok(packages);
         }
         let mut packages = HashMap::new();
         for source in self.files.keys() {
@@ -671,32 +682,11 @@ impl WorkspaceIndex {
                 let package = path
                     .ancestors()
                     .find_map(|directory| self.package_names.get(directory));
-                packages.insert(source.as_str(), package);
+                packages.insert(source.clone(), package.cloned());
             }
         }
-        let mut symbols = WorkspaceSymbols::new();
-        for (site, symbol) in self.entries.iter().flat_map(|entry| &entry.symbols) {
-            cancel.check()?;
-            let Some(&package) = packages.get(site.source.as_ref()) else {
-                continue;
-            };
-            symbols.entry(site.clone()).or_insert_with(|| {
-                let mut symbol = symbol.clone();
-                if let Some(package) = package {
-                    symbol.container = if symbol.container.is_empty() {
-                        package.clone()
-                    } else {
-                        format!("{package}::{}", symbol.container)
-                    };
-                }
-                symbol
-            });
-        }
         cancel.check()?;
-        if crate::timing_mode().enabled() {
-            nia_timing::emit_counter("lsp.workspace_symbol_indexes_built", 1);
-        }
-        Ok(self.symbols.get_or_init(|| symbols))
+        Ok(self.symbol_packages.get_or_init(|| packages))
     }
 
     pub(crate) fn implementations(
@@ -743,45 +733,63 @@ impl WorkspaceIndex {
         cancel: &Cancellation,
     ) -> Result<Vec<SymbolInformation>, String> {
         let query = query.trim().to_lowercase();
+        let qualified = query.contains("::");
+        let packages = self.symbol_packages(cancel)?;
         let mut matches = Vec::new();
-        for (site, declaration) in self.symbol_index(cancel)? {
+        let mut seen = HashSet::new();
+        for (site, declaration) in self.entries.iter().flat_map(|entry| &entry.symbols) {
             cancel.check()?;
+            let Some(package) = packages.get(site.source.as_ref()) else {
+                continue;
+            };
+            // The name is fixed by the source range. A qualified search also
+            // uses the first entry's module path, which can differ by entry.
+            if qualified && !seen.insert(site) {
+                continue;
+            }
             let name = declaration.name.to_lowercase();
-            let candidate = if query.contains("::") {
-                format!("{}::{name}", declaration.container.to_lowercase())
+            let candidate = if qualified {
+                format!(
+                    "{}::{name}",
+                    declaration
+                        .container_name(package.as_deref())
+                        .to_lowercase()
+                )
             } else {
                 name
             };
-            let Some(offset) = candidate.find(&query) else {
-                continue;
-            };
-            matches.push((
-                candidate != query,
-                offset,
-                &declaration.name,
-                site,
-                declaration,
-            ));
+            if let Some(offset) = candidate.find(&query)
+                && (qualified || seen.insert(site))
+            {
+                matches.push((
+                    candidate != query,
+                    offset,
+                    &declaration.name,
+                    site,
+                    declaration,
+                    package,
+                ));
+            }
         }
-        matches.sort_unstable_by_key(|&(mismatch, offset, name, site, _)| {
+        matches.sort_unstable_by_key(|&(mismatch, offset, name, site, _, _)| {
             (mismatch, offset, name, site)
         });
         let mut lines = HashMap::new();
         matches
             .into_iter()
-            .map(|(_, _, _, site, declaration)| {
+            .map(|(_, _, _, site, declaration, package)| {
                 cancel.check()?;
                 let source = site.source.as_ref();
                 let (uri, text) = &self.files[source];
                 let lines = lines.entry(source).or_insert_with(|| Lines::new(text));
+                let container = declaration.container_name(package.as_deref());
                 Ok(SymbolInformation {
                     name: declaration.name.clone(),
                     kind: declaration.kind,
                     tags: None,
                     deprecated: None,
                     location: Location::new(uri.clone(), lines.range(text, site.span)),
-                    container_name: (!declaration.container.is_empty())
-                        .then(|| declaration.container.clone()),
+                    container_name: (!container.is_empty()).then(|| container.into_owned()),
                 })
             })
             .collect()
