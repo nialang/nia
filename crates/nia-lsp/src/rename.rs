@@ -18,7 +18,7 @@ use nia_span::Span;
 use crate::{
     analysis::{Analysis, Documents, OpenDocument, Session, Symbol, normalized, uri},
     document::Document,
-    workspace::{Binding, Bindings, Cancellation, Site, bindings},
+    workspace::{Binding, Bindings, Cancellation, Site, WorkspaceIndex, bindings},
 };
 
 type Edits = BTreeMap<String, BTreeMap<Span, String>>;
@@ -117,7 +117,7 @@ impl Session {
             if !resource_rename {
                 return Err("The editor must support rename file operations".to_owned());
             }
-            module_moves(Path::new(path), new_name, &workspace.editable)?
+            module_moves(Path::new(path), new_name, &workspace)?
         } else {
             Vec::new()
         };
@@ -158,7 +158,7 @@ impl Session {
                 cancel.check()?;
                 let (_, text) = &files[source];
                 if (workspace_symbol || source.as_str() == target.source.as_ref())
-                    && editable_source(Path::new(source), &workspace.editable)
+                    && workspace.editable_source(Path::new(source))
                     && tokenize(text).into_iter().any(|token| {
                         token.kind == TokenKind::Ident
                             && scope.is_none_or(|scope| {
@@ -234,7 +234,7 @@ impl Session {
             cancel.check()?;
             let path = PathBuf::from(source);
             let physical = path.canonicalize().map(|path| normalized(&path));
-            if !editable_source(&path, &workspace.editable)
+            if !workspace.editable_source(&path)
                 || physical.as_ref().is_ok_and(|physical| physical != source)
                 || (path.exists() && physical.is_err())
             {
@@ -413,7 +413,11 @@ fn field_shorthand(node: &nia_syntax::GreenNode, span: Span) -> bool {
 
 type Moves = Vec<(PathBuf, PathBuf)>;
 
-fn module_moves(source: &Path, new_name: &str, roots: &BTreeSet<PathBuf>) -> Result<Moves, String> {
+fn module_moves(
+    source: &Path,
+    new_name: &str,
+    workspace: &WorkspaceIndex,
+) -> Result<Moves, String> {
     let file = source.with_file_name(format!("{new_name}.nia"));
     let subtree = source.with_extension("");
     let mut moves = vec![(source.to_path_buf(), file)];
@@ -427,8 +431,9 @@ fn module_moves(source: &Path, new_name: &str, roots: &BTreeSet<PathBuf>) -> Res
         moves.push((subtree.clone(), subtree.with_file_name(new_name)));
     }
     for (old, new) in &moves {
-        if !editable_source(old, roots)
-            || !editable_source(new, roots)
+        if !workspace.editable_source(old)
+            || !workspace.editable_source(new)
+            || workspace.contains_build_state(old)
             || old
                 .canonicalize()
                 .ok()
@@ -458,26 +463,6 @@ fn relocated(source: &str, moves: &Moves) -> Option<PathBuf> {
             new.join(tail)
         })
     })
-}
-
-fn editable_source(path: &Path, roots: &BTreeSet<PathBuf>) -> bool {
-    let Some(root) = roots
-        .iter()
-        .filter(|root| path.starts_with(root))
-        .max_by_key(|root| root.components().count())
-    else {
-        return false;
-    };
-    let Ok(relative) = path.strip_prefix(root) else {
-        return false;
-    };
-    !relative.starts_with("build")
-        && !relative.starts_with("target")
-        && path
-            .ancestors()
-            .skip(1)
-            .take_while(|ancestor| *ancestor != root)
-            .all(|ancestor| !ancestor.join("nia.toml").is_file())
 }
 
 fn shifted_bindings(

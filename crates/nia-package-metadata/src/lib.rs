@@ -3552,11 +3552,26 @@ impl BuildLayout {
     /// This package's outputs: `build/out/`, or `build/out/<member path>/`
     /// for a workspace member.
     pub fn out_dir(&self) -> PathBuf {
-        let out = self.root().join("out");
+        let out = self.outputs_root();
         match self.package_root.strip_prefix(&self.state_root) {
             Ok(member) if !member.as_os_str().is_empty() => out.join(member),
             _ => out,
         }
+    }
+
+    fn outputs_root(&self) -> PathBuf {
+        self.root().join("out")
+    }
+
+    /// Directories managed by the build system, shared across workspace members.
+    pub fn managed_directories(&self) -> [PathBuf; 5] {
+        [
+            self.outputs_root(),
+            self.cache_dir(),
+            self.tmp_dir(),
+            self.packages_dir(),
+            self.registry_dir(),
+        ]
     }
 
     /// Persistent build caches, shared by every package under the state root.

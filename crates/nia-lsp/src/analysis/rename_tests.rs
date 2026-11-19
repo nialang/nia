@@ -5,6 +5,95 @@ use nia_test_support::{TestWorkload, acquire_test_resources, test_dir};
 use super::{tests::test_session, *};
 
 #[test]
+fn build_named_library_module_keeps_its_owner_in_navigation_and_rename() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-build-module-owner");
+    let entry = root.join("root.nia");
+    let build = root.join("build.nia");
+    let commands = root.join("build/commands.nia");
+    std::fs::create_dir(root.join("build")).unwrap();
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"example\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+    )
+    .unwrap();
+    std::fs::write(&entry, "module build;\nfun run() i32 { build::amount() }\n").unwrap();
+    std::fs::write(
+        &build,
+        "module commands;\npub fun amount() i32 { commands::value() }\n",
+    )
+    .unwrap();
+    std::fs::write(&commands, "pub fun value() i32 { 1 }\n").unwrap();
+    let documents = Documents::from([(
+        build.clone(),
+        OpenDocument {
+            uri: uri(&build).unwrap(),
+            document: Document::new(
+                2,
+                "module commands;\npub fun amount() i32 { commands::value() + 1 }\n".into(),
+            ),
+        },
+    )]);
+    let mut session = test_session();
+    let analysis = session.analyze(&documents, &build).unwrap();
+    assert_eq!(analysis.first_error(), None);
+    assert_eq!(
+        analysis
+            .definition(&build, Position::new(1, 34))
+            .unwrap()
+            .uri,
+        uri(&commands).unwrap()
+    );
+    let edit = session
+        .rename(
+            &analysis,
+            &documents,
+            crate::rename::Rename {
+                path: &build,
+                position: Position::new(1, 34),
+                new_name: "quantity",
+                folders: &[],
+                versioned: true,
+                resource_rename: false,
+            },
+            &Cancellation::default(),
+        )
+        .unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
+        panic!("expected text edits");
+    };
+    assert_eq!(edits.len(), 2);
+    assert_eq!(edits[0].text_document.version, Some(2));
+    assert_eq!(edits[1].text_document.uri, uri(&commands).unwrap());
+}
+
+#[test]
+fn build_hook_still_contributes_its_independent_context() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-build-hook-owner");
+    let entry = root.join("root.nia");
+    let build = root.join("build.nia");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"example\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+    )
+    .unwrap();
+    std::fs::write(&entry, "module build;\n").unwrap();
+    std::fs::write(
+        &build,
+        "using std::build;\npub fun build(b: &mut build::Build) build::Error!() { _ = b; !() }\n",
+    )
+    .unwrap();
+    let mut session = test_session();
+    let index = session
+        .workspace_index(&entry, &Documents::new(), &[], &Cancellation::default())
+        .unwrap();
+    assert!(index.entries.iter().any(|entry| {
+        entry.request.check.entry_path.as_str() == normalized(&build) && entry.error.is_none()
+    }));
+}
+
+#[test]
 fn rename_updates_associated_types_in_implementations_projections_and_bounds() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-rename-associated-types");

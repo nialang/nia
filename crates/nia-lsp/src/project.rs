@@ -32,8 +32,10 @@ pub(crate) struct Projects {
 
 pub(crate) struct WorkspaceRequests {
     pub(crate) entries: Vec<EditorRequest>,
+    pub(crate) build_candidates: Vec<EditorRequest>,
     pub(crate) standalone: Vec<EditorRequest>,
     pub(crate) editable: BTreeSet<PathBuf>,
+    pub(crate) managed: BTreeSet<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -62,7 +64,9 @@ impl Projects {
         let mut standalone = BTreeSet::new();
         let mut roots = BTreeSet::new();
         let mut editable = BTreeSet::new();
+        let mut managed = BTreeSet::new();
         let mut configured = Vec::new();
+        let mut build_candidates = Vec::new();
         for folder in folders {
             if folder.join("nia.toml").is_file() {
                 roots.insert(folder.canonicalize().map_err(|error| error.to_string())?);
@@ -101,6 +105,15 @@ impl Projects {
                 .package(&root.join("nia.toml"))?
                 .ok_or("Workspace package disappeared")?;
             editable.insert(PathBuf::from(normalized(package.layout.package_root())));
+            managed.extend(
+                package
+                    .layout
+                    .managed_directories()
+                    .map(|path| PathBuf::from(normalized(&path))),
+            );
+            if let Some(build) = package.build_candidate() {
+                build_candidates.push(package.request(&build, Context::Build)?.into());
+            }
             let planned = package.configured_requests()?;
             entries.extend(
                 package
@@ -132,15 +145,17 @@ impl Projects {
         let standalone = standalone
             .into_iter()
             .map(|path| match self.package(&path)? {
-                Some(package) => package.request(&path, Context::Executable),
+                Some(package) => package.request(&path, package.fallback_context(&path)),
                 None => Ok(CheckRequest::new(normalized(&path))),
             })
             .map(|result| result.map(EditorRequest::from))
             .collect::<Result<_, _>>()?;
         Ok(WorkspaceRequests {
             entries,
+            build_candidates,
             standalone,
             editable,
+            managed,
         })
     }
 
@@ -198,15 +213,24 @@ pub(crate) enum Context {
 }
 
 impl Package {
+    fn build_candidate(&self) -> Option<PathBuf> {
+        let source = self.layout.package_root().join("build.nia");
+        source.is_file().then_some(source)
+    }
+
+    fn fallback_context(&self, path: &Path) -> Context {
+        if normalized(path) == normalized(&self.layout.package_root().join("build.nia")) {
+            Context::Build
+        } else {
+            Context::Executable
+        }
+    }
+
     fn declared_entries(&self) -> Vec<(PathBuf, Context)> {
         let root = self.layout.package_root();
         let mut entries = Vec::new();
         if let Some(library) = &self.manifest.library_path {
             entries.push((root.join(library), Context::Library));
-        }
-        let build = root.join("build.nia");
-        if build.is_file() {
-            entries.push((build, Context::Build));
         }
         entries.extend(self.manifest.artifacts.iter().map(|artifact| {
             let context = match artifact.kind {
@@ -260,9 +284,7 @@ impl Package {
             })
             .collect();
         let mut entries = Vec::new();
-        if entry_path == normalized(&root.join("build.nia")) {
-            entries.push((entry.to_path_buf(), Context::Build));
-        } else if let Some((_, context)) = artifacts
+        if let Some((_, context)) = artifacts
             .iter()
             .find(|(path, _)| normalized(path) == entry_path)
         {
@@ -275,7 +297,7 @@ impl Package {
                 entries.push((library, Context::Library));
             }
             entries.extend(artifacts);
-            entries.push((entry.to_path_buf(), Context::Executable));
+            entries.push((entry.to_path_buf(), self.fallback_context(entry)));
         }
         entries
     }

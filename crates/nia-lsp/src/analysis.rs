@@ -105,22 +105,17 @@ impl Session {
             return analyze(CheckRequest::new(normalized(entry)));
         };
         let entry_path = normalized(entry);
-        if entry.file_name().is_none_or(|name| name != "build.nia") {
-            let mut configured = package.configured_requests()?;
-            configured.sort_by_key(|request| request.check.entry_path.as_str() != entry_path);
-            for request in configured {
-                if let Some(cancel) = cancel {
-                    cancel.check()?;
-                }
-                if let Ok(analysis) = analyze_editor_request(
-                    &self.driver,
-                    &self.target_drivers,
-                    &self.overlays,
-                    request,
-                ) && analysis.files.contains_key(&entry_path)
-                {
-                    return Ok(analysis);
-                }
+        let mut configured = package.configured_requests()?;
+        configured.sort_by_key(|request| request.check.entry_path.as_str() != entry_path);
+        for request in configured {
+            if let Some(cancel) = cancel {
+                cancel.check()?;
+            }
+            if let Ok(analysis) =
+                analyze_editor_request(&self.driver, &self.target_drivers, &self.overlays, request)
+                && analysis.files.contains_key(&entry_path)
+            {
+                return Ok(analysis);
             }
         }
         let entries = package.entries(entry);

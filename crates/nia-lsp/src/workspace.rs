@@ -11,7 +11,9 @@ use std::{
 };
 
 use lsp_types::{Location, Position, Uri};
+use nia_lexer::TokenKind;
 use nia_span::Span;
+use nia_syntax::SyntaxKind;
 
 use crate::{
     analysis::{Analysis, Documents, Session, Symbol, normalized},
@@ -60,7 +62,25 @@ pub(crate) struct WorkspaceIndex {
     pub(crate) entries: Vec<Entry>,
     pub(crate) files: BTreeMap<String, (Uri, Arc<str>)>,
     pub(crate) editable: BTreeSet<PathBuf>,
+    managed: BTreeSet<PathBuf>,
     references: OnceLock<HashMap<Site, BTreeSet<Site>>>,
+}
+
+enum EntryKind {
+    Declared,
+    BuildCandidate,
+    Standalone,
+}
+
+fn declares_build_hook(text: &str) -> bool {
+    let Ok(parsed) = nia_syntax::parse(text, None) else {
+        return false;
+    };
+    parsed.tree.green_root().child_nodes().any(|item| {
+        item.child(&SyntaxKind::FunctionDecl)
+            .and_then(|function| function.token(&TokenKind::Ident))
+            .is_some_and(|name| name.text() == "build")
+    })
 }
 
 impl Session {
@@ -85,21 +105,35 @@ impl Session {
             entries: Vec::new(),
             files: BTreeMap::new(),
             editable: workspace.editable,
+            managed: workspace.managed,
             references: OnceLock::new(),
         };
-        for (request, standalone) in workspace
+        for (request, kind) in workspace
             .entries
             .into_iter()
-            .map(|request| (request, false))
+            .map(|request| (request, EntryKind::Declared))
+            .chain(
+                workspace
+                    .build_candidates
+                    .into_iter()
+                    .map(|request| (request, EntryKind::BuildCandidate)),
+            )
             .chain(
                 workspace
                     .standalone
                     .into_iter()
-                    .map(|request| (request, true)),
+                    .map(|request| (request, EntryKind::Standalone)),
             )
         {
             cancel.check()?;
-            if standalone && index.files.contains_key(request.check.entry_path.as_str()) {
+            let path = request.check.entry_path.as_str();
+            if let Some((_, text)) = index.files.get(path)
+                && match kind {
+                    EntryKind::Declared => false,
+                    EntryKind::BuildCandidate => !declares_build_hook(text),
+                    EntryKind::Standalone => true,
+                }
+            {
                 continue;
             }
             let entry = match self.analyze_request(request.clone()) {
@@ -143,6 +177,39 @@ impl Session {
 }
 
 impl WorkspaceIndex {
+    pub(crate) fn contains_build_state(&self, path: &Path) -> bool {
+        self.managed
+            .iter()
+            .any(|directory| directory.starts_with(path) && directory.exists())
+    }
+
+    pub(crate) fn editable_source(&self, path: &Path) -> bool {
+        if self
+            .managed
+            .iter()
+            .any(|directory| path.starts_with(directory))
+        {
+            return false;
+        }
+        let Some(root) = self
+            .editable
+            .iter()
+            .filter(|root| path.starts_with(root))
+            .max_by_key(|root| root.components().count())
+        else {
+            return false;
+        };
+        let Ok(relative) = path.strip_prefix(root) else {
+            return false;
+        };
+        !relative.starts_with("target")
+            && path
+                .ancestors()
+                .skip(1)
+                .take_while(|ancestor| *ancestor != root)
+                .all(|ancestor| !ancestor.join("nia.toml").is_file())
+    }
+
     pub(crate) fn references(
         &self,
         analysis: &Analysis,
