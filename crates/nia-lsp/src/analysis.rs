@@ -84,9 +84,18 @@ pub(crate) struct Session {
     target_drivers: RefCell<HashMap<(nia_target::TargetConfig, nia_target::CpuLevel), Driver>>,
     overlays: BTreeMap<PathBuf, Arc<str>>,
     source_revision: u64,
+    member_probe: Option<MemberProbe>,
     pub(crate) projects: Projects,
     pub(crate) workspace_index: Option<Arc<crate::workspace::WorkspaceIndex>>,
     pub(crate) changed_disk_sources: BTreeSet<String>,
+}
+
+struct MemberProbe {
+    source_revision: u64,
+    analysis: Arc<Analysis>,
+    receiver: (ModuleId, Span),
+    names: Vec<SymbolId>,
+    candidates: Vec<lsp_types::CompletionItem>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -104,6 +113,7 @@ impl Session {
             toolchain,
             overlays: BTreeMap::new(),
             source_revision: 0,
+            member_probe: None,
             projects: Projects::default(),
             workspace_index: None,
             changed_disk_sources: BTreeSet::new(),
@@ -179,27 +189,57 @@ impl Session {
         let mut overlay = documents.clone();
         overlay.get_mut(path)?.document =
             Document::new(document.version, member.probe(&document.text));
+        let previous = self.member_probe.take();
         let analysis = self
             .analyze_mode(
                 &overlay,
                 path,
                 Some(cancel),
                 AnalysisMode::Declarations,
-                None,
+                previous
+                    .as_ref()
+                    .map(|probe| (probe.source_revision, &probe.analysis)),
             )
             .ok()?;
         let file = analysis.file(path)?;
-        let items = nia_timing::time_stage(
+        let receiver = member.receiver(file)?;
+        let names = analysis.method_names(member.prefix(&document.text));
+        let previous = previous.filter(|probe| Arc::ptr_eq(&probe.analysis, &analysis));
+        if let Some(probe) = previous
+            && probe.receiver == (file.module, receiver)
+            && probe.names == names
+        {
+            let items = member.items(&document.text, &document.lines, probe.candidates.clone());
+            self.member_probe = Some(probe);
+            return (!items.is_empty()).then_some(items);
+        }
+
+        let provider_revision = analysis.db.provider_fact_revision().ok();
+        let candidates = nia_timing::time_stage(
             crate::timing_mode(),
             nia_timing::TimingLevel::Summary,
             "lsp.member_receiver_check",
-            || {
-                let receiver = member.receiver(file)?;
-                let names = analysis.method_names(member.prefix(&document.text));
-                analysis.receiver_members(file, receiver, &names, cancel)
-            },
+            || analysis.receiver_members(file, receiver, &names, cancel),
         )?;
-        let items = member.items(&document.text, &document.lines, items);
+        let items = member.items(&document.text, &document.lines, candidates.clone());
+        // Resolving methods can load providers. Retain the declaration snapshot
+        // only when it still describes the graph used to resolve the receiver.
+        if cancel.check().is_ok()
+            && provider_revision.is_some()
+            && analysis.db.provider_fact_revision().ok() == provider_revision
+            && analysis
+                .db
+                .module_graph()
+                .is_ok_and(|graph| graph.ptr_eq(&analysis.graph))
+        {
+            self.member_probe = Some(MemberProbe {
+                source_revision: self.source_revision,
+                receiver: (file.module, receiver),
+                analysis,
+                names,
+                candidates,
+            });
+        }
         (!items.is_empty()).then_some(items)
     }
 
@@ -357,6 +397,7 @@ impl Session {
         cancel: &Cancellation,
         mode: AnalysisMode,
     ) -> Result<Analysis, String> {
+        self.member_probe = None;
         self.install_documents(documents)?;
         analyze_editor_request(
             &self.driver,
@@ -2407,6 +2448,51 @@ mod tests {
         ))
         .unwrap();
         Session::new(Arc::new(toolchain))
+    }
+
+    #[test]
+    fn member_probe_reuses_candidates_with_current_replacement_range() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let path = test_dir("lsp-member-probe").join("root.nia");
+        let mut session = test_session();
+        let cancel = Cancellation::default();
+        let mut complete = |version, field, prefix: &str| {
+            let text = format!(
+                "struct Shape {{ {field}: i32 }}\nfun read(shape: &Shape) i32 {{ shape.{prefix} }}\n"
+            );
+            let cursor = text.rfind(prefix).unwrap() + prefix.len();
+            let member = MemberCompletion::at(&text, cursor).unwrap();
+            let documents = Documents::from([(
+                path.clone(),
+                OpenDocument {
+                    uri: uri(&path).unwrap(),
+                    document: Document::new(version, text),
+                },
+            )]);
+            let items = session
+                .complete_members(&documents, &path, &member, &cancel)
+                .unwrap();
+            let snapshot = session.member_probe.as_ref().unwrap().analysis.clone();
+            (items, snapshot)
+        };
+        let (first, before) = complete(1, "height", "he");
+        let (second, after) = complete(2, "height", "hei");
+        assert!(Arc::ptr_eq(&before, &after));
+        assert_eq!(first[0].label, "height");
+        assert_eq!(second[0].label, "height");
+        let range = |item: &lsp_types::CompletionItem| match &item.text_edit {
+            Some(lsp_types::CompletionTextEdit::Edit(edit)) => edit.range,
+            _ => panic!("expected completion text edit"),
+        };
+        assert_eq!(range(&second[0]).start, range(&first[0]).start);
+        assert_eq!(
+            range(&second[0]).end.character,
+            range(&first[0]).end.character + 1
+        );
+
+        let (edited, current) = complete(3, "heavy", "he");
+        assert!(!Arc::ptr_eq(&before, &current));
+        assert_eq!(edited[0].label, "heavy");
     }
 
     #[test]
