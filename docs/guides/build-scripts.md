@@ -516,6 +516,29 @@ pub fun build(b: &mut build::Build) build::Error!() {
 }
 ```
 
+## Generated Source Maps
+
+A command that generates a Nia source file can declare a companion output
+with `.map` appended to the filename, such as `generated.nia.map`. The
+editor uses the map to follow a generated location back to the producer's
+input. Declare both outputs on the same command.
+
+The JSON map has `version` set to `1`, a `generatedDigest` with the hex
+BLAKE3 digest of the generated file, and a `mappings` array. Each entry
+contains `generated` and `source` ranges as pairs of UTF-8 byte offsets
+with exclusive ends, a `sourcePath` relative to the input root, and a
+`sourceDigest` with the hex BLAKE3 digest of the input file.
+
+The input root defaults to `"package"`, relative to the package root. Set
+`sourceRoot` to `"build"` for a declared build input relative to the
+invocation's output directory. Each intermediate generated file in this
+chain needs its own map. The editor follows the chain only when each map
+matches the current source snapshots and names a declared input.
+
+Set `editable` to `true` only for verbatim byte copies whose identifier
+edits propagate to the output. A transformed range still provides
+navigation to its source range.
+
 ## Tests
 
 Suites declared with `[[test]]` in `nia.toml` need nothing in the script.

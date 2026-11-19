@@ -100,11 +100,21 @@ struct Manifest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Mapping {
     generated: [usize; 2],
+    #[serde(default)]
+    source_root: SourceRoot,
     source_path: String,
     source_digest: String,
     source: [usize; 2],
     #[serde(default)]
     editable: bool,
+}
+
+#[derive(Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum SourceRoot {
+    #[default]
+    Package,
+    Build,
 }
 
 impl<'a> GeneratedSourceMap<'a> {
@@ -210,19 +220,22 @@ impl<'a> GeneratedSourceMap<'a> {
         {
             return Ok(None);
         }
-        let relative = LogicalPath::new(
-            LogicalPathRoot::Package(self.root.clone()),
-            &mapping.source_path,
-        )
-        .map_err(|_| invalid("invalid mapped source path"))?;
+        let (root, directory) = match mapping.source_root {
+            SourceRoot::Package => (LogicalPathRoot::Package(self.root.clone()), package_root),
+            SourceRoot::Build => (LogicalPathRoot::Build, output),
+        };
+        let relative = LogicalPath::new(root, &mapping.source_path)
+            .map_err(|_| invalid("invalid mapped source path"))?;
         if !self.inputs.iter().any(|input| {
             input.root() == relative.root() && relative.components().starts_with(input.components())
         }) {
             return Err(invalid("mapped source is not a declared producer input"));
         }
-        let path = package_root.join(relative.protocol_path());
+        let path = directory.join(relative.protocol_path());
         let physical = canonical_file(&path)?;
-        if path.starts_with(output) || physical != normalize_path(&path.to_string_lossy()) {
+        if (mapping.source_root == SourceRoot::Package && path.starts_with(output))
+            || physical != normalize_path(&path.to_string_lossy())
+        {
             return Err(invalid(
                 "mapped source is outside the producer's package inputs",
             ));
@@ -264,7 +277,8 @@ impl<'a> GeneratedSourceMap<'a> {
         let name = normalize_path(&relative.to_string_lossy());
         let mut copies = Vec::new();
         for mapping in &self.entries {
-            if normalize_path(&mapping.source_path) != name
+            if mapping.source_root != SourceRoot::Package
+                || normalize_path(&mapping.source_path) != name
                 || span.end <= mapping.source[0]
                 || mapping.source[1] <= span.start
             {
@@ -453,6 +467,7 @@ mod tests {
         let digest = blake3::hash(input.as_bytes()).to_hex().to_string();
         let mapping = |generated, editable| Mapping {
             generated,
+            source_root: SourceRoot::Package,
             source_path: "definitions.nia".into(),
             source_digest: digest.clone(),
             source: [0, input.len()],
@@ -480,5 +495,56 @@ mod tests {
         assert!(map.input_copies(root, &path, input, range).is_err());
         map.entries[1] = mapping([14, 21], true);
         assert!(map.input_copies(root, &path, input, range).is_err());
+    }
+
+    #[test]
+    fn mapped_build_source_must_be_a_declared_build_input() {
+        let root = nia_test_support::test_dir("generated-build-input");
+        let root = root.canonicalize().unwrap();
+        let output = root.join("out");
+        std::fs::create_dir(&output).unwrap();
+        let input = output.join("intermediate.nia");
+        std::fs::write(&input, "amount").unwrap();
+        let generated = output.join("generated.nia");
+        let digest = blake3::hash(b"amount").to_hex().to_string();
+        std::fs::write(&generated, "amount").unwrap();
+        let mut map = GeneratedSourceMap {
+            generated_text: "amount",
+            entries: vec![Mapping {
+                generated: [0, 6],
+                source_root: SourceRoot::Build,
+                source_path: "intermediate.nia".into(),
+                source_digest: digest.clone(),
+                source: [0, 6],
+                editable: true,
+            }],
+            root: nia_build_plan::PackageKey::root(),
+            inputs: vec![LogicalPath::new(LogicalPathRoot::Build, "intermediate.nia").unwrap()],
+            snapshot: GeneratedSourceSnapshot {
+                generated,
+                generated_digest: digest,
+                map: output.join("generated.nia.map"),
+                map_digest: blake3::hash(b""),
+            },
+        };
+        let project = |map: &GeneratedSourceMap<'_>| {
+            map.origin(&root, &output, Span::new(1, 3), |path| {
+                read_source_text(path).map(Arc::from)
+            })
+        };
+        let origin = project(&map).unwrap().unwrap();
+        assert_eq!(origin.path, input);
+        assert_eq!(origin.span, Span::new(1, 3));
+        assert!(
+            map.input_copies(&root, &input, "amount", Span::new(1, 3))
+                .unwrap()
+                .is_empty()
+        );
+        map.inputs[0] = LogicalPath::new(
+            LogicalPathRoot::Package(map.root.clone()),
+            "intermediate.nia",
+        )
+        .unwrap();
+        assert!(project(&map).is_err());
     }
 }

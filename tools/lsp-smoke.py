@@ -3,9 +3,11 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import runpy
 import subprocess
+import sys
 import tempfile
 from time import perf_counter
 
@@ -990,6 +992,101 @@ pub fun main(init: process::Init) process::ExitCode!() {
                 process.kill()
 
 
+def smoke_generated_chain(server, root):
+    (root / "nia.toml").write_text(
+        '[package]\nname = "mapping"\nversion = "0.1.0"\n', encoding="utf-8",
+    )
+    origin, entry = root / "input.nia", root / "root.nia"
+    origin.write_bytes(b"// input\npub fun amount() i32 { 42 }\n")
+    source = "fun run() i32 { generated::amount() }\n"
+    entry.write_text(source, encoding="utf-8")
+    # Fixed fixture contents let the generator publish BLAKE3 digests without
+    # requiring any third-party Python modules on the test host.
+    digests = [
+        "e4289ea22685f6b5e7cf03d8af1c3a494588982720dcf2e8d25b078334eee25f",
+        "ca9650b1f0a22e5ef17befd536c6b9e7ebf00025ceeffbfcfff0edfd8ed91abc",
+        "c3ecb1af70e3764b8eb3915fc9c486b97a7fc74b4cfa47e802bcd91c76b0165c",
+    ]
+    (root / "generate.py").write_text(f"""from pathlib import Path
+import json, sys
+stage = int(sys.argv[1])
+before = Path(sys.argv[2]).read_bytes()
+after = (b"// first\\n" if stage == 1 else b"// second\\n") + before
+def span(data):
+    start = data.index(b"amount")
+    return [start, start + 6]
+digests = {digests!r}
+mapping = dict(generated=span(after), sourcePath=Path(sys.argv[2]).name,
+               sourceDigest=digests[stage - 1], source=span(before), editable=True)
+if stage == 2:
+    mapping["sourceRoot"] = "build"
+Path(sys.argv[3]).write_bytes(after)
+Path(sys.argv[4]).write_text(json.dumps(dict(version=1, generatedDigest=digests[stage],
+                                            mappings=[mapping])), encoding="utf-8")
+""", encoding="utf-8")
+    build = """using std::build;
+using std::fs;
+pub fun build(b: &mut build::Build) build::Error!() {
+    let script = build::CommandArgument::packageInput(b.rootPackage(), fs::PathView::init("generate.py"));
+    let first = build::BuildPathView::init("first.nia");
+    let second = build::BuildPathView::init("second.nia");
+    let firstArgs = [script, build::CommandArgument::literal("1"),
+        build::CommandArgument::packageInput(b.rootPackage(), fs::PathView::init("input.nia")),
+        build::CommandArgument::buildOutput(first),
+        build::CommandArgument::buildOutput(build::BuildPathView::init("first.nia.map"))];
+    let secondArgs = [script, build::CommandArgument::literal("2"),
+        build::CommandArgument::buildInput(first), build::CommandArgument::buildOutput(second),
+        build::CommandArgument::buildOutput(build::BuildPathView::init("second.nia.map"))];
+    let prepare = b.addExternalCommandStep("first", build::ExternalCommandOptions::search("__PYTHON__").withArguments(firstArgs)).?;
+    let generate = b.addExternalCommandStep("second", build::ExternalCommandOptions::search("__PYTHON__").withArguments(secondArgs)).?;
+    b.dependOn(generate, prepare).?;
+    let imports = [build::ModuleImport::fromBuild("generated", second)];
+    let app = b.addModule(build::ModuleOptions::init("app", fs::PathView::init("root.nia")).withImports(imports)).?;
+    let check = b.addCheckModuleStep("check", app).?;
+    b.dependOn(check, generate).?;
+    !()
+}
+"""
+    (root / "build.nia").write_text(build.replace("__PYTHON__", Path(sys.executable).name), encoding="utf-8")
+    compiler = server.with_name("nia" + server.suffix)
+    env = dict(os.environ)
+    env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env["PATH"]
+    result = subprocess.run([str(compiler), "build", "check"], cwd=root, env=env,
+                            capture_output=True, text=True, encoding="utf-8", timeout=180)
+    assert result.returncode == 0, result.stdout + result.stderr
+    generated = root / "build/out/second.nia"
+    with subprocess.Popen([str(server)], cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
+        try:
+            client = Client(process, 60)
+            request(client, "initialize", {"processId": None, "rootUri": root.as_uri(), "capabilities": {}})
+            client.notify("initialized", {})
+            client.notify("textDocument/didOpen", {"textDocument": {
+                "uri": entry.as_uri(), "languageId": "nia", "version": 1, "text": source,
+            }})
+            definition = {"textDocument": {"uri": entry.as_uri()}, "position": position(source, "amount")}
+            target = request(client, "textDocument/definition", definition)
+            assert target == {"uri": origin.as_uri(), "range": {
+                "start": {"line": 1, "character": 8}, "end": {"line": 1, "character": 14},
+            }}, target
+            original = origin.read_bytes()
+            origin.write_bytes(b"// changed\n" + original)
+            assert request(client, "textDocument/definition", definition)["uri"] == generated.as_uri()
+            origin.write_bytes(original)
+            first_map = generated.with_name("first.nia.map")
+            map_text = first_map.read_bytes()
+            first_map.write_bytes(b"{}")
+            assert request(client, "textDocument/definition", definition)["uri"] == generated.as_uri()
+            first_map.write_bytes(map_text)
+            assert request(client, "textDocument/definition", definition) == target
+            request(client, "shutdown", None)
+            client.notify("exit", None)
+            process.stdin.close()
+            assert process.wait(timeout=30) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("server", type=Path)
@@ -1011,6 +1108,8 @@ def main():
         smoke_package_move(server, Path(directory).resolve(), add_dependency=True, configured=True)
     with tempfile.TemporaryDirectory(prefix="nia-lsp-build-smoke-") as directory:
         smoke_build_context(server, Path(directory).resolve())
+    with tempfile.TemporaryDirectory(prefix="nia-lsp-generated-chain-") as directory:
+        smoke_generated_chain(server, Path(directory).resolve())
 
 
 if __name__ == "__main__":

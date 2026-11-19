@@ -468,7 +468,7 @@ impl Session {
         location: Location,
     ) -> Location {
         let projected = (|| {
-            let generated = path(&location.uri)?;
+            let mut generated = path(&location.uri)?;
             if !generated.with_extension("nia.map").is_file() {
                 return None;
             }
@@ -476,17 +476,28 @@ impl Session {
             let lines = Lines::new(text);
             let start = lines.offset(text, location.range.start)?;
             let end = lines.offset(text, location.range.end)?;
-            let package = self.projects.package(&generated).ok()??;
-            let origin =
-                package.generated_origin(&generated, text, Span::new(start, end), |path| {
+            let mut span = Span::new(start, end);
+            let mut stage_text: Option<Arc<str>> = None;
+            let mut seen = BTreeSet::new();
+            while seen.insert(normalized(&generated)) {
+                let package = self.projects.package(&generated).ok()??;
+                let current = stage_text.as_deref().unwrap_or(text);
+                let origin = package.generated_origin(&generated, current, span, |path| {
                     if let Some(open) = documents.get(Path::new(&normalized(path))) {
                         Ok(open.document.text.clone())
                     } else {
                         nia_source::read_source_text(path).map(Arc::from)
                     }
                 })?;
-            let range = Lines::new(&origin.text).range(&origin.text, origin.span);
-            Some(Location::new(uri(&origin.path)?, range))
+                if !Path::new(&normalized(&origin.path)).starts_with(package.output_root()) {
+                    let range = Lines::new(&origin.text).range(&origin.text, origin.span);
+                    return Some(Location::new(uri(&origin.path)?, range));
+                }
+                generated = PathBuf::from(normalized(&origin.path));
+                stage_text = Some(origin.text);
+                span = origin.span;
+            }
+            None
         })();
         projected.unwrap_or(location)
     }
