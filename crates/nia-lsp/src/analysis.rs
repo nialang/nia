@@ -3587,12 +3587,17 @@ mod tests {
         .unwrap();
         std::fs::write(
             dep.join("root.nia"),
-            "module units;\npub using root::units::distance as span;\npub struct Marker {}\n",
+            "module units;\npub module extensions;\npub using root::units::distance as span;\npub struct Marker {}\n",
         )
         .unwrap();
         std::fs::write(
             dep.join("units.nia"),
             "/// Measures a span.\npub fun distance() i32 { 2 }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dep.join("extensions.nia"),
+            "extend i32 { pub fun lengthUnits(&self) i32 { self.* } }\n",
         )
         .unwrap();
         let main = root.join("root.nia");
@@ -3659,6 +3664,23 @@ mod tests {
         assert_eq!(
             item.additional_text_edits.as_ref().unwrap()[0].new_text,
             "using measure::span;\n\n"
+        );
+
+        let source = "fun run(value: i32) i32 { value.lengthUn() }\n";
+        unloaded.get_mut(&main).unwrap().document = Document::new(3, source.into());
+        let full = session.analyze(&unloaded, &main).unwrap();
+        assert!(full.file(&dep.join("extensions.nia")).is_none());
+        let cursor = Position::new(0, (source.find("lengthUn").unwrap() + 8) as u32);
+        let items = probe
+            .complete(&full, &unloaded, &main, cursor, &cancel)
+            .unwrap();
+        let [item] = items.as_slice() else {
+            panic!("expected one extension import, got {items:?}");
+        };
+        assert_eq!(item.label, "lengthUnits");
+        assert_eq!(
+            item.additional_text_edits.as_ref().unwrap()[0].new_text,
+            "using measure::extensions;\n\n"
         );
     }
 

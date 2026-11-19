@@ -83,7 +83,15 @@ impl Session {
                 }
                 (
                     span,
-                    analysis.extension_imports(file, |method| method == name, cancel),
+                    self.find_import_candidates(
+                        analysis,
+                        documents,
+                        path,
+                        cancel,
+                        |view, file, aliases| {
+                            view.extension_imports(file, |method| method == name, aliases, cancel)
+                        },
+                    ),
                 )
             } else {
                 let Some(name) = file.text.get(span.start..span.end) else {
@@ -103,8 +111,15 @@ impl Session {
                         analysis,
                         documents,
                         path,
-                        |item| item.name.as_ref() == name,
                         cancel,
+                        |view, file, aliases| {
+                            view.import_candidates(
+                                file,
+                                |item| item.name.as_ref() == name,
+                                aliases,
+                                cancel,
+                            )
+                        },
                     ),
                 )
             };
@@ -156,8 +171,15 @@ impl Session {
             analysis,
             documents,
             path,
-            |item| completion_matches_import(item, prefix, type_only),
             cancel,
+            |view, file, aliases| {
+                view.import_candidates(
+                    file,
+                    |item| completion_matches_import(item, prefix, type_only),
+                    aliases,
+                    cancel,
+                )
+            },
         )?;
         let range = file.lines.range(&file.text, span);
         let mut items = Vec::new();
@@ -178,11 +200,11 @@ impl Session {
         analysis: &Analysis,
         documents: &Documents,
         path: &Path,
-        matches: impl Fn(&VisibleName) -> bool,
         cancel: &Cancellation,
+        collect: impl Fn(&Analysis, &File, Option<&BTreeSet<String>>) -> Option<Vec<ImportCandidate>>,
     ) -> Option<Vec<ImportCandidate>> {
         let file = analysis.file(path)?;
-        let mut candidates = analysis.import_candidates(file, &matches, None, cancel)?;
+        let mut candidates = collect(analysis, file, None)?;
         let aliases = analysis.unmounted_aliases(file);
         if aliases.is_empty() {
             return Some(candidates);
@@ -202,7 +224,7 @@ impl Session {
             AnalysisMode::Declarations,
         ) && let Some(discovered) = discovery
             .file(path)
-            .and_then(|file| discovery.import_candidates(file, &matches, Some(&aliases), cancel))
+            .and_then(|file| collect(&discovery, file, Some(&aliases)))
         {
             candidates.extend(discovered);
         }
@@ -229,9 +251,15 @@ impl Session {
         let prefix = member.prefix(&file.text);
         let has_call = is_method_callee(file.syntax().tree.green_root(), span);
         let mut items = Vec::new();
-        for candidate in
-            analysis.extension_imports(file, |name| name.starts_with(prefix), cancel)?
-        {
+        for candidate in self.find_import_candidates(
+            analysis,
+            documents,
+            path,
+            cancel,
+            |view, file, aliases| {
+                view.extension_imports(file, |name| name.starts_with(prefix), aliases, cancel)
+            },
+        )? {
             cancel.check().ok()?;
             let import = if has_call {
                 self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)
@@ -555,6 +583,7 @@ impl Analysis {
         &self,
         file: &File,
         matches: impl Fn(&str) -> bool,
+        aliases: Option<&BTreeSet<String>>,
         cancel: &Cancellation,
     ) -> Option<Vec<ImportCandidate>> {
         let mut paths: Vec<_> = self.import_namespaces(file, cancel)?.into_iter().collect();
@@ -563,7 +592,10 @@ impl Analysis {
         let mut candidates = Vec::new();
         for (path, module) in paths {
             cancel.check().ok()?;
-            if module == file.module || !found.insert(module) {
+            if aliases.is_some_and(|aliases| !aliases.contains(&path[0]))
+                || module == file.module
+                || !found.insert(module)
+            {
                 continue;
             }
             let Some(definitions) = self.defs.get(&module) else {
@@ -743,8 +775,24 @@ fn verified_import_context(
     {
         return None;
     }
-    let previous = bindings(before, cancel).ok()?;
+    let mut previous = bindings(before, cancel).ok()?;
     let current = bindings(after, cancel).ok()?;
+    // Resolving a missing call can retire a speculative toolchain provider.
+    // Bindings in sources that still participate retain their exact targets.
+    previous.retain(|source, _| {
+        current.contains_key(source)
+            || !before
+                .files
+                .get(source)
+                .and_then(|file| before.graph.get(file.module))
+                .is_some_and(|module| {
+                    module
+                        .path
+                        .identity_ref()
+                        .normalized_path()
+                        .starts_with("toolchain:/")
+                })
+    });
     preserves_bindings(
         previous,
         &current,
