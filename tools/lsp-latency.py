@@ -22,6 +22,7 @@ class Client:
         self.started = {}
         self.responses = {}
         self.diagnostics = {}
+        self.server_requests = set()
         self.sequence = 0
         threading.Thread(target=self.read, daemon=True).start()
 
@@ -63,19 +64,23 @@ class Client:
         timestamp, message = item
         if message.get("method") == "textDocument/publishDiagnostics":
             params = message["params"]
-            self.diagnostics[params["uri"], params.get("version")] = timestamp
+            self.diagnostics[params["uri"], params.get("version")] = (timestamp, params["diagnostics"])
         elif "method" in message:
             if "id" in message:
+                self.server_requests.add(message["method"])
                 self.send(dict(id=message["id"], result=None))
         elif "id" in message:
             self.responses[message["id"]] = (timestamp, message)
 
-    def wait_diagnostics(self, uri, version):
+    def wait_diagnostics(self, uri, version, accept=lambda _: True):
         key = (uri, version)
         deadline = perf_counter() + self.timeout
-        while key not in self.diagnostics:
+        while True:
+            if key in self.diagnostics:
+                timestamp, diagnostics = self.diagnostics.pop(key)
+                if accept(diagnostics):
+                    return timestamp, diagnostics
             self.receive(deadline)
-        return self.diagnostics.pop(key)
 
     def wait(self, ident):
         deadline = perf_counter() + self.timeout
@@ -124,7 +129,7 @@ def benchmark(client, source, root, symbol, repeat):
     cursor = dict(**text_document, position=position(text, symbol))
     references = dict(**cursor, context=dict(includeDeclaration=True))
     first_highlight = client.measure("textDocument/semanticTokens/full", text_document)
-    first_diagnostics = client.wait_diagnostics(document["uri"], 1)
+    first_diagnostics, _ = client.wait_diagnostics(document["uri"], 1)
     client.measure("textDocument/semanticTokens/full", text_document)
     cold_semantic = 1000 * (perf_counter() - opened)
     report = {
@@ -168,7 +173,7 @@ def benchmark(client, source, root, symbol, repeat):
             "contentChanges": [dict(text=text + f"\n// diagnostics sample {version}\n")],
         })
         client.measure("textDocument/semanticTokens/full", text_document)
-        published = client.wait_diagnostics(document["uri"], version)
+        published, _ = client.wait_diagnostics(document["uri"], version)
         diagnostics.append(1000 * (published - started))
         client.measure("textDocument/semanticTokens/full", text_document)
         semantic.append(1000 * (perf_counter() - started))

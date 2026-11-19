@@ -6,6 +6,7 @@ from pathlib import Path
 import runpy
 import subprocess
 import tempfile
+from time import perf_counter
 
 
 transport = runpy.run_path(str(Path(__file__).with_name("lsp-latency.py")))
@@ -41,11 +42,23 @@ def smoke(server, root):
             capabilities = request(client, "initialize", {
                 "processId": None,
                 "rootUri": root.as_uri(),
-                "capabilities": {"workspace": {"semanticTokens": {"refreshSupport": True}}},
+                "capabilities": {"workspace": {
+                    "semanticTokens": {"refreshSupport": True},
+                    "didChangeWatchedFiles": {"dynamicRegistration": True},
+                    "workspaceFolders": True,
+                }},
             })["capabilities"]
             assert capabilities["positionEncoding"] == "utf-16"
             assert capabilities["workspaceSymbolProvider"] and capabilities["typeDefinitionProvider"]
             client.notify("initialized", {})
+
+            canceled = client.request("workspace/symbol", {"query": "fixture::shapes::Shape"})
+            client.notify("$/cancelRequest", {"id": canceled})
+            _, canceled_response = client.wait(canceled)
+            if "error" in canceled_response:
+                assert canceled_response["error"]["code"] == -32800, canceled_response
+            else:
+                assert [symbol["name"] for symbol in canceled_response["result"]] == ["Shape"]
 
             symbols = request(client, "workspace/symbol", {"query": "fixture::shapes::Shape"})
             assert [symbol["location"]["uri"] for symbol in symbols] == [shapes.as_uri()], symbols
@@ -67,7 +80,47 @@ def smoke(server, root):
 
             edit = request(client, "textDocument/rename", dict(**field, newName="height"))
             assert sorted(edit["changes"]) == sorted([main.as_uri(), shapes.as_uri()]), edit
+            assert "client/registerCapability" in client.server_requests
+            deadline = perf_counter() + client.timeout
+            while "workspace/semanticTokens/refresh" not in client.server_requests:
+                client.receive(deadline)
+
+            shapes.write_text("pub struct Shape { height: i32 }\n", encoding="utf-8")
+            client.notify("workspace/didChangeWatchedFiles", {
+                "changes": [{"uri": shapes.as_uri(), "type": 2}],
+            })
+            client.wait_diagnostics(main.as_uri(), 1, lambda items: any(
+                diagnostic["severity"] == 1 and "width" in diagnostic["message"]
+                for diagnostic in items
+            ))
+            start = field["position"]
+            end = dict(start, character=start["character"] + len("width"))
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=2),
+                "contentChanges": [{"range": {"start": start, "end": end}, "text": "height"}],
+            })
+            client.wait_diagnostics(main.as_uri(), 2, lambda items: not items)
+            main.write_text(source.replace("width", "height"), encoding="utf-8")
+            client.notify("textDocument/didSave", params)
+            target = request(client, "textDocument/definition", field)
+            assert target["uri"] == shapes.as_uri(), target
+
             client.notify("textDocument/didClose", params)
+            client.wait_diagnostics(main.as_uri(), None, lambda items: not items)
+            other = root / "next-workspace"
+            other.mkdir()
+            (other / "nia.toml").write_text(manifest.replace("fixture", "next"), encoding="utf-8")
+            (other / "root.nia").write_text("pub struct NewWorkspace {}\n", encoding="utf-8")
+            client.notify("workspace/didChangeWorkspaceFolders", {"event": {
+                "added": [{"uri": other.as_uri(), "name": "next"}],
+                "removed": [{"uri": root.as_uri(), "name": "fixture"}],
+            }})
+            assert not request(client, "workspace/symbol", {"query": "Shape"})
+            symbols = request(client, "workspace/symbol", {"query": "next::NewWorkspace"})
+            assert [symbol["location"]["uri"] for symbol in symbols] == [
+                (other / "root.nia").as_uri()
+            ], symbols
+
             request(client, "shutdown", None)
             client.notify("exit", None)
             process.stdin.close()
