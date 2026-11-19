@@ -3,7 +3,7 @@
 
 use super::*;
 use nia_build::compiler_inputs::{
-    CompilerContext, PlanCompilation, PlanDependencyScopes, PlanDirectories, module_imports,
+    PlanCompilation, PlanDependencyScopes, PlanDirectories, module_imports,
 };
 use nia_build_plan::{LogicalPathRoot, PlanPackageSource};
 
@@ -134,7 +134,8 @@ impl Package {
                     .check_request(entry)
                     .with_profile(context.profile)
                     .with_module_map(modules),
-                target: Some(context),
+                context,
+                module: Some(module.key.clone()),
             });
         }
         Ok(requests)

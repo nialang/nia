@@ -3,6 +3,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    fmt,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
@@ -10,7 +11,9 @@ use std::{
 use nia_build::compiler_inputs::CompilerContext;
 use nia_build::compiler_inputs::build_script_path;
 use nia_build::{ConfigureManifest, ObservationValidation};
-use nia_build_plan::{BuildPlan, PlanConfiguration, PlanHandoffError, read_configured_plan};
+use nia_build_plan::{
+    BuildPlan, ModuleKey, PlanConfiguration, PlanHandoffError, read_configured_plan,
+};
 use nia_driver::CheckRequest;
 use nia_imports::ModuleMap;
 use nia_package_metadata::{
@@ -42,15 +45,54 @@ pub(crate) struct WorkspaceRequests {
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EditorRequest {
     pub(crate) check: CheckRequest,
-    pub(crate) target: Option<CompilerContext>,
+    pub(crate) context: CompilerContext,
+    module: Option<ModuleKey>,
 }
 
-impl From<CheckRequest> for EditorRequest {
-    fn from(check: CheckRequest) -> Self {
+impl EditorRequest {
+    pub(crate) fn standalone(path: &Path, toolchain: &nia_toolchain::ToolchainLayout) -> Self {
+        Self::manifest(
+            CheckRequest::new(normalized(path)),
+            *toolchain.artifact_target(),
+        )
+    }
+
+    fn manifest(check: CheckRequest, target: nia_target::TargetConfig) -> Self {
+        let context = CompilerContext {
+            target,
+            cpu: nia_target::CpuLevel::default(),
+            runtime: nia_build_plan::Runtime::Bare,
+            profile: check.profile,
+            mode: match check.compilation_mode {
+                CompilationMode::Normal => nia_build_plan::CompilationMode::Normal,
+                CompilationMode::Test => nia_build_plan::CompilationMode::Test,
+            },
+        };
         Self {
             check,
-            target: None,
+            context,
+            module: None,
         }
+    }
+}
+
+impl fmt::Display for EditorRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let context = self.context;
+        write!(f, "`{}` (", self.check.entry_path.as_str())?;
+        if let Some(module) = &self.module {
+            write!(
+                f,
+                "module `{}::{}`, ",
+                module.package().as_str(),
+                module.name()
+            )?;
+        }
+        write!(
+            f,
+            "target {}, CPU {}, {:?} runtime, {:?} profile, {:?} mode)",
+            context.target, context.cpu, context.runtime, context.profile, context.mode,
+        )
     }
 }
 
@@ -150,10 +192,9 @@ impl Projects {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .map(|(path, context)| match self.package(&path)? {
-                Some(package) => package.request(&path, context),
-                None => Ok(CheckRequest::new(normalized(&path))),
+                Some(package) => package.editor_request(&path, context, toolchain),
+                None => Ok(EditorRequest::standalone(&path, toolchain)),
             })
-            .map(|result| result.map(EditorRequest::from))
             .collect::<Result<Vec<_>, _>>()?;
         entries.extend(configured);
         let standalone = standalone
@@ -162,7 +203,7 @@ impl Projects {
                 Some(package) => {
                     package.editor_request(&path, package.fallback_context(&path), toolchain)
                 }
-                None => Ok(CheckRequest::new(normalized(&path)).into()),
+                None => Ok(EditorRequest::standalone(&path, toolchain)),
             })
             .collect::<Result<_, _>>()?;
         Ok(WorkspaceRequests {
@@ -407,7 +448,8 @@ impl Package {
         if context == Context::Build {
             self.build_request(path, toolchain)
         } else {
-            self.request(path, context).map(EditorRequest::from)
+            let check = self.request(path, context)?;
+            Ok(EditorRequest::manifest(check, *toolchain.artifact_target()))
         }
     }
 
@@ -447,16 +489,7 @@ impl Package {
             .request(path, Context::Build)?
             .with_profile(profile)
             .with_optimization(nia_driver::NiaOptimizationLevel::O0);
-        Ok(EditorRequest {
-            check,
-            target: Some(CompilerContext {
-                target,
-                cpu: nia_target::CpuLevel::default(),
-                runtime: nia_build_plan::Runtime::Bare,
-                profile,
-                mode: nia_build_plan::CompilationMode::Normal,
-            }),
-        })
+        Ok(EditorRequest::manifest(check, target))
     }
 
     fn module_map(&self, context: Context) -> Result<ModuleMap, String> {

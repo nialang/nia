@@ -177,8 +177,8 @@ fn build_hook_still_contributes_its_independent_context() {
         crate::workspace::Coverage::Complete
     ));
     assert_eq!(
-        build_entry.request.target.map(|context| context.runtime),
-        Some(nia_build_plan::Runtime::Bare)
+        build_entry.request.context.runtime,
+        nia_build_plan::Runtime::Bare
     );
 }
 
@@ -766,6 +766,7 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
         PlanAction, PlanModule, PlanPackage, PlanPackageSource, PlanStep, Runtime, StepKey,
         StepVisibility, publish_build_plan,
     };
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
     let directory = test_dir("lsp-configured-dependency-scopes");
     std::fs::write(
         directory.join("nia.toml"),
@@ -802,7 +803,9 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
     let target = test_session().toolchain.host_target().to_owned();
     let alternate_target = nia_target::SUPPORTED_TARGETS
         .into_iter()
-        .find(|candidate| *candidate != target)
+        .find(|candidate| {
+            candidate.os() != target.os() && candidate.arch() == nia_target::Arch::X86_64
+        })
         .unwrap();
     let mut actions = Vec::new();
     let mut steps = Vec::new();
@@ -818,7 +821,10 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
                 target: action_target,
                 runtime: Runtime::Bare,
                 mode,
-                configuration: ArtifactConfiguration::default(),
+                configuration: ArtifactConfiguration {
+                    cpu: (mode == CompilationMode::Test).then_some(nia_target::CpuLevel::X86_64V3),
+                    ..ArtifactConfiguration::default()
+                },
             },
         });
         steps.push(PlanStep {
@@ -865,7 +871,10 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
         plan,
         observations: Vec::new(),
     };
-    let config = nia_build_plan::PlanConfiguration::default();
+    let config = nia_build_plan::PlanConfiguration {
+        profile: nia_target_config::BuildProfile::Release,
+        ..Default::default()
+    };
     publish_build_plan(&plan_path, &draft, config).unwrap();
 
     let mut session = test_session();
@@ -893,8 +902,7 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
     let requests = package.configured_requests(&toolchain).unwrap();
     assert_eq!(requests.len(), 2);
     assert_eq!(
-        requests[0].target.unwrap().target,
-        alternate_target,
+        requests[0].context.target, alternate_target,
         "the selected step's check takes precedence over the default step"
     );
     assert_eq!(
@@ -912,6 +920,83 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
         );
     }
     assert!(!directory.join("nia.lock").exists());
+
+    let source = concat!(
+        "@[release] pub fun amount() i32 { 1 }\n",
+        "fun sample() i32 { amount() }\n",
+        "@[test] @[if hasFeature(\"avx2\")] fun feature() i32 { 1 }\n",
+        "@[test] @[if hasFeature(\"avx2\")] fun feature_use() i32 { feature() }\n",
+        "@[if not hasFeature(\"avx2\")] pub fun taken() i32 { 2 }\n",
+    );
+    std::fs::write(&entry, source).unwrap();
+    let documents = Documents::new();
+    let analysis = session.analyze(&documents, &entry).unwrap();
+    assert_eq!(analysis.first_error(), None);
+    let lines = Lines::new(source);
+    let feature = lines.position(source, source.rfind("feature()").unwrap());
+    assert_eq!(
+        analysis
+            .definition(&entry, feature)
+            .unwrap()
+            .range
+            .start
+            .line,
+        2
+    );
+    let position = lines.position(source, source.rfind("amount").unwrap());
+    assert_eq!(
+        analysis
+            .definition(&entry, position)
+            .unwrap()
+            .range
+            .start
+            .line,
+        0
+    );
+    let cancel = Cancellation::default();
+    let index = session
+        .workspace_index(&entry, &documents, &[], &cancel)
+        .unwrap();
+    assert_eq!(index.entries.len(), 2);
+    assert!(index.reference_coverage_warning().is_none());
+    let error = session
+        .rename(
+            &analysis,
+            &documents,
+            crate::rename::Rename {
+                path: &entry,
+                position,
+                new_name: "taken",
+                folders: &[],
+                versioned: false,
+                resource_rename: false,
+            },
+            &cancel,
+        )
+        .unwrap_err();
+    let native_context =
+        format!("target {target}, CPU baseline, Bare runtime, Release profile, Normal mode");
+    assert!(
+        error.contains("Rename would break") && error.contains(&native_context),
+        "{error}"
+    );
+
+    let edited = source.replace("{ 2 }", "{ missing() }");
+    let documents = Documents::from([(
+        entry.clone(),
+        OpenDocument {
+            uri: uri(&entry).unwrap(),
+            document: Document::new(1, edited),
+        },
+    )]);
+    let index = session
+        .workspace_index(&entry, &documents, &[], &cancel)
+        .unwrap();
+    let warning = index.reference_coverage_warning().unwrap();
+    assert!(
+        warning.contains(&native_context) && warning.contains("missing"),
+        "{warning}"
+    );
 }
 
 #[test]

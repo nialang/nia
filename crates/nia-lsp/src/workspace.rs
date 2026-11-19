@@ -643,20 +643,17 @@ impl WorkspaceIndex {
     }
 
     pub(crate) fn reference_coverage_warning(&self) -> Option<String> {
-        let (path, error) = if let Some((package, error)) = self.unavailable_plans.first() {
-            (package.to_string_lossy(), error.as_str())
+        let problem = if let Some((package, error)) = self.unavailable_plans.first() {
+            format!("`{}`. {error}", package.display())
         } else {
             let (entry, error) = self
                 .entries
                 .iter()
                 .find_map(|entry| Some((entry, entry.coverage.problem()?)))?;
-            (
-                std::borrow::Cow::Borrowed(entry.request.check.entry_path.as_str()),
-                error,
-            )
+            format!("{}. {error}", entry.request)
         };
         Some(format!(
-            "Workspace references may be incomplete for `{path}`. {error}"
+            "Workspace references may be incomplete for {problem}"
         ))
     }
 

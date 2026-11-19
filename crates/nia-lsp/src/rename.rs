@@ -347,13 +347,14 @@ impl Session {
         for entry in affected {
             cancel.check()?;
             let request = &entry.request;
-            let after = verification.analyze_request(request.clone(), cancel)?;
+            let after = verification
+                .analyze_request(request.clone(), cancel)
+                .map_err(|error| format!("Cannot verify rename in {request} ({error})"))?;
             if let Some(error) =
                 offsets.new_error(entry.coverage.source_errors(), after.errors(), &moves)
             {
                 return Err(format!(
-                    "Rename would break {} ({} at {})",
-                    request.check.entry_path.as_str(),
+                    "Rename would break {request} ({} at {})",
                     error.diagnostic.summary,
                     error.path.as_str(),
                 ));
@@ -376,10 +377,7 @@ impl Session {
                 .keys()
                 .any(|source| workspace_file(source) && !expected.contains_key(source))
             {
-                return Err(format!(
-                    "Rename would change name resolution in {}",
-                    request.check.entry_path.as_str()
-                ));
+                return Err(format!("Rename would change name resolution in {request}"));
             }
         }
         let open: BTreeSet<_> = documents.keys().map(|path| normalized(path)).collect();
@@ -469,7 +467,7 @@ fn collect_rename(
         if let Coverage::Unavailable(error) = &entry.coverage {
             return Err(format!(
                 "Cannot check rename in {} ({error})",
-                entry.request.check.entry_path.as_str()
+                entry.request
             ));
         }
         for (source, occurrences) in &entry.bindings {

@@ -173,7 +173,7 @@ impl Session {
             )
         };
         let Some(package) = self.projects.package(entry)? else {
-            return analyze(CheckRequest::new(normalized(entry)).into());
+            return analyze(EditorRequest::standalone(entry, &self.toolchain));
         };
         let entry_path = normalized(entry);
         let (mut configured, configuration_warning) = match package
@@ -352,21 +352,25 @@ fn analyze_editor_request(
     cancel: Option<&Cancellation>,
     mode: AnalysisMode,
 ) -> Result<Analysis, String> {
-    let Some(context) = request.target else {
-        return analyze_request(driver, request.check, cancel, mode);
-    };
-    let mut drivers = drivers.borrow_mut();
-    let configured = match drivers.entry((context.target, context.cpu)) {
-        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-        std::collections::hash_map::Entry::Vacant(entry) => {
-            let config = DriverConfig::new(driver.config().toolchain.clone())
-                .with_artifact_target(context.target)
-                .with_cpu(context.cpu);
-            let configured = Driver::with_config(config);
-            for (path, text) in overlays {
-                set_source(&configured, path, text.clone())?;
+    let context = request.context;
+    let mut target_drivers;
+    let config = driver.config();
+    let configured = if (context.target, context.cpu) == (config.artifact_target, config.cpu) {
+        driver
+    } else {
+        target_drivers = drivers.borrow_mut();
+        match target_drivers.entry((context.target, context.cpu)) {
+            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                let config = DriverConfig::new(config.toolchain.clone())
+                    .with_artifact_target(context.target)
+                    .with_cpu(context.cpu);
+                let configured = Driver::with_config(config);
+                for (path, text) in overlays {
+                    set_source(&configured, path, text.clone())?;
+                }
+                entry.insert(configured)
             }
-            entry.insert(configured)
         }
     };
     let runtime = match context.runtime {
