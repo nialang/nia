@@ -177,6 +177,38 @@ def smoke(server, root):
                 **code_action, context={"diagnostics": diagnostics},
             ))
 
+            missing = updated.replace("shape.height", "weight()")
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=5),
+                "contentChanges": [{"text": missing}],
+            })
+            _, diagnostics = client.wait_diagnostics(main.as_uri(), 5, lambda items: any(
+                "unknown value `weight`" in diagnostic["message"] for diagnostic in items
+            ))
+            start = position(missing, "weight")
+            end = dict(start, character=start["character"] + len("weight"))
+            quick_fix_at = dict(
+                **params, range={"start": start, "end": end},
+            )
+            context = {"diagnostics": diagnostics, "only": ["quickfix"]}
+            assert not request(client, "textDocument/codeAction", dict(
+                **quick_fix_at, context=dict(**context, triggerKind=2),
+            ))
+            actions = request(client, "textDocument/codeAction", dict(
+                **quick_fix_at, context=dict(**context, triggerKind=1),
+            ))
+            action, = actions
+            assert action["title"] == "Import `root::shapes::weight`", actions
+            change, = action["edit"]["documentChanges"]
+            assert change["textDocument"] == dict(**document, version=5), change
+            insertion, = change["edits"]
+            assert insertion["newText"] == "using root::shapes::weight;\n\n", insertion
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=6),
+                "contentChanges": [{"range": insertion["range"], "text": insertion["newText"]}],
+            })
+            client.wait_diagnostics(main.as_uri(), 6, lambda items: not items)
+
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)
             for old_name, new_name in [("shapes", "geometry"), ("geometry", "Geometry")]:

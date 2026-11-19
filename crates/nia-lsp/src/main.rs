@@ -7,6 +7,7 @@ mod editing;
 mod highlight;
 mod project;
 mod rename;
+mod rewrite;
 mod server;
 mod structure;
 mod workspace;

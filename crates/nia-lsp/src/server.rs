@@ -449,17 +449,13 @@ fn analyze(
                         ),
                     }
                 }
-                Ok(analysis) => query(analysis, &work, request, |position| {
+                Ok(analysis) => {
                     let probe =
-                        completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()));
-                    probe.complete(
-                        analysis,
-                        &work.documents,
-                        &work.path,
-                        position,
-                        &work.cancel,
-                    )
-                }),
+                        matches!(request.method.as_str(), COMPLETION | CODE_ACTION).then(|| {
+                            completion_probe.get_or_insert_with(|| Session::new(toolchain.clone()))
+                        });
+                    query(analysis, &work, request, probe)
+                }
                 Err(error) => {
                     Response::new_err(request.id, ErrorCode::RequestFailed as i32, error.clone())
                 }
@@ -533,7 +529,7 @@ fn query(
     analysis: &Analysis,
     work: &Work,
     request: Request,
-    complete: impl FnOnce(lsp_types::Position) -> Option<Vec<lsp_types::CompletionItem>>,
+    probe: Option<&mut Session>,
 ) -> Response {
     let path = &work.path;
     let Request { id, method, params } = request;
@@ -549,10 +545,24 @@ fn query(
         PREPARE_RENAME => decode::<lsp_types::TextDocumentPositionParams>(params).map(|params| {
             json!(analysis.prepare_rename(path, params.position, work.resource_rename))
         }),
-        COMPLETION => decode::<lsp_types::CompletionParams>(params)
-            .map(|params| json!(complete(params.text_document_position.position))),
+        COMPLETION => decode::<lsp_types::CompletionParams>(params).map(|params| {
+            json!(probe.expect("completion probe").complete(
+                analysis,
+                &work.documents,
+                path,
+                params.text_document_position.position,
+                &work.cancel,
+            ))
+        }),
         CODE_ACTION => decode::<lsp_types::CodeActionParams>(params).map(|params| {
-            json!(analysis.code_actions(path, &work.documents[path], &params, work.versioned_edits))
+            json!(probe.expect("code action probe").code_actions(
+                analysis,
+                &work.documents,
+                path,
+                &params,
+                work.versioned_edits,
+                &work.cancel,
+            ))
         }),
         "textDocument/signatureHelp" => {
             decode::<lsp_types::SignatureHelpParams>(params).map(|params| {

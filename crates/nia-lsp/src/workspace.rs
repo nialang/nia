@@ -585,7 +585,7 @@ impl WorkspaceIndex {
     }
 }
 
-fn symbol_site(analysis: &Analysis, symbol: Symbol) -> Option<Site> {
+pub(crate) fn symbol_site(analysis: &Analysis, symbol: Symbol) -> Option<Site> {
     let (source, span) = analysis.definitions.get(&symbol)?;
     Some(Site {
         source: Arc::from(source.as_str()),
