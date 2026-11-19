@@ -1255,14 +1255,30 @@ fn run_build_single(request: BuildRequest) -> Result<(), BuildError> {
                         path: invocation.plan_draft.clone(),
                         detail,
                     })?;
-                if !configure_reused || read_build_plan_draft(&invocation.plan_path).is_err() {
+                let configuration = compiler_inputs::plan_configuration(&invocation);
+                if !configure_reused
+                    || !read_configured_plan(&invocation.plan_path).is_ok_and(
+                        |(published, previous)| {
+                            previous == configuration
+                                && published.plan.host_target() == draft.plan.host_target()
+                                && published.plan.artifact_target() == draft.plan.artifact_target()
+                                && published.plan.packages() == draft.plan.packages()
+                                && published.plan.modules() == draft.plan.modules()
+                                && published.plan.artifacts() == draft.plan.artifacts()
+                                && published.plan.actions() == draft.plan.actions()
+                                && published.plan.steps() == draft.plan.steps()
+                                && published.plan.default_step() == draft.plan.default_step()
+                                && published.observations == draft.observations
+                        },
+                    )
+                {
                     time_build_stage(timings, "build_publish_configure_plan", || {
-                        publish_build_plan(&invocation.plan_path, &draft).map_err(|error| {
-                            BuildError::PublishBuildPlan {
+                        publish_build_plan(&invocation.plan_path, &draft, configuration).map_err(
+                            |error| BuildError::PublishBuildPlan {
                                 path: invocation.plan_path.clone(),
                                 error,
-                            }
-                        })
+                            },
+                        )
                     })?;
                 }
                 // `resolve_build_invocation` admits arguments only with a named step.

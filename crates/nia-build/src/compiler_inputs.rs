@@ -10,12 +10,13 @@ use nia_driver::CheckRequest;
 use nia_driver::NiaOptimizationLevel;
 use nia_package_metadata::DependencyScope;
 use nia_source::SourcePath;
-use nia_target::TargetConfig;
+use nia_target::{CpuLevel, TargetConfig};
+use nia_target_config::BuildProfile;
 
 use crate::{
     ActionKind, ArtifactConfiguration, ArtifactKey, BuildPlan, CompilationMode, LogicalPath,
-    LogicalPathRoot, OptimizationMode, PackageKey, PlanAction, PlanModule, PlanPackage,
-    PlanPackageSource, Runtime,
+    LogicalPathRoot, OptimizationMode, PackageKey, PlanAction, PlanConfiguration, PlanModule,
+    PlanPackage, PlanPackageSource, Runtime,
 };
 
 /// Resolves the conventional entry point for a package's build script.
@@ -153,6 +154,50 @@ pub struct PlanCompilation<'a> {
     pub mode: CompilationMode,
     /// Explicit artifact settings, including any CPU override.
     pub configuration: &'a ArtifactConfiguration,
+}
+
+/// Explicit compiler dimensions carried from a build plan into editor analysis.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct CompilerContext {
+    /// Target selected by the compiler action.
+    pub target: TargetConfig,
+    /// CPU level selected by the artifact configuration.
+    pub cpu: CpuLevel,
+    /// Runtime model selected by the action.
+    pub runtime: Runtime,
+    /// Profile used for conditional source selection.
+    pub profile: BuildProfile,
+    /// Whether test-only declarations participate.
+    pub mode: CompilationMode,
+}
+
+impl CompilerContext {
+    /// Projects a plan action into an editor context using the invocation profile.
+    pub fn for_action(
+        plan: &BuildPlan,
+        input: &PlanCompilation<'_>,
+        configuration: PlanConfiguration,
+    ) -> Self {
+        Self {
+            target: input.target,
+            cpu: configuration.action_cpu(plan, &input.target, input.configuration),
+            runtime: input.runtime,
+            profile: configuration.profile,
+            mode: input.mode,
+        }
+    }
+}
+
+/// Resolves invocation defaults in the same way for plan execution and publication.
+pub(crate) fn plan_configuration(invocation: &crate::BuildInvocation) -> PlanConfiguration {
+    let target = *invocation.toolchain.artifact_target();
+    let profile_cpu = invocation
+        .profile_cpu
+        .filter(|cpu| cpu.check(target, None).is_ok());
+    PlanConfiguration {
+        profile: invocation.profile,
+        cpu: invocation.cpu.or(profile_cpu).unwrap_or_default(),
+    }
 }
 
 impl<'a> PlanCompilation<'a> {

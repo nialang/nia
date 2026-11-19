@@ -341,7 +341,8 @@ under the state root.
 `build/tmp/` holds the runner executable, runner configuration, and plan draft
 of invocations in progress, named `<pid>-<sequence>` from the process id and a
 per-process counter. `build/out/build-plan.bin` (below the member's out
-directory) is the published plan handoff. `build/packages.lock` is the
+directory) publishes the frozen plan, configure observations, build profile,
+and default artifact CPU level together. `build/packages.lock` is the
 package-state lock that dependency resolution, `nia update`, and `nia clean`
 hold while they change state; a build holds it at most while resolving
 dependencies, not while it runs the runner or executes actions.

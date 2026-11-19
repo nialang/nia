@@ -461,6 +461,9 @@ pub mod formats {
 
     /// Immutable action graph handed from a build runner to the coordinator.
     pub const BUILD_PLAN: PersistedFormat = PersistedFormat::new("build-plan", b"NIA-PLN\x05");
+    /// Durable compiler configuration and plan published by the build coordinator.
+    pub const CONFIGURED_PLAN: PersistedFormat =
+        PersistedFormat::new("configured-plan", b"NIACPLAN");
     /// Invocation-private configuration consumed by a compiled build runner.
     pub const RUNNER_CONFIG: PersistedFormat = PersistedFormat::new("runner-config", b"NIARUNCF");
     /// Bounded observations emitted by a host build runner.
@@ -597,6 +600,7 @@ pub mod formats {
     /// Complete payload registry used for uniqueness checks and audits.
     pub const ALL: &[PersistedFormat] = &[
         BUILD_PLAN,
+        CONFIGURED_PLAN,
         RUNNER_CONFIG,
         RUNNER_OBSERVATIONS,
         RUNNER_EXECUTABLE_CACHE,

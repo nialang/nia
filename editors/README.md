@@ -29,6 +29,9 @@ manifests, lockfiles, or the configured build plan change on disk. Open
 buffers take precedence over disk contents. The server reads the last
 configured `build-plan.bin` to discover additional compiler entries and
 imports, including generated modules that the build has materialized.
+Those entries use the published build profile and CPU defaults alongside
+each compiler action's target, runtime, and test mode. A corrupt or stale
+plan produces a diagnostic while the server analyzes the manifest entries.
 
 Rename supports local bindings, top-level items, explicit import and
 re-export aliases, named fields, enum variants, inherent methods, and

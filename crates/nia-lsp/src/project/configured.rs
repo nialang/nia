@@ -3,7 +3,8 @@
 
 use super::*;
 use nia_build::compiler_inputs::{
-    PlanCompilation, PlanDependencyScopes, PlanDirectories, package_dependency_selected,
+    CompilerContext, PlanCompilation, PlanDependencyScopes, PlanDirectories,
+    package_dependency_selected,
 };
 use nia_build_plan::{LogicalPathRoot, PlanPackageSource};
 
@@ -21,7 +22,7 @@ impl Package {
         &self,
         toolchain: &nia_toolchain::ToolchainLayout,
     ) -> Result<Vec<EditorRequest>, String> {
-        let Some(plan) = self.plan.as_ref() else {
+        let Some((plan, configuration)) = self.plan.as_ref() else {
             if let Some(message) = self.configuration_message() {
                 return Err(message);
             }
@@ -61,35 +62,43 @@ impl Package {
         };
         let package_root: &nia_build::compiler_inputs::PackageRoot<'_> =
             &|key| package_roots.get(key).cloned();
-        let mut contexts = std::collections::BTreeMap::new();
-        for input in plan
-            .actions()
-            .iter()
-            .filter_map(|action| PlanCompilation::for_action(plan, action))
-        {
-            let cpu = input.configuration.cpu.unwrap_or_default();
-            contexts
-                .entry((
-                    &input.module.key,
-                    input.mode,
-                    input.target,
-                    input.runtime,
-                    cpu,
-                ))
-                .or_insert(input);
+        let preferred_action = plan
+            .selected_step()
+            .or_else(|| plan.default_step())
+            .and_then(|key| plan.steps().iter().find(|step| &step.key == key))
+            .map(|step| &step.action);
+        let mut contexts = Vec::new();
+        for action in plan.actions() {
+            let Some(input) = PlanCompilation::for_action(plan, action) else {
+                continue;
+            };
+            let context = CompilerContext::for_action(plan, &input, *configuration);
+            contexts.push((Some(&action.key) != preferred_action, context, input));
         }
+        contexts.sort_by_key(|(secondary, context, _)| {
+            (
+                *secondary,
+                &context.target != plan.artifact_target(),
+                context.mode,
+            )
+        });
+        let mut seen = BTreeSet::new();
         let mut requests = Vec::new();
-        for ((_, mode, target, runtime, cpu), input) in contexts {
+        for (_, context, input) in contexts {
+            if !seen.insert((&input.module.key, context)) {
+                continue;
+            }
+            let mode = context.mode;
             let module = input.module;
             let entry = directories
                 .resolve(plan, &module.root_source, package_root)
                 .map_err(|error| format!("Could not resolve compiler entry: {error:?}"))?;
-            let context = if mode == nia_build_plan::CompilationMode::Test {
+            let manifest_context = if mode == nia_build_plan::CompilationMode::Test {
                 Context::Test
             } else {
                 Context::Executable
             };
-            let mut modules = self.module_map(context)?;
+            let mut modules = self.module_map(manifest_context)?;
             let directory = match module.root_source.root() {
                 LogicalPathRoot::Package(package) => &package_roots[package],
                 LogicalPathRoot::Build => &output,
@@ -113,8 +122,9 @@ impl Package {
             requests.push(EditorRequest {
                 check: input
                     .check_request(SourcePath::new(normalized(&entry)))
+                    .with_profile(context.profile)
                     .with_module_map(modules),
-                target: Some((target, cpu, runtime)),
+                target: Some(context),
             });
         }
         Ok(requests)

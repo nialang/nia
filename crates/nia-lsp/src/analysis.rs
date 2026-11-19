@@ -221,16 +221,16 @@ fn analyze_editor_request(
     overlays: &BTreeMap<PathBuf, Arc<str>>,
     request: EditorRequest,
 ) -> Result<Analysis, String> {
-    let Some((target, cpu, runtime)) = request.target else {
+    let Some(context) = request.target else {
         return analyze_request(driver, request.check);
     };
     let mut drivers = drivers.borrow_mut();
-    let configured = match drivers.entry((target, cpu)) {
+    let configured = match drivers.entry((context.target, context.cpu)) {
         std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
         std::collections::hash_map::Entry::Vacant(entry) => {
             let config = DriverConfig::new(driver.config().toolchain.clone())
-                .with_artifact_target(target)
-                .with_cpu(cpu);
+                .with_artifact_target(context.target)
+                .with_cpu(context.cpu);
             let configured = Driver::with_config(config);
             for (path, text) in overlays {
                 set_source(&configured, path, text.clone())?;
@@ -238,14 +238,26 @@ fn analyze_editor_request(
             entry.insert(configured)
         }
     };
-    let runtime = match runtime {
+    let runtime = match context.runtime {
         nia_build_plan::Runtime::Bare => nia_toolchain::RuntimeSpec::Bare,
         nia_build_plan::Runtime::Freestanding => {
-            nia_toolchain::RuntimeSpec::freestanding(&driver.config().toolchain, &target)
+            nia_toolchain::RuntimeSpec::freestanding(&driver.config().toolchain, &context.target)
                 .map_err(|error| error.to_string())?
         }
     };
-    analyze_request(configured, request.check.with_runtime(runtime))
+    analyze_request(
+        configured,
+        request
+            .check
+            .with_runtime(runtime)
+            .with_profile(context.profile)
+            .with_compilation_mode(match context.mode {
+                nia_build_plan::CompilationMode::Normal => {
+                    nia_target_config::CompilationMode::Normal
+                }
+                nia_build_plan::CompilationMode::Test => nia_target_config::CompilationMode::Test,
+            }),
+    )
 }
 
 fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<(), String> {

@@ -2066,18 +2066,7 @@ fn action_cpu(
     target: &TargetConfig,
     configuration: &ArtifactConfiguration,
 ) -> CpuLevel {
-    if let Some(cpu) = configuration.cpu {
-        return cpu;
-    }
-    if target != plan.artifact_target() {
-        return CpuLevel::Baseline;
-    }
-    // A manifest is shared by every target the package is built for, so a
-    // profile's x86_64 level says nothing about an AArch64 build.
-    let profile_cpu = invocation
-        .profile_cpu
-        .filter(|cpu| cpu.check(*target, None).is_ok());
-    invocation.cpu.or(profile_cpu).unwrap_or(CpuLevel::Baseline)
+    compiler_inputs::plan_configuration(invocation).action_cpu(plan, target, configuration)
 }
 
 // An artifact that names no LTO mode follows the level it is built at.

@@ -5,7 +5,12 @@
 //! atomically, and syncs the parent. The already decoded plan remains execution
 //! truth; `build-plan.bin` is the last completed durable observation.
 
-use super::{BuildDraft, BuildDraftError, BuildPlan, MAX_DRAFT_BYTES, PlanCodecError};
+use super::{
+    BuildDraft, BuildDraftError, BuildPlan, MAX_DRAFT_BYTES, PlanCodecError, runner_plan_checksum,
+};
+use nia_compat::formats::CONFIGURED_PLAN;
+use nia_target::CpuLevel;
+use nia_target_config::BuildProfile;
 use std::{
     fmt, fs,
     io::{self, Read, Write},
@@ -135,36 +140,60 @@ impl fmt::Display for PlanHandoffError {
 
 impl std::error::Error for PlanHandoffError {}
 
-/// Input accepted by the durable plan handoff.
-pub trait BuildPlanPublication {
-    /// Encodes the canonical handoff payload.
-    fn encode_publication(&self) -> Result<Vec<u8>, BuildDraftError>;
+/// Invocation defaults applied to the compiler actions in a published plan.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PlanConfiguration {
+    /// Profile used for conditional source selection.
+    pub profile: BuildProfile,
+    /// Default CPU level for actions compiling for the plan's artifact target.
+    pub cpu: CpuLevel,
 }
 
-impl BuildPlanPublication for BuildDraft {
-    fn encode_publication(&self) -> Result<Vec<u8>, BuildDraftError> {
-        self.encode()
+impl PlanConfiguration {
+    /// An explicit action override wins. Only the default artifact target inherits the CPU.
+    pub fn action_cpu(
+        self,
+        plan: &BuildPlan,
+        target: &nia_target::TargetConfig,
+        action: &crate::ArtifactConfiguration,
+    ) -> CpuLevel {
+        action.cpu.unwrap_or_else(|| {
+            if target == plan.artifact_target() {
+                self.cpu
+            } else {
+                CpuLevel::Baseline
+            }
+        })
     }
 }
 
-impl BuildPlanPublication for BuildPlan {
-    fn encode_publication(&self) -> Result<Vec<u8>, BuildDraftError> {
-        BuildDraft {
-            plan: self.clone(),
-            observations: Vec::new(),
-        }
-        .encode()
-    }
-}
+const CONFIGURED_HEADER_BYTES: usize = 22;
 
 /// Atomically publishes the plan and its configuration observations together.
-pub fn publish_build_plan<T: BuildPlanPublication>(
+pub fn publish_build_plan(
     path: &Path,
-    draft: &T,
+    draft: &BuildDraft,
+    configuration: PlanConfiguration,
 ) -> Result<(), PlanHandoffError> {
-    let encoded = draft
-        .encode_publication()
-        .map_err(PlanHandoffError::Encode)?;
+    let encoded = draft.encode().map_err(PlanHandoffError::Encode)?;
+    let profile = match configuration.profile {
+        BuildProfile::Debug => 0,
+        BuildProfile::Release => 1,
+    };
+    let cpu = match configuration.cpu {
+        CpuLevel::Baseline => 0,
+        CpuLevel::X86_64V2 => 1,
+        CpuLevel::X86_64V3 => 2,
+        CpuLevel::X86_64V4 => 3,
+        CpuLevel::Native => 4,
+    };
+    let mut payload = Vec::with_capacity(CONFIGURED_HEADER_BYTES + encoded.len());
+    payload.extend_from_slice(CONFIGURED_PLAN.magic);
+    payload.extend_from_slice(&CONFIGURED_PLAN.protocol_epoch.to_le_bytes());
+    payload.extend_from_slice(&[profile, cpu]);
+    payload.extend_from_slice(&encoded);
+    let checksum = runner_plan_checksum(&payload);
+    payload.extend_from_slice(&checksum.to_le_bytes());
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -174,7 +203,7 @@ pub fn publish_build_plan<T: BuildPlanPublication>(
     let (temporary_path, mut temporary) = create_temporary(parent, path)?;
     let mut cleanup = TemporaryCleanup::new(temporary_path.clone());
     temporary
-        .write_all(&encoded)
+        .write_all(&payload)
         .map_err(|error| PlanHandoffError::WriteTemporary {
             path: temporary_path.clone(),
             error,
@@ -213,26 +242,73 @@ fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
 
 /// Reads the plan from a bounded, validated configuration handoff.
 pub fn read_build_plan(path: &Path) -> Result<BuildPlan, PlanHandoffError> {
-    Ok(read_build_plan_draft(path)?.plan)
+    Ok(read_configured_plan(path)?.0.plan)
 }
 
-/// Reads a validated plan together with the observations published alongside it.
+/// Reads the durable plan, observations, and compiler configuration.
+pub fn read_configured_plan(
+    path: &Path,
+) -> Result<(BuildDraft, PlanConfiguration), PlanHandoffError> {
+    let bytes = read_handoff(path, MAX_DRAFT_BYTES + CONFIGURED_HEADER_BYTES)?;
+    decode_configured_plan(&bytes).map_err(|error| PlanHandoffError::Decode {
+        path: path.to_path_buf(),
+        error,
+    })
+}
+
+fn decode_configured_plan(
+    bytes: &[u8],
+) -> Result<(BuildDraft, PlanConfiguration), BuildDraftError> {
+    let invalid = BuildDraftError::InvalidEnvelope;
+    if bytes.len() < CONFIGURED_HEADER_BYTES
+        || bytes[..8] != *CONFIGURED_PLAN.magic
+        || bytes[8..12] != CONFIGURED_PLAN.protocol_epoch.to_le_bytes()
+    {
+        return Err(invalid);
+    }
+    let checksum_offset = bytes.len() - 8;
+    if bytes[checksum_offset..] != runner_plan_checksum(&bytes[..checksum_offset]).to_le_bytes() {
+        return Err(invalid);
+    }
+    let profile = match bytes[12] {
+        0 => BuildProfile::Debug,
+        1 => BuildProfile::Release,
+        _ => return Err(invalid),
+    };
+    let cpu = match bytes[13] {
+        0 => CpuLevel::Baseline,
+        1 => CpuLevel::X86_64V2,
+        2 => CpuLevel::X86_64V3,
+        3 => CpuLevel::X86_64V4,
+        4 => CpuLevel::Native,
+        _ => return Err(invalid),
+    };
+    let draft = BuildDraft::decode(&bytes[14..checksum_offset])?;
+    Ok((draft, PlanConfiguration { profile, cpu }))
+}
+
+/// Reads the transient draft produced by the build runner.
 pub fn read_build_plan_draft(path: &Path) -> Result<BuildDraft, PlanHandoffError> {
+    let bytes = read_handoff(path, MAX_DRAFT_BYTES)?;
+    BuildDraft::decode(&bytes).map_err(|error| PlanHandoffError::Decode {
+        path: path.to_path_buf(),
+        error,
+    })
+}
+
+fn read_handoff(path: &Path, limit: usize) -> Result<Vec<u8>, PlanHandoffError> {
     let file = fs::File::open(path).map_err(|error| PlanHandoffError::Open {
         path: path.to_path_buf(),
         error,
     })?;
     let mut bytes = Vec::new();
-    file.take((MAX_DRAFT_BYTES + 1) as u64)
+    file.take((limit + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|error| PlanHandoffError::Read {
             path: path.to_path_buf(),
             error,
         })?;
-    BuildDraft::decode(&bytes).map_err(|error| PlanHandoffError::Decode {
-        path: path.to_path_buf(),
-        error,
-    })
+    Ok(bytes)
 }
 
 /// Reads a canonical plan payload without changing the durable handoff path.
@@ -324,8 +400,9 @@ mod tests {
             plan: BuildPlan::freeze(draft(false)).unwrap(),
             observations: b"first observation payload".to_vec(),
         };
-        publish_build_plan(&path, &first).unwrap();
-        assert_eq!(read_build_plan_draft(&path).unwrap(), first);
+        let debug = PlanConfiguration::default();
+        publish_build_plan(&path, &first, debug).unwrap();
+        assert_eq!(read_configured_plan(&path).unwrap(), (first, debug));
 
         let mut changed = draft(false);
         changed.selected_step = changed.default_step.clone();
@@ -333,8 +410,12 @@ mod tests {
             plan: BuildPlan::freeze(changed).unwrap(),
             observations: b"second observation payload".to_vec(),
         };
-        publish_build_plan(&path, &second).unwrap();
-        assert_eq!(read_build_plan_draft(&path).unwrap(), second);
+        let release = PlanConfiguration {
+            profile: BuildProfile::Release,
+            cpu: CpuLevel::Native,
+        };
+        publish_build_plan(&path, &second, release).unwrap();
+        assert_eq!(read_configured_plan(&path).unwrap(), (second, release));
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         fs::remove_dir_all(dir).unwrap();
     }
@@ -361,7 +442,7 @@ mod tests {
             observations: Vec::new(),
         };
         assert!(matches!(
-            publish_build_plan(&destination, &draft),
+            publish_build_plan(&destination, &draft, PlanConfiguration::default()),
             Err(PlanHandoffError::Publish { .. })
         ));
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);

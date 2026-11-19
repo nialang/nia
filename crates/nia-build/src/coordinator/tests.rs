@@ -1224,7 +1224,7 @@ fn plan_handoff_failures_preserve_stage_and_paths_in_reports() {
         plan: generated_plan(&invocation, "out", b"content"),
         observations: Vec::new(),
     };
-    let error = publish_build_plan(&path, &draft).unwrap_err();
+    let error = publish_build_plan(&path, &draft, crate::PlanConfiguration::default()).unwrap_err();
     assert!(matches!(&error, PlanHandoffError::Publish { .. }));
     assert_operational_report(
         &BuildError::PublishBuildPlan {

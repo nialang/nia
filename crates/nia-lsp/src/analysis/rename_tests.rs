@@ -135,7 +135,7 @@ fn build_hook_still_contributes_its_independent_context() {
         .expect("build candidate is indexed");
     assert!(build_entry.error.is_none());
     assert_eq!(
-        build_entry.request.target.map(|(_, _, runtime)| runtime),
+        build_entry.request.target.map(|context| context.runtime),
         Some(nia_build_plan::Runtime::Bare)
     );
 }
@@ -501,7 +501,15 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
     .unwrap();
     let output = directory.join("build/out");
     std::fs::create_dir_all(&output).unwrap();
-    publish_build_plan(&output.join("build-plan.bin"), &plan).unwrap();
+    publish_build_plan(
+        &output.join("build-plan.bin"),
+        &nia_build_plan::BuildDraft {
+            plan,
+            observations: Vec::new(),
+        },
+        nia_build_plan::PlanConfiguration::default(),
+    )
+    .unwrap();
 
     let mut session = test_session();
     let toolchain = Arc::clone(&session.toolchain);
@@ -541,15 +549,12 @@ fn configured_generated_modules_are_indexed_and_restrict_rename() {
         "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
     )
     .unwrap();
-    std::fs::write(
-        &path,
-        "using generated::amount as local;\nfun use_it() i32 { local() }\n",
-    )
-    .unwrap();
+    let source = "using generated::amount as local;\nfun use_it() i32 { local() }\n";
+    std::fs::write(&path, source).unwrap();
     let output = root.join("build/out");
     std::fs::create_dir_all(&output).unwrap();
     let generated = output.join("generated.nia");
-    let generated_text = "pub fun amount() i32 { 42 }\n";
+    let generated_text = "@[release]\npub fun amount() i32 { 42 }\n";
     std::fs::write(&generated, generated_text).unwrap();
     let package = PackageKey::root();
     let module = ModuleKey::new(package.clone(), "source").unwrap();
@@ -614,8 +619,26 @@ fn configured_generated_modules_are_indexed_and_restrict_rename() {
         selected_step: None,
     })
     .unwrap();
-    publish_build_plan(&output.join("build-plan.bin"), &plan).unwrap();
-    let analyzed = test_session().analyze(&Documents::new(), &path).unwrap();
+    let mut observations =
+        nia_build::ConfigureManifest::new(nia_build::ObservationPolicy::Disallow);
+    observations
+        .push(nia_build::observe_file_contents(&root, "nia.toml").unwrap())
+        .unwrap();
+    publish_build_plan(
+        &output.join("build-plan.bin"),
+        &nia_build_plan::BuildDraft {
+            plan,
+            observations: observations.encode().unwrap(),
+        },
+        nia_build_plan::PlanConfiguration {
+            profile: nia_target_config::BuildProfile::Release,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut session = test_session();
+    let documents = Documents::new();
+    let analyzed = session.analyze(&documents, &path).unwrap();
     assert_eq!(analyzed.first_error(), None);
     assert_eq!(
         analyzed
@@ -631,4 +654,16 @@ fn configured_generated_modules_are_indexed_and_restrict_rename() {
             .contains("outside the workspace")
     );
     assert_eq!(std::fs::read_to_string(&generated).unwrap(), generated_text);
+
+    let manifest = root.join("nia.toml");
+    let contents = std::fs::read_to_string(&manifest).unwrap();
+    std::fs::write(&manifest, format!("{contents}# configuration changed\n")).unwrap();
+    session.reload();
+    let analyzed = session.analyze(&documents, &path).unwrap();
+    assert!(analyzed.definition(&path, Position::new(1, 19)).is_none());
+    let diagnostics = analyzed.diagnostics(&path, &Document::new(1, source.into()));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic.message.contains("build plan is stale")
+            && diagnostic.message.contains("nia.toml")
+    }));
 }

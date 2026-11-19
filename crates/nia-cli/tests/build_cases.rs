@@ -444,6 +444,17 @@ pub fun main(init: process::Init) process::ExitCode!() {
             "{extra:?}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+        let (_, configuration) =
+            nia_build::read_configured_plan(&root.join("build/out/build-plan.bin")).unwrap();
+        assert_eq!(configuration.cpu, nia_target::CpuLevel::X86_64V2);
+        assert_eq!(
+            configuration.profile,
+            if extra == ["--release"] {
+                nia_target_config::BuildProfile::Release
+            } else {
+                nia_target_config::BuildProfile::Debug
+            }
+        );
     }
 }
 
@@ -550,7 +561,7 @@ pub fun build(b: &mut build::Build) build::Error!() {
     );
 
     let base_bytes = std::fs::read(root.join("build/out/build-plan.bin")).unwrap();
-    let base_plan = nia_build::BuildDraft::decode(&base_bytes).unwrap().plan;
+    let base_plan = nia_build::read_build_plan(&root.join("build/out/build-plan.bin")).unwrap();
     let run_action = base_plan
         .actions()
         .iter()

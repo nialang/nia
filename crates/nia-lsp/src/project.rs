@@ -7,9 +7,10 @@ use std::{
     sync::OnceLock,
 };
 
+use nia_build::compiler_inputs::CompilerContext;
 use nia_build::compiler_inputs::build_script_path;
 use nia_build::{ConfigureManifest, ObservationValidation};
-use nia_build_plan::{BuildPlan, PlanHandoffError, read_build_plan_draft};
+use nia_build_plan::{BuildPlan, PlanConfiguration, PlanHandoffError, read_configured_plan};
 use nia_driver::CheckRequest;
 use nia_imports::ModuleMap;
 use nia_package_metadata::{
@@ -17,7 +18,6 @@ use nia_package_metadata::{
     WorkspaceManifest,
 };
 use nia_source::{SourceIdentity, SourcePath};
-use nia_target::{CpuLevel, TargetConfig};
 use nia_target_config::CompilationMode;
 
 use crate::analysis::normalized;
@@ -40,7 +40,7 @@ pub(crate) struct WorkspaceRequests {
 #[derive(Clone)]
 pub(crate) struct EditorRequest {
     pub(crate) check: CheckRequest,
-    pub(crate) target: Option<(TargetConfig, CpuLevel, nia_build_plan::Runtime)>,
+    pub(crate) target: Option<CompilerContext>,
 }
 
 impl From<CheckRequest> for EditorRequest {
@@ -200,7 +200,7 @@ pub(crate) struct Package {
     layout: BuildLayout,
     manifest: PackageManifest,
     maps: HashMap<Context, ModuleMap>,
-    plan: Option<BuildPlan>,
+    plan: Option<(BuildPlan, PlanConfiguration)>,
     configuration: ConfigurationStatus,
     planned_requests: OnceLock<Result<Vec<EditorRequest>, String>>,
 }
@@ -269,11 +269,11 @@ impl Package {
         let layout = BuildLayout::for_package(root).map_err(error)?;
         let manifest = PackageManifest::read(layout.package_root()).map_err(error)?;
         let plan_path = layout.out_dir().join("build-plan.bin");
-        let (plan, configuration) = match read_build_plan_draft(&plan_path) {
-            Ok(draft) if draft.observations.is_empty() => {
-                (Some(draft.plan), ConfigurationStatus::Ready)
+        let (plan, configuration) = match read_configured_plan(&plan_path) {
+            Ok((draft, config)) if draft.observations.is_empty() => {
+                (Some((draft.plan, config)), ConfigurationStatus::Ready)
             }
-            Ok(draft) => match ConfigureManifest::decode(&draft.observations) {
+            Ok((draft, config)) => match ConfigureManifest::decode(&draft.observations) {
                 Err(error) => (
                     None,
                     ConfigurationStatus::Corrupt(format!(
@@ -282,7 +282,9 @@ impl Package {
                     )),
                 ),
                 Ok(observations) => match observations.validate_filesystem(layout.package_root()) {
-                    ObservationValidation::Match => (Some(draft.plan), ConfigurationStatus::Ready),
+                    ObservationValidation::Match => {
+                        (Some((draft.plan, config)), ConfigurationStatus::Ready)
+                    }
                     ObservationValidation::Changed { path, kind } => (
                         None,
                         ConfigurationStatus::Stale(format!(
@@ -387,17 +389,23 @@ impl Package {
         toolchain: &nia_toolchain::ToolchainLayout,
     ) -> Result<EditorRequest, String> {
         let target = *toolchain.host_target();
+        let profile = self
+            .plan
+            .as_ref()
+            .map_or_else(Default::default, |(_, config)| config.profile);
         let check = self
             .request(path, Context::Build)?
-            .with_profile(nia_target_config::BuildProfile::Debug)
+            .with_profile(profile)
             .with_optimization(nia_driver::NiaOptimizationLevel::O0);
         Ok(EditorRequest {
             check,
-            target: Some((
+            target: Some(CompilerContext {
                 target,
-                nia_target::CpuLevel::default(),
-                nia_build_plan::Runtime::Bare,
-            )),
+                cpu: nia_target::CpuLevel::default(),
+                runtime: nia_build_plan::Runtime::Bare,
+                profile,
+                mode: nia_build_plan::CompilationMode::Normal,
+            }),
         })
     }
 
