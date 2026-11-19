@@ -43,13 +43,10 @@ impl MemberCompletion {
         })
     }
 
-    pub(crate) fn probe(&self, source: &str) -> Option<String> {
-        if !self.replace.is_empty() {
-            return None;
-        }
+    pub(crate) fn probe(&self, source: &str) -> String {
         let mut text = source.to_owned();
-        text.insert_str(self.cursor, "__nia_lsp_member");
-        Some(text)
+        text.replace_range(self.replace.start..self.replace.end, "__nia_lsp_member");
+        text
     }
 
     pub(crate) fn candidates(

@@ -321,11 +321,9 @@ impl Session {
             fields
         } else {
             let mut overlay = documents.clone();
-            if fields.is_none()
-                && let Some(text) = member.probe(&file.text)
-            {
+            if fields.is_none() {
                 let document = &mut overlay.get_mut(path)?.document;
-                *document = Document::new(document.version, text);
+                *document = Document::new(document.version, member.probe(&file.text));
             }
             nia_timing::time_stage(
                 crate::timing_mode(),
@@ -2865,6 +2863,7 @@ mod tests {
                 "    /// Reads the counter plus an offset.\n",
                 "    pub fun read(&self, extra: i32) i32 { self.value + extra }\n",
                 "    pub fun reset(&mut self) { self.value = 0; }\n",
+                "    pub fun isEmpty(&self) bool { self.value == 0 }\n",
                 "    pub fun create() i32 { 0 }\n",
                 "    fun hidden(&self) i32 { self.value }\n",
                 "}\n",
@@ -2881,6 +2880,7 @@ mod tests {
                 "",
                 0,
                 &[
+                    ("isEmpty", CompletionItemKind::METHOD),
                     ("read", CompletionItemKind::METHOD),
                     ("score", CompletionItemKind::METHOD),
                     ("value", CompletionItemKind::FIELD),
@@ -2894,6 +2894,12 @@ mod tests {
                     ("read", CompletionItemKind::METHOD),
                     ("reset", CompletionItemKind::METHOD),
                 ][..],
+            ),
+            (
+                "fun inspect(value: &counters::Counter) { _ = value.",
+                "is",
+                2,
+                &[("isEmpty", CompletionItemKind::METHOD)][..],
             ),
             (
                 "fun inspect[T](value: T) where T: counters::Scored { _ = value.",
