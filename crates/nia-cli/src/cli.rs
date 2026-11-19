@@ -27,6 +27,7 @@ pub(crate) enum HelpTopic {
     Build,
     Update,
     Clean,
+    Format,
     Check,
     Emit,
     EmitKind(EmitKind),
@@ -42,6 +43,7 @@ impl HelpTopic {
             Self::Build => Scope::BUILD,
             Self::Update => Scope::UPDATE,
             Self::Clean => Scope::CLEAN,
+            Self::Format => Scope::FORMAT,
             Self::Check => Scope::CHECK,
             Self::Emit => Scope::EMIT_ANY,
             Self::EmitKind(kind) => kind.scope(),
@@ -130,6 +132,9 @@ pub(crate) enum CliCommand {
     },
     Clean {
         root: Option<PathBuf>,
+    },
+    Format {
+        path: String,
     },
     Check {
         path: String,
@@ -275,6 +280,7 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
         "build" => HelpTopic::Build,
         "update" => HelpTopic::Update,
         "clean" => HelpTopic::Clean,
+        "fmt" => HelpTopic::Format,
         "check" => HelpTopic::Check,
         "emit" => HelpTopic::Emit,
         _ => {
@@ -301,6 +307,9 @@ pub(crate) fn parse_cli(args: Vec<String>) -> CliResult<CliAction> {
         HelpTopic::Build => parse_build(&scanned)?,
         HelpTopic::Update => parse_update(&scanned),
         HelpTopic::Clean => parse_clean(&scanned)?,
+        HelpTopic::Format => CliCommand::Format {
+            path: single_path(&scanned, topic)?,
+        },
         HelpTopic::Check => parse_check(&scanned)?,
         HelpTopic::Emit => {
             if rest.is_empty() {
@@ -377,6 +386,7 @@ fn topic_name(topic: HelpTopic) -> String {
         HelpTopic::Build => "`nia build`".to_string(),
         HelpTopic::Update => "`nia update`".to_string(),
         HelpTopic::Clean => "`nia clean`".to_string(),
+        HelpTopic::Format => "`nia fmt`".to_string(),
         HelpTopic::Check => "`nia check`".to_string(),
         HelpTopic::Emit => "`nia emit`".to_string(),
         HelpTopic::EmitKind(kind) => format!("`nia emit {}`", kind.flag()),
@@ -455,6 +465,7 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
         ["add"] => Ok(HelpTopic::Add),
         ["update"] => Ok(HelpTopic::Update),
         ["clean"] => Ok(HelpTopic::Clean),
+        ["fmt"] => Ok(HelpTopic::Format),
         ["check"] => Ok(HelpTopic::Check),
         ["emit"] => Ok(HelpTopic::Emit),
         ["emit", target] => match EmitKind::from_flag(target) {
@@ -474,7 +485,7 @@ fn help_topic(args: &[String]) -> CliResult<HelpTopic> {
             },
         },
         [
-            command @ ("build" | "check" | "clean" | "new" | "init" | "add"),
+            command @ ("build" | "check" | "clean" | "fmt" | "new" | "init" | "add"),
             extra,
             ..,
         ] => {

@@ -61,6 +61,7 @@ def smoke(server, root):
                 },
             })["capabilities"]
             assert capabilities["positionEncoding"] == "utf-16"
+            assert capabilities["documentFormattingProvider"]
             assert capabilities["workspaceSymbolProvider"] and capabilities["typeDefinitionProvider"]
             assert set(capabilities["workspace"]["fileOperations"]) == {"willRename", "didRename"}
             assert capabilities["codeActionProvider"]["codeActionKinds"] == ["quickfix"]
@@ -84,6 +85,12 @@ def smoke(server, root):
             })
             assert request(client, "textDocument/semanticTokens/full", params)["data"]
             assert request(client, "textDocument/foldingRange", params)
+            formatting = dict(**params, options={"tabSize": 2, "insertSpaces": True})
+            assert request(client, "textDocument/formatting", formatting) == [
+                {"range": {"start": {"line": line, "character": 0},
+                           "end": {"line": line, "character": 4}}, "newText": "  "}
+                for line in (3, 4)
+            ]
             shape = dict(**params, position=position(source, "shape.width"))
             target = request(client, "textDocument/typeDefinition", shape)
             assert target["uri"] == shapes.as_uri(), target

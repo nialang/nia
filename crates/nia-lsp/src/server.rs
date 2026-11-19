@@ -30,6 +30,7 @@ const SEMANTIC_FULL: &str = "textDocument/semanticTokens/full";
 const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
 const COMPLETION: &str = "textDocument/completion";
 const CODE_ACTION: &str = "textDocument/codeAction";
+const FORMATTING: &str = "textDocument/formatting";
 const RENAME: &str = "textDocument/rename";
 const PREPARE_RENAME: &str = "textDocument/prepareRename";
 const REFERENCES: &str = "textDocument/references";
@@ -114,6 +115,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "documentSymbolProvider": true,
                 "workspaceSymbolProvider": true,
                 "foldingRangeProvider": true,
+                "documentFormattingProvider": true,
                 "codeActionProvider": if code_actions { json!({ "codeActionKinds": ["quickfix"] }) } else { json!(false) },
                 "semanticTokensProvider": { "legend": highlight::legend(), "full": true },
                 "completionProvider": { "triggerCharacters": [":", "."] },
@@ -652,6 +654,7 @@ impl Server {
                 | "textDocument/hover"
                 | COMPLETION
                 | CODE_ACTION
+                | FORMATTING
                 | "textDocument/signatureHelp"
                 | "textDocument/documentSymbol"
                 | "textDocument/foldingRange"
@@ -694,6 +697,23 @@ impl Server {
             } else {
                 self.pending.push_back((path, self.revision, request));
             }
+            return Ok(());
+        }
+        if request.method == FORMATTING {
+            let response = match decode::<lsp_types::DocumentFormattingParams>(request.params) {
+                Ok(params) => match open.document.format(params.options) {
+                    Ok(edits) => Response::new_ok(request.id, edits),
+                    Err(error) => {
+                        Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
+                    }
+                },
+                Err(error) => Response::new_err(
+                    request.id,
+                    ErrorCode::InvalidParams as i32,
+                    error.to_string(),
+                ),
+            };
+            connection.sender.send(response.into())?;
             return Ok(());
         }
         let value = match request.method.as_str() {

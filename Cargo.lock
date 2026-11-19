@@ -1030,6 +1030,7 @@ dependencies = [
  "nia-loader-query",
  "nia-package-metadata",
  "nia-source",
+ "nia-syntax",
  "nia-target",
  "nia-target-config",
  "nia-test-support",

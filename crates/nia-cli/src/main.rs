@@ -284,6 +284,9 @@ fn run_cli(cli: Cli) -> ExitCode {
     if let CliCommand::Clean { root } = &cli.command {
         return run_clean(root.clone(), diagnostics_format);
     }
+    if let CliCommand::Format { path } = &cli.command {
+        return run_format(path, diagnostics_format);
+    }
     let toolchain = match resolve_toolchain_layout(cli.resource_root.clone(), cli.target) {
         Ok(toolchain) => toolchain,
         Err(message) => {
@@ -339,6 +342,9 @@ fn run_cli(cli: Cli) -> ExitCode {
         }
         CliCommand::Update { root, names } => run_update(root, &names, diagnostics_format),
         CliCommand::Clean { .. } => unreachable!("clean is handled before toolchain resolution"),
+        CliCommand::Format { .. } => {
+            unreachable!("formatting is handled before toolchain resolution")
+        }
         CliCommand::Check {
             path,
             opt_report,
@@ -392,6 +398,39 @@ fn run_clean(root: Option<PathBuf>, format: DiagnosticsFormat) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn run_format(path: &str, format: DiagnosticsFormat) -> ExitCode {
+    let source = match nia_source::read_source_text(path) {
+        Ok(source) => source,
+        Err(error) => {
+            report_boundary_error(
+                nia_diagnostic::codes::LOAD,
+                &format!("Cannot read `{path}` ({error})"),
+                format,
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+    let diagnostic = match nia_syntax::format_source(&source, nia_syntax::Indentation::default()) {
+        Ok(formatted) => return write_stdout(format_args!("{}", formatted.text)),
+        Err(nia_syntax::FormatError::Syntax(error)) => error.to_diagnostic(),
+        Err(nia_syntax::FormatError::InvalidTree) => nia_diagnostic::Diagnostic::internal_error(
+            nia_diagnostic::codes::ICE,
+            "Formatting could not preserve the source syntax tree",
+        )
+        .finish(),
+    };
+    let rendered = match format {
+        DiagnosticsFormat::Text => nia_diagnostic::render_diagnostic(path, &source, &diagnostic),
+        DiagnosticsFormat::Json => nia_diagnostic::render_diagnostics_json_at(
+            path,
+            &[diagnostic],
+            nia_diagnostic::DiagnosticReportConfig::default(),
+        ),
+    };
+    write_diagnostic_report(&rendered, format);
+    ExitCode::FAILURE
 }
 
 /// Compiler settings shared by every command.

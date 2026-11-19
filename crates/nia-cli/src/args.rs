@@ -52,6 +52,7 @@ impl Scope {
     pub(crate) const NEW: Self = Self(1 << 11);
     pub(crate) const INIT: Self = Self(1 << 12);
     pub(crate) const ADD: Self = Self(1 << 13);
+    pub(crate) const FORMAT: Self = Self(1 << 14);
     /// Every emit kind, used before the kind is known.
     pub(crate) const EMIT_ANY: Self = Self::EMIT_INSPECT
         .or(Self::EMIT_CHECKED)

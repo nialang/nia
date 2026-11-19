@@ -31,6 +31,7 @@
 //! `Buffer[COUNT]` inside a call's bracket argument, and clean and incremental
 //! lowering agree on those readings.
 
+mod format;
 mod grammar;
 mod kind;
 mod reparse;
@@ -39,6 +40,7 @@ mod tree;
 #[cfg(test)]
 mod tests;
 
+pub use format::{FormatError, FormattedSource, Indentation, format_source};
 pub use kind::SyntaxKind;
 pub use tree::{
     GreenBuildError, GreenElement, GreenEvent, GreenNode, GreenToken, SyntaxNode, SyntaxToken,

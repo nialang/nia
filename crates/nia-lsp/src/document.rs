@@ -54,6 +54,39 @@ impl Document {
             .as_ref()
     }
 
+    pub(crate) fn format(
+        &self,
+        options: lsp_types::FormattingOptions,
+    ) -> Result<Option<Vec<lsp_types::TextEdit>>, String> {
+        let indentation = if options.insert_spaces {
+            let width = u8::try_from(options.tab_size)
+                .ok()
+                .and_then(std::num::NonZeroU8::new)
+                .ok_or("Format indentation must use a tab width from 1 to 255")?;
+            nia_syntax::Indentation::Spaces(width)
+        } else {
+            nia_syntax::Indentation::Tabs
+        };
+        match nia_syntax::format_source(&self.text, indentation) {
+            Ok(formatted) => Ok(Some(
+                formatted
+                    .edits
+                    .into_iter()
+                    .map(|edit| {
+                        lsp_types::TextEdit::new(
+                            self.lines.range(&self.text, edit.span),
+                            edit.replacement,
+                        )
+                    })
+                    .collect(),
+            )),
+            Err(nia_syntax::FormatError::Syntax(_)) => Ok(None),
+            Err(nia_syntax::FormatError::InvalidTree) => {
+                Err("Formatting could not preserve the source syntax tree".into())
+            }
+        }
+    }
+
     pub(crate) fn changed(
         &self,
         version: i32,
