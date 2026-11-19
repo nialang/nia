@@ -64,7 +64,9 @@ def smoke(server, root):
             assert capabilities["documentFormattingProvider"]
             assert capabilities["workspaceSymbolProvider"] and capabilities["typeDefinitionProvider"]
             assert set(capabilities["workspace"]["fileOperations"]) == {"willRename", "didRename"}
-            assert capabilities["codeActionProvider"]["codeActionKinds"] == ["quickfix"]
+            assert set(capabilities["codeActionProvider"]["codeActionKinds"]) == {
+                "quickfix", "source.organizeImports",
+            }
             client.notify("initialized", {})
 
             canceled = client.request("workspace/symbol", {"query": "fixture::shapes::Shape"})
@@ -208,6 +210,32 @@ def smoke(server, root):
                 "contentChanges": [{"range": insertion["range"], "text": insertion["newText"]}],
             })
             client.wait_diagnostics(main.as_uri(), 6, lambda items: not items)
+
+            unordered = updated.replace(
+                "using std::process;",
+                "using std::process;\nusing root::shapes as geo;",
+            ).replace("shapes::Shape", "geo::Shape")
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=7),
+                "contentChanges": [{"text": unordered}],
+            })
+            client.wait_diagnostics(main.as_uri(), 7, lambda items: not items)
+            actions = request(client, "textDocument/codeAction", dict(
+                **params, range={"start": {"line": 0, "character": 0},
+                                 "end": {"line": 0, "character": 0}},
+                context={"diagnostics": [], "only": ["source.organizeImports"]},
+            ))
+            action, = actions
+            assert action["kind"] == "source.organizeImports", actions
+            change, = action["edit"]["documentChanges"]
+            assert change["textDocument"] == dict(**document, version=7), change
+            reorder, = change["edits"]
+            assert reorder["newText"] == "using root::shapes as geo;\nusing std::process;", reorder
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=8),
+                "contentChanges": [{"range": reorder["range"], "text": reorder["newText"]}],
+            })
+            client.wait_diagnostics(main.as_uri(), 8, lambda items: not items)
 
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)

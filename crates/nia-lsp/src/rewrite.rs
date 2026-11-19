@@ -2,7 +2,7 @@
 //! Source positions and diagnostics after a proposed workspace edit.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -11,8 +11,39 @@ use nia_diagnostic::{Diagnostic, DiagnosticCategory, SpanSource};
 use nia_span::Span;
 
 use crate::analysis::normalized;
+use crate::workspace::{Binding, Bindings, Cancellation, Site};
 
 pub(crate) type Edits = BTreeMap<String, BTreeMap<Span, String>>;
+
+pub(crate) fn preserves_bindings(
+    before: Bindings,
+    after: &Bindings,
+    map_span: impl Fn(&str, Span) -> Span,
+    cancel: &Cancellation,
+) -> bool {
+    let shift = |mut site: Site| {
+        site.span = map_span(&site.source, site.span);
+        site
+    };
+    before.into_iter().all(|(source, entries)| {
+        cancel.check().is_ok()
+            && entries.into_iter().all(|(span, candidates)| {
+                let expected: BTreeSet<_> = candidates
+                    .into_iter()
+                    .filter(|binding| binding.declaration.is_some() || binding.alias.is_some())
+                    .map(|binding| Binding {
+                        declaration: binding.declaration.map(&shift),
+                        alias: binding.alias.map(&shift),
+                    })
+                    .collect();
+                expected.is_empty()
+                    || after
+                        .get(&source)
+                        .and_then(|entries| entries.get(&map_span(&source, span)))
+                        .is_some_and(|actual| *actual == expected)
+            })
+    })
+}
 
 pub(crate) fn relocated(source: &str, moves: &[(PathBuf, PathBuf)]) -> Option<PathBuf> {
     moves.iter().find_map(|(old, new)| {

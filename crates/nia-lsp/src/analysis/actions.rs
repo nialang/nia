@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Projects source-owned compiler suggestions onto the current editor snapshot.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::Path,
-};
+use std::{collections::BTreeMap, path::Path};
 
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionParams, CodeActionTriggerKind, OneOf,
@@ -16,8 +13,8 @@ use nia_span::Span;
 
 use super::{Analysis, Documents, File, OpenDocument, Session, editor_diagnostic, normalized};
 use crate::document::{Document, text_workspace_edit};
-use crate::rewrite::{EditOffsets, Edits};
-use crate::workspace::{Binding, Bindings, Cancellation, Site, bindings, symbol_site};
+use crate::rewrite::{EditOffsets, Edits, preserves_bindings};
+use crate::workspace::{Bindings, Cancellation, Site, bindings, symbol_site};
 
 impl Session {
     pub(crate) fn code_actions(
@@ -31,6 +28,13 @@ impl Session {
     ) -> Vec<CodeAction> {
         let open = &documents[path];
         let mut actions = analysis.code_actions(path, open, params, versioned);
+        if params.context.only.as_ref().is_some_and(|kinds| {
+            kinds.iter().any(|kind| {
+                *kind == CodeActionKind::SOURCE_ORGANIZE_IMPORTS || *kind == CodeActionKind::SOURCE
+            })
+        }) {
+            actions.extend(self.organize_imports(analysis, documents, path, versioned, cancel));
+        }
         if !requests_quick_fixes(params)
             || params.context.trigger_kind == Some(CodeActionTriggerKind::AUTOMATIC)
         {
@@ -301,24 +305,12 @@ fn verified_import(
     {
         return false;
     }
-    previous.into_iter().all(|(source, entries)| {
-        cancel.check().is_ok()
-            && entries.into_iter().all(|(span, candidates)| {
-                let expected: BTreeSet<_> = candidates
-                    .iter()
-                    .filter(|binding| binding.declaration.is_some() || binding.alias.is_some())
-                    .map(|binding| Binding {
-                        declaration: binding.declaration.as_ref().map(&shift),
-                        alias: binding.alias.as_ref().map(&shift),
-                    })
-                    .collect();
-                expected.is_empty()
-                    || current
-                        .get(&source)
-                        .and_then(|entries| entries.get(&offsets.binding_span(&source, span)))
-                        .is_some_and(|actual| *actual == expected)
-            })
-    })
+    preserves_bindings(
+        previous,
+        &current,
+        |source, span| offsets.binding_span(source, span),
+        cancel,
+    )
 }
 
 fn matches_import_target(

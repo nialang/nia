@@ -116,7 +116,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "workspaceSymbolProvider": true,
                 "foldingRangeProvider": true,
                 "documentFormattingProvider": true,
-                "codeActionProvider": if code_actions { json!({ "codeActionKinds": ["quickfix"] }) } else { json!(false) },
+                "codeActionProvider": if code_actions { json!({ "codeActionKinds": ["quickfix", "source.organizeImports"] }) } else { json!(false) },
                 "semanticTokensProvider": { "legend": highlight::legend(), "full": true },
                 "completionProvider": { "triggerCharacters": [":", "."] },
                 "signatureHelpProvider": { "triggerCharacters": ["(", ","], "retriggerCharacters": [","] }

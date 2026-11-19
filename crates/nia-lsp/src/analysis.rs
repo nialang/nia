@@ -36,6 +36,7 @@ use crate::workspace::Cancellation;
 mod actions;
 mod imports;
 mod namespaces;
+mod organize;
 #[cfg(test)]
 mod rename_tests;
 use imports::ImportOccurrences;
