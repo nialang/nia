@@ -113,7 +113,8 @@ pub(crate) struct WorkspaceIndex {
     managed: BTreeSet<PathBuf>,
     toolchain_sources: PathBuf,
     pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
-    symbols: BTreeMap<(String, Span), WorkspaceDeclaration>,
+    package_names: BTreeMap<PathBuf, String>,
+    symbols: OnceLock<WorkspaceSymbols>,
     implementations: BTreeMap<Site, BTreeSet<Site>>,
     pub(crate) module_declarations: BTreeMap<String, BTreeSet<Site>>,
     calls: OnceLock<CallIndex>,
@@ -124,8 +125,9 @@ pub(crate) struct WorkspaceSnapshot {
     folders: Vec<PathBuf>,
     anchor: Option<String>,
     overlays: BTreeMap<String, Arc<str>>,
-    package_names: BTreeMap<PathBuf, String>,
 }
+
+type WorkspaceSymbols = BTreeMap<Site, WorkspaceDeclaration>;
 
 #[derive(Clone)]
 struct WorkspaceDeclaration {
@@ -276,7 +278,7 @@ impl Session {
             && previous.index.editable == workspace.editable
             && previous.index.managed == workspace.managed
             && previous.index.unavailable_plans == workspace.unavailable_plans
-            && previous.package_names == workspace.package_names
+            && previous.index.package_names == workspace.package_names
             && previous.index.entries.len() == entries.len()
             && previous
                 .index
@@ -297,13 +299,14 @@ impl Session {
                 managed: workspace.managed,
                 toolchain_sources: PathBuf::from(normalized(self.toolchain.resource_root())),
                 unavailable_plans: workspace.unavailable_plans,
-                symbols: BTreeMap::new(),
+                package_names: workspace.package_names,
+                symbols: OnceLock::new(),
                 implementations: BTreeMap::new(),
                 module_declarations: BTreeMap::new(),
                 calls: OnceLock::new(),
             };
             for entry in &entries {
-                index.merge(entry, &workspace.package_names, cancel)?;
+                index.merge(entry, cancel)?;
             }
             index.entries = entries;
             Arc::new(index)
@@ -314,7 +317,6 @@ impl Session {
             folders: folders.to_vec(),
             anchor,
             overlays,
-            package_names: workspace.package_names,
         });
         self.changed_disk_sources.clear();
         Ok(index)
@@ -626,12 +628,7 @@ impl WorkspaceIndex {
         Ok(results)
     }
 
-    fn merge(
-        &mut self,
-        entry: &Entry,
-        package_names: &BTreeMap<PathBuf, String>,
-        cancel: &Cancellation,
-    ) -> Result<(), String> {
+    fn merge(&mut self, entry: &Entry, cancel: &Cancellation) -> Result<(), String> {
         for (source, file) in &entry.files {
             cancel.check()?;
             match self.files.entry(source.clone()) {
@@ -659,17 +656,31 @@ impl WorkspaceIndex {
                 .or_default()
                 .insert(site.clone());
         }
-        for (site, symbol) in &entry.symbols {
+        Ok(())
+    }
+
+    fn symbol_index(&self, cancel: &Cancellation) -> Result<&WorkspaceSymbols, String> {
+        if let Some(symbols) = self.symbols.get() {
+            return Ok(symbols);
+        }
+        let mut packages = HashMap::new();
+        for source in self.files.keys() {
             cancel.check()?;
-            let source = Path::new(site.source.as_ref());
-            if !self.editable_source(source) {
-                continue;
-            }
-            let key = (site.source.to_string(), site.span);
-            self.symbols.entry(key).or_insert_with(|| {
-                let package = source
+            let path = Path::new(source);
+            if self.editable_source(path) {
+                let package = path
                     .ancestors()
-                    .find_map(|directory| package_names.get(directory));
+                    .find_map(|directory| self.package_names.get(directory));
+                packages.insert(source.as_str(), package);
+            }
+        }
+        let mut symbols = WorkspaceSymbols::new();
+        for (site, symbol) in self.entries.iter().flat_map(|entry| &entry.symbols) {
+            cancel.check()?;
+            let Some(&package) = packages.get(site.source.as_ref()) else {
+                continue;
+            };
+            symbols.entry(site.clone()).or_insert_with(|| {
                 let mut symbol = symbol.clone();
                 if let Some(package) = package {
                     symbol.container = if symbol.container.is_empty() {
@@ -681,7 +692,11 @@ impl WorkspaceIndex {
                 symbol
             });
         }
-        Ok(())
+        cancel.check()?;
+        if crate::timing_mode().enabled() {
+            nia_timing::emit_counter("lsp.workspace_symbol_indexes_built", 1);
+        }
+        Ok(self.symbols.get_or_init(|| symbols))
     }
 
     pub(crate) fn implementations(
@@ -729,7 +744,7 @@ impl WorkspaceIndex {
     ) -> Result<Vec<SymbolInformation>, String> {
         let query = query.trim().to_lowercase();
         let mut matches = Vec::new();
-        for ((source, span), declaration) in &self.symbols {
+        for (site, declaration) in self.symbol_index(cancel)? {
             cancel.check()?;
             let name = declaration.name.to_lowercase();
             let candidate = if query.contains("::") {
@@ -740,15 +755,23 @@ impl WorkspaceIndex {
             let Some(offset) = candidate.find(&query) else {
                 continue;
             };
-            matches.push((candidate != query, offset, &declaration.name, source, span));
+            matches.push((
+                candidate != query,
+                offset,
+                &declaration.name,
+                site,
+                declaration,
+            ));
         }
-        matches.sort_unstable();
+        matches.sort_unstable_by_key(|&(mismatch, offset, name, site, _)| {
+            (mismatch, offset, name, site)
+        });
         let mut lines = HashMap::new();
         matches
             .into_iter()
-            .map(|(_, _, _, source, span)| {
+            .map(|(_, _, _, site, declaration)| {
                 cancel.check()?;
-                let declaration = &self.symbols[&(source.clone(), *span)];
+                let source = site.source.as_ref();
                 let (uri, text) = &self.files[source];
                 let lines = lines.entry(source).or_insert_with(|| Lines::new(text));
                 Ok(SymbolInformation {
@@ -756,7 +779,7 @@ impl WorkspaceIndex {
                     kind: declaration.kind,
                     tags: None,
                     deprecated: None,
-                    location: Location::new(uri.clone(), lines.range(text, *span)),
+                    location: Location::new(uri.clone(), lines.range(text, site.span)),
                     container_name: (!declaration.container.is_empty())
                         .then(|| declaration.container.clone()),
                 })
