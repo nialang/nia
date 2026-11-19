@@ -1211,18 +1211,36 @@ fn configure_timing_distinguishes_runner_execution_from_plan_reuse() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/build/runner-only");
     let workspace = nia_test_support::test_dir("configure-timing");
     copy_case_tree(&fixture, &workspace);
-    for cold in [true, false] {
+    let script = workspace.join("build.nia");
+    let source = std::fs::read_to_string(&script).unwrap();
+    std::fs::write(
+        script,
+        source.replace(
+            "    b.setDefaultStep(all).?;",
+            "    _ = b.addAggregateStep(&\"verify\").?;\n    b.setDefaultStep(all).?;",
+        ),
+    )
+    .unwrap();
+    for (step, cold) in [
+        ("all", true),
+        ("verify", true),
+        ("all", false),
+        ("verify", false),
+    ] {
         let output = support::nia_command()
-            .args([
-                "build",
-                "--timings=detail",
-                "--timings-format=json",
-                "--root",
-            ])
+            .arg("build")
+            .arg(step)
+            .args(["--timings=detail", "--timings-format=json", "--root"])
             .arg(&workspace)
             .output_timeout_in_session("measure configure timing");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(output.status.success(), "{stderr}");
+        let plan = nia_build::read_build_plan(&workspace.join("build/out/build-plan.bin"))
+            .expect("read published plan");
+        assert_eq!(
+            plan.selected_step().map(nia_build::StepKey::name),
+            Some(step)
+        );
         let reports = stderr
             .lines()
             .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
