@@ -316,8 +316,18 @@ impl Driver {
         recover_declarations: bool,
         cancel: Option<&nia_query::CancellationToken>,
     ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
-        let loader = self.loader_database(request, recover_declarations)?;
-        loader.prepare_compilation(cancel)?;
+        let loader = nia_timing::time_stage(
+            request.timings,
+            nia_timing::TimingLevel::Summary,
+            "driver.loader_session",
+            || self.loader_database(request, recover_declarations),
+        )?;
+        nia_timing::time_stage(
+            request.timings,
+            nia_timing::TimingLevel::Summary,
+            "driver.prepare_module_graph",
+            || loader.prepare_compilation(cancel),
+        )?;
         let query_session = loader.query_session();
         let frontend_cache = self
             .config

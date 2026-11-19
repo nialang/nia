@@ -35,20 +35,19 @@ impl CompilerDatabase {
             ));
         }
         let new_graph = request.loader_facts.module_graph()?;
-        let graph_changed = {
+        let (graph_changed, handle_generation_changed) = {
             let observed = self.db.context().observed_graph.lock();
-            *observed != new_graph
-        };
-        let handle_generation_changed = {
-            let observed = self.db.context().observed_graph.lock();
-            observed.modules().any(|old| {
-                let Some(key) = observed.stable_key(old.id) else {
-                    return false;
-                };
-                new_graph
-                    .module_id_for_stable_key(key)
-                    .is_none_or(|new| new != old.id)
-            })
+            let changed = !observed.ptr_eq(&new_graph) && *observed != new_graph;
+            let handles_changed = changed
+                && observed.modules().any(|old| {
+                    let Some(key) = observed.stable_key(old.id) else {
+                        return false;
+                    };
+                    new_graph
+                        .module_id_for_stable_key(key)
+                        .is_none_or(|new| new != old.id)
+                });
+            (changed, handles_changed)
         };
         let new_inputs = CompilerInputs::new(request);
         let (optimization_changed, root_scope_changed, current_package_changed) = {
@@ -63,15 +62,14 @@ impl CompilerDatabase {
                 current_package_changed,
             )
         };
-        let mut invalidation = CompilerInvalidation::default();
+        let mut invalidated = Vec::new();
         if graph_changed {
             // The executable fact epoch contains session-local module handles;
             // a graph replacement makes that value and every dependent red.
-            invalidation.extend(self.db.invalidate(ExecutableFactEpochQuery)?);
+            invalidated.extend(self.db.invalidate(ExecutableFactEpochQuery)?.invalidated);
             if handle_generation_changed {
                 self.db
-                    .session()
-                    .invalidate_scope(|frame| frame.name == "loaded_modules")?;
+                    .retire_scope(|frame| frame.name == "loaded_modules")?;
             }
             let loaded_modules = StableModuleSequence::from_source_identities(
                 self.db
@@ -79,50 +77,52 @@ impl CompilerDatabase {
                     .loader_facts()
                     .loaded_module_source_identities()?,
             );
-            invalidation.extend(
+            invalidated.extend(
                 self.db
-                    .validate_input(LoadedModulesQuery, &loaded_modules)?,
+                    .validate_input(LoadedModulesQuery, &loaded_modules)?
+                    .invalidated,
             );
             if handle_generation_changed {
                 *self.db.context().executable_fact_session.lock() =
                     ExecutableFactSession::default();
             }
         }
-        let inputs_invalidation = self.invalidate_inputs(
+        self.invalidate_inputs(
+            &mut invalidated,
             optimization_changed,
             root_scope_changed,
             current_package_changed,
         )?;
-        invalidation
-            .invalidated
-            .extend(inputs_invalidation.invalidated);
         if graph_changed {
             *self.db.context().observed_graph.lock() = new_graph;
         }
-        Ok(invalidation)
+        let mut seen = HashSet::with_capacity(invalidated.len());
+        invalidated.retain(|frame| seen.insert(frame.clone()));
+        Ok(CompilerInvalidation { invalidated })
     }
     fn invalidate_inputs(
         &self,
+        invalidated: &mut Vec<QueryFrame>,
         optimization_changed: bool,
         root_scope_changed: bool,
         current_package_changed: bool,
-    ) -> QueryResult<CompilerInvalidation> {
-        let mut invalidation = CompilerInvalidation::default();
+    ) -> QueryResult<()> {
         let provider_worklist = self.db.context().provider_fact_worklist()?;
-        invalidation.extend(
+        invalidated.extend(
             self.db
-                .validate_input(ProviderFactWorklistQuery, &provider_worklist)?,
+                .validate_input(ProviderFactWorklistQuery, &provider_worklist)?
+                .invalidated,
         );
         if optimization_changed {
-            invalidation.extend(self.db.invalidate(CompilerOptimizationQuery)?);
+            invalidated.extend(self.db.invalidate(CompilerOptimizationQuery)?.invalidated);
         }
         if root_scope_changed {
-            invalidation.extend(self.db.invalidate(CompilerRootScopeQuery)?);
+            invalidated.extend(self.db.invalidate(CompilerRootScopeQuery)?.invalidated);
         }
         if current_package_changed {
-            invalidation.extend(self.db.invalidate(MonomorphizationQuery)?);
-            invalidation.extend(self.db.invalidate(BackendLoweringInputsQuery)?);
+            invalidated.extend(self.db.invalidate(MonomorphizationQuery)?.invalidated);
+            invalidated.extend(self.db.invalidate(BackendLoweringInputsQuery)?.invalidated);
         }
-        Ok(invalidation)
+        Ok(())
     }
 }

@@ -130,9 +130,8 @@ fn scope_retirement_removes_typed_cache_entries_and_dependency_edges() {
         .expect("cached child slot")
         .node_id;
 
-    db.session()
-        .invalidate_scope(|frame| frame.name == "double_twice")
-        .expect("invalidate query scope");
+    db.retire_scope(|frame| frame.name == "double_twice")
+        .expect("retire query scope");
 
     let trace = db.query_trace().expect("query trace");
     assert_eq!(trace.queries.len(), 1);

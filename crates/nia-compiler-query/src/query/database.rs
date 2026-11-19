@@ -24,16 +24,6 @@ pub struct CompilerInvalidation {
     pub invalidated: Vec<QueryFrame>,
 }
 
-impl CompilerInvalidation {
-    pub(super) fn extend(&mut self, invalidation: nia_query::QueryInvalidation) {
-        for frame in invalidation.invalidated {
-            if !self.invalidated.contains(&frame) {
-                self.invalidated.push(frame);
-            }
-        }
-    }
-}
-
 pub(super) fn compiler_database_with_providers(
     request: CompileRequest,
     providers: CompilerQueryProviders,

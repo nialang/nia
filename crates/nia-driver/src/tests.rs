@@ -26,6 +26,45 @@ mod value_inference_matrix;
 mod visibility_matrix;
 
 #[test]
+fn editor_graph_handle_replacement_preserves_the_prepared_loader_snapshot() {
+    let root = common::temp_dir("editor_graph_handle_replacement");
+    let main = root.join("main.nia");
+    common::write(&main, "fun main() i32 { 0 }\n");
+    common::write(&root.join("added.nia"), "pub fun value() i32 { 1 }\n");
+    let driver = common::test_driver();
+    let path = main.to_string_lossy().into_owned();
+    let request = crate::CheckRequest::new(path.clone());
+    let initial = driver
+        .inspect_for_editor(request.clone(), None, |_, loader| loader.module_graph())
+        .expect("load initial graph");
+    driver
+        .set_source(path, "module added;\nfun main() i32 { added::value() }\n")
+        .expect("edit module declaration");
+
+    let (session, graph, trace) = driver
+        .inspect_for_editor(request.clone(), None, |db, loader| {
+            let graph = loader.module_graph()?;
+            assert_eq!(graph.modules().count(), 2);
+            Ok((db.query_session(), graph, loader.query_trace()?))
+        })
+        .expect("load graph after edit");
+    assert_ne!(initial.entry(), graph.entry());
+    assert!(
+        trace
+            .queries
+            .iter()
+            .any(|query| { query.frame.name == "module_graph" && query.stats.executions == 2 })
+    );
+    driver
+        .inspect_for_editor(request, None, |db, loader| {
+            assert!(session.ptr_eq(&db.query_session()));
+            assert!(graph.ptr_eq(&loader.module_graph()?));
+            Ok(())
+        })
+        .expect("reuse prepared graph");
+}
+
+#[test]
 fn source_manifest_checks_keep_the_requested_root_scope() {
     let root = common::temp_dir("source_manifest_root_scope");
     let path = root.join("main.nia");

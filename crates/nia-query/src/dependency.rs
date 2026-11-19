@@ -107,8 +107,11 @@ impl QueryDependencyGraph {
     }
 
     pub(super) fn collect_dependents(&self, root: QueryNodeId) -> Vec<QueryNodeId> {
+        self.collect_dependents_from(vec![root])
+    }
+
+    pub(super) fn collect_dependents_from(&self, mut queue: Vec<QueryNodeId>) -> Vec<QueryNodeId> {
         let mut seen = FastHashSet::default();
-        let mut queue = vec![root];
         let mut invalidated = Vec::new();
 
         while let Some(identity) = queue.pop() {
@@ -141,6 +144,22 @@ impl QueryDependencyGraph {
     }
 
     pub(super) fn remove_node(&mut self, node: QueryNodeId) {
+        self.remove_node_edges(node);
+        self.validation_failures
+            .retain(|(query, dependency, _), _| *query != node && *dependency != node);
+    }
+
+    pub(super) fn remove_nodes(&mut self, nodes: &FastHashSet<QueryNodeId>) {
+        for &node in nodes {
+            self.remove_node_edges(node);
+        }
+        self.validation_failures
+            .retain(|(query, dependency, _), _| {
+                !nodes.contains(query) && !nodes.contains(dependency)
+            });
+    }
+
+    fn remove_node_edges(&mut self, node: QueryNodeId) {
         self.remove_dependencies_from(node);
         if let Some(dependents) = self.reverse.remove(&node) {
             for dependent in dependents {
@@ -152,8 +171,6 @@ impl QueryDependencyGraph {
                 }
             }
         }
-        self.validation_failures
-            .retain(|(query, dependency, _), _| *query != node && *dependency != node);
     }
 
     pub(super) fn require_only_predecessor(
@@ -250,13 +267,6 @@ where
             Arc::clone(&record.ensure)
         };
         ensure(&QueryDb { inner })
-    }
-
-    fn invalidate_scope(&self, retain: &dyn Fn(&QueryFrame) -> bool) -> QueryResult<()> {
-        let Some(inner) = self.inner.upgrade() else {
-            return Ok(());
-        };
-        QueryDb { inner }.retire_scope_during_retirement(retain)
     }
 }
 

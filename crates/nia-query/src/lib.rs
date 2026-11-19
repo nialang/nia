@@ -90,25 +90,6 @@ pub struct QuerySession {
     inner: Arc<QuerySessionInner>,
 }
 
-impl QuerySession {
-    /// Retires values tied to a replaced input scope while preserving selected
-    /// stable-identity queries across the transition.
-    pub fn invalidate_scope(&self, retain: impl Fn(&QueryFrame) -> bool) -> QueryResult<()> {
-        let _retirement = self.enter_retirement()?;
-        let databases = self
-            .inner
-            .databases
-            .lock()
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        for database in databases {
-            database.invalidate_scope(&retain)?;
-        }
-        Ok(())
-    }
-}
-
 struct QuerySessionInner {
     id: QuerySessionId,
     executor: QueryExecutor,
@@ -769,7 +750,7 @@ where
 }
 
 /// Stable diagnostic identity for one typed query slot.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QueryFrame {
     /// Stable query kind name.
     pub name: &'static str,
@@ -819,7 +800,6 @@ trait ErasedQueryDatabase: Send + Sync {
     fn frame(&self, node_id: QueryNodeId) -> Option<QueryFrame>;
     fn slot(&self, node_id: QueryNodeId) -> Option<Arc<dyn ErasedQuerySlot>>;
     fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()>;
-    fn invalidate_scope(&self, retain: &dyn Fn(&QueryFrame) -> bool) -> QueryResult<()>;
 }
 
 struct QueryDbRegistration<C> {

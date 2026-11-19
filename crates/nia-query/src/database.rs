@@ -8,58 +8,61 @@
 use super::*;
 
 impl<C> QueryDb<C> {
-    pub(super) fn retire_scope_during_retirement(
-        &self,
-        retain: &dyn Fn(&QueryFrame) -> bool,
-    ) -> QueryResult<()> {
-        let ids = {
+    /// Retires this database's old scope under the session admission barrier.
+    /// Retained slots are detached snapshots that callers explicitly revalidate.
+    pub fn retire_scope(&self, retain: impl Fn(&QueryFrame) -> bool) -> QueryResult<()> {
+        let _retirement = self.inner.session.enter_retirement()?;
+        let (retired, retained) = {
             let slots = self.inner.slots.lock();
-            slots
-                .entries
-                .iter()
-                .filter_map(|(index, record)| {
-                    (!retain(&record.identity.frame())).then_some(QueryNodeId {
-                        db_id: self.inner.id,
-                        index: *index,
-                    })
-                })
-                .collect::<Vec<_>>()
-        };
-        let retained = {
-            let slots = self.inner.slots.lock();
-            slots
-                .entries
-                .iter()
-                .filter_map(|(index, record)| {
-                    retain(&record.identity.frame()).then_some(QueryNodeId {
-                        db_id: self.inner.id,
-                        index: *index,
-                    })
-                })
-                .collect::<Vec<_>>()
+            let mut retired = FastHashSet::default();
+            let mut retained = Vec::new();
+            for (&index, record) in &slots.entries {
+                let id = QueryNodeId {
+                    db_id: self.inner.id,
+                    index,
+                };
+                if retain(&record.identity.frame()) {
+                    retained.push(id);
+                } else {
+                    retired.insert(id);
+                }
+            }
+            (retired, retained)
         };
         for id in &retained {
             self.inner.session.slot(*id)?.stabilize();
         }
-        for id in &ids {
+        let affected = self
+            .inner
+            .session
+            .inner
+            .dependencies
+            .lock()
+            .collect_dependents_from(retired.iter().copied().collect());
+        for id in &affected {
+            if id.db_id == self.inner.id && !retired.contains(id) {
+                continue;
+            }
             self.inner.session.slot(*id)?.invalidate();
         }
-        let node_set = FastHashSet::from_iter(ids.iter().copied());
         self.inner
             .caches
             .read()
             .values()
-            .for_each(|cache| cache.remove_nodes(&node_set));
+            .for_each(|cache| cache.remove_nodes(&retired));
         {
             let mut slots = self.inner.slots.lock();
-            for id in &ids {
+            for id in &retired {
                 slots.remove(self.inner.id, *id);
             }
         }
         let mut dependencies = self.inner.session.inner.dependencies.lock();
-        for id in &ids {
-            dependencies.remove_node(*id);
+        for id in affected {
+            if id.db_id != self.inner.id {
+                dependencies.remove_dependencies_from(id);
+            }
         }
+        dependencies.remove_nodes(&retired);
         for id in retained {
             dependencies.remove_dependencies_from(id);
         }

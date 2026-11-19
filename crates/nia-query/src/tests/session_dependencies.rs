@@ -48,6 +48,21 @@ fn shared_session_records_and_invalidates_cross_database_dependencies() {
                 dependency.from.name == "session_parent" && dependency.to.name == "session_input"
             })
     );
+
+    let input = input_db.expect_get(SessionInput);
+    parent_db
+        .retire_scope(|_| false)
+        .expect("retire parent scope");
+    assert!(Arc::ptr_eq(&input, &input_db.expect_get(SessionInput)));
+    assert_eq!(*parent_db.expect_get(SessionParent), 8);
+    assert_eq!(executions.load(Ordering::SeqCst), 3);
+
+    value.store(5, Ordering::SeqCst);
+    input_db
+        .retire_scope(|_| false)
+        .expect("retire input scope");
+    assert_eq!(*parent_db.expect_get(SessionParent), 10);
+    assert_eq!(executions.load(Ordering::SeqCst), 4);
 }
 
 #[test]
