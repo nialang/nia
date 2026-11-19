@@ -122,10 +122,31 @@ pub(crate) struct WorkspaceIndex {
 }
 
 pub(crate) struct WorkspaceSnapshot {
-    index: Arc<WorkspaceIndex>,
+    state: WorkspaceIndexState,
     folders: Vec<PathBuf>,
     anchor: Option<String>,
     overlays: BTreeMap<String, Arc<str>>,
+}
+
+enum WorkspaceIndexState {
+    Complete(Arc<WorkspaceIndex>),
+    Interrupted(Vec<Arc<Entry>>),
+}
+
+impl WorkspaceIndexState {
+    fn index(&self) -> Option<&Arc<WorkspaceIndex>> {
+        match self {
+            Self::Complete(index) => Some(index),
+            Self::Interrupted(_) => None,
+        }
+    }
+
+    fn entries(&self) -> &[Arc<Entry>] {
+        match self {
+            Self::Complete(index) => &index.entries,
+            Self::Interrupted(entries) => entries,
+        }
+    }
 }
 
 struct WorkspaceDeclaration {
@@ -168,6 +189,17 @@ impl Session {
         folders: &[PathBuf],
         cancel: &Cancellation,
     ) -> Result<Arc<WorkspaceIndex>, String> {
+        self.index_workspace_with(path, documents, folders, cancel, Self::analyze_request)
+    }
+
+    fn index_workspace_with(
+        &mut self,
+        path: Option<&Path>,
+        documents: &Documents,
+        folders: &[PathBuf],
+        cancel: &Cancellation,
+        mut analyze: impl FnMut(&Self, EditorRequest, &Cancellation) -> Result<Analysis, String>,
+    ) -> Result<Arc<WorkspaceIndex>, String> {
         cancel.check()?;
         self.install_documents(documents)?;
         // Open documents already contribute their packages and standalone entries.
@@ -179,12 +211,13 @@ impl Session {
             .collect();
         let previous = self.workspace_index.as_ref();
         if let Some(previous) = previous
+            && let Some(index) = previous.state.index()
             && previous.folders == folders
             && previous.anchor == anchor
             && previous.overlays == overlays
             && self.changed_disk_sources.is_empty()
         {
-            return Ok(previous.index.clone());
+            return Ok(index.clone());
         }
         let mut changed: BTreeSet<_> = self
             .changed_disk_sources
@@ -205,15 +238,16 @@ impl Session {
             for (path, text) in &overlays {
                 if !previous.overlays.contains_key(path)
                     && !previous
-                        .index
-                        .files
-                        .get(path)
+                        .state
+                        .entries()
+                        .iter()
+                        .find_map(|entry| entry.files.get(path))
                         .is_some_and(|(_, indexed)| indexed == text)
                 {
                     changed.insert(path.as_str());
                 }
             }
-            for entry in &previous.index.entries {
+            for entry in previous.state.entries() {
                 previous_entries
                     .entry(entry.request.check.entry_path.as_str())
                     .or_default()
@@ -229,77 +263,80 @@ impl Session {
         let mut entries: Vec<Arc<Entry>> = Vec::new();
         let mut reused = 0;
         let mut analyzed = 0;
-        for (request, kind) in workspace
-            .entries
-            .into_iter()
-            .map(|request| (request, EntryKind::Declared))
-            .chain(
-                workspace
-                    .build_candidates
-                    .into_iter()
-                    .map(|request| (request, EntryKind::BuildCandidate)),
-            )
-            .chain(
-                workspace
-                    .standalone
-                    .into_iter()
-                    .map(|request| (request, EntryKind::Standalone)),
-            )
-        {
-            cancel.check()?;
-            let path = request.check.entry_path.as_str();
-            if !matches!(kind, EntryKind::Declared)
-                && let Some((_, text)) = entries.iter().find_map(|entry| entry.files.get(path))
-                && (matches!(kind, EntryKind::Standalone) || !declares_build_hook(text))
-            {
-                continue;
-            }
-            let cached = previous_entries
-                .get(path)
+        let collected = (|| {
+            for (request, kind) in workspace
+                .entries
                 .into_iter()
-                .flatten()
-                .find(|entry| {
-                    entry.request == request
-                        && entry.consulted_sources.as_ref().is_some_and(|sources| {
-                            changed.iter().all(|path| {
-                                !sources.contains(*path) && !entry.files.contains_key(*path)
-                            })
-                        })
-                });
-            let entry = if let Some(entry) = cached {
-                reused += 1;
-                Arc::clone(entry)
-            } else {
-                analyzed += 1;
-                let analysis = self.analyze_request(request.clone(), cancel);
+                .map(|request| (request, EntryKind::Declared))
+                .chain(
+                    workspace
+                        .build_candidates
+                        .into_iter()
+                        .map(|request| (request, EntryKind::BuildCandidate)),
+                )
+                .chain(
+                    workspace
+                        .standalone
+                        .into_iter()
+                        .map(|request| (request, EntryKind::Standalone)),
+                )
+            {
                 cancel.check()?;
-                Arc::new(Entry::new(request, analysis, cancel)?)
-            };
-            entries.push(entry);
-        }
-        cancel.check()?;
+                let path = request.check.entry_path.as_str();
+                if !matches!(kind, EntryKind::Declared)
+                    && let Some((_, text)) = entries.iter().find_map(|entry| entry.files.get(path))
+                    && (matches!(kind, EntryKind::Standalone) || !declares_build_hook(text))
+                {
+                    continue;
+                }
+                let cached = previous_entries
+                    .get(path)
+                    .into_iter()
+                    .flatten()
+                    .find(|entry| {
+                        entry.request == request
+                            && entry.consulted_sources.as_ref().is_some_and(|sources| {
+                                changed.iter().all(|path| {
+                                    !sources.contains(*path) && !entry.files.contains_key(*path)
+                                })
+                            })
+                    });
+                let entry = if let Some(entry) = cached {
+                    reused += 1;
+                    Arc::clone(entry)
+                } else {
+                    analyzed += 1;
+                    let analysis = analyze(self, request.clone(), cancel);
+                    cancel.check()?;
+                    Arc::new(Entry::new(request, analysis, cancel)?)
+                };
+                entries.push(entry);
+            }
+            cancel.check()
+        })();
         if crate::timing_mode().enabled() {
             nia_timing::emit_counter("lsp.workspace_entries_reused", reused);
             nia_timing::emit_counter("lsp.workspace_entries_analyzed", analyzed);
         }
-        let index = if let Some(previous) = previous
-            && previous.index.editable == workspace.editable
-            && previous.index.managed == workspace.managed
-            && previous.index.unavailable_plans == workspace.unavailable_plans
-            && previous.index.package_names == workspace.package_names
-            && previous.index.entries.len() == entries.len()
-            && previous
-                .index
-                .entries
-                .iter()
-                .zip(&entries)
-                .all(|(old, new)| Arc::ptr_eq(old, new))
-        {
-            if crate::timing_mode().enabled() {
-                nia_timing::emit_counter("lsp.workspace_index_reused", 1);
+        let merged = collected.and_then(|()| {
+            if let Some(index) = previous.and_then(|previous| previous.state.index())
+                && index.editable == workspace.editable
+                && index.managed == workspace.managed
+                && index.unavailable_plans == workspace.unavailable_plans
+                && index.package_names == workspace.package_names
+                && index.entries.len() == entries.len()
+                && index
+                    .entries
+                    .iter()
+                    .zip(&entries)
+                    .all(|(old, new)| Arc::ptr_eq(old, new))
+            {
+                if crate::timing_mode().enabled() {
+                    nia_timing::emit_counter("lsp.workspace_index_reused", 1);
+                }
+                cancel.check()?;
+                return Ok(index.clone());
             }
-            previous.index.clone()
-        } else {
             let mut index = WorkspaceIndex {
                 entries: Vec::new(),
                 files: BTreeMap::new(),
@@ -316,18 +353,25 @@ impl Session {
             for entry in &entries {
                 index.merge(entry, cancel)?;
             }
-            index.entries = entries;
-            Arc::new(index)
+            cancel.check()?;
+            index.entries = std::mem::take(&mut entries);
+            Ok(Arc::new(index))
+        });
+        let state = match &merged {
+            Ok(index) => WorkspaceIndexState::Complete(index.clone()),
+            Err(_) if cancel.check().is_err() && !entries.is_empty() => {
+                WorkspaceIndexState::Interrupted(entries)
+            }
+            Err(_) => return merged,
         };
-        cancel.check()?;
         self.workspace_index = Some(WorkspaceSnapshot {
-            index: index.clone(),
+            state,
             folders: folders.to_vec(),
             anchor,
             overlays,
         });
         self.changed_disk_sources.clear();
-        Ok(index)
+        merged
     }
 }
 
@@ -939,4 +983,86 @@ fn inactive_at(ranges: &[Span], span: Span) -> bool {
     // The compiler prunes a subtree before visiting its children.
     let index = ranges.partition_point(|range| range.start <= span.start);
     index > 0 && span.end <= ranges[index - 1].end
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analysis::{OpenDocument, uri};
+    use crate::document::Document;
+    use nia_test_support::{TestWorkload, acquire_test_resources, test_dir, workspace_root};
+    use nia_toolchain::{ToolchainLayout, ToolchainLayoutRequest};
+
+    #[test]
+    fn canceled_workspace_scan_reuses_current_completed_entries() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let toolchain = ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
+            std::env::current_exe().unwrap(),
+            workspace_root().join("lib"),
+        ))
+        .unwrap();
+        let root = test_dir("lsp-canceled-workspace-scan");
+        let mut documents: Documents = [("first.nia", "firstName"), ("second.nia", "secondName")]
+            .into_iter()
+            .map(|(filename, name)| {
+                let path = root.join(filename);
+                let text = format!("pub fun {name}() i32 {{ 42 }}\n");
+                std::fs::write(&path, &text).unwrap();
+                let uri = uri(&path).unwrap();
+                (
+                    path,
+                    OpenDocument {
+                        uri,
+                        document: Document::new(1, text),
+                    },
+                )
+            })
+            .collect();
+        let mut session = Session::new(Arc::new(toolchain));
+        for edit_before_retry in [false, true] {
+            session.reload();
+            let cancel = Cancellation::default();
+            let mut analyzed = 0;
+            let interrupted = session.index_workspace_with(
+                None,
+                &documents,
+                &[],
+                &cancel,
+                |session, request, cancel| {
+                    analyzed += 1;
+                    if analyzed == 2 {
+                        cancel.cancel();
+                    }
+                    session.analyze_request(request, cancel)
+                },
+            );
+            assert!(interrupted.is_err());
+            let WorkspaceIndexState::Interrupted(entries) =
+                &session.workspace_index.as_ref().unwrap().state
+            else {
+                panic!("canceled scan must retain completed entries");
+            };
+            let [first] = entries.as_slice() else {
+                panic!("only the first entry completed");
+            };
+            let first = first.clone();
+            if edit_before_retry {
+                documents.get_mut(&root.join("first.nia")).unwrap().document =
+                    Document::new(2, "pub fun editedName() i32 { 42 }\n".into());
+            }
+            let retry = Cancellation::default();
+            let index = session
+                .index_workspace(None, &documents, &[], &retry)
+                .unwrap();
+            assert_eq!(index.entries.len(), 2);
+            assert_eq!(Arc::ptr_eq(&first, &index.entries[0]), !edit_before_retry);
+            let expected = if edit_before_retry {
+                "editedName"
+            } else {
+                "firstName"
+            };
+            assert_eq!(index.symbols(expected, &retry).unwrap().len(), 1);
+            assert_eq!(index.symbols("secondName", &retry).unwrap().len(), 1);
+        }
+    }
 }
