@@ -86,7 +86,7 @@ pub(crate) struct Session {
     source_revision: u64,
     member_probe: Option<MemberProbe>,
     pub(crate) projects: Projects,
-    pub(crate) workspace_index: Option<Arc<crate::workspace::WorkspaceIndex>>,
+    pub(crate) workspace_index: Option<crate::workspace::WorkspaceSnapshot>,
     pub(crate) changed_disk_sources: BTreeSet<String>,
 }
 
@@ -2939,16 +2939,8 @@ mod tests {
         let closed = session
             .workspace_index(&declaration, &documents, &folders, &cancel)
             .unwrap();
-        assert_eq!(opened.entries.len(), index.entries.len());
-        assert_eq!(closed.entries.len(), index.entries.len());
-        for (original, (opened, closed)) in index
-            .entries
-            .iter()
-            .zip(opened.entries.iter().zip(&closed.entries))
-        {
-            assert!(Arc::ptr_eq(original, opened));
-            assert!(Arc::ptr_eq(original, closed));
-        }
+        assert!(Arc::ptr_eq(&index, &opened));
+        assert!(Arc::ptr_eq(&index, &closed));
         let changed = Documents::from([(
             test.clone(),
             OpenDocument {
@@ -3027,6 +3019,39 @@ mod tests {
         }
         assert_eq!(std::fs::read_to_string(&test).unwrap(), test_source);
         assert_eq!(std::fs::read_to_string(&declaration).unwrap(), source);
+    }
+
+    #[test]
+    fn workspace_index_updates_when_a_standalone_entry_is_closed() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-workspace-standalone-coverage");
+        let path = root.join("standalone.nia");
+        let text = "pub fun standaloneSymbol() i32 { 42 }\n";
+        std::fs::write(&path, text).unwrap();
+        let mut session = test_session();
+        let cancel = Cancellation::default();
+        let open = Documents::from([(
+            path.clone(),
+            OpenDocument {
+                uri: uri(&path).unwrap(),
+                document: Document::new(1, text.into()),
+            },
+        )]);
+        let indexed = session.index_workspace(None, &open, &[], &cancel).unwrap();
+        assert_eq!(
+            indexed.symbols("standaloneSymbol", &cancel).unwrap().len(),
+            1
+        );
+        let closed = session
+            .index_workspace(None, &Documents::new(), &[], &cancel)
+            .unwrap();
+        assert!(!Arc::ptr_eq(&indexed, &closed));
+        assert!(
+            closed
+                .symbols("standaloneSymbol", &cancel)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

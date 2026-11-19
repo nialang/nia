@@ -112,14 +112,19 @@ pub(crate) struct WorkspaceIndex {
     managed: BTreeSet<PathBuf>,
     toolchain_sources: PathBuf,
     pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
-    folders: Vec<PathBuf>,
-    anchor: Option<String>,
-    overlays: BTreeMap<String, Arc<str>>,
     symbols: BTreeMap<(String, Span), WorkspaceDeclaration>,
     implementations: BTreeMap<Site, BTreeSet<Site>>,
     pub(crate) module_declarations: BTreeMap<String, BTreeSet<Site>>,
     references: OnceLock<HashMap<Site, BTreeSet<Site>>>,
     calls: OnceLock<CallIndex>,
+}
+
+pub(crate) struct WorkspaceSnapshot {
+    index: Arc<WorkspaceIndex>,
+    folders: Vec<PathBuf>,
+    anchor: Option<String>,
+    overlays: BTreeMap<String, Arc<str>>,
+    package_names: BTreeMap<PathBuf, String>,
 }
 
 #[derive(Clone)]
@@ -163,13 +168,13 @@ impl Session {
             .map(|(path, open)| (normalized(path), open.document.text.clone()))
             .collect();
         let previous = self.workspace_index.as_ref();
-        if let Some(index) = previous
-            && index.folders == folders
-            && index.anchor == anchor
-            && index.overlays == overlays
+        if let Some(previous) = previous
+            && previous.folders == folders
+            && previous.anchor == anchor
+            && previous.overlays == overlays
             && self.changed_disk_sources.is_empty()
         {
-            return Ok(index.clone());
+            return Ok(previous.index.clone());
         }
         let mut changed: BTreeSet<_> = self
             .changed_disk_sources
@@ -190,6 +195,7 @@ impl Session {
             for (path, text) in &overlays {
                 if !previous.overlays.contains_key(path)
                     && !previous
+                        .index
                         .files
                         .get(path)
                         .is_some_and(|(_, indexed)| indexed == text)
@@ -197,7 +203,7 @@ impl Session {
                     changed.insert(path.as_str());
                 }
             }
-            for entry in &previous.entries {
+            for entry in &previous.index.entries {
                 previous_entries
                     .entry(entry.request.check.entry_path.as_str())
                     .or_default()
@@ -210,22 +216,7 @@ impl Session {
             folders,
             &self.toolchain,
         )?;
-        let mut index = WorkspaceIndex {
-            entries: Vec::new(),
-            files: BTreeMap::new(),
-            editable: workspace.editable,
-            managed: workspace.managed,
-            toolchain_sources: PathBuf::from(normalized(self.toolchain.resource_root())),
-            unavailable_plans: workspace.unavailable_plans,
-            folders: folders.to_vec(),
-            anchor,
-            overlays: BTreeMap::new(),
-            symbols: BTreeMap::new(),
-            implementations: BTreeMap::new(),
-            module_declarations: BTreeMap::new(),
-            references: OnceLock::new(),
-            calls: OnceLock::new(),
-        };
+        let mut entries: Vec<Arc<Entry>> = Vec::new();
         let mut reused = 0;
         let mut analyzed = 0;
         for (request, kind) in workspace
@@ -247,12 +238,9 @@ impl Session {
         {
             cancel.check()?;
             let path = request.check.entry_path.as_str();
-            if let Some((_, text)) = index.files.get(path)
-                && match kind {
-                    EntryKind::Declared => false,
-                    EntryKind::BuildCandidate => !declares_build_hook(text),
-                    EntryKind::Standalone => true,
-                }
+            if !matches!(kind, EntryKind::Declared)
+                && let Some((_, text)) = entries.iter().find_map(|entry| entry.files.get(path))
+                && (matches!(kind, EntryKind::Standalone) || !declares_build_hook(text))
             {
                 continue;
             }
@@ -277,17 +265,58 @@ impl Session {
                 cancel.check()?;
                 Arc::new(Entry::new(request, analysis, cancel)?)
             };
-            index.merge(&entry, &workspace.package_names, cancel)?;
-            index.entries.push(entry);
+            entries.push(entry);
         }
         cancel.check()?;
         if crate::timing_mode().enabled() {
             nia_timing::emit_counter("lsp.workspace_entries_reused", reused);
             nia_timing::emit_counter("lsp.workspace_entries_analyzed", analyzed);
         }
-        index.overlays = overlays;
-        let index = Arc::new(index);
-        self.workspace_index = Some(index.clone());
+        let index = if let Some(previous) = previous
+            && previous.index.editable == workspace.editable
+            && previous.index.managed == workspace.managed
+            && previous.index.unavailable_plans == workspace.unavailable_plans
+            && previous.package_names == workspace.package_names
+            && previous.index.entries.len() == entries.len()
+            && previous
+                .index
+                .entries
+                .iter()
+                .zip(&entries)
+                .all(|(old, new)| Arc::ptr_eq(old, new))
+        {
+            if crate::timing_mode().enabled() {
+                nia_timing::emit_counter("lsp.workspace_index_reused", 1);
+            }
+            previous.index.clone()
+        } else {
+            let mut index = WorkspaceIndex {
+                entries: Vec::new(),
+                files: BTreeMap::new(),
+                editable: workspace.editable,
+                managed: workspace.managed,
+                toolchain_sources: PathBuf::from(normalized(self.toolchain.resource_root())),
+                unavailable_plans: workspace.unavailable_plans,
+                symbols: BTreeMap::new(),
+                implementations: BTreeMap::new(),
+                module_declarations: BTreeMap::new(),
+                references: OnceLock::new(),
+                calls: OnceLock::new(),
+            };
+            for entry in &entries {
+                index.merge(entry, &workspace.package_names, cancel)?;
+            }
+            index.entries = entries;
+            Arc::new(index)
+        };
+        cancel.check()?;
+        self.workspace_index = Some(WorkspaceSnapshot {
+            index: index.clone(),
+            folders: folders.to_vec(),
+            anchor,
+            overlays,
+            package_names: workspace.package_names,
+        });
         self.changed_disk_sources.clear();
         Ok(index)
     }
