@@ -85,12 +85,12 @@ the adjacent resources without an argument.
 
 ## VS Code
 
-Run `npm ci` and `npm run copy-icon` in `editors/vscode`, then start VS Code
-with `--extensionDevelopmentPath` pointing at that directory. Set
-`nia.server.path` to the server binary and `nia.server.resourceRoot` to
-the absolute path to `lib` in your user settings. For an installable package,
-run `npx @vscode/vsce package --skip-license` in the same directory. The
-repository license is in [LICENSE.md](../LICENSE.md).
+Put the release archive's `bin` directory on `PATH` or set
+`nia.server.path` to the installed server executable. Build a VSIX from
+`editors/vscode` with `npm ci` and `npx @vscode/vsce package --skip-license`.
+Use **Extensions: Install from VSIX…** to install the resulting file. For an
+uninstalled checkout build, set `nia.server.resourceRoot` to its `lib` directory.
+The repository license is available here. [LICENSE.md](../LICENSE.md)
 
 The extension uses the existing Nia square brand icon. Select **Nia File Icons**
 from **Preferences: File Icon Theme** to enable it for `.nia` files.
@@ -98,35 +98,46 @@ The extension enables semantic highlighting for Nia by default.
 
 ## Neovim
 
-With Neovim 0.11 or later, register the file type and use the built-in client.
-Neovim uses its `@lsp.type.*` and `@lsp.mod.*` highlight groups.
+With Neovim 0.11 or later, add the client package to your runtime path and
+enable its LSP configuration. Put the release archive's `bin` on `PATH`.
+The file type enables LSP folding and Neovim's semantic token highlighting.
 
 ```lua
-vim.filetype.add({ extension = { nia = "nia" } })
+vim.opt.runtimepath:prepend("/path/to/nia/editors/neovim")
+vim.lsp.enable("nia")
+```
+
+For an uninstalled checkout build, override the command before enabling
+the server. An icon plugin that uses glyphs can use the Nia brand color.
+
+```lua
 vim.lsp.config("nia", {
   cmd = { "/path/to/nia-lsp", "--resource-root", "/path/to/nia/lib" },
-  filetypes = { "nia" },
-  root_markers = { "nia.toml", ".git" },
 })
-vim.lsp.enable("nia")
-
-vim.api.nvim_create_autocmd("LspAttach", {
-  callback = function(event)
-    local client = vim.lsp.get_client_by_id(event.data.client_id)
-    if client and client.name == "nia" and client:supports_method("textDocument/foldingRange") then
-      for _, win in ipairs(vim.fn.win_findbuf(event.buf)) do
-        vim.wo[win].foldmethod = "expr"
-        vim.wo[win].foldexpr = "v:lua.vim.lsp.foldexpr()"
-      end
-    end
-  end,
+require("nvim-web-devicons").set_icon({
+  nia = { icon = "󰅩", color = "#b8235a", name = "Nia" },
 })
 ```
 
 ## Vim
 
-Use an LSP client such as vim-lsp or coc.nvim. Register `.nia` as file type
-`nia` and configure the client to launch
-`nia-lsp --resource-root /path/to/nia/lib` over standard input and output.
-Semantic highlighting requires a client with LSP semantic token support, such
-as coc.nvim.
+Add `/path/to/nia/editors/vim` to `runtimepath` before `filetype plugin on`.
+Put the release toolchain's `bin` on `PATH`. For semantic highlighting and
+folding with coc.nvim, add this to your `coc-settings.json`.
+
+```json
+{
+  "languageserver": {
+    "nia": {
+      "command": "nia-lsp",
+      "filetypes": ["nia"],
+      "rootPatterns": ["nia.toml", "build.nia", ".git"]
+    }
+  },
+  "semanticTokens.enable": true
+}
+```
+
+Use `:Fold` in a Nia buffer with coc.nvim. With vim-devicons, set
+`g:WebDevIconsUnicodeDecorateFileNodesExtensionSymbols['nia']` to
+`'󰅩'` after loading the icon plugin.
