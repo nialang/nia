@@ -257,16 +257,24 @@ pub(super) fn collect_relocation(
             } else {
                 analysis.rooted_module_path(&site.source, parent)
             };
-        let prefix = match local_prefix {
-            Some(prefix) => prefix,
-            None => resolve_root(&site)?
-                .map(|root| root + &destination.suffix)
-                .ok_or_else(|| {
-                    format!(
+        let prefix = if let Some(prefix) = local_prefix {
+            prefix
+        } else {
+            let root = match resolve_root(&site)? {
+                Some(root) => root,
+                None if destination.crosses_package => plan.manifests.require(
+                    workspace,
+                    Path::new(site.source.as_ref()),
+                    Path::new(destination.package_root.as_str()),
+                )?,
+                None => {
+                    return Err(format!(
                         "Destination module has no visible path from {}",
                         site.source
-                    )
-                })?,
+                    ));
+                }
+            };
+            root + &destination.suffix
         };
         let replacement = format!("{prefix}::{new_name}");
         if let Some(group) = grouped_import(root, site.span) {
