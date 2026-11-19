@@ -52,7 +52,8 @@ pub(crate) type Bindings = BTreeMap<String, BTreeMap<Span, BTreeSet<Binding>>>;
 pub(crate) struct Entry {
     pub(crate) request: EditorRequest,
     pub(crate) bindings: Bindings,
-    pub(crate) error: Option<String>,
+    pub(crate) analysis_failure: Option<String>,
+    pub(crate) diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
     consulted_sources: Option<Arc<BTreeSet<String>>>,
     files: BTreeMap<String, (Uri, Arc<str>)>,
     symbols: Vec<(Site, WorkspaceDeclaration)>,
@@ -247,7 +248,8 @@ impl Entry {
             Err(error) => {
                 return Ok(Self {
                     request,
-                    error: Some(error),
+                    analysis_failure: Some(error),
+                    diagnostics: Vec::new(),
                     bindings: Bindings::new(),
                     consulted_sources: None,
                     files: BTreeMap::new(),
@@ -257,7 +259,11 @@ impl Entry {
                 });
             }
         };
-        let error = analysis.first_error().map(str::to_owned);
+        let diagnostics: Vec<_> = analysis.errors().cloned().collect();
+        let analysis_failure = diagnostics
+            .iter()
+            .find(|item| item.diagnostic.category() == nia_diagnostic::DiagnosticCategory::Internal)
+            .map(|item| item.diagnostic.summary.clone());
         let bindings = bindings(&analysis, cancel)?;
         let mut symbols = Vec::new();
         for (source, span, name, kind, container) in analysis.workspace_declarations() {
@@ -301,7 +307,8 @@ impl Entry {
             .collect();
         Ok(Self {
             request,
-            error,
+            analysis_failure,
+            diagnostics,
             bindings,
             consulted_sources: Some(analysis.consulted_sources),
             symbols,
@@ -459,10 +466,18 @@ impl WorkspaceIndex {
         let (path, error) = if let Some((package, error)) = self.unavailable_plans.first() {
             (package.to_string_lossy(), error)
         } else {
-            let entry = self.entries.iter().find(|entry| entry.error.is_some())?;
+            let (entry, error) = self.entries.iter().find_map(|entry| {
+                let error = entry.analysis_failure.as_ref().or_else(|| {
+                    entry
+                        .diagnostics
+                        .first()
+                        .map(|item| &item.diagnostic.summary)
+                })?;
+                Some((entry, error))
+            })?;
             (
                 std::borrow::Cow::Borrowed(entry.request.check.entry_path.as_str()),
-                entry.error.as_ref()?,
+                error,
             )
         };
         Some(format!(

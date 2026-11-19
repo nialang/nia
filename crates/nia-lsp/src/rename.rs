@@ -2,7 +2,7 @@
 //! Validates workspace edits against fresh compiler analyses.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -12,6 +12,8 @@ use lsp_types::{
     Position, PrepareRenameResponse, RenameFile, ResourceOp, TextDocumentEdit, TextEdit,
     WorkspaceEdit,
 };
+use nia_compiler_query::ProgramDiagnostic;
+use nia_diagnostic::{Diagnostic, DiagnosticCategory, SpanSource};
 use nia_lexer::{TokenKind, tokenize};
 use nia_span::Span;
 
@@ -267,7 +269,7 @@ impl Session {
         };
         for entry in &workspace.entries {
             cancel.check()?;
-            if let Some(error) = &entry.error {
+            if let Some(error) = &entry.analysis_failure {
                 return Err(format!(
                     "Cannot check rename in {} ({error})",
                     entry.request.check.entry_path.as_str()
@@ -414,20 +416,32 @@ impl Session {
         }
         let mut verification = Session::new(self.toolchain.clone());
         verification.install_documents(&updated)?;
+        let offsets = EditOffsets::new(&edits);
         for entry in &workspace.entries {
             cancel.check()?;
             let request = &entry.request;
             let after = verification.analyze_request(request.clone(), cancel)?;
-            if let Some(error) = after.first_error() {
+            let before_errors: HashSet<_> = entry
+                .diagnostics
+                .iter()
+                .filter_map(|item| offsets.diagnostic(item, &moves))
+                .collect();
+            if let Some(error) = after.errors().find(|item| {
+                item.diagnostic.category() == DiagnosticCategory::Internal
+                    || !before_errors
+                        .contains(&(item.path.as_str().to_owned(), item.diagnostic.clone()))
+            }) {
                 return Err(format!(
-                    "Rename would break {} ({error})",
-                    request.check.entry_path.as_str()
+                    "Rename would break {} ({} at {})",
+                    request.check.entry_path.as_str(),
+                    error.diagnostic.summary,
+                    error.path.as_str(),
                 ));
             }
             let actual = bindings(&after, cancel)?;
             let expected = shifted_bindings(
                 entry.bindings.clone(),
-                &edits,
+                &offsets,
                 &moves,
                 &shorthand,
                 &target,
@@ -585,49 +599,123 @@ fn relocated(source: &str, moves: &Moves) -> Option<PathBuf> {
     })
 }
 
+struct EditOffset {
+    span: Span,
+    before: isize,
+    length: usize,
+}
+
+impl EditOffset {
+    fn after(&self) -> isize {
+        self.before + self.length as isize - self.span.len() as isize
+    }
+}
+
+struct EditOffsets<'a>(BTreeMap<&'a str, Vec<EditOffset>>);
+
+impl<'a> EditOffsets<'a> {
+    fn new(edits: &'a Edits) -> Self {
+        Self(
+            edits
+                .iter()
+                .map(|(source, spans)| {
+                    let mut delta = 0;
+                    let offsets = spans
+                        .iter()
+                        .map(|(&span, replacement)| {
+                            let edit = EditOffset {
+                                span,
+                                before: delta,
+                                length: replacement.len(),
+                            };
+                            delta = edit.after();
+                            edit
+                        })
+                        .collect();
+                    (source.as_str(), offsets)
+                })
+                .collect(),
+        )
+    }
+
+    fn binding_span(&self, source: &str, span: Span) -> Span {
+        let Some(spans) = self.0.get(source) else {
+            return span;
+        };
+        let (delta, length) = match spans.binary_search_by_key(&span, |edit| edit.span) {
+            Ok(index) => (spans[index].before, spans[index].length),
+            Err(0) => (0, span.len()),
+            Err(index) => (spans[index - 1].after(), span.len()),
+        };
+        let start = span.start.saturating_add_signed(delta);
+        Span::new(start, start + length)
+    }
+
+    fn unchanged_span(&self, source: &str, span: Span) -> Option<Span> {
+        let Some(edits) = self.0.get(source) else {
+            return Some(span);
+        };
+        let index = edits.partition_point(|edit| edit.span.end <= span.start);
+        // An intact span is evidence that the diagnostic still concerns the same text.
+        if edits
+            .get(index)
+            .is_some_and(|edit| edit.span.start < span.end)
+        {
+            return None;
+        }
+        let delta = index.checked_sub(1).map_or(0, |index| edits[index].after());
+        Some(Span::new(
+            span.start.checked_add_signed(delta)?,
+            span.end.checked_add_signed(delta)?,
+        ))
+    }
+
+    fn diagnostic(&self, item: &ProgramDiagnostic, moves: &Moves) -> Option<(String, Diagnostic)> {
+        let source = item.path.as_str();
+        let relocate = |source: &str| {
+            relocated(source, moves).map_or_else(|| source.to_owned(), |path| normalized(&path))
+        };
+        let mut diagnostic = item.diagnostic.clone();
+        for label in diagnostic.labels.iter_mut() {
+            if label.span_source == SpanSource::Source {
+                label.span = self.unchanged_span(source, label.span)?;
+            }
+        }
+        for related in diagnostic.related.iter_mut() {
+            related.span = self.unchanged_span(
+                related.source_path.as_deref().unwrap_or(source),
+                related.span,
+            )?;
+            if let Some(path) = &mut related.source_path {
+                *path = relocate(path);
+            }
+        }
+        for suggestion in diagnostic.suggestions.iter_mut() {
+            for edit in suggestion.edits.iter_mut() {
+                edit.span = self.unchanged_span(source, edit.span)?;
+            }
+        }
+        if let Some(cause) = &mut diagnostic.cause {
+            cause.span = self.unchanged_span(&cause.source_path, cause.span)?;
+            cause.source_path = relocate(&cause.source_path);
+        }
+        if let Some(path) = &mut diagnostic.source_path {
+            *path = relocate(path);
+        }
+        Some((relocate(source), diagnostic))
+    }
+}
+
 fn shifted_bindings(
     before: Bindings,
-    edits: &Edits,
+    offsets: &EditOffsets<'_>,
     moves: &Moves,
     shorthand: &ShorthandFields,
     target: &Site,
     name_len: usize,
 ) -> Bindings {
-    let offsets: BTreeMap<_, Vec<_>> = edits
-        .iter()
-        .map(|(source, spans)| {
-            let mut delta = 0;
-            (
-                source.as_str(),
-                spans
-                    .iter()
-                    .map(|(&span, replacement)| {
-                        let before = delta;
-                        let length = replacement.len();
-                        delta += length as isize - span.len() as isize;
-                        (span, before, length)
-                    })
-                    .collect(),
-            )
-        })
-        .collect();
-    let shift = |source: &str, span: Span| {
-        let Some(spans) = offsets.get(source) else {
-            return span;
-        };
-        let (delta, length) = match spans.binary_search_by_key(&span, |&(edit, _, _)| edit) {
-            Ok(index) => (spans[index].1, spans[index].2),
-            Err(0) => (0, span.len()),
-            Err(index) => {
-                let (edit, before, length) = spans[index - 1];
-                (before + length as isize - edit.len() as isize, span.len())
-            }
-        };
-        let start = span.start.saturating_add_signed(delta);
-        Span::new(start, start + length)
-    };
     let shift_site = |site: Site| Site {
-        span: shift(&site.source, site.span),
+        span: offsets.binding_span(&site.source, site.span),
         source: relocated(&site.source, moves).map_or(site.source, |path| normalized(&path).into()),
     };
     before
@@ -635,7 +723,7 @@ fn shifted_bindings(
         .map(|(source, occurrences)| {
             let mut updated = BTreeMap::<_, BTreeSet<_>>::new();
             for (span, candidates) in occurrences {
-                let shifted = shift(&source, span);
+                let shifted = offsets.binding_span(&source, span);
                 for binding in candidates {
                     let binding_span = if shorthand
                         .get(&source)

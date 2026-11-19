@@ -1010,11 +1010,17 @@ impl Analysis {
             })
     }
 
-    pub(crate) fn first_error(&self) -> Option<&str> {
+    pub(crate) fn errors(&self) -> impl Iterator<Item = &nia_compiler_query::ProgramDiagnostic> {
         self.diagnostics
             .iter()
-            .find(|diagnostic| diagnostic.is_error())
-            .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
+            .filter(|diagnostic| diagnostic.is_error())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn first_error(&self) -> Option<&str> {
+        self.errors()
+            .next()
+            .map(|item| item.diagnostic.summary.as_str())
     }
 
     pub(crate) fn rename_occurrences<'a>(

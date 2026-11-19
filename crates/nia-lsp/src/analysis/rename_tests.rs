@@ -172,7 +172,8 @@ fn build_hook_still_contributes_its_independent_context() {
         .iter()
         .find(|entry| entry.request.check.entry_path.as_str() == normalized(&build))
         .expect("build candidate is indexed");
-    assert!(build_entry.error.is_none());
+    assert!(build_entry.analysis_failure.is_none());
+    assert!(build_entry.diagnostics.is_empty());
     assert_eq!(
         build_entry.request.target.map(|context| context.runtime),
         Some(nia_build_plan::Runtime::Bare)
@@ -473,6 +474,46 @@ fn rename_follows_a_public_module_alias_through_chained_imports() {
             .collect::<Vec<_>>(),
         [1, 1, 3]
     );
+}
+
+#[test]
+fn rename_preserves_earlier_diagnostics_and_rejects_new_ones() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-rename-diagnostics");
+    let entry = root.join("root.nia");
+    let source = concat!(
+        "pub fun amount() i32 { 1 }\n",
+        "pub fun taken() i32 { 2 }\n",
+        "fun use_it() i32 { _ = amount(); missing() }\n",
+    );
+    std::fs::write(&entry, source).unwrap();
+    let documents = Documents::new();
+    let mut session = test_session();
+    let analysis = session.analyze(&documents, &entry).unwrap();
+    assert!(
+        analysis
+            .errors()
+            .any(|item| item.diagnostic.summary.contains("missing"))
+    );
+    let folders = [root.to_path_buf()];
+    let mut rename = |new_name| {
+        session.rename(
+            &analysis,
+            &documents,
+            crate::rename::Rename {
+                path: &entry,
+                position: Position::new(0, 9),
+                new_name,
+                folders: &folders,
+                versioned: false,
+                resource_rename: false,
+            },
+            &Cancellation::default(),
+        )
+    };
+    let edit = rename("available_quantity").unwrap();
+    assert_eq!(edit.changes.unwrap()[&uri(&entry).unwrap()].len(), 2);
+    assert!(rename("taken").unwrap_err().contains("Rename would break"),);
 }
 
 #[test]
