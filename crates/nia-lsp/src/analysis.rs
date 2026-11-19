@@ -84,6 +84,7 @@ pub(crate) struct Session {
     target_drivers: RefCell<HashMap<(nia_target::TargetConfig, nia_target::CpuLevel), Driver>>,
     overlays: BTreeMap<PathBuf, Arc<str>>,
     source_revision: u64,
+    configuration_changed: bool,
     member_probe: Option<MemberProbe>,
     pub(crate) projects: Projects,
     pub(crate) workspace_index: Option<crate::workspace::WorkspaceSnapshot>,
@@ -113,6 +114,7 @@ impl Session {
             toolchain,
             overlays: BTreeMap::new(),
             source_revision: 0,
+            configuration_changed: false,
             member_probe: None,
             projects: Projects::default(),
             workspace_index: None,
@@ -421,6 +423,15 @@ impl Session {
             source_revision: self.source_revision + 1,
             ..Self::new(self.toolchain.clone())
         };
+    }
+
+    pub(crate) fn invalidate_workspace_configuration(&mut self) {
+        self.reload();
+        self.configuration_changed = true;
+    }
+
+    pub(crate) fn take_configuration_change(&mut self) -> bool {
+        std::mem::take(&mut self.configuration_changed)
     }
 
     pub(crate) fn reload_changed_sources(&mut self, paths: &BTreeSet<PathBuf>) {

@@ -242,6 +242,7 @@ struct Reply {
     publication: Option<Publication>,
     response: Option<QueryResponse>,
     reference_coverage: Option<String>,
+    configuration_changed: bool,
 }
 
 enum QueryResponse {
@@ -345,6 +346,7 @@ fn analyze(
                     publication: None,
                     response: response.map(QueryResponse::Value),
                     reference_coverage: None,
+                    configuration_changed: false,
                 })
                 .is_err()
             {
@@ -368,6 +370,7 @@ fn analyze(
                     publication: None,
                     response: Some(QueryResponse::Value(response)),
                     reference_coverage: None,
+                    configuration_changed: session.take_configuration_change(),
                 })
                 .is_err()
             {
@@ -392,6 +395,7 @@ fn analyze(
                     publication: None,
                     response: Some(QueryResponse::Value(response)),
                     reference_coverage: None,
+                    configuration_changed: false,
                 })
                 .is_err()
             {
@@ -627,6 +631,7 @@ fn analyze(
                 publication,
                 response,
                 reference_coverage,
+                configuration_changed: session.take_configuration_change(),
             })
             .is_err()
         {
@@ -1504,6 +1509,9 @@ impl Server {
             };
             connection.sender.send(response.into())?;
         }
+        if reply.configuration_changed {
+            self.disk_changed(DiskChanges::Configuration);
+        }
         Ok(())
     }
 }
@@ -1669,6 +1677,7 @@ mod tests {
                     }),
                     response: Some(QueryResponse::Value(Response::new_ok(1.into(), ()))),
                     reference_coverage: None,
+                    configuration_changed: false,
                 },
             )
             .unwrap();
@@ -1787,6 +1796,7 @@ mod tests {
                     publication: None,
                     response: None,
                     reference_coverage: None,
+                    configuration_changed: false,
                 },
             )
             .unwrap();
@@ -1810,6 +1820,7 @@ mod tests {
                         Vec::<Value>::new(),
                     ))),
                     reference_coverage: None,
+                    configuration_changed: false,
                 },
             )
             .unwrap();
@@ -1874,6 +1885,7 @@ mod tests {
                     publication: None,
                     response: Some(QueryResponse::Value(Response::new_ok(1.into(), ()))),
                     reference_coverage: None,
+                    configuration_changed: false,
                 },
             )
             .unwrap();

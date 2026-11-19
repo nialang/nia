@@ -210,7 +210,7 @@ impl Session {
             ),
             Err(error) => format!("Cannot verify workspace build configuration ({error})"),
         };
-        self.reload();
+        self.invalidate_workspace_configuration();
         Err(problem)
     }
 

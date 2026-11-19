@@ -786,9 +786,12 @@ pub fun main(init: process::Init) process::ExitCode!() {
             assert len(initial['changes'][app.as_uri()]) == 2, initial
             references = request(client, 'textDocument/references', selected)
             assert {item['range']['start']['line'] for item in references} == {2, 6}, references
+            assert definition(app, app_src, 'selected();')['range']['start']['line'] == 2
             run('check', '--release', '--cpu', 'x86_64-v3', '--target', 'x86_64-unknown-linux')
             _, rejected = client.wait(client.request('textDocument/rename', rename))
             assert 'configuration changed' in rejected['error']['message'], rejected
+            target = definition(app, app_src, 'selected();')
+            assert target['range']['start']['line'] == 3, target
             references = request(client, 'textDocument/references', selected)
             assert {item['range']['start']['line'] for item in references} == {3, 6}, references
             assert request(client, 'textDocument/rename', rename) == initial
