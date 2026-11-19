@@ -72,6 +72,7 @@ struct CallIndex {
 pub(crate) struct Entry {
     pub(crate) request: EditorRequest,
     pub(crate) bindings: Bindings,
+    references: OnceLock<HashMap<Site, Vec<Site>>>,
     pub(crate) coverage: Coverage,
     inactive: BTreeMap<String, Arc<[Span]>>,
     consulted_sources: Option<Arc<BTreeSet<String>>>,
@@ -115,7 +116,6 @@ pub(crate) struct WorkspaceIndex {
     symbols: BTreeMap<(String, Span), WorkspaceDeclaration>,
     implementations: BTreeMap<Site, BTreeSet<Site>>,
     pub(crate) module_declarations: BTreeMap<String, BTreeSet<Site>>,
-    references: OnceLock<HashMap<Site, BTreeSet<Site>>>,
     calls: OnceLock<CallIndex>,
 }
 
@@ -300,7 +300,6 @@ impl Session {
                 symbols: BTreeMap::new(),
                 implementations: BTreeMap::new(),
                 module_declarations: BTreeMap::new(),
-                references: OnceLock::new(),
                 calls: OnceLock::new(),
             };
             for entry in &entries {
@@ -336,6 +335,7 @@ impl Entry {
                     coverage: Coverage::Unavailable(error),
                     inactive: BTreeMap::new(),
                     bindings: Bindings::new(),
+                    references: OnceLock::new(),
                     consulted_sources: None,
                     files: BTreeMap::new(),
                     symbols: Vec::new(),
@@ -415,6 +415,7 @@ impl Entry {
             request,
             coverage,
             bindings,
+            references: OnceLock::new(),
             inactive: analysis
                 .files
                 .iter()
@@ -431,6 +432,40 @@ impl Entry {
                 .map(|(source, file)| (source, (file.uri, file.text)))
                 .collect(),
         })
+    }
+
+    fn reference_sites(&self, target: &Site, cancel: &Cancellation) -> Result<&[Site], String> {
+        let references = if let Some(references) = self.references.get() {
+            references
+        } else {
+            let mut references = HashMap::<Site, Vec<Site>>::new();
+            for (source, occurrences) in &self.bindings {
+                cancel.check()?;
+                let source: Arc<str> = Arc::from(source.as_str());
+                for (&span, candidates) in occurrences {
+                    let site = Site {
+                        source: source.clone(),
+                        span,
+                    };
+                    for binding in candidates {
+                        for target in binding.declaration.iter().chain(&binding.alias) {
+                            let sites = references.entry(target.clone()).or_default();
+                            // Bindings visit sites in source order. The same
+                            // site can reach a target through several bindings.
+                            if sites.last() != Some(&site) {
+                                sites.push(site.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            cancel.check()?;
+            if crate::timing_mode().enabled() {
+                nia_timing::emit_counter("lsp.workspace_reference_entries_indexed", 1);
+            }
+            self.references.get_or_init(|| references)
+        };
+        Ok(references.get(target).map_or(&[], Vec::as_slice))
     }
 
     pub(crate) fn depends_on(&self, source: &str) -> bool {
@@ -807,31 +842,14 @@ impl WorkspaceIndex {
         let Some(target) = symbol_site(analysis, symbol) else {
             return Ok(Vec::new());
         };
-        let references = if let Some(references) = self.references.get() {
-            references
-        } else {
-            let mut references = HashMap::<Site, BTreeSet<Site>>::new();
-            for entry in &self.entries {
-                for (source, occurrences) in &entry.bindings {
-                    cancel.check()?;
-                    let source: Arc<str> = Arc::from(source.as_str());
-                    for (&span, candidates) in occurrences {
-                        for binding in candidates {
-                            for target in binding.declaration.iter().chain(&binding.alias) {
-                                references.entry(target.clone()).or_default().insert(Site {
-                                    source: source.clone(),
-                                    span,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            self.references.get_or_init(|| references)
-        };
+        let mut sites: BTreeSet<&Site> = BTreeSet::new();
+        for entry in &self.entries {
+            cancel.check()?;
+            sites.extend(entry.reference_sites(&target, cancel)?);
+        }
         let mut results = Vec::new();
         let mut lines = HashMap::new();
-        for site in references.get(&target).into_iter().flatten() {
+        for site in sites {
             cancel.check()?;
             if !include_declaration && site == &target {
                 continue;
