@@ -16,6 +16,7 @@ enum NamespaceForm {
     Declaration,
     Path,
     Import { suffix_end: usize },
+    Parent,
 }
 
 impl NamespaceRewrite {
@@ -25,7 +26,9 @@ impl NamespaceRewrite {
         offsets: &EditOffsets<'_>,
         moves: &Moves,
     ) -> Option<Site> {
-        let relative = if original == self.before.span {
+        let relative = if matches!(self.form, NamespaceForm::Parent) {
+            return None;
+        } else if original == self.before.span {
             self.name
         } else if matches!(self.form, NamespaceForm::Declaration)
             && original.end <= self.before.span.start
@@ -35,7 +38,7 @@ impl NamespaceRewrite {
         } else if self.before.span.end <= original.start
             && match self.form {
                 NamespaceForm::Declaration => true,
-                NamespaceForm::Path => false,
+                NamespaceForm::Path | NamespaceForm::Parent => false,
                 NamespaceForm::Import { suffix_end } => original.end <= suffix_end,
             }
         {
@@ -60,13 +63,18 @@ impl NamespaceRewrite {
         offsets: &EditOffsets<'_>,
         moves: &Moves,
     ) {
-        if !matches!(self.form, NamespaceForm::Declaration)
-            && let Some(name) = self.translated(self.before.span, offsets, moves)
-        {
-            let prefix = Span::new(name.span.start - self.name.start, name.span.start);
-            if let Some(entries) = bindings.get_mut(name.source.as_ref()) {
-                entries.retain(|span, _| !contains(prefix, *span));
-            }
+        let prefix = match self.form {
+            NamespaceForm::Declaration => return,
+            NamespaceForm::Parent => self.name.end,
+            _ => self.name.start,
+        };
+        let source = relocated(&self.destination.source, moves).map_or_else(
+            || self.destination.source.to_string(),
+            |path| normalized(&path),
+        );
+        let edit = offsets.binding_span(&self.destination.source, self.destination.span);
+        if let Some(entries) = bindings.get_mut(&source) {
+            entries.retain(|span, _| !contains(Span::new(edit.start, edit.start + prefix), *span));
         }
     }
 }
@@ -249,7 +257,51 @@ pub(super) fn collect_relocation(
             form: NamespaceForm::Path,
         });
     }
+    retain_parent_paths(analysis, source, declaring, &mut plan)?;
     Ok(plan)
+}
+
+fn retain_parent_paths(
+    analysis: &Analysis,
+    source: &Path,
+    declaring: &str,
+    plan: &mut RenamePlan,
+) -> Result<(), String> {
+    let file = analysis
+        .file(source)
+        .ok_or("Moving module source is unavailable")?;
+    let source = normalized(source);
+    let old_parent = analysis
+        .rooted_module_path(&source, declaring)
+        .ok_or("Previous module parent is unavailable")?;
+    let edits = plan.edits.entry(source.clone()).or_default();
+    let tokens = tokenize(&file.text);
+    let root = file.syntax().tree.green_root();
+    for [token, separator] in tokens.array_windows() {
+        if token.kind != TokenKind::Super
+            || separator.kind != TokenKind::ColonColon
+            || grouped_import(root, token.span).is_some()
+            || edits.keys().any(|edit| contains(*edit, token.span))
+        {
+            continue;
+        }
+        let site = Site {
+            source: Arc::from(source.as_str()),
+            span: token.span,
+        };
+        edits.insert(token.span, old_parent.clone());
+        plan.namespaces.push(NamespaceRewrite {
+            before: site.clone(),
+            old_range: token.span,
+            destination: site,
+            name: Span::new(0, old_parent.len()),
+            form: NamespaceForm::Parent,
+        });
+    }
+    if edits.is_empty() {
+        plan.edits.remove(&source);
+    }
+    Ok(())
 }
 
 struct GroupedImport {

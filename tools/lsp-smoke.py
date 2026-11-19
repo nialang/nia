@@ -573,9 +573,9 @@ def smoke_module_move(server, root):
             "using root::{left::{value as reading}, right::base}; // Keep the import comment.\n"
             "fun calculate() i32 { left::value::number() + reading::extra::bonus() + base() }\n"
         ),
-        left: "/// Reading data.\npub module value; // Keep this comment.\n",
+        left: "/// Reading data.\npub module value; // Keep this comment.\npub fun origin() i32 { 40 }\n",
         right: "// Destination\npub fun base() i32 { 3 }\n",
-        old: "pub module extra;\npub fun number() i32 { 42 }\n",
+        old: "pub module extra;\npub fun number() i32 { super::origin() }\n",
         old_tree / "extra.nia": "pub fun bonus() i32 { 2 }\n",
     }
     for path, text in sources.items():
@@ -603,7 +603,7 @@ def smoke_module_move(server, root):
             by_uri = {path.as_uri(): path for path in sources}
             for change in result["documentChanges"]:
                 path = by_uri[change["textDocument"]["uri"]]
-                text = sources[path]
+                text = unsaved if path == old else sources[path]
                 lines = text.splitlines(keepends=True) + [""]
 
                 def offset(position):
@@ -613,9 +613,17 @@ def smoke_module_move(server, root):
                 for edit in reversed(change["edits"]):
                     start, end = (offset(edit["range"][key]) for key in ("start", "end"))
                     text = text[:start] + edit["newText"] + text[end:]
-                sources[path] = text
-                path.write_bytes(text.encode("utf-8"))
-            assert sources[left] == "", sources[left]
+                if path == old:
+                    assert change["textDocument"]["version"] == 5, change
+                    assert "root::left::origin()" in text, text
+                    client.notify("textDocument/didChange", {
+                        "textDocument": {"uri": old.as_uri(), "version": 6},
+                        "contentChanges": [{"text": text}],
+                    })
+                else:
+                    sources[path] = text
+                    path.write_bytes(text.encode("utf-8"))
+            assert sources[left] == "pub fun origin() i32 { 40 }\n", sources[left]
             assert sources[right].endswith("/// Reading data.\npub module amount; // Keep this comment.\n")
             assert "root::right::amount::number() + reading::extra::bonus() + base()" in sources[entry]
             assert "using root::{right::base}; // Keep the import comment." in sources[entry]
@@ -623,7 +631,7 @@ def smoke_module_move(server, root):
             old.rename(new)
             old_tree.rename(new_tree)
             client.notify("workspace/didRenameFiles", move)
-            client.wait_diagnostics(new.as_uri(), 5, lambda items: not items)
+            client.wait_diagnostics(new.as_uri(), 6, lambda items: not items)
             client.notify("textDocument/didOpen", {"textDocument": {
                 "uri": entry.as_uri(), "languageId": "nia", "version": 1, "text": sources[entry],
             }})

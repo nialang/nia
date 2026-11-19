@@ -686,6 +686,9 @@ fn module_move_to(
         moves.push((subtree, target_subtree));
     }
     for (old, new) in &moves {
+        if old.is_dir() && new.starts_with(old) {
+            return Err("A module subtree cannot move inside itself".into());
+        }
         if !workspace.editable_source(old)
             || !workspace.editable_source(new)
             || workspace.contains_build_state(old)
