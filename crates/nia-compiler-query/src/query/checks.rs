@@ -32,6 +32,29 @@ impl QueryKey<CompilerContext> for ConstQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ConstDeclarationCheckQuery(pub(super) ModuleId);
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ConstDeclarationCheck {
+    pub(super) body_check_rejections: nia_const_check::BodyCheckRejections,
+    pub(super) provider_demands: Arc<HashSet<crate::ProviderDemand>>,
+    pub(super) diagnostic_owners: Vec<Option<GlobalDefId>>,
+    pub(super) diagnostics: Arc<Vec<Diagnostic>>,
+}
+
+impl QueryKey<CompilerContext> for ConstDeclarationCheckQuery {
+    type Value = ConstDeclarationCheck;
+
+    fn name() -> &'static str {
+        "const_declaration_check"
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        (db.context().providers.const_declaration_check)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ConstArrayLengthsQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ConstArrayLengthsQuery {

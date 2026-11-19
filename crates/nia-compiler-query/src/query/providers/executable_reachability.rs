@@ -1663,7 +1663,7 @@ fn const_declaration_demands(
     let mut demands = Vec::new();
     for module_id in modules {
         if super::body_executable::module_has_const_declarations(db, module_id)? {
-            let check = super::body_executable::body_check_const_declarations(db, module_id)?;
+            let check = db.get(ConstDeclarationCheckQuery(module_id))?;
             demands.extend(check.provider_demands.iter().cloned());
         }
     }

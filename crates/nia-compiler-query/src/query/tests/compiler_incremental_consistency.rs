@@ -20,6 +20,40 @@ fn provider_fact_snapshot(
 }
 
 #[test]
+fn const_declaration_check_is_shared_and_invalidated_on_edit() {
+    let invalid = "const fun value() i32 { true } fun main() i32 { 0 }";
+    let valid = "const fun value() i32 { 1 } fun main() i32 { 0 }";
+    let mut fixture = LoadedProgramFixture::new("main.nia", invalid);
+    let module_id = fixture.entry_id();
+    let database = CompilerDatabase::new(CompileRequest::new(fixture.program()));
+
+    database
+        .executable_provider_demands()
+        .expect("discover providers");
+    let before = database.db.expect_get(ConstQuery(module_id));
+    assert!(!before.rejected_const_functions.is_empty());
+    let trace = database
+        .db
+        .query_trace()
+        .expect("trace const declaration check");
+    let check = trace
+        .queries
+        .iter()
+        .find(|query| query.frame.name == ConstDeclarationCheckQuery::name())
+        .expect("const declaration check query");
+    assert_eq!(check.stats.executions, 1);
+    assert!(check.stats.cache_hits > 0);
+
+    fixture.update_module_source(module_id, valid, SourceRevision(1));
+    database.update(CompileRequest::new(fixture.program()));
+    database
+        .executable_provider_demands()
+        .expect("rediscover providers");
+    let after = database.db.expect_get(ConstQuery(module_id));
+    assert!(after.rejected_const_functions.is_empty());
+}
+
+#[test]
 fn semantic_provider_activation_preserves_resolved_caller_facts() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();

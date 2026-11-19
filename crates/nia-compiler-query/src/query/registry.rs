@@ -34,6 +34,7 @@ pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry>
         CompilerCpuFeaturesQuery,
         CompilerBuildProfileQuery,
         ConstArrayLengthsQuery,
+        ConstDeclarationCheckQuery,
         ConstEnumValuesQuery,
         ConstModuleQuery,
         ConstQuery,

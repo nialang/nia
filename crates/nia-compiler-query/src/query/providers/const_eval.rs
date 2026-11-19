@@ -153,7 +153,7 @@ pub(super) fn provide_const(
             Ok(const_eval)
         })
     })?;
-    let declaration_check = super::body_executable::body_check_const_declarations(db, module_id)?;
+    let declaration_check = db.get(ConstDeclarationCheckQuery(module_id))?;
     const_eval
         .diagnostics
         .extend(declaration_check.diagnostics.iter());
@@ -178,7 +178,7 @@ pub(super) fn provide_const(
 /// The functions a body check rejected, each with its errors located in
 /// `path`, the file of the checked module.
 fn rejected_function_diagnostics(
-    check: &nia_body_check::BodyCheck,
+    check: &ConstDeclarationCheck,
     path: &str,
 ) -> HashMap<GlobalDefId, Vec<Diagnostic>> {
     let mut rejected = HashMap::<GlobalDefId, Vec<Diagnostic>>::new();

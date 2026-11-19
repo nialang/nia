@@ -871,11 +871,11 @@ pub(super) fn body_check_with_filter_and_layouts(
     .body_check)
 }
 
-pub(super) fn body_check_const_declarations(
+pub(super) fn provide_const_declaration_check(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
-) -> QueryResult<nia_body_check::BodyCheck> {
-    Ok(body_check_with_filter_and_layouts_with_inputs(
+) -> QueryResult<ConstDeclarationCheck> {
+    let check = body_check_with_filter_and_layouts_with_inputs(
         db,
         ExecutableBodyCheckInput {
             module_id,
@@ -893,7 +893,13 @@ pub(super) fn body_check_const_declarations(
             prechecked: None,
         },
     )?
-    .body_check)
+    .body_check;
+    Ok(ConstDeclarationCheck {
+        body_check_rejections: check.body_check_rejections,
+        provider_demands: check.provider_demands,
+        diagnostic_owners: check.diagnostic_owners,
+        diagnostics: check.diagnostics,
+    })
 }
 
 pub(in crate::query) fn provide_inferred_module_value_types(
@@ -2438,7 +2444,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
             // to executable reachability or materializing its Body IR.
             let const_diagnostics = std::mem::take(&mut const_eval.diagnostics);
             let declaration_check = module_has_const_declarations(db, module_id)?
-                .then(|| body_check_const_declarations(db, module_id))
+                .then(|| db.get(ConstDeclarationCheckQuery(module_id)))
                 .transpose()?;
             // Bodies the declaration-wide check rejected are rejected too.
             let mut rejections = body_check.body_check_rejections.clone();

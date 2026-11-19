@@ -621,6 +621,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) const_module:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ConstModuleLowering>,
     pub(super) const_eval: fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ModuleConstCheck>,
+    pub(super) const_declaration_check:
+        fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<ConstDeclarationCheck>,
     pub(super) const_array_lengths:
         fn(&QueryDb<CompilerContext>, ModuleId) -> QueryResult<nia_const_check::ConstArrayLengths>,
     pub(super) const_enum_values:
@@ -709,6 +711,7 @@ impl Default for CompilerQueryProviders {
             concrete_type_layout: provide_concrete_type_layout,
             const_module: provide_const_module,
             const_eval: provide_const,
+            const_declaration_check: body_executable::provide_const_declaration_check,
             const_array_lengths: provide_const_array_lengths,
             const_enum_values: provide_const_enum_values,
             const_values: provide_const_values,
