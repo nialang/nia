@@ -139,7 +139,7 @@ impl Driver {
             timings,
             nia_timing::TimingLevel::Summary,
             "editor.load_graph",
-            || self.compilation_databases(&request, RootScope::Tree, true),
+            || self.compilation_databases(&request, RootScope::Tree, true, cancel),
         )?;
         let analysis = nia_timing::time_stage(
             timings,
@@ -268,7 +268,7 @@ impl Driver {
         T: ProviderDemandOutput,
     {
         let timings = request.timings;
-        let (database, loader) = self.compilation_databases(&request, root_scope, false)?;
+        let (database, loader) = self.compilation_databases(&request, root_scope, false, None)?;
         let output = compile(&database)?;
         let source_manifest = loader.source_input_manifest()?;
         let loader_trace = self.loader_query_trace()?;
@@ -288,7 +288,7 @@ impl Driver {
         request: &CheckRequest,
         root_scope: RootScope,
     ) -> nia_query::QueryResult<CompilerDatabase> {
-        self.compilation_databases(request, root_scope, false)
+        self.compilation_databases(request, root_scope, false, None)
             .map(|(compiler, _)| compiler)
     }
 
@@ -297,9 +297,10 @@ impl Driver {
         request: &CheckRequest,
         root_scope: RootScope,
         recover_declarations: bool,
+        cancel: Option<&nia_query::CancellationToken>,
     ) -> nia_query::QueryResult<(CompilerDatabase, LoaderDatabase)> {
         let loader = self.loader_database(request, recover_declarations)?;
-        loader.load_program()?;
+        loader.prepare_compilation(cancel)?;
         let query_session = loader.query_session();
         let frontend_cache = self
             .config

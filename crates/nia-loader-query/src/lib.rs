@@ -376,6 +376,16 @@ impl LoaderDatabase {
             .map(|program| program.to_program())
     }
 
+    /// Prepares the tracked graph used by compiler queries. Module syntax and
+    /// diagnostics are requested individually by the compiler.
+    pub fn prepare_compilation(
+        &self,
+        cancel: Option<&nia_query::CancellationToken>,
+    ) -> QueryResult<()> {
+        self.replay_provider_demand_plan()?;
+        nia_query::with_cancellation(cancel, || self.db.get(graph::ModuleGraphQuery).map(drop))
+    }
+
     /// Physical paths consulted by the settled graph, including missing sources
     /// and provider candidates that did not become modules.
     pub fn consulted_sources(&self) -> QueryResult<Arc<std::collections::BTreeSet<String>>> {

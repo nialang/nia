@@ -218,7 +218,7 @@ impl Driver {
             let timings = request.check.timings;
             let (database, loader) =
                 match time_detail_stage(timings, mode.prepare_database_stage(), || {
-                    self.compilation_databases(&request.check, RootScope::Entry, false)
+                    self.compilation_databases(&request.check, RootScope::Entry, false, None)
                 }) {
                     Ok(databases) => databases,
                     Err(error) => {
