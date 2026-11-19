@@ -56,21 +56,29 @@ pub(crate) struct Entry {
     pub(crate) request: EditorRequest,
     pub(crate) bindings: Bindings,
     pub(crate) error: Option<String>,
+    consulted_sources: Option<Arc<BTreeSet<String>>>,
+    files: BTreeMap<String, (Uri, Arc<str>)>,
+    symbols: Vec<(Site, WorkspaceDeclaration)>,
+    implementations: Vec<(Site, Site)>,
+    module_declarations: Vec<(String, Site)>,
 }
 
 pub(crate) struct WorkspaceIndex {
-    pub(crate) entries: Vec<Entry>,
+    pub(crate) entries: Vec<Arc<Entry>>,
     pub(crate) files: BTreeMap<String, (Uri, Arc<str>)>,
     pub(crate) editable: BTreeSet<PathBuf>,
     managed: BTreeSet<PathBuf>,
     pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
     folders: Vec<PathBuf>,
+    anchor: Option<String>,
+    overlays: BTreeMap<String, Arc<str>>,
     symbols: BTreeMap<(String, Span), WorkspaceDeclaration>,
     implementations: BTreeMap<Site, BTreeSet<Site>>,
     pub(crate) module_declarations: BTreeMap<String, BTreeSet<Site>>,
     references: OnceLock<HashMap<Site, BTreeSet<Site>>>,
 }
 
+#[derive(Clone)]
 struct WorkspaceDeclaration {
     name: String,
     kind: SymbolKind,
@@ -114,11 +122,36 @@ impl Session {
     ) -> Result<Arc<WorkspaceIndex>, String> {
         cancel.check()?;
         self.install_documents(documents)?;
-        if let Some(index) = &self.workspace_index
+        let anchor = path.map(normalized);
+        let overlays: BTreeMap<_, _> = documents
+            .iter()
+            .map(|(path, open)| (normalized(path), open.document.text.clone()))
+            .collect();
+        let previous = self.workspace_index.as_ref();
+        if let Some(index) = previous
             && index.folders == folders
-            && path.is_none_or(|path| index.files.contains_key(&normalized(path)))
+            && index.anchor == anchor
+            && index.overlays == overlays
         {
             return Ok(index.clone());
+        }
+        let mut changed = BTreeSet::new();
+        let mut previous_entries = HashMap::<_, Vec<_>>::new();
+        if let Some(previous) = previous {
+            for (path, old) in &previous.overlays {
+                if overlays.get(path) != Some(old) {
+                    changed.insert(path.as_str());
+                }
+            }
+            changed.extend(overlays.keys().filter_map(|path| {
+                (!previous.overlays.contains_key(path)).then_some(path.as_str())
+            }));
+            for entry in &previous.entries {
+                previous_entries
+                    .entry(entry.request.check.entry_path.as_str())
+                    .or_default()
+                    .push(entry);
+            }
         }
         let workspace = self.projects.workspace_requests(
             path,
@@ -133,11 +166,15 @@ impl Session {
             managed: workspace.managed,
             unavailable_plans: workspace.unavailable_plans,
             folders: folders.to_vec(),
+            anchor,
+            overlays: BTreeMap::new(),
             symbols: BTreeMap::new(),
             implementations: BTreeMap::new(),
             module_declarations: BTreeMap::new(),
             references: OnceLock::new(),
         };
+        let mut reused = 0;
+        let mut analyzed = 0;
         for (request, kind) in workspace
             .entries
             .into_iter()
@@ -166,91 +203,180 @@ impl Session {
             {
                 continue;
             }
-            let entry = match self.analyze_request(request.clone()) {
-                Ok(analysis) => {
-                    let error = analysis.first_error().map(str::to_owned);
-                    let bindings = bindings(&analysis, cancel)?;
-                    for (module, source, span) in analysis.module_declarations() {
-                        index
-                            .module_declarations
-                            .entry(module.to_owned())
-                            .or_default()
-                            .insert(Site {
-                                source: Arc::from(source),
-                                span,
-                            });
-                    }
-                    for (symbol, source, span) in analysis.workspace_implementations() {
-                        cancel.check()?;
-                        if let Some(target) = symbol_site(&analysis, symbol) {
-                            index
-                                .implementations
-                                .entry(target)
-                                .or_default()
-                                .insert(Site {
-                                    source: Arc::from(source),
-                                    span,
-                                });
-                        }
-                    }
-                    for (source, span, name, kind, module) in analysis.workspace_declarations() {
-                        let source_path = Path::new(source);
-                        if !index.editable_source(source_path) {
-                            continue;
-                        }
-                        let package = source_path
-                            .ancestors()
-                            .find_map(|directory| workspace.package_names.get(directory));
-                        let container = match (package, module.is_empty()) {
-                            (Some(package), false) => format!("{package}::{module}"),
-                            (Some(package), true) => package.clone(),
-                            (None, _) => module,
-                        };
-                        index.symbols.entry((source.to_owned(), span)).or_insert(
-                            WorkspaceDeclaration {
-                                name,
-                                kind,
-                                container,
-                            },
-                        );
-                    }
-                    for (source, file) in analysis.files {
-                        match index.files.entry(source) {
-                            std::collections::btree_map::Entry::Occupied(current) => {
-                                if current.get().1 != file.text {
-                                    return Err(format!(
-                                        "Source changed during workspace analysis ({})",
-                                        current.key()
-                                    ));
-                                }
-                            }
-                            std::collections::btree_map::Entry::Vacant(current) => {
-                                current.insert((file.uri, file.text));
-                            }
-                        }
-                    }
-                    Entry {
-                        request,
-                        bindings,
-                        error,
-                    }
-                }
-                Err(error) => Entry {
-                    request,
-                    bindings: Bindings::new(),
-                    error: Some(error),
-                },
+            let cached = previous_entries
+                .get(path)
+                .into_iter()
+                .flatten()
+                .find(|entry| {
+                    entry.request == request
+                        && entry.consulted_sources.as_ref().is_some_and(|sources| {
+                            changed.iter().all(|path| {
+                                !sources.contains(*path) && !entry.files.contains_key(*path)
+                            })
+                        })
+                });
+            let entry = if let Some(entry) = cached {
+                reused += 1;
+                Arc::clone(entry)
+            } else {
+                analyzed += 1;
+                let analysis = self.analyze_request(request.clone());
+                Arc::new(Entry::new(request, analysis, cancel)?)
             };
+            index.merge(&entry, &workspace.package_names, cancel)?;
             index.entries.push(entry);
         }
         cancel.check()?;
+        if crate::timing_mode().enabled() {
+            nia_timing::emit_counter("lsp.workspace_entries_reused", reused);
+            nia_timing::emit_counter("lsp.workspace_entries_analyzed", analyzed);
+        }
+        index.overlays = overlays;
         let index = Arc::new(index);
         self.workspace_index = Some(index.clone());
         Ok(index)
     }
 }
 
+impl Entry {
+    fn new(
+        request: EditorRequest,
+        analysis: Result<Analysis, String>,
+        cancel: &Cancellation,
+    ) -> Result<Self, String> {
+        let analysis = match analysis {
+            Ok(analysis) => analysis,
+            Err(error) => {
+                return Ok(Self {
+                    request,
+                    error: Some(error),
+                    bindings: Bindings::new(),
+                    consulted_sources: None,
+                    files: BTreeMap::new(),
+                    symbols: Vec::new(),
+                    implementations: Vec::new(),
+                    module_declarations: Vec::new(),
+                });
+            }
+        };
+        let error = analysis.first_error().map(str::to_owned);
+        let bindings = bindings(&analysis, cancel)?;
+        let mut symbols = Vec::new();
+        for (source, span, name, kind, container) in analysis.workspace_declarations() {
+            cancel.check()?;
+            symbols.push((
+                Site {
+                    source: Arc::from(source),
+                    span,
+                },
+                WorkspaceDeclaration {
+                    name,
+                    kind,
+                    container,
+                },
+            ));
+        }
+        let mut implementations = Vec::new();
+        for (symbol, source, span) in analysis.workspace_implementations() {
+            cancel.check()?;
+            if let Some(target) = symbol_site(&analysis, symbol) {
+                implementations.push((
+                    target,
+                    Site {
+                        source: Arc::from(source),
+                        span,
+                    },
+                ));
+            }
+        }
+        let module_declarations = analysis
+            .module_declarations()
+            .map(|(module, source, span)| {
+                (
+                    module.to_owned(),
+                    Site {
+                        source: Arc::from(source),
+                        span,
+                    },
+                )
+            })
+            .collect();
+        Ok(Self {
+            request,
+            error,
+            bindings,
+            consulted_sources: Some(analysis.consulted_sources),
+            symbols,
+            implementations,
+            module_declarations,
+            files: analysis
+                .files
+                .into_iter()
+                .map(|(source, file)| (source, (file.uri, file.text)))
+                .collect(),
+        })
+    }
+}
+
 impl WorkspaceIndex {
+    fn merge(
+        &mut self,
+        entry: &Entry,
+        package_names: &BTreeMap<PathBuf, String>,
+        cancel: &Cancellation,
+    ) -> Result<(), String> {
+        for (source, file) in &entry.files {
+            cancel.check()?;
+            match self.files.entry(source.clone()) {
+                std::collections::btree_map::Entry::Occupied(current) => {
+                    if current.get().1 != file.1 {
+                        return Err(format!(
+                            "Source changed during workspace analysis ({source})"
+                        ));
+                    }
+                }
+                std::collections::btree_map::Entry::Vacant(current) => {
+                    current.insert(file.clone());
+                }
+            }
+        }
+        for (module, site) in &entry.module_declarations {
+            self.module_declarations
+                .entry(module.clone())
+                .or_default()
+                .insert(site.clone());
+        }
+        for (target, site) in &entry.implementations {
+            self.implementations
+                .entry(target.clone())
+                .or_default()
+                .insert(site.clone());
+        }
+        for (site, symbol) in &entry.symbols {
+            cancel.check()?;
+            let source = Path::new(site.source.as_ref());
+            if !self.editable_source(source) {
+                continue;
+            }
+            let key = (site.source.to_string(), site.span);
+            self.symbols.entry(key).or_insert_with(|| {
+                let package = source
+                    .ancestors()
+                    .find_map(|directory| package_names.get(directory));
+                let mut symbol = symbol.clone();
+                if let Some(package) = package {
+                    symbol.container = if symbol.container.is_empty() {
+                        package.clone()
+                    } else {
+                        format!("{package}::{}", symbol.container)
+                    };
+                }
+                symbol
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn implementations(
         &self,
         analysis: &Analysis,

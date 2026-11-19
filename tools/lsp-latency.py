@@ -191,6 +191,15 @@ def benchmark(client, source, root, symbol, repeat):
     report["semantic_highlight_after_edit"] = summary(semantic)
     report["cancellation"] = summary(canceled) if canceled else {"samples": 0}
     report["cancellation"]["completed_before_cancel"] = completed_before_cancel
+    references_after_edit = []
+    for version in range(2 * repeat + 2, 3 * repeat + 2):
+        client.notify("textDocument/didChange", {
+            "textDocument": dict(**document, version=version),
+            "contentChanges": [dict(text=text + f"\n// workspace index sample {version}\n")],
+        })
+        client.wait_diagnostics(document["uri"], version)
+        references_after_edit.append(client.measure("textDocument/references", references))
+    report["references_after_edit"] = summary(references_after_edit)
     if os.name == "nt":
         report["peak_rss_bytes"] = windows_peak_rss(client.process.pid)
     client.measure("shutdown", None)

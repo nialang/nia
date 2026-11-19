@@ -80,6 +80,13 @@ fn source_input_manifest_represents_missing_recursive_sources() {
         SourceInputContent::Present { .. }
     ));
     assert_eq!(manifest.fingerprint(), None);
+    let child = SourcePath::new(root.join("child.nia").to_string_lossy());
+    assert!(
+        database
+            .consulted_sources()
+            .unwrap()
+            .contains(child.as_str())
+    );
 }
 
 #[test]

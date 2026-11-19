@@ -13,7 +13,7 @@ use nia_target_config::{BuildProfile, CompilationMode};
 use nia_toolchain::RuntimeSpec;
 
 /// Frontend and semantic options shared by driver requests.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckRequest {
     /// Entry source path.
     pub entry_path: SourcePath,

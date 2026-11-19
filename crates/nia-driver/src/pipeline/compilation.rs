@@ -128,10 +128,11 @@ impl Driver {
         consume: impl FnOnce(
             &CompilerDatabase,
             nia_compiler_query::CheckedProgramAnalysis,
+            &LoaderDatabase,
         ) -> nia_query::QueryResult<T>,
     ) -> nia_query::QueryResult<T> {
         let timings = request.timings;
-        let (database, _) = nia_timing::time_stage(
+        let (database, loader) = nia_timing::time_stage(
             timings,
             nia_timing::TimingLevel::Summary,
             "editor.load_graph",
@@ -147,7 +148,7 @@ impl Driver {
             timings,
             nia_timing::TimingLevel::Summary,
             "editor.consume_analysis",
-            || consume(&database, analysis),
+            || consume(&database, analysis, &loader),
         )
     }
 

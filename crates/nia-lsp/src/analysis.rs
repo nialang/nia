@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
 };
@@ -172,7 +172,6 @@ impl Session {
             .keys()
             .any(|path| !documents.contains_key(path))
         {
-            self.workspace_index = None;
             self.driver = Driver::new(self.toolchain.clone());
             self.target_drivers.get_mut().clear();
             self.overlays.clear();
@@ -182,7 +181,6 @@ impl Session {
             if self.overlays.get(path).is_some_and(|old| old == text) {
                 continue;
             }
-            self.workspace_index = None;
             for driver in
                 std::iter::once(&self.driver).chain(self.target_drivers.get_mut().values())
             {
@@ -316,9 +314,12 @@ fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<(), String
 
 fn analyze_request(driver: &Driver, request: CheckRequest) -> Result<Analysis, String> {
     driver
-        .analyze_for_editor(request.with_timings(crate::timing_mode()), |db, program| {
-            Analysis::from_program(driver, db, program)
-        })
+        .analyze_for_editor(
+            request.with_timings(crate::timing_mode()),
+            |db, program, loader| {
+                Analysis::from_program(driver, db, program, loader.consulted_sources()?)
+            },
+        )
         .map_err(|error| error.to_string())
 }
 
@@ -362,6 +363,7 @@ impl File {
 pub(crate) struct Analysis {
     pub(crate) files: BTreeMap<String, File>,
     pub(crate) definitions: HashMap<Symbol, (String, Span)>,
+    pub(crate) consulted_sources: Arc<BTreeSet<String>>,
     diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
     configuration_warning: Option<String>,
     trait_implementations: Vec<(GlobalDefId, String, Span)>,
@@ -438,10 +440,12 @@ impl Analysis {
         driver: &Driver,
         db: &CompilerDatabase,
         program: CheckedProgramAnalysis,
+        consulted_sources: Arc<BTreeSet<String>>,
     ) -> nia_query::QueryResult<Self> {
         let mut result = Self {
             files: BTreeMap::new(),
             definitions: HashMap::new(),
+            consulted_sources,
             diagnostics: program.diagnostics,
             configuration_warning: None,
             trait_implementations: Vec::new(),
@@ -2028,6 +2032,23 @@ mod tests {
             .workspace_index(&declaration, &changed, &folders, &cancel)
             .unwrap();
         assert!(!Arc::ptr_eq(&updated, &index));
+        let entry_for = |index: &crate::workspace::WorkspaceIndex, path: &Path| {
+            let path = normalized(path);
+            index
+                .entries
+                .iter()
+                .find(|entry| entry.request.check.entry_path.as_str() == path)
+                .unwrap()
+                .clone()
+        };
+        assert!(Arc::ptr_eq(
+            &entry_for(&index, &declaration),
+            &entry_for(&updated, &declaration)
+        ));
+        assert!(!Arc::ptr_eq(
+            &entry_for(&index, &test),
+            &entry_for(&updated, &test)
+        ));
         assert_eq!(
             updated
                 .references(&analysis, &declaration, position, false, &cancel)
@@ -2035,6 +2056,36 @@ mod tests {
                 .len(),
             1
         );
+        let closed = session
+            .workspace_index(&declaration, &documents, &folders, &cancel)
+            .unwrap();
+        assert!(Arc::ptr_eq(
+            &entry_for(&index, &declaration),
+            &entry_for(&closed, &declaration)
+        ));
+        assert!(!Arc::ptr_eq(
+            &entry_for(&updated, &test),
+            &entry_for(&closed, &test)
+        ));
+        assert_eq!(
+            closed
+                .references(&analysis, &declaration, position, false, &cancel)
+                .unwrap(),
+            references,
+        );
+        let overlays = Documents::from([(
+            declaration.clone(),
+            OpenDocument {
+                uri: uri(&declaration).unwrap(),
+                document: Document::new(3, format!("// Unsaved comment\n{source}")),
+            },
+        )]);
+        let dependent = session
+            .workspace_index(&declaration, &overlays, &folders, &cancel)
+            .unwrap();
+        for (old, new) in closed.entries.iter().zip(&dependent.entries) {
+            assert!(!Arc::ptr_eq(old, new));
+        }
         assert_eq!(std::fs::read_to_string(&test).unwrap(), test_source);
         assert_eq!(std::fs::read_to_string(&declaration).unwrap(), source);
     }

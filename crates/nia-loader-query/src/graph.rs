@@ -26,7 +26,10 @@ use nia_loader_contract::{ProgramDiagnostic, ProgramDiagnosticBundles};
 use nia_query::{QueryDb, QueryError, QueryFingerprintPolicy, QueryKey, QueryResult};
 use nia_source::{SourceId, SourceIdentity, SourcePath};
 use nia_symbol::SymbolId;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    sync::Arc,
+};
 
 /// Query-local memoization for facts repeatedly consulted while one module
 /// graph revision is being assembled. The first lookup still goes through the
@@ -35,6 +38,7 @@ use std::collections::{HashMap, HashSet};
 /// source-version lookup work.
 pub(crate) struct ModuleGraphFactMemo<'a> {
     db: &'a QueryDb<LoaderContext>,
+    sources: BTreeSet<String>,
     module_declarations: std::collections::HashMap<
         nia_source::SourceIdentity,
         std::sync::Arc<ModuleDeclarationsValue>,
@@ -51,6 +55,7 @@ impl<'a> ModuleGraphFactMemo<'a> {
     fn new(db: &'a QueryDb<LoaderContext>) -> Self {
         Self {
             db,
+            sources: BTreeSet::new(),
             module_declarations: std::collections::HashMap::new(),
             provider_summaries: std::collections::HashMap::new(),
             module_facade_facts: std::collections::HashMap::new(),
@@ -70,6 +75,7 @@ impl<'a> ModuleGraphFactMemo<'a> {
             return Ok(std::sync::Arc::clone(value));
         }
         let value = self.db.get(module_declarations_query(self.db, path)?)?;
+        self.sources.insert(path.as_str().to_owned());
         self.module_declarations
             .insert(identity, std::sync::Arc::clone(&value));
         Ok(value)
@@ -84,6 +90,7 @@ impl<'a> ModuleGraphFactMemo<'a> {
             return Ok(std::sync::Arc::clone(value));
         }
         let value = self.db.get(provider_summary_query(self.db, path)?)?;
+        self.sources.insert(path.as_str().to_owned());
         self.provider_summaries
             .insert(identity, std::sync::Arc::clone(&value));
         Ok(value)
@@ -98,6 +105,7 @@ impl<'a> ModuleGraphFactMemo<'a> {
             return Ok(std::sync::Arc::clone(value));
         }
         let value = self.db.get(module_facade_facts_query(self.db, path)?)?;
+        self.sources.insert(path.as_str().to_owned());
         self.module_facade_facts
             .insert(identity, std::sync::Arc::clone(&value));
         Ok(value)
@@ -143,6 +151,7 @@ pub(crate) type TraversalResult<T> = Result<T, TraversalError>;
 pub(crate) struct ModuleGraphValue {
     pub(crate) semantic: ModuleGraphSnapshot,
     pub(crate) diagnostics: ProgramDiagnosticBundles,
+    pub(crate) consulted_sources: Arc<BTreeSet<String>>,
 }
 
 impl QueryKey<LoaderContext> for ModuleGraphQuery {
@@ -240,6 +249,7 @@ fn build_module_graph(
     }
     let (mut graph, prior_diagnostics, mut index) = match seed {
         Some(value) => {
+            fact_memo.sources = (*value.consulted_sources).clone();
             let graph = (*value.semantic).clone();
             let existing_modules = graph.modules().count();
             (graph, value.diagnostics.clone(), existing_modules)
@@ -423,6 +433,7 @@ fn build_module_graph(
     Ok(ModuleGraphValue {
         semantic: ModuleGraphSnapshot::new(graph),
         diagnostics: prior_diagnostics.append(&diagnostics)?,
+        consulted_sources: Arc::new(fact_memo.sources),
     })
 }
 

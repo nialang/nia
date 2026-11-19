@@ -676,8 +676,8 @@ extend types::ProcessId {
         .insert("dep", SourcePath::new(pkg_root.to_string_lossy()))
         .expect("insert dependency package");
 
-    let program =
-        load_program_with_provider_demand(&main_path, module_map, Some("FileHandle"), "write");
+    let database = loader_with_provider_demand(&main_path, module_map, Some("FileHandle"), "write");
+    let program = database.load_program().unwrap();
 
     assert_no_error_diagnostics(&program);
     assert_module_loaded(
@@ -690,6 +690,9 @@ extend types::ProcessId {
             .to_string_lossy()
             .as_ref(),
     );
+    let consulted = database.consulted_sources().unwrap();
+    let process = SourcePath::new(root.join("dep/facade/process.nia").to_string_lossy());
+    assert!(consulted.contains(process.as_str()), "{consulted:?}");
 }
 
 #[test]

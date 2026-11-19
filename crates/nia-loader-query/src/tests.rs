@@ -502,13 +502,24 @@ fn load_program_with_provider_demand(
     target_type_name: Option<&str>,
     method_name: &str,
 ) -> LoadedProgram {
+    loader_with_provider_demand(entry_path, module_map, target_type_name, method_name)
+        .load_program()
+        .expect("provider program load")
+}
+
+fn loader_with_provider_demand(
+    entry_path: &Path,
+    module_map: ModuleMap,
+    target_type_name: Option<&str>,
+    method_name: &str,
+) -> LoaderDatabase {
     let source_path = SourcePath::new(entry_path.to_string_lossy());
     let database = LoaderDatabase::new_for_test(
         LoadRequest::new(entry_path.to_string_lossy().into_owned())
             .with_module_map(module_map)
             .with_toolchain_layout(test_toolchain_layout()),
     );
-    let update = database
+    database
         .update_provider_demands([ProviderDemand {
             source_path,
             request: nia_compiler_query::ProviderRequest::Method {
@@ -519,8 +530,7 @@ fn load_program_with_provider_demand(
             },
         }])
         .expect("provider graph update");
-    let _ = update;
-    database.load_program().expect("provider program load")
+    database
 }
 
 fn load_program_with_trait_provider_demand(

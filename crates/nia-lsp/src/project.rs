@@ -39,7 +39,7 @@ pub(crate) struct WorkspaceRequests {
     pub(crate) package_names: BTreeMap<PathBuf, String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EditorRequest {
     pub(crate) check: CheckRequest,
     pub(crate) target: Option<CompilerContext>,

@@ -218,12 +218,7 @@ fn analyze(
     let mut completion_probe = None;
     let mut cached = None;
     let mut disk_revision = 0;
-    let mut revision = None;
     for mut work in queue {
-        if revision != Some(work.revision) {
-            session.workspace_index = None;
-            revision = Some(work.revision);
-        }
         if disk_revision != work.disk_revision {
             session.reload();
             completion_probe = None;

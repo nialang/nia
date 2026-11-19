@@ -376,6 +376,16 @@ impl LoaderDatabase {
             .map(|program| program.to_program())
     }
 
+    /// Physical paths consulted by the settled graph, including missing sources
+    /// and provider candidates that did not become modules.
+    pub fn consulted_sources(&self) -> QueryResult<Arc<std::collections::BTreeSet<String>>> {
+        Ok(self
+            .db
+            .get(graph::ModuleGraphQuery)?
+            .consulted_sources
+            .clone())
+    }
+
     /// Builds a deterministic source manifest from the discovered module graph.
     pub fn source_input_manifest(&self) -> QueryResult<SourceInputManifest> {
         self.replay_provider_demand_plan()?;
