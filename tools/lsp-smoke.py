@@ -352,6 +352,13 @@ def smoke(server, root):
                 "shapes::distance(low, 10)", "d(low, 10) + w()",
             )
             unordered += "\n// Public API\npub using root::shapes::{weight as mass, distance as width};\n"
+            unordered += (
+                "fun local() i32 {\n"
+                "    using root::shapes::weight as measured_weight;\n"
+                "    using root::shapes::distance as measured_distance;\n"
+                "    measured_weight() + measured_distance(2, 4)\n"
+                "}\n"
+            )
             client.notify("textDocument/didChange", {
                 "textDocument": dict(**document, version=10),
                 "contentChanges": [{"text": unordered}],
@@ -366,13 +373,17 @@ def smoke(server, root):
             assert action["kind"] == "source.organizeImports", actions
             change, = action["edit"]["documentChanges"]
             assert change["textDocument"] == dict(**document, version=10), change
-            reorder, public = change["edits"]
+            reorder, public, local = change["edits"]
             assert reorder["newText"] == (
                 "using root::shapes as geo;\n"
                 "using root::shapes::{distance as d, weight as w};\n"
                 "using std::process;"
             ), reorder
             assert public["newText"] == "distance as width, weight as mass", public
+            assert local["newText"] == (
+                "using root::shapes::distance as measured_distance;\n"
+                "    using root::shapes::weight as measured_weight;"
+            ), local
             client.notify("textDocument/didChange", {
                 "textDocument": dict(**document, version=11),
                 "contentChanges": [

@@ -114,23 +114,26 @@ struct ImportOrder {
 impl ImportOrder {
     fn directives(source: &str, root: &GreenNode) -> Self {
         let mut result = Self::default();
-        let mut group = Vec::new();
-        for item in root.child_nodes() {
-            let directive = standalone_import(source, item);
-            if !group.is_empty()
-                && directive.is_none_or(|next| {
-                    let last: &Span = group.last().expect("nonempty import group");
-                    let between = &source[last.end..next.start];
-                    !between.trim().is_empty()
-                        || between.bytes().filter(|&byte| byte == b'\n').count() != 1
-                })
-            {
-                result.sort(source, &group);
-                group.clear();
+        let mut pending = vec![root];
+        while let Some(scope) = pending.pop() {
+            pending.extend(scope.child_nodes());
+            if !matches!(scope.kind(), SyntaxKind::SourceFile | SyntaxKind::Block) {
+                continue;
             }
-            group.extend(directive);
+            let mut group = Vec::new();
+            for item in scope.child_nodes() {
+                let directive = standalone_import(source, item);
+                if let Some(last) = group.last()
+                    && directive.is_none_or(|next| !adjacent_directives(source, *last, next))
+                {
+                    result.sort(source, &group);
+                    group.clear();
+                }
+                group.extend(directive);
+            }
+            result.sort(source, &group);
         }
-        result.sort(source, &group);
+        result.edits.sort_by_key(|edit| edit.span);
         result
     }
 
@@ -199,7 +202,7 @@ impl ImportOrder {
 }
 
 fn standalone_import(source: &str, item: &GreenNode) -> Option<Span> {
-    if item.child(&SyntaxKind::UsingDecl).is_none()
+    if (item.kind() != &SyntaxKind::UsingStmt && item.child(&SyntaxKind::UsingDecl).is_none())
         || item.child(&SyntaxKind::Visibility).is_some()
         || item.child(&SyntaxKind::Attribute).is_some()
     {
@@ -222,4 +225,9 @@ fn standalone_import(source: &str, item: &GreenNode) -> Option<Span> {
         return None;
     }
     Some(span)
+}
+
+fn adjacent_directives(source: &str, left: Span, right: Span) -> bool {
+    let between = &source[left.end..right.start];
+    between.trim().is_empty() && between.bytes().filter(|&byte| byte == b'\n').count() == 1
 }
