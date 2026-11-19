@@ -106,6 +106,11 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
             "source_status" => nia_query::QueryFingerprintPolicy::StableValue,
             "module_source_id"
             | "provider_demands"
+            | "module_graph"
+            | "module_graph_revision"
+            | "module_declarations"
+            | "module_facade_facts"
+            | "provider_summary"
             | "loader_active_module_item_tree_fact"
             | "loader_module_item_tree_fact"
             | "loader_module_origins_fact"
@@ -243,14 +248,16 @@ fn source_updates_remove_old_revision_owners_and_detach_external_snapshot() {
             .filter(|query| query.frame.name == name)
             .collect::<Vec<_>>();
         assert_eq!(queries.len(), 1, "{name}: {queries:?}");
-        assert!(
-            queries[0]
-                .frame
-                .key
-                .contains(&format!("revision: {:?}", latest_version.revision)),
-            "{}",
-            queries[0].frame.key
-        );
+        if matches!(name, "parsed_module" | "syntax_module") {
+            assert!(
+                queries[0]
+                    .frame
+                    .key
+                    .contains(&format!("revision: {:?}", latest_version.revision)),
+                "{}",
+                queries[0].frame.key
+            );
+        }
     }
     assert_eq!(old_parsed.semantic.source_version, first_version);
     assert_eq!(old_parsed.semantic.item_tree.items.len(), 1);

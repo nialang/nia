@@ -157,6 +157,8 @@ pub(crate) struct ModuleGraphValue {
 impl QueryKey<LoaderContext> for ModuleGraphQuery {
     type Value = ModuleGraphValue;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "module_graph"
     }
@@ -168,10 +170,16 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             .as_ref()
             .clone())
     }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
     type Value = ModuleGraphValue;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "module_graph_revision"
@@ -194,6 +202,10 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
         }?;
         db.context().provider_facts.compact_transition(self.0);
         Ok(graph)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 

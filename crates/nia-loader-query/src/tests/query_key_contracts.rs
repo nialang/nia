@@ -51,15 +51,12 @@ fn source_frontend_query_keys_are_compact_handles() {
     );
     assert_eq!(
         std::mem::size_of::<ModuleDeclarationsQuery>(),
-        wide_query_key_size()
+        source_id_size
     );
-    assert_eq!(
-        std::mem::size_of::<ProviderSummaryQuery>(),
-        wide_query_key_size()
-    );
+    assert_eq!(std::mem::size_of::<ProviderSummaryQuery>(), source_id_size);
     assert_eq!(
         std::mem::size_of::<ModuleFacadeFactsQuery>(),
-        wide_query_key_size()
+        source_id_size
     );
     assert_eq!(
         std::mem::size_of::<PublicSurfaceModuleFactsQuery>(),

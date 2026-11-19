@@ -195,6 +195,23 @@ impl QueryDependencyGraph {
         }
         Ok(())
     }
+
+    pub(super) fn inherit_predecessor_dependencies(
+        &mut self,
+        predecessor: QueryNodeId,
+        current: QueryNodeId,
+    ) {
+        let mut targets = self.forward.get(&current).cloned().unwrap_or_default();
+        targets.extend(
+            self.forward
+                .get(&predecessor)
+                .into_iter()
+                .flatten()
+                .copied(),
+        );
+        targets.remove(&predecessor);
+        self.replace_dependencies_from(current, targets);
+    }
 }
 
 pub(super) fn query_frame<C, K>(key: &K) -> QueryFrame

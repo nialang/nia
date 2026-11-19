@@ -1190,19 +1190,12 @@ impl<C> QueryDb<C> {
         Ok(true)
     }
 
-    /// Seals an owned current value, severs its sole predecessor edge, and retires that
-    /// predecessor. The current query must have copied everything it needs from the immutable
-    /// predecessor rather than retaining the predecessor value as part of its own payload.
+    /// Seals a current value and retires its sole predecessor. The current query inherits the
+    /// predecessor's dependencies because its value incorporates the predecessor's result.
     pub fn seal_and_retire_predecessor<K>(&self, current: &K, predecessor: &K) -> QueryResult<bool>
     where
         K: QueryKey<C>,
     {
-        if K::FINGERPRINT != QueryFingerprintPolicy::None {
-            return Err(Self::internal_query_error(
-                current,
-                "query predecessor retirement requires an owned, non-validating query value",
-            ));
-        }
         if let Some(registry) = &self.inner.registry {
             registry.require_registered::<C, K>()?;
         }
@@ -1229,18 +1222,34 @@ impl<C> QueryDb<C> {
                 "query cannot retire itself as its predecessor",
             ));
         }
-        let Some(current_slot) = cache.get(current) else {
+        let Some(current_slot) = cache.get(current).cloned() else {
             return Err(Self::internal_query_error(
                 current,
                 "current query cache entry disappeared",
             ));
         };
-        if !matches!(&*current_slot.state.lock(), QueryState::Ready { .. }) {
+        let mut current_state = current_slot.state.lock();
+        let QueryState::Ready {
+            dependency_fingerprints,
+            ..
+        } = &mut *current_state
+        else {
             return Err(Self::internal_query_error(
                 current,
                 "current query must own a ready value before sealing its predecessor",
             ));
-        }
+        };
+        let predecessor_state = predecessor_slot.state.lock();
+        let QueryState::Ready {
+            dependency_fingerprints: predecessor_fingerprints,
+            ..
+        } = &*predecessor_state
+        else {
+            return Err(Self::internal_query_error(
+                predecessor,
+                "predecessor must own a ready value before retirement",
+            ));
+        };
         let mut dependencies = self.inner.session.inner.dependencies.lock();
         dependencies
             .require_only_predecessor(predecessor_node, current_node)
@@ -1283,6 +1292,13 @@ impl<C> QueryDb<C> {
                 "retired predecessor slot registration disappeared",
             ));
         }
+        dependency_fingerprints.remove(&predecessor_node);
+        for (&dependency, &fingerprint) in predecessor_fingerprints {
+            dependency_fingerprints
+                .entry(dependency)
+                .or_insert(fingerprint);
+        }
+        dependencies.inherit_predecessor_dependencies(predecessor_node, current_node);
         dependencies.remove_node(predecessor_node);
         Ok(true)
     }

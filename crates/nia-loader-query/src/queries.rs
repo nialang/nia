@@ -337,7 +337,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             })?;
         let parsed = db.get(parsed_module_query_for_id(db, self.0)?)?;
         let source = db.get(SourceTextQuery(self.0))?;
-        let provider_summary = db.get(provider_summary_query_for_id(db, self.0)?)?;
+        let provider_summary = db.get(ProviderSummaryQuery(self.0))?;
         let using_imports = db.get(ModuleUsingImportsFactQuery(self.0))?;
         Ok(LoadedModule {
             id,
@@ -675,13 +675,15 @@ impl QueryKey<LoaderContext> for SourceStatusQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ModuleDeclarationsQuery(SourceVersion);
+pub(crate) struct ModuleDeclarationsQuery(SourceId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct PublicSurfaceModuleFactsQuery(SourceVersion);
 
 impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
     type Value = ModuleDeclarationsValue;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "module_declarations"
@@ -692,7 +694,8 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
-        let cache_input = frontend_cache_input(db, self.0)?;
+        let version = source_version(db, self.0)?;
+        let cache_input = frontend_cache_input(db, version)?;
         let module_map = frontend_module_map_fingerprint(&db.context().module_map);
         let cached = cache_input.as_ref().and_then(|input| {
             let cache = db.context().frontend_cache.as_ref()?;
@@ -729,10 +732,11 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
             return Ok(ModuleDeclarationsValue {
                 semantic: cached.clone(),
                 diagnostics: Arc::from([]),
+                readable: true,
             });
         }
 
-        let parsed = db.get(ParsedModuleQuery(self.0))?;
+        let parsed = db.get(ParsedModuleQuery(version))?;
         let mut declaration_diagnostics = Vec::new();
         let (declarations, used_modules) = if parsed.read_error.is_none()
             && (parsed.semantic.parse_errors.is_empty() || db.context().recover_declarations)
@@ -744,7 +748,7 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
                 &db.context().symbols,
             );
             let source =
-                db.context().sources.path_for_id(self.0.id).ok_or_else(|| {
+                db.context().sources.path_for_id(self.0).ok_or_else(|| {
                     QueryError::internal("module dependency query lost its source")
                 })?;
             let module_map = db.context().module_map.for_source(&source);
@@ -778,6 +782,7 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
                 used_import_aliases: used_modules.used_aliases,
             },
             diagnostics: diagnostic_bundles.into(),
+            readable: parsed.read_error.is_none(),
         };
         if let Some(input) = cache_input
             && parsed.read_error.is_none()
@@ -812,12 +817,17 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
         }
         Ok(fresh)
     }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ModuleDeclarationsValue {
     pub(crate) semantic: ModuleDeclarations,
     pub(crate) diagnostics: Arc<[nia_diagnostic::DiagnosticBundle]>,
+    readable: bool,
 }
 
 impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
@@ -924,7 +934,7 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ProviderSummaryQuery(SourceVersion);
+pub(crate) struct ProviderSummaryQuery(SourceId);
 
 struct FrontendCacheInput {
     namespace: FrontendCacheNamespace,
@@ -1013,6 +1023,8 @@ fn fresh_item_signature(
 impl QueryKey<LoaderContext> for ProviderSummaryQuery {
     type Value = ProviderSummary;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "provider_summary"
     }
@@ -1022,8 +1034,9 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
-        let cache_input = frontend_cache_input(db, self.0)?;
-        if cache_input.is_none() && db.get(SourceTextQuery(self.0.id))?.file.is_none() {
+        let version = source_version(db, self.0)?;
+        let cache_input = frontend_cache_input(db, version)?;
+        if cache_input.is_none() && db.get(SourceTextQuery(self.0))?.file.is_none() {
             return Ok(ProviderSummary::default());
         }
         let cached_item_signature = cached_item_signature(db, cache_input.as_ref());
@@ -1062,7 +1075,7 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
         }
 
         let (parsed, item_signature) =
-            fresh_item_signature(db, self.0, cache_input.as_ref(), cached_item_signature)?;
+            fresh_item_signature(db, version, cache_input.as_ref(), cached_item_signature)?;
         let mut cached_for_item_signature = None;
         if let Some(input) = &cache_input
             && let Some(cache) = &db.context().frontend_cache
@@ -1119,13 +1132,19 @@ impl QueryKey<LoaderContext> for ProviderSummaryQuery {
         }
         Ok(fresh)
     }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ModuleFacadeFactsQuery(SourceVersion);
+pub(crate) struct ModuleFacadeFactsQuery(SourceId);
 
 impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
     type Value = ModuleFacadeFacts;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "module_facade_facts"
@@ -1136,8 +1155,9 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
     }
 
     fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
-        let cache_input = frontend_cache_input(db, self.0)?;
-        if cache_input.is_none() && db.get(SourceTextQuery(self.0.id))?.file.is_none() {
+        let version = source_version(db, self.0)?;
+        let cache_input = frontend_cache_input(db, version)?;
+        if cache_input.is_none() && db.get(SourceTextQuery(self.0))?.file.is_none() {
             return Ok(ModuleFacadeFacts::default());
         }
         let cached_item_signature = cached_item_signature(db, cache_input.as_ref());
@@ -1177,7 +1197,7 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
         }
 
         let (parsed, item_signature) =
-            fresh_item_signature(db, self.0, cache_input.as_ref(), cached_item_signature)?;
+            fresh_item_signature(db, version, cache_input.as_ref(), cached_item_signature)?;
         let mut cached_for_item_signature = None;
         if let Some(input) = &cache_input
             && let Some(cache) = &db.context().frontend_cache
@@ -1211,7 +1231,7 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
         let source = db
             .context()
             .sources
-            .path_for_id(self.0.id)
+            .path_for_id(self.0)
             .ok_or_else(|| QueryError::internal("module facade query lost its source"))?;
         let visible_module_map = db.context().module_map.for_source(&source);
         let fresh = ModuleFacadeFacts::from_active_item_tree(
@@ -1244,6 +1264,10 @@ impl QueryKey<LoaderContext> for ModuleFacadeFactsQuery {
         }
         Ok(fresh)
     }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 pub(crate) fn parsed_module_query(
@@ -1267,7 +1291,7 @@ pub(crate) fn module_declarations_query(
         .sources
         .id_for_path(path)
         .map_err(|error| QueryError::internal(error.to_string()))?;
-    Ok(ModuleDeclarationsQuery(source_version(db, source_id)?))
+    Ok(ModuleDeclarationsQuery(source_id))
 }
 
 pub(crate) fn public_surface_module_facts_query(
@@ -1293,7 +1317,7 @@ pub(crate) fn provider_summary_query(
         .sources
         .id_for_path(path)
         .map_err(|error| QueryError::internal(error.to_string()))?;
-    provider_summary_query_for_id(db, source_id)
+    Ok(ProviderSummaryQuery(source_id))
 }
 
 pub(crate) fn module_facade_facts_query(
@@ -1305,7 +1329,7 @@ pub(crate) fn module_facade_facts_query(
         .sources
         .id_for_path(path)
         .map_err(|error| QueryError::internal(error.to_string()))?;
-    Ok(ModuleFacadeFactsQuery(source_version(db, source_id)?))
+    Ok(ModuleFacadeFactsQuery(source_id))
 }
 
 pub(crate) fn retire_source_revision_queries(
@@ -1314,10 +1338,7 @@ pub(crate) fn retire_source_revision_queries(
 ) -> QueryResult<()> {
     retirement.retire(&ParsedModuleQuery(version))?;
     retirement.retire(&SyntaxModuleQuery(version))?;
-    retirement.retire(&ModuleDeclarationsQuery(version))?;
     retirement.retire(&PublicSurfaceModuleFactsQuery(version))?;
-    retirement.retire(&ProviderSummaryQuery(version))?;
-    retirement.retire(&ModuleFacadeFactsQuery(version))?;
     Ok(())
 }
 
@@ -1326,13 +1347,6 @@ fn parsed_module_query_for_id(
     source_id: SourceId,
 ) -> QueryResult<ParsedModuleQuery> {
     Ok(ParsedModuleQuery(source_version(db, source_id)?))
-}
-
-fn provider_summary_query_for_id(
-    db: &QueryDb<LoaderContext>,
-    source_id: SourceId,
-) -> QueryResult<ProviderSummaryQuery> {
-    Ok(ProviderSummaryQuery(source_version(db, source_id)?))
 }
 
 fn source_version(db: &QueryDb<LoaderContext>, source_id: SourceId) -> QueryResult<SourceVersion> {
