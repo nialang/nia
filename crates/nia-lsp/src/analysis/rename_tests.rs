@@ -4,6 +4,30 @@ use nia_test_support::{TestWorkload, acquire_test_resources, test_dir};
 
 use super::{tests::test_session, *};
 
+#[cfg(windows)]
+#[test]
+fn rename_accepts_lowercase_drive_uris_from_editors() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-lowercase-drive");
+    let entry = root.join("root.nia");
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname = \"example\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &entry,
+        "fun amount() i32 { 1 }\nfun run() i32 { amount() }\n",
+    )
+    .unwrap();
+    let mut editor_path = normalized(&entry);
+    editor_path[..1].make_ascii_lowercase();
+    let editor_uri = uri(Path::new(&editor_path)).unwrap();
+    let decoded = path(&editor_uri).unwrap();
+    assert_eq!(normalized(&decoded), normalized(&entry));
+    assert!(rename_at(&decoded, "amount()", "quantity").is_ok());
+}
+
 #[test]
 fn unreadable_plan_keeps_manifest_navigation_available() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);

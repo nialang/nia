@@ -48,7 +48,10 @@ pub(crate) struct OpenDocument {
 }
 
 pub(crate) fn path(uri: &Uri) -> Option<PathBuf> {
-    Url::parse(uri.as_str()).ok()?.to_file_path().ok()
+    let path = Url::parse(uri.as_str()).ok()?.to_file_path().ok()?;
+    #[cfg(windows)]
+    let path = PathBuf::from(normalized(&path));
+    Some(path)
 }
 
 pub(crate) fn uri(path: &Path) -> Option<Uri> {
@@ -56,7 +59,20 @@ pub(crate) fn uri(path: &Path) -> Option<Uri> {
 }
 
 pub(crate) fn normalized(path: &Path) -> String {
-    nia_source::normalize_path(&path.to_string_lossy())
+    let normalized = nia_source::normalize_path(&path.to_string_lossy());
+    #[cfg(windows)]
+    {
+        let mut normalized = normalized;
+        if normalized.as_bytes().get(1) == Some(&b':')
+            && normalized.as_bytes()[0].is_ascii_lowercase()
+        {
+            let drive = char::from(normalized.as_bytes()[0].to_ascii_uppercase());
+            normalized.replace_range(..1, &drive.to_string());
+        }
+        normalized
+    }
+    #[cfg(not(windows))]
+    normalized
 }
 
 pub(crate) struct Session {
