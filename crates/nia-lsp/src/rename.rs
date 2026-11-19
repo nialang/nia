@@ -135,6 +135,7 @@ impl Session {
         }
         let mut plan = RenamePlan::default();
         let mut analyses = BTreeMap::new();
+        let mut use_analyses = HashMap::new();
         let directories: Moves = moves
             .iter()
             .filter(|(old, _)| old.is_dir())
@@ -185,7 +186,36 @@ impl Session {
             let change = if Some(parent.as_path()) == new.parent() {
                 collect_rename(analysis, &workspace, source, symbol, new_name, cancel)?
             } else {
-                collect_relocation(analysis, &workspace, symbol, old, new, cancel)?
+                collect_relocation(
+                    analysis,
+                    &workspace,
+                    symbol,
+                    old,
+                    new,
+                    cancel,
+                    |site, parent| {
+                        for (index, entry) in workspace.entries.iter().enumerate() {
+                            if !entry
+                                .bindings
+                                .get(site.source.as_ref())
+                                .is_some_and(|bindings| bindings.contains_key(&site.span))
+                            {
+                                continue;
+                            }
+                            let context = match use_analyses.entry(index) {
+                                std::collections::hash_map::Entry::Occupied(entry) => {
+                                    entry.into_mut()
+                                }
+                                std::collections::hash_map::Entry::Vacant(slot) => slot
+                                    .insert(self.analyze_request(entry.request.clone(), cancel)?),
+                            };
+                            if let Some(prefix) = context.rooted_module_path(&site.source, parent) {
+                                return Ok(Some(prefix));
+                            }
+                        }
+                        Ok(None)
+                    },
+                )?
             };
             plan.namespaces.extend(change.namespaces);
             for (source, spans) in change.edits {

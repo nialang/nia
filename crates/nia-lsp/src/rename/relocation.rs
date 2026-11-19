@@ -90,6 +90,7 @@ pub(super) fn collect_relocation(
     source: &Path,
     destination: &Path,
     cancel: &Cancellation,
+    mut resolve_prefix: impl FnMut(&Site, &str) -> Result<Option<String>, String>,
 ) -> Result<RenamePlan, String> {
     let new_name = destination
         .file_stem()
@@ -213,14 +214,15 @@ pub(super) fn collect_relocation(
             .map_err(|_| "Cannot parse module use")?
             .tree
             .green_root();
-        let prefix = analysis
-            .rooted_module_path(&site.source, parent)
-            .ok_or_else(|| {
+        let prefix = match analysis.rooted_module_path(&site.source, parent) {
+            Some(prefix) => prefix,
+            None => resolve_prefix(&site, parent)?.ok_or_else(|| {
                 format!(
                     "Destination module has no visible path from {}",
                     site.source
                 )
-            })?;
+            })?,
+        };
         let replacement = format!("{prefix}::{new_name}");
         if let Some(group) = grouped_import(root, site.span) {
             move_grouped_import(&mut plan, text, site, &replacement, new_name.len(), group)?;

@@ -580,18 +580,28 @@ def smoke(server, root):
 
 
 def smoke_module_move(server, root):
-    (root / "nia.toml").write_text(
+    (root / "nia.toml").write_text('[workspace]\nmembers = ["api", "client"]\n', encoding="utf-8")
+    api = root / "api"
+    api.mkdir()
+    (api / "nia.toml").write_text(
         '[package]\nname = "move_fixture"\nversion = "0.1.0"\n[library]\npath = "root.nia"\n',
         encoding="utf-8",
     )
-    entry, left, right = (root / name for name in ("root.nia", "left.nia", "right.nia"))
-    old, new = root / "left/value.nia", root / "right/amount.nia"
+    downstream = root / "client/root.nia"
+    downstream.parent.mkdir()
+    downstream.with_name("nia.toml").write_text(
+        '[package]\nname = "consumer"\nversion = "0.1.0"\n[library]\npath = "root.nia"\n'
+        '[dependencies]\nfacade = { path = "../api" }\n',
+        encoding="utf-8",
+    )
+    entry, left, right = (api / name for name in ("root.nia", "left.nia", "right.nia"))
+    old, new = api / "left/value.nia", api / "right/amount.nia"
     old_tree, new_tree = old.with_suffix(""), new.with_suffix("")
     old_tree.mkdir(parents=True)
     new.parent.mkdir()
     sources = {
         entry: (
-            "module left;\nmodule right;\n"
+            "pub module left;\npub module right;\n"
             "using root::{left::{value as reading}, right::base}; // Keep the import comment.\n"
             "fun calculate() i32 { left::value::number() + reading::extra::bonus() + base() }\n"
         ),
@@ -599,6 +609,10 @@ def smoke_module_move(server, root):
         right: "// Destination\npub fun base() i32 { 3 }\n",
         old: "pub module extra;\npub fun number() i32 { super::origin() }\n",
         old_tree / "extra.nia": "pub fun bonus() i32 { 2 }\n",
+        downstream: (
+            "using facade::{left::{value as remote}, right::base};\n"
+            "fun calculate() i32 { facade::left::value::number() + remote::extra::bonus() + base() }\n"
+        ),
     }
     for path, text in sources.items():
         path.write_bytes(text.encode("utf-8"))
@@ -650,6 +664,8 @@ def smoke_module_move(server, root):
             assert "root::right::amount::number() + reading::extra::bonus() + base()" in sources[entry]
             assert "using root::{right::base}; // Keep the import comment." in sources[entry]
             assert "using root::right::amount as reading;" in sources[entry]
+            assert "using facade::right::amount as remote;" in sources[downstream]
+            assert "facade::right::amount::number()" in sources[downstream]
             old.rename(new)
             old_tree.rename(new_tree)
             client.notify("workspace/didRenameFiles", move)
@@ -661,6 +677,14 @@ def smoke_module_move(server, root):
                 "textDocument": {"uri": entry.as_uri()}, "position": position(sources[entry], "bonus()"),
             })
             assert target["uri"] == (new_tree / "extra.nia").as_uri(), target
+            client.notify("textDocument/didOpen", {"textDocument": {
+                "uri": downstream.as_uri(), "languageId": "nia", "version": 1, "text": sources[downstream],
+            }})
+            target = request(client, "textDocument/definition", {
+                "textDocument": {"uri": downstream.as_uri()},
+                "position": position(sources[downstream], "number()"),
+            })
+            assert target["uri"] == new.as_uri(), target
             symbols = request(client, "workspace/symbol", {"query": "Unsaved"})
             assert [symbol["location"]["uri"] for symbol in symbols] == [new.as_uri()], symbols
             request(client, "shutdown", None)
