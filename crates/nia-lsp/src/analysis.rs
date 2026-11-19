@@ -1390,6 +1390,48 @@ impl Analysis {
                 format!("&{}[{}]", mutability(*is_readonly), render(*elem)?)
             }
             TyKind::SlicePointee { elem } => format!("[{}]", render(*elem)?),
+            TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+                abi,
+            } => {
+                let mut arguments = list(params)?;
+                if *is_variadic {
+                    if !arguments.is_empty() {
+                        arguments.push_str(", ");
+                    }
+                    arguments.push_str("...");
+                }
+                let prefix = match abi {
+                    nia_ty::FunctionPointerAbi::Nia => "&fun",
+                    nia_ty::FunctionPointerAbi::C => "&extern fun",
+                };
+                format!("{prefix}({arguments}) {}", render(*return_type)?)
+            }
+            TyKind::Callable {
+                is_readonly,
+                params,
+                return_type,
+            } => format!(
+                "&{}Fun({}) {}",
+                mutability(*is_readonly),
+                list(params)?,
+                render(*return_type)?,
+            ),
+            TyKind::CallablePointee {
+                params,
+                return_type,
+            } => {
+                format!("Fun({}) {}", list(params)?, render(*return_type)?)
+            }
+            TyKind::ClosureState {
+                params,
+                return_type,
+                ..
+            } => {
+                format!("closure({}) {}", list(params)?, render(*return_type)?)
+            }
             TyKind::Array { len, elem } => {
                 let length = match len {
                     nia_ty::ArrayLenTy::ConstValue(length) => length.to_string(),
@@ -1404,13 +1446,37 @@ impl Analysis {
                 def_id,
                 args,
                 const_args,
-            } if const_args.is_empty() => {
+            } => {
                 let def = self.defs.get(&def_id.module_id)?.defs.get(def_id.def_id)?;
                 let name = self.db.source_symbol_text(def.name)?;
-                if args.is_empty() {
+                if args.is_empty() && const_args.is_empty() {
                     name.to_string()
                 } else {
-                    format!("{name}[{}]", list(args)?)
+                    let mut const_parameters = def.const_generic_names().peekable();
+                    let mut types = args.iter().copied();
+                    let mut values = const_args.iter();
+                    let mut arguments = Vec::with_capacity(def.generics.len());
+                    for parameter in &def.generics {
+                        let argument = if const_parameters.next_if_eq(parameter).is_some() {
+                            use nia_ty::ConstGenericValue;
+                            match &values.next()?.value {
+                                ConstGenericValue::GenericParam(name) => {
+                                    self.db.source_symbol_text(*name)?.to_string()
+                                }
+                                ConstGenericValue::Int(value) => value.to_string(),
+                                ConstGenericValue::Bool(value) => value.to_string(),
+                                ConstGenericValue::Char(value) => format!("{value:?}"),
+                                _ => return None,
+                            }
+                        } else {
+                            render(types.next()?)?
+                        };
+                        arguments.push(argument);
+                    }
+                    if types.next().is_some() || values.next().is_some() {
+                        return None;
+                    }
+                    format!("{name}[{}]", arguments.join(", "))
                 }
             }
             _ => return None,
@@ -3094,6 +3160,14 @@ mod tests {
             "    let explicit: i32 = number;\n",
             "    _ = (value, flag, explicit);\n",
             "}\n",
+            "struct Mixed[N: usize, T, Enabled: bool] { item: T }\n",
+            "fun mixed() Mixed[3, i32, true] { .{ item: 1 } }\n",
+            "fun hints() () {\n",
+            "    let mixed_value = mixed();\n",
+            "    let callback = &mixed;\n",
+            "    let next = \\value: i32 -> value + 1;\n",
+            "    _ = (mixed_value, callback, next);\n",
+            "}\n",
         );
         let document = Document::new(1, source.into());
         let documents = Documents::from([(
@@ -3131,7 +3205,10 @@ mod tests {
             [
                 hint(3, 13, ": Boxed[i32]"),
                 hint(4, 15, ": i32"),
-                hint(4, 21, ": bool")
+                hint(4, 21, ": bool"),
+                hint(11, 19, ": Mixed[3, i32, true]"),
+                hint(12, 16, ": &fun() Mixed[3, i32, true]"),
+                hint(13, 12, ": closure(i32) i32"),
             ]
         );
     }
