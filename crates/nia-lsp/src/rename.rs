@@ -18,21 +18,9 @@ use nia_span::Span;
 use crate::{
     analysis::{Analysis, Documents, OpenDocument, Session, Symbol, normalized, uri},
     document::Document,
+    workspace::{Binding, Bindings, Cancellation, Site, bindings},
 };
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Site {
-    source: Arc<str>,
-    span: Span,
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Binding {
-    declaration: Option<Site>,
-    alias: Option<Site>,
-}
-
-type Bindings = BTreeMap<String, BTreeMap<Span, BTreeSet<Binding>>>;
 type Edits = BTreeMap<String, BTreeMap<Span, String>>;
 type ShorthandFields = BTreeMap<String, BTreeSet<Span>>;
 
@@ -94,6 +82,7 @@ impl Session {
         analysis: &Analysis,
         documents: &Documents,
         request: Rename<'_>,
+        cancel: &Cancellation,
     ) -> Result<WorkspaceEdit, String> {
         let Rename {
             path,
@@ -123,9 +112,7 @@ impl Session {
             span: *span,
         };
         let workspace_symbol = analysis.rename_workspace_symbol(symbol);
-        let workspace =
-            self.projects
-                .workspace_requests(path, documents.keys().cloned(), folders)?;
+        let workspace = self.workspace_index(path, documents, folders, cancel)?;
         let moves = if let Some(path) = analysis.module_file(symbol) {
             if !resource_rename {
                 return Err("The editor must support rename file operations".to_owned());
@@ -137,83 +124,75 @@ impl Session {
         if workspace
             .entries
             .iter()
-            .any(|request| relocated(request.check.entry_path.as_str(), &moves).is_some())
+            .any(|entry| relocated(entry.request.check.entry_path.as_str(), &moves).is_some())
         {
             return Err("A module move would relocate a declared build entry".to_owned());
         }
         let scope = analysis.rename_scope(symbol);
         let requested_source = normalized(path);
-        self.install_documents(documents)?;
-        let mut snapshots = Vec::new();
-        let mut files = BTreeMap::new();
+        let files = &workspace.files;
+        for source in [target.source.as_ref(), requested_source.as_str()] {
+            if files
+                .get(source)
+                .is_some_and(|(_, text)| *text != analysis.files[source].text)
+            {
+                return Err(format!("Source changed during rename ({source})"));
+            }
+        }
         let mut edits = Edits::new();
         let mut shorthand = ShorthandFields::new();
+        let mut parsed = HashMap::new();
         let field = analysis.is_field(symbol);
         let matches_target = |binding: &Binding| {
             binding.alias.as_ref().or(binding.declaration.as_ref()) == Some(&target)
         };
-        for (request, standalone) in workspace
-            .entries
-            .into_iter()
-            .map(|entry| (entry, false))
-            .chain(workspace.standalone.into_iter().map(|entry| (entry, true)))
-        {
-            if standalone && files.contains_key(request.check.entry_path.as_str()) {
-                continue;
-            }
-            let current = self.analyze_request(request.clone())?;
-            for source in [target.source.as_ref(), requested_source.as_str()] {
-                if let Some(file) = current.files.get(source)
-                    && file.text != analysis.files[source].text
-                {
-                    return Err(format!("Source changed during rename ({source})"));
-                }
-            }
-            if let Some(error) = current.first_error() {
+        for entry in &workspace.entries {
+            cancel.check()?;
+            if let Some(error) = &entry.error {
                 return Err(format!(
                     "Cannot check rename in {} ({error})",
-                    request.check.entry_path.as_str()
+                    entry.request.check.entry_path.as_str()
                 ));
             }
-            let bindings = bindings(&current);
-            for (source, file) in current.files {
+            for (source, occurrences) in &entry.bindings {
+                cancel.check()?;
+                let (_, text) = &files[source];
                 if (workspace_symbol || source.as_str() == target.source.as_ref())
-                    && editable_source(Path::new(&source), &workspace.editable)
-                {
-                    let occurrences = bindings.get(&source);
-                    if tokenize(&file.text).into_iter().any(|token| {
+                    && editable_source(Path::new(source), &workspace.editable)
+                    && tokenize(text).into_iter().any(|token| {
                         token.kind == TokenKind::Ident
                             && scope.is_none_or(|scope| {
                                 scope.start <= token.span.start && token.span.end <= scope.end
                             })
-                            && &file.text[token.span.start..token.span.end] == old
-                            && !occurrences
-                                .is_some_and(|occurrences| occurrences.contains_key(&token.span))
-                    }) {
-                        return Err(format!("Cannot determine every use of `{old}` in {source}"));
+                            && &text[token.span.start..token.span.end] == old
+                            && !occurrences.contains_key(&token.span)
+                    })
+                {
+                    return Err(format!("Cannot determine every use of `{old}` in {source}"));
+                }
+                for (&span, candidates) in occurrences {
+                    if &text[span.start..span.end] == old && candidates.iter().any(matches_target) {
+                        let is_shorthand = field
+                            && parsed
+                                .entry(source)
+                                .or_insert_with(|| nia_syntax::parse(text, None).ok())
+                                .as_ref()
+                                .is_some_and(|syntax| {
+                                    field_shorthand(syntax.tree.green_root(), span)
+                                });
+                        let (range, replacement) = if is_shorthand {
+                            shorthand.entry(source.clone()).or_default().insert(span);
+                            (Span::new(span.start, span.start), format!("{new_name}: "))
+                        } else {
+                            (span, new_name.to_owned())
+                        };
+                        edits
+                            .entry(source.clone())
+                            .or_default()
+                            .insert(range, replacement);
                     }
                 }
-                if let Some(occurrences) = bindings.get(&source) {
-                    for (&span, candidates) in occurrences {
-                        if &file.text[span.start..span.end] == old
-                            && candidates.iter().any(matches_target)
-                        {
-                            let (range, replacement) = if field && file.field_shorthand(span) {
-                                shorthand.entry(source.clone()).or_default().insert(span);
-                                (Span::new(span.start, span.start), format!("{new_name}: "))
-                            } else {
-                                (span, new_name.to_owned())
-                            };
-                            edits
-                                .entry(source.clone())
-                                .or_default()
-                                .insert(range, replacement);
-                        }
-                    }
-                }
-                files.entry(source).or_insert((file.uri, file.text));
             }
-            snapshots.push((request, bindings));
         }
         if !edits
             .get(target.source.as_ref())
@@ -221,8 +200,9 @@ impl Session {
         {
             return Err("The declaration is outside the checked workspace".to_owned());
         }
-        for (_, snapshot) in &snapshots {
-            for (source, occurrences) in snapshot {
+        for entry in &workspace.entries {
+            cancel.check()?;
+            for (source, occurrences) in &entry.bindings {
                 let Some(spans) = edits.get(source) else {
                     continue;
                 };
@@ -251,6 +231,7 @@ impl Session {
         let mut updated = documents.clone();
         let mut changes = Vec::new();
         for (source, spans) in &edits {
+            cancel.check()?;
             let path = PathBuf::from(source);
             let physical = path.canonicalize().map(|path| normalized(&path));
             if !editable_source(&path, &workspace.editable)
@@ -298,7 +279,7 @@ impl Session {
                     .collect(),
             });
         }
-        for (source, (file_uri, text)) in &files {
+        for (source, (file_uri, text)) in files {
             if let Some(destination) = relocated(source, &moves) {
                 let mut document = updated
                     .iter()
@@ -312,18 +293,27 @@ impl Session {
                 updated.insert(destination, document);
             }
         }
-        self.install_documents(&updated)?;
-        for (request, before) in snapshots {
-            let after = self.analyze_request(request.clone())?;
+        let mut verification = Session::new(self.toolchain.clone());
+        verification.install_documents(&updated)?;
+        for entry in &workspace.entries {
+            cancel.check()?;
+            let request = &entry.request;
+            let after = verification.analyze_request(request.clone())?;
             if let Some(error) = after.first_error() {
                 return Err(format!(
                     "Rename would break {} ({error})",
                     request.check.entry_path.as_str()
                 ));
             }
-            let actual = bindings(&after);
-            let expected =
-                shifted_bindings(before, &edits, &moves, &shorthand, &target, new_name.len());
+            let actual = bindings(&after, cancel)?;
+            let expected = shifted_bindings(
+                entry.bindings.clone(),
+                &edits,
+                &moves,
+                &shorthand,
+                &target,
+                new_name.len(),
+            );
             let workspace_file = |source: &str| {
                 workspace
                     .editable
@@ -348,8 +338,9 @@ impl Session {
         }
         let open: BTreeSet<_> = documents.keys().map(|path| normalized(path)).collect();
         for (source, (_, text)) in files {
-            if !open.contains(&source)
-                && std::fs::read_to_string(&source).ok().as_deref() != Some(&text)
+            cancel.check()?;
+            if !open.contains(source)
+                && std::fs::read_to_string(source).ok().as_deref() != Some(text)
             {
                 return Err(format!("Source changed on disk ({source})"));
             }
@@ -405,6 +396,19 @@ impl Session {
             ))
         }
     }
+}
+
+fn field_shorthand(node: &nia_syntax::GreenNode, span: Span) -> bool {
+    if node.span().start > span.start || span.end > node.span().end {
+        return false;
+    }
+    if matches!(
+        node.kind(),
+        nia_syntax::SyntaxKind::FieldInit | nia_syntax::SyntaxKind::NamedPatternField
+    ) {
+        return node.token_span() == Some(span);
+    }
+    node.child_nodes().any(|child| field_shorthand(child, span))
 }
 
 type Moves = Vec<(PathBuf, PathBuf)>;
@@ -474,33 +478,6 @@ fn editable_source(path: &Path, roots: &BTreeSet<PathBuf>) -> bool {
             .skip(1)
             .take_while(|ancestor| *ancestor != root)
             .all(|ancestor| !ancestor.join("nia.toml").is_file())
-}
-
-fn bindings(analysis: &Analysis) -> Bindings {
-    let mut result = Bindings::new();
-    let sources: HashMap<_, Arc<str>> = analysis
-        .files
-        .keys()
-        .map(|source| (source, source.as_str().into()))
-        .collect();
-    let declaration = |symbol| {
-        let (source, span) = analysis.definitions.get(&symbol)?;
-        Some(Site {
-            source: sources.get(source)?.clone(),
-            span: *span,
-        })
-    };
-    for (source, file) in &analysis.files {
-        let mut occurrences = BTreeMap::<Span, BTreeSet<Binding>>::new();
-        for (span, symbol, alias) in analysis.rename_occurrences(file) {
-            occurrences.entry(span).or_default().insert(Binding {
-                declaration: declaration(symbol),
-                alias: alias.and_then(declaration),
-            });
-        }
-        result.insert(source.clone(), occurrences);
-    }
-    result
 }
 
 fn shifted_bindings(

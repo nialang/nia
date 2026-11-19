@@ -18,6 +18,7 @@ use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_imports::{ModuleGraphSnapshot, ModuleRootSegment};
 use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_sema_ir::{ResolvedCall, SemanticValueUse};
+use nia_source::SourcePath;
 use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
 use nia_syntax::{GreenNode, SyntaxKind};
@@ -30,6 +31,7 @@ use crate::document::{Document, Lines};
 use crate::editing::{MemberCompletion, field_accesses};
 use crate::highlight::{Class, Kind, Resolved};
 use crate::project::{EditorRequest, Projects};
+use crate::workspace::Cancellation;
 
 mod imports;
 mod namespaces;
@@ -58,11 +60,12 @@ pub(crate) fn normalized(path: &Path) -> String {
 }
 
 pub(crate) struct Session {
-    toolchain: Arc<ToolchainLayout>,
+    pub(crate) toolchain: Arc<ToolchainLayout>,
     driver: Driver,
     target_drivers: RefCell<HashMap<(nia_target::TargetConfig, nia_target::CpuLevel), Driver>>,
     overlays: BTreeMap<PathBuf, Arc<str>>,
     pub(crate) projects: Projects,
+    pub(crate) workspace_index: Option<Arc<crate::workspace::WorkspaceIndex>>,
 }
 
 impl Session {
@@ -73,6 +76,7 @@ impl Session {
             toolchain,
             overlays: BTreeMap::new(),
             projects: Projects::default(),
+            workspace_index: None,
         }
     }
 
@@ -81,8 +85,22 @@ impl Session {
         documents: &Documents,
         entry: &Path,
     ) -> Result<Analysis, String> {
+        self.analyze_with_cancel(documents, entry, None)
+    }
+
+    pub(crate) fn analyze_with_cancel(
+        &mut self,
+        documents: &Documents,
+        entry: &Path,
+        cancel: Option<&Cancellation>,
+    ) -> Result<Analysis, String> {
         self.install_documents(documents)?;
-        let analyze = |request| analyze_request(&self.driver, request);
+        let analyze = |request| {
+            if let Some(cancel) = cancel {
+                cancel.check()?;
+            }
+            analyze_request(&self.driver, request)
+        };
         let Some(package) = self.projects.package(entry)? else {
             return analyze(CheckRequest::new(normalized(entry)));
         };
@@ -91,6 +109,9 @@ impl Session {
             let mut configured = package.configured_requests()?;
             configured.sort_by_key(|request| request.check.entry_path.as_str() != entry_path);
             for request in configured {
+                if let Some(cancel) = cancel {
+                    cancel.check()?;
+                }
                 if let Ok(analysis) = analyze_editor_request(
                     &self.driver,
                     &self.target_drivers,
@@ -124,6 +145,7 @@ impl Session {
             .keys()
             .any(|path| !documents.contains_key(path))
         {
+            self.workspace_index = None;
             self.driver = Driver::new(self.toolchain.clone());
             self.target_drivers.get_mut().clear();
             self.overlays.clear();
@@ -133,6 +155,7 @@ impl Session {
             if self.overlays.get(path).is_some_and(|old| old == text) {
                 continue;
             }
+            self.workspace_index = None;
             for driver in
                 std::iter::once(&self.driver).chain(self.target_drivers.get_mut().values())
             {
@@ -218,12 +241,29 @@ fn analyze_editor_request(
 }
 
 fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<(), String> {
-    driver
-        .set_source(normalized(path), text)
-        .map_err(|error| match error {
-            nia_driver::DriverError::InternalDiagnostic(diagnostic) => diagnostic.summary,
-            other => format!("{other:?}"),
-        })
+    let physical = normalized(path);
+    let toolchain = &driver.config().toolchain;
+    let mut paths = vec![SourcePath::new(physical.clone())];
+    for package in [
+        toolchain.std_package(),
+        toolchain.freestanding_runtime_package(),
+    ] {
+        if let Ok(relative) = Path::new(&physical).strip_prefix(normalized(package.directory())) {
+            paths.push(SourcePath::with_identity(
+                physical.clone(),
+                package.identity(&normalized(relative)),
+            ));
+        }
+    }
+    for path in paths {
+        driver
+            .set_source_path(path, text.clone())
+            .map_err(|error| match error {
+                nia_driver::DriverError::InternalDiagnostic(diagnostic) => diagnostic.summary,
+                other => format!("{other:?}"),
+            })?;
+    }
+    Ok(())
 }
 
 fn analyze_request(driver: &Driver, request: CheckRequest) -> Result<Analysis, String> {
@@ -264,23 +304,6 @@ pub(crate) struct File {
 }
 
 impl File {
-    pub(crate) fn field_shorthand(&self, span: Span) -> bool {
-        fn find(node: &GreenNode, span: Span) -> bool {
-            if node.span().start > span.start || span.end > node.span().end {
-                return false;
-            }
-            if matches!(
-                node.kind(),
-                SyntaxKind::FieldInit | SyntaxKind::NamedPatternField
-            ) {
-                return node.token_span() == Some(span);
-            }
-            node.child_nodes().any(|child| find(child, span))
-        }
-        self.syntax()
-            .is_some_and(|syntax| find(syntax.tree.green_root(), span))
-    }
-
     pub(crate) fn syntax(&self) -> Option<&nia_syntax::Parse> {
         self.syntax
             .get_or_init(|| nia_syntax::parse(&self.text, None).ok())
@@ -1378,6 +1401,13 @@ impl Analysis {
             .collect()
     }
 
+    pub(crate) fn reference_symbol(&self, path: &Path, position: Position) -> Option<Symbol> {
+        let file = self.file(path)?;
+        let offset = file.lines.offset(&file.text, position)?;
+        self.rename_symbol_at(file, offset)
+            .map(|(symbol, _)| symbol)
+    }
+
     pub(crate) fn document_highlights(
         &self,
         path: &Path,
@@ -1546,6 +1576,39 @@ mod tests {
     }
 
     #[test]
+    fn editor_overlays_keep_toolchain_and_physical_source_in_sync() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let mut session = test_session();
+        let package = session.toolchain.std_package();
+        let file = package.root_file();
+        let physical = normalized(&file);
+        let logical = SourcePath::with_identity(physical.clone(), package.root_identity());
+        for version in 1..=2 {
+            let text = format!("pub const editorVersion: i32 = {version};");
+            let documents = Documents::from([(
+                file.clone(),
+                OpenDocument {
+                    uri: uri(&file).unwrap(),
+                    document: Document::new(version, text.clone()),
+                },
+            )]);
+            session.install_documents(&documents).unwrap();
+            for path in [SourcePath::new(&physical), logical.clone()] {
+                assert_eq!(
+                    session
+                        .driver
+                        .sources()
+                        .source_for_path(&path)
+                        .unwrap()
+                        .text
+                        .as_ref(),
+                    text
+                );
+            }
+        }
+    }
+
+    #[test]
     fn rename_tracks_nested_import_bindings_and_unsaved_utf16_positions() {
         let _resources = acquire_test_resources(TestWorkload::Compiler);
         let root = test_dir("lsp-rename-imports");
@@ -1606,6 +1669,7 @@ mod tests {
                     versioned: true,
                     resource_rename: false,
                 },
+                &Cancellation::default(),
             )
         };
         for (position, name, positions) in [
@@ -1681,18 +1745,48 @@ mod tests {
         let test = write("app/checks.nia", test_source);
         let documents = Documents::new();
         let analysis = test_session().analyze(&documents, &declaration).unwrap();
-        let rename = |new_name| {
-            test_session().rename(
+        let folders = [root.to_path_buf()];
+        let position = Position::new(0, 9);
+        let cancel = Cancellation::default();
+        let mut session = test_session();
+        let canceled = Cancellation::default();
+        canceled.cancel();
+        assert!(
+            session
+                .workspace_index(&declaration, &documents, &folders, &canceled)
+                .is_err()
+        );
+        let index = session
+            .workspace_index(&declaration, &documents, &folders, &cancel)
+            .unwrap();
+        let references = index
+            .references(&analysis, &declaration, position, false, &cancel)
+            .unwrap();
+        assert_eq!(
+            references
+                .iter()
+                .map(|location| (location.uri.clone(), location.range.start))
+                .collect::<Vec<_>>(),
+            [
+                (uri(&test).unwrap(), Position::new(0, 11)),
+                (uri(&test).unwrap(), Position::new(0, 21)),
+                (uri(&test).unwrap(), Position::new(1, 18)),
+                (uri(&test).unwrap(), Position::new(1, 36)),
+            ]
+        );
+        let mut rename = |new_name| {
+            session.rename(
                 &analysis,
                 &documents,
                 crate::rename::Rename {
                     path: &declaration,
-                    position: Position::new(0, 9),
+                    position,
                     new_name,
-                    folders: &[root.to_path_buf()],
+                    folders: &folders,
                     versioned: false,
                     resource_rename: false,
                 },
+                &cancel,
             )
         };
         let edit = rename("quantity").unwrap();
@@ -1709,6 +1803,28 @@ mod tests {
             [Position::new(0, 11), Position::new(1, 36)]
         );
         assert!(rename("other").is_err());
+        let reused = session
+            .workspace_index(&declaration, &documents, &folders, &cancel)
+            .unwrap();
+        assert!(Arc::ptr_eq(&reused, &index));
+        let changed = Documents::from([(
+            test.clone(),
+            OpenDocument {
+                uri: uri(&test).unwrap(),
+                document: Document::new(2, "fun check() i32 { lib::amount() }\n".into()),
+            },
+        )]);
+        let updated = session
+            .workspace_index(&declaration, &changed, &folders, &cancel)
+            .unwrap();
+        assert!(!Arc::ptr_eq(&updated, &index));
+        assert_eq!(
+            updated
+                .references(&analysis, &declaration, position, false, &cancel)
+                .unwrap()
+                .len(),
+            1
+        );
         assert_eq!(std::fs::read_to_string(&test).unwrap(), test_source);
         assert_eq!(std::fs::read_to_string(&declaration).unwrap(), source);
     }
@@ -1731,10 +1847,11 @@ mod tests {
             versioned: false,
             resource_rename: false,
         };
-        let result = test_session().rename(&analysis, &documents, request("second"));
+        let cancel = Cancellation::default();
+        let result = test_session().rename(&analysis, &documents, request("second"), &cancel);
         assert!(result.unwrap_err().contains("change name resolution"));
         let edit = test_session()
-            .rename(&analysis, &documents, request("value"))
+            .rename(&analysis, &documents, request("value"), &cancel)
             .unwrap();
         assert_eq!(edit.changes.unwrap()[&uri(&entry).unwrap()].len(), 2);
     }

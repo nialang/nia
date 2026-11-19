@@ -62,6 +62,7 @@ fn rename_at(path: &Path, token: &str, new_name: &str) -> Result<lsp_types::Work
             versioned: true,
             resource_rename: true,
         },
+        &Cancellation::default(),
     )
 }
 

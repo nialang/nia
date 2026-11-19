@@ -22,6 +22,7 @@ use crate::{
     document::Document,
     highlight::{self, Resolved},
     rename::Rename,
+    workspace::Cancellation,
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -30,6 +31,7 @@ const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
 const COMPLETION: &str = "textDocument/completion";
 const RENAME: &str = "textDocument/rename";
 const PREPARE_RENAME: &str = "textDocument/prepareRename";
+const REFERENCES: &str = "textDocument/references";
 
 pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error> {
     let (connection, io) = Connection::stdio();
@@ -113,9 +115,15 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         )?;
     }
     let (work_tx, work_rx) = unbounded();
+    let (workspace_tx, workspace_rx) = unbounded();
     let (reply_tx, reply_rx) = unbounded();
-    let worker = thread::spawn(move || analyze(Arc::new(toolchain), work_rx, reply_tx));
-    let result = Server {
+    let toolchain = Arc::new(toolchain);
+    let editor = toolchain.clone();
+    let reply = reply_tx.clone();
+    let worker = thread::spawn(move || analyze(editor, Lane::Editor, work_rx, reply));
+    let workspace_worker =
+        thread::spawn(move || analyze(toolchain, Lane::Workspace, workspace_rx, reply_tx));
+    let mut server = Server {
         hierarchical_symbols,
         fold_limit: folding.range_limit.map(|limit| limit as usize),
         line_folding_only: folding.line_folding_only.unwrap_or_default(),
@@ -124,11 +132,16 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         versioned_edits,
         resource_rename,
         ..Server::default()
-    }
-    .serve(&connection, &work_tx, &reply_rx);
+    };
+    let result = server.serve(&connection, &work_tx, &workspace_tx, &reply_rx);
+    server.cancel_active();
     drop(connection);
     drop(work_tx);
+    drop(workspace_tx);
     worker.join().map_err(|_| "Nia analysis thread panicked")?;
+    workspace_worker
+        .join()
+        .map_err(|_| "Nia workspace thread panicked")?;
     io.join()?;
     result
 }
@@ -142,9 +155,11 @@ struct Work {
     folders: Vec<PathBuf>,
     versioned_edits: bool,
     resource_rename: bool,
+    cancel: Cancellation,
 }
 
 struct Reply {
+    lane: Lane,
     revision: u64,
     path: PathBuf,
     diagnostics: Result<Vec<Diagnostic>, String>,
@@ -152,8 +167,25 @@ struct Reply {
     response: Option<Response>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lane {
+    Editor,
+    Workspace,
+}
+
+impl Lane {
+    fn for_request(request: &Request) -> Self {
+        if matches!(request.method.as_str(), REFERENCES | RENAME) {
+            Self::Workspace
+        } else {
+            Self::Editor
+        }
+    }
+}
+
 fn analyze(
     toolchain: Arc<nia_toolchain::ToolchainLayout>,
+    lane: Lane,
     queue: Receiver<Work>,
     output: Sender<Reply>,
 ) {
@@ -161,31 +193,84 @@ fn analyze(
     let mut completion_probe = None;
     let mut cached = None;
     let mut disk_revision = 0;
+    let mut revision = None;
     for work in queue {
+        if revision != Some(work.revision) {
+            session.workspace_index = None;
+            revision = Some(work.revision);
+        }
         if disk_revision != work.disk_revision {
             session.reload();
             completion_probe = None;
             disk_revision = work.disk_revision;
         }
+        if work.cancel.check().is_err() {
+            let response = work.request.map(|request| {
+                Response::new_err(
+                    request.id,
+                    ErrorCode::RequestCanceled as i32,
+                    "Request canceled".into(),
+                )
+            });
+            if output
+                .send(Reply {
+                    lane,
+                    revision: work.revision,
+                    path: work.path,
+                    diagnostics: Ok(Vec::new()),
+                    highlights: Arc::new(Resolved::new()),
+                    response,
+                })
+                .is_err()
+            {
+                break;
+            }
+            continue;
+        }
         let key = (work.revision, &work.path);
-        if !cached
-            .as_ref()
-            .is_some_and(|(revision, path, _, _)| (*revision, path) == key)
+        let current = if let Some((revision, path, current)) = &cached
+            && (*revision, path) == key
         {
-            let analysis = session.analyze(&work.documents, &work.path);
+            Arc::clone(current)
+        } else {
+            let analysis =
+                session.analyze_with_cancel(&work.documents, &work.path, Some(&work.cancel));
             let highlights = Arc::new(analysis.as_ref().map_or_else(
                 |_| Resolved::new(),
-                |analysis| analysis.semantic_highlights(&work.path),
+                |analysis| {
+                    if lane == Lane::Editor && work.cancel.check().is_ok() {
+                        analysis.semantic_highlights(&work.path)
+                    } else {
+                        Resolved::new()
+                    }
+                },
             ));
-            cached = Some((work.revision, work.path.clone(), analysis, highlights));
-        }
-        let (_, _, analysis, highlights) = cached.as_ref().expect("analysis cache filled");
+            let current = Arc::new((analysis, highlights));
+            if work.cancel.check().is_ok() {
+                cached = Some((work.revision, work.path.clone(), current.clone()));
+            }
+            current
+        };
+        let (analysis, highlights) = current.as_ref();
         let document = &work.documents[&work.path].document;
         let diagnostics = analysis
             .as_ref()
-            .map(|analysis| analysis.diagnostics(&work.path, document))
+            .map(|analysis| {
+                if lane == Lane::Editor {
+                    analysis.diagnostics(&work.path, document)
+                } else {
+                    Vec::new()
+                }
+            })
             .map_err(Clone::clone);
         let response = work.request.map(|request| {
+            if work.cancel.check().is_err() {
+                return Response::new_err(
+                    request.id,
+                    ErrorCode::RequestCanceled as i32,
+                    "Request canceled".into(),
+                );
+            }
             if request.method == SEMANTIC_FULL {
                 return semantic_response(request, document, Some(highlights));
             }
@@ -201,7 +286,7 @@ fn analyze(
                             );
                         }
                     };
-                    let result = Session::new(toolchain.clone()).rename(
+                    let result = session.rename(
                         analysis,
                         &work.documents,
                         Rename {
@@ -212,12 +297,59 @@ fn analyze(
                             versioned: work.versioned_edits,
                             resource_rename: work.resource_rename,
                         },
+                        &work.cancel,
                     );
                     match result {
                         Ok(edit) => Response::new_ok(request.id, edit),
                         Err(error) => {
                             Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
                         }
+                    }
+                }
+                Ok(analysis) if request.method == REFERENCES => {
+                    match decode::<lsp_types::ReferenceParams>(request.params) {
+                        Ok(params) => {
+                            let position = params.text_document_position.position;
+                            let include_declaration = params.context.include_declaration;
+                            if analysis
+                                .reference_symbol(&work.path, position)
+                                .is_none_or(|symbol| !analysis.rename_workspace_symbol(symbol))
+                            {
+                                return Response::new_ok(
+                                    request.id,
+                                    analysis.references(&work.path, position, include_declaration),
+                                );
+                            }
+                            let result = session
+                                .workspace_index(
+                                    &work.path,
+                                    &work.documents,
+                                    &work.folders,
+                                    &work.cancel,
+                                )
+                                .and_then(|index| {
+                                    index.references(
+                                        analysis,
+                                        &work.path,
+                                        position,
+                                        include_declaration,
+                                        &work.cancel,
+                                    )
+                                });
+                            match result {
+                                Ok(references) => Response::new_ok(request.id, references),
+                                Err(error) => Response::new_err(
+                                    request.id,
+                                    ErrorCode::RequestFailed as i32,
+                                    error,
+                                ),
+                            }
+                        }
+                        Err(error) => Response::new_err(
+                            request.id,
+                            ErrorCode::InvalidParams as i32,
+                            error.to_string(),
+                        ),
                     }
                 }
                 Ok(analysis) => query(
@@ -238,6 +370,7 @@ fn analyze(
         });
         if output
             .send(Reply {
+                lane,
                 revision: work.revision,
                 path: work.path,
                 diagnostics,
@@ -284,13 +417,6 @@ fn query(
                 }
             })
         }
-        "textDocument/references" => decode::<lsp_types::ReferenceParams>(params).map(|params| {
-            json!(analysis.references(
-                path,
-                params.text_document_position.position,
-                params.context.include_declaration,
-            ))
-        }),
         "textDocument/documentHighlight" => decode::<lsp_types::TextDocumentPositionParams>(params)
             .map(|params| json!(analysis.document_highlights(path, params.position))),
         PREPARE_RENAME => decode::<lsp_types::TextDocumentPositionParams>(params)
@@ -331,11 +457,15 @@ struct Server {
     documents: Documents,
     dirty: BTreeSet<PathBuf>,
     pending: VecDeque<(PathBuf, u64, Request)>,
-    active: bool,
-    active_request: Option<RequestId>,
-    canceled: bool,
+    editor: Option<Active>,
+    workspace: Option<Active>,
     revision: u64,
     disk_revision: u64,
+}
+
+struct Active {
+    request: Option<RequestId>,
+    cancel: Cancellation,
 }
 
 impl Server {
@@ -343,6 +473,7 @@ impl Server {
         &mut self,
         connection: &Connection,
         work: &Sender<Work>,
+        workspace: &Sender<Work>,
         replies: &Receiver<Reply>,
     ) -> Result<(), Error> {
         let idle = tick(Duration::from_millis(90));
@@ -350,11 +481,14 @@ impl Server {
             select! {
                 recv(connection.receiver) -> message => match message? {
                     Message::Request(request) => {
+                        if request.method == "shutdown" {
+                            self.cancel_active();
+                        }
                         if connection.handle_shutdown(&request)? {
                             break;
                         }
                         self.request(connection, request)?;
-                        self.schedule(connection, work, false)?;
+                        self.schedule(connection, work, workspace, false)?;
                     }
                     Message::Notification(notification) => {
                         if notification.method == "exit" {
@@ -370,10 +504,10 @@ impl Server {
                 },
                 recv(replies) -> reply => {
                     self.reply(connection, reply?)?;
-                    self.schedule(connection, work, false)?;
+                    self.schedule(connection, work, workspace, false)?;
                 },
                 recv(idle) -> _ => {
-                    self.schedule(connection, work, true)?;
+                    self.schedule(connection, work, workspace, true)?;
                     self.refresh_highlights(connection)?;
                 },
             }
@@ -385,7 +519,7 @@ impl Server {
         if !matches!(
             request.method.as_str(),
             "textDocument/definition"
-                | "textDocument/references"
+                | REFERENCES
                 | "textDocument/documentHighlight"
                 | RENAME
                 | PREPARE_RENAME
@@ -543,8 +677,13 @@ impl Server {
             }),
             "$/cancelRequest" => match decode::<Cancel>(notification.params) {
                 Ok(params) => {
-                    if self.active_request.as_ref() == Some(&params.id) {
-                        self.canceled = true;
+                    for active in [&mut self.editor, &mut self.workspace]
+                        .into_iter()
+                        .flatten()
+                    {
+                        if active.request.as_ref() == Some(&params.id) {
+                            active.cancel.cancel();
+                        }
                     }
                     if let Some(index) = self
                         .pending
@@ -574,11 +713,18 @@ impl Server {
     }
 
     fn invalidate(&mut self) {
+        self.cancel_active();
         self.revision += 1;
         self.dirty = self.documents.keys().cloned().collect();
         self.highlights.clear();
         self.syntax_sent.clear();
         self.refresh_needed = false;
+    }
+
+    fn cancel_active(&self) {
+        for active in [&self.editor, &self.workspace].into_iter().flatten() {
+            active.cancel.cancel();
+        }
     }
 
     fn disk_changed(&mut self) {
@@ -603,51 +749,77 @@ impl Server {
     fn schedule(
         &mut self,
         connection: &Connection,
-        worker: &Sender<Work>,
+        editor: &Sender<Work>,
+        workspace: &Sender<Work>,
         diagnostics: bool,
     ) -> Result<(), Error> {
-        if self.active {
-            return Ok(());
-        }
-        let (path, request) = loop {
-            if let Some((path, revision, request)) = self.pending.pop_front() {
-                if revision == self.revision {
-                    break (path, Some(request));
-                }
-                connection.sender.send(
-                    Response::new_err(
-                        request.id,
-                        ErrorCode::ContentModified as i32,
-                        "Document changed before analysis".into(),
-                    )
-                    .into(),
-                )?;
-            } else if diagnostics && let Some(path) = self.dirty.pop_first() {
-                break (path, None);
-            } else {
-                return Ok(());
+        for (lane, active, worker) in [
+            (Lane::Editor, &mut self.editor, editor),
+            (Lane::Workspace, &mut self.workspace, workspace),
+        ] {
+            if active.is_some() {
+                continue;
             }
-        };
-        self.active = true;
-        self.active_request = request.as_ref().map(|request| request.id.clone());
-        worker.send(Work {
-            revision: self.revision,
-            disk_revision: self.disk_revision,
-            documents: self.documents.clone(),
-            path,
-            request,
-            folders: self.folders.clone(),
-            versioned_edits: self.versioned_edits,
-            resource_rename: self.resource_rename,
-        })?;
+            let work = loop {
+                if let Some(index) = self
+                    .pending
+                    .iter()
+                    .position(|(_, _, request)| Lane::for_request(request) == lane)
+                {
+                    let (path, revision, request) =
+                        self.pending.remove(index).expect("pending request");
+                    if revision == self.revision {
+                        break Some((path, Some(request)));
+                    }
+                    connection.sender.send(
+                        Response::new_err(
+                            request.id,
+                            ErrorCode::ContentModified as i32,
+                            "Document changed before analysis".into(),
+                        )
+                        .into(),
+                    )?;
+                } else if diagnostics
+                    && lane == Lane::Editor
+                    && let Some(path) = self.dirty.pop_first()
+                {
+                    break Some((path, None));
+                } else {
+                    break None;
+                }
+            };
+            let Some((path, request)) = work else {
+                continue;
+            };
+            let cancel = Cancellation::default();
+            *active = Some(Active {
+                request: request.as_ref().map(|request| request.id.clone()),
+                cancel: cancel.clone(),
+            });
+            worker.send(Work {
+                revision: self.revision,
+                disk_revision: self.disk_revision,
+                documents: self.documents.clone(),
+                path,
+                request,
+                folders: self.folders.clone(),
+                versioned_edits: self.versioned_edits,
+                resource_rename: self.resource_rename,
+                cancel,
+            })?;
+        }
         Ok(())
     }
 
     fn reply(&mut self, connection: &Connection, reply: Reply) -> Result<(), Error> {
-        self.active = false;
-        self.active_request = None;
-        let canceled = std::mem::take(&mut self.canceled);
-        if reply.revision == self.revision
+        let active = match reply.lane {
+            Lane::Editor => self.editor.take(),
+            Lane::Workspace => self.workspace.take(),
+        };
+        let canceled = active.is_some_and(|active| active.cancel.check().is_err());
+        if reply.lane == Lane::Editor
+            && !canceled
+            && reply.revision == self.revision
             && let Some(open) = self.documents.get(&reply.path)
         {
             self.dirty.remove(&reply.path);
@@ -673,13 +845,13 @@ impl Server {
             )?;
         }
         if let Some(mut response) = reply.response {
-            let code = if canceled {
-                Some((ErrorCode::RequestCanceled, "Request canceled"))
-            } else if reply.revision != self.revision {
+            let code = if reply.revision != self.revision {
                 Some((
                     ErrorCode::ContentModified,
                     "Document changed during analysis",
                 ))
+            } else if canceled {
+                Some((ErrorCode::RequestCanceled, "Request canceled"))
             } else {
                 None
             };
@@ -711,4 +883,60 @@ fn publish(
         .into(),
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_cancellation_leaves_the_editor_lane_available() {
+        let (server_connection, client) = Connection::memory();
+        let (editor, editor_work) = unbounded();
+        let (workspace, workspace_work) = unbounded();
+        let mut server = Server::default();
+        let path = PathBuf::from("root.nia");
+        let references = Request::new(1.into(), REFERENCES.into(), ());
+        server.pending.push_back((path.clone(), 0, references));
+        server
+            .schedule(&server_connection, &editor, &workspace, false)
+            .unwrap();
+        let scanning = workspace_work.try_recv().unwrap();
+
+        server
+            .notification(
+                &server_connection,
+                Notification::new("$/cancelRequest".into(), json!({"id": 1})),
+            )
+            .unwrap();
+        assert!(scanning.cancel.check().is_err());
+        let completion = Request::new(2.into(), COMPLETION.into(), ());
+        server.pending.push_back((path.clone(), 0, completion));
+        server
+            .schedule(&server_connection, &editor, &workspace, false)
+            .unwrap();
+        assert!(editor_work.try_recv().unwrap().cancel.check().is_ok());
+
+        server
+            .reply(
+                &server_connection,
+                Reply {
+                    lane: Lane::Workspace,
+                    revision: 0,
+                    path,
+                    diagnostics: Ok(Vec::new()),
+                    highlights: Arc::default(),
+                    response: Some(Response::new_ok(1.into(), ())),
+                },
+            )
+            .unwrap();
+        let Message::Response(response) = client.receiver.try_recv().unwrap() else {
+            panic!("expected a canceled response");
+        };
+        assert_eq!(
+            response.response_result.unwrap_err().code,
+            ErrorCode::RequestCanceled as i32
+        );
+        assert!(server.editor.is_some());
+    }
 }

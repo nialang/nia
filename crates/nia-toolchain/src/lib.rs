@@ -13,7 +13,11 @@
 use nia_compat::{COMPILER_VERSION, PROTOCOL_EPOCH};
 use nia_query::{FingerprintDomain, QueryFingerprintBuilder};
 use nia_target::{Arch, Os, TargetConfig};
-use std::{fmt, fs, io, io::Read, path::PathBuf};
+use std::{
+    fmt, fs, io,
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 const COMPATIBILITY_IDENTITY_DOMAIN: FingerprintDomain =
     FingerprintDomain::new(nia_compat::identities::TOOLCHAIN_COMPATIBILITY.name);
@@ -341,6 +345,11 @@ impl ToolchainPackage {
     /// Physical root file of the package's module tree.
     pub fn root_file(&self) -> PathBuf {
         self.directory.join(&self.library_path)
+    }
+
+    /// Physical directory containing the package's sources.
+    pub fn directory(&self) -> &Path {
+        &self.directory
     }
 
     /// Relocation-independent identity of a package-relative source path.

@@ -10,7 +10,15 @@ impl Driver {
         path: impl Into<String>,
         text: impl Into<std::sync::Arc<str>>,
     ) -> Result<(), DriverError> {
-        let path = path.into();
+        self.set_source_path(SourcePath::new(path.into()), text)
+    }
+
+    /// Installs or replaces an in-memory source with an explicit logical identity.
+    pub fn set_source_path(
+        &self,
+        path: SourcePath,
+        text: impl Into<std::sync::Arc<str>>,
+    ) -> Result<(), DriverError> {
         let loader = self.loader.lock().map_err(|_| {
             DriverError::InternalDiagnostic(Diagnostic::from(nia_ice::Ice::new(
                 "driver loader state lock is poisoned",
@@ -19,13 +27,13 @@ impl Driver {
         if let Some(loader) = &*loader {
             loader
                 .database
-                .set_source(path, text)
+                .set_source_path(path, text)
                 .map(drop)
                 .map_err(|error| DriverError::InternalDiagnostic(query_error_diagnostic(error)))
         } else {
             drop(loader);
             self.sources
-                .set_source(SourcePath::new(path), text)
+                .set_source(path, text)
                 .map(drop)
                 .map_err(|error| {
                     DriverError::InternalDiagnostic(Diagnostic::from(nia_ice::Ice::new(

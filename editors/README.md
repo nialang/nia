@@ -2,8 +2,8 @@
 
 `nia-lsp` is a Rust language server that uses the compiler's loader and
 semantic queries. Its current editor features are live diagnostics,
-definition navigation, hover at resolved names, references within the current
-analysis graph, occurrence highlighting in the current file, completion for
+definition navigation, hover at resolved names, workspace references,
+occurrence highlighting in the current file, completion for
 local names, module members, receiver fields and methods, signature help for
 source functions and resolved methods,
 document outline, folding, and semantic highlighting. Named field accesses
@@ -48,6 +48,20 @@ files. It rejects edits that would break compilation, change binding, or
 require changing a generated file or a source outside the workspace.
 Generated files are read-only to the LSP and their producer owns changes
 to the generated declarations.
+
+Workspace references and rename share an index for the current document
+revision. Reference results can include resolved sources from entries
+that have diagnostics. Workspace requests run independently of interactive
+analysis and stop at the next cancellation checkpoint when the input changes.
+
+For a repeatable latency sample, run the stdio benchmark with Python 3.9+
+and a release server binary. It reports request round-trip times in
+milliseconds and keeps edits in the editor session.
+
+```sh
+python tools/lsp-latency.py --server target/release/nia-lsp --resource-root lib \
+  --workspace lib/std --source lib/std/collections/array_list/list.nia --symbol ArrayList
+```
 
 Build from the repository root with `cargo build --locked -p nia-lsp`.
 On Windows, use an x64 Developer PowerShell with the configured LLVM

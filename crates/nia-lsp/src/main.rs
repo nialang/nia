@@ -9,6 +9,7 @@ mod project;
 mod rename;
 mod server;
 mod structure;
+mod workspace;
 
 nia_alloc::global_allocator!();
 

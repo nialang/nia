@@ -411,8 +411,17 @@ impl LoaderDatabase {
         path: impl Into<String>,
         text: impl Into<Arc<str>>,
     ) -> QueryResult<SourceFile> {
+        self.set_source_path(SourcePath::new(path.into()), text)
+    }
+
+    /// Replaces source text under an explicit logical source identity.
+    pub fn set_source_path(
+        &self,
+        path: SourcePath,
+        text: impl Into<Arc<str>>,
+    ) -> QueryResult<SourceFile> {
         let text = text.into();
-        self.update_source(SourcePath::new(path.into()), |previous| {
+        self.update_source(path, |previous| {
             let edit = previous.map(|file| source_edits::replacement_edit(&file.text, &text));
             Ok((text, edit))
         })
