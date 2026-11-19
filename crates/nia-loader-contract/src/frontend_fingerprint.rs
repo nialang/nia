@@ -548,7 +548,7 @@ pub fn frontend_module_map_fingerprint(module_map: &ModuleMap) -> FrontendModule
     builder.write_u64(scopes.len() as u64);
     for (prefix, scope) in scopes {
         builder.write_str(prefix);
-        let mut entries = scope.iter().collect::<Vec<_>>();
+        let mut entries = scope.collect::<Vec<_>>();
         entries.sort_unstable_by_key(|(name, _)| name.raw());
         builder.write_u64(entries.len() as u64);
         for (name, path) in entries {

@@ -68,7 +68,7 @@ fn target(analysis: &Analysis, path: &Path, position: Position) -> Result<(Symbo
     Ok((symbol, span))
 }
 
-fn identifier(text: &str) -> bool {
+pub(crate) fn identifier(text: &str) -> bool {
     let tokens = tokenize(text);
     matches!(tokens.as_slice(), [name, eof]
         if name.kind == TokenKind::Ident && name.span == Span::new(0, text.len()) && eof.kind == TokenKind::Eof)

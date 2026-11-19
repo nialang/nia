@@ -137,7 +137,7 @@ impl Session {
         nia_query::with_cancellation(Some(cancel.token()), || {
             let items = analysis.complete(path, position);
             if items.as_ref().is_some_and(Vec::is_empty)
-                && analysis.import_completion(path, position, cancel).is_some()
+                && analysis.may_complete_import(path, position, cancel)
             {
                 return Ok(None);
             }
@@ -259,6 +259,24 @@ impl Session {
         )
     }
 
+    fn analyze_snapshot(
+        &mut self,
+        documents: &Documents,
+        request: &EditorRequest,
+        cancel: &Cancellation,
+        mode: AnalysisMode,
+    ) -> Result<Analysis, String> {
+        self.install_documents(documents)?;
+        analyze_editor_request(
+            &self.driver,
+            &self.target_drivers,
+            &self.overlays,
+            request.clone(),
+            Some(cancel),
+            mode,
+        )
+    }
+
     pub(crate) fn reload(&mut self) {
         *self = Self::new(self.toolchain.clone());
     }
@@ -348,14 +366,19 @@ impl Session {
                 nia_timing::TimingLevel::Summary,
                 "lsp.member_completion_analysis",
                 || {
-                    self.analyze_mode(&overlay, path, Some(cancel), AnalysisMode::Declarations)
-                        .ok()
-                        .and_then(|checked| {
-                            let source = checked.file(path)?;
-                            let receiver = member.receiver(source)?;
-                            checked.receiver_members(source, receiver, &names, cancel)
-                        })
-                        .or(fields)
+                    self.analyze_snapshot(
+                        &overlay,
+                        &analysis.request,
+                        cancel,
+                        AnalysisMode::Declarations,
+                    )
+                    .ok()
+                    .and_then(|checked| {
+                        let source = checked.file(path)?;
+                        let receiver = member.receiver(source)?;
+                        checked.receiver_members(source, receiver, &names, cancel)
+                    })
+                    .or(fields)
                 },
             )
         };
@@ -399,21 +422,16 @@ fn analyze_editor_request(
                 .map_err(|error| error.to_string())?
         }
     };
-    analyze_request(
-        configured,
-        request
-            .check
-            .with_runtime(runtime)
-            .with_profile(context.profile)
-            .with_compilation_mode(match context.mode {
-                nia_build_plan::CompilationMode::Normal => {
-                    nia_target_config::CompilationMode::Normal
-                }
-                nia_build_plan::CompilationMode::Test => nia_target_config::CompilationMode::Test,
-            }),
-        cancel,
-        mode,
-    )
+    let check = request
+        .check
+        .clone()
+        .with_runtime(runtime)
+        .with_profile(context.profile)
+        .with_compilation_mode(match context.mode {
+            nia_build_plan::CompilationMode::Normal => nia_target_config::CompilationMode::Normal,
+            nia_build_plan::CompilationMode::Test => nia_target_config::CompilationMode::Test,
+        });
+    analyze_request(configured, request, check, cancel, mode)
 }
 
 fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<(), String> {
@@ -444,19 +462,21 @@ fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<(), String
 
 fn analyze_request(
     driver: &Driver,
-    request: CheckRequest,
+    request: EditorRequest,
+    check: CheckRequest,
     cancel: Option<&Cancellation>,
     mode: AnalysisMode,
 ) -> Result<Analysis, String> {
     let cancel = cancel.map(Cancellation::token);
-    let request = request.with_timings(crate::timing_mode());
+    let check = check.with_timings(crate::timing_mode());
     let result = match mode {
         AnalysisMode::Full | AnalysisMode::Workspace => {
-            driver.analyze_for_editor(request, cancel, |db, program, loader| {
+            driver.analyze_for_editor(check, cancel, |db, program, loader| {
                 Analysis::from_program(
                     driver,
                     db,
                     ProgramSources {
+                        request,
                         graph: program.graph,
                         modules: program.modules,
                         diagnostics: program.diagnostics,
@@ -467,7 +487,7 @@ fn analyze_request(
                 )
             })
         }
-        AnalysisMode::Declarations => driver.inspect_for_editor(request, cancel, |db, loader| {
+        AnalysisMode::Declarations => driver.inspect_for_editor(check, cancel, |db, loader| {
             nia_timing::time_stage(
                 crate::timing_mode(),
                 nia_timing::TimingLevel::Summary,
@@ -478,6 +498,7 @@ fn analyze_request(
                             driver,
                             db,
                             ProgramSources {
+                                request,
                                 graph: loader.module_graph()?,
                                 modules: Vec::new(),
                                 diagnostics: Vec::new(),
@@ -495,6 +516,7 @@ fn analyze_request(
 }
 
 struct ProgramSources {
+    request: EditorRequest,
     graph: ModuleGraphSnapshot,
     modules: Vec<Arc<CheckedModule>>,
     diagnostics: Vec<ProgramDiagnostic>,
@@ -541,6 +563,7 @@ impl File {
 }
 
 pub(crate) struct Analysis {
+    request: EditorRequest,
     pub(crate) files: BTreeMap<String, File>,
     pub(crate) definitions: HashMap<Symbol, (String, Span)>,
     pub(crate) consulted_sources: Arc<BTreeSet<String>>,
@@ -625,6 +648,7 @@ impl Analysis {
     ) -> nia_query::QueryResult<Self> {
         let checkpoint = || cancel.map_or(Ok(()), nia_query::CancellationToken::check);
         let mut result = Self {
+            request: program.request,
             files: BTreeMap::new(),
             definitions: HashMap::new(),
             consulted_sources: program.consulted_sources,
@@ -3132,7 +3156,7 @@ mod tests {
     }
 
     #[test]
-    fn completion_finds_reexports_through_a_loaded_dependency_alias() {
+    fn completion_finds_reexports_through_declared_dependency_aliases() {
         let _resources = acquire_test_resources(TestWorkload::Compiler);
         let root = test_dir("lsp-completion-dependency");
         let dep = root.join("dep");
@@ -3151,7 +3175,11 @@ mod tests {
             "module units;\npub using root::units::distance as span;\npub struct Marker {}\n",
         )
         .unwrap();
-        std::fs::write(dep.join("units.nia"), "pub fun distance() i32 { 2 }\n").unwrap();
+        std::fs::write(
+            dep.join("units.nia"),
+            "/// Measures a span.\npub fun distance() i32 { 2 }\n",
+        )
+        .unwrap();
         let main = root.join("root.nia");
         let source = "fun run(marker: measure::Marker) i32 { _ = marker; spa() }\n";
         std::fs::write(&main, source).unwrap();
@@ -3180,9 +3208,42 @@ mod tests {
             panic!("expected one dependency import, got {items:?}");
         };
         assert_eq!(item.label, "span");
+        assert_eq!(item.detail.as_deref(), Some("fun distance() i32"));
+        assert_eq!(
+            item.documentation,
+            Some(lsp_types::Documentation::String("Measures a span.".into()))
+        );
         assert_eq!(
             item.additional_text_edits.as_ref().unwrap()[0].new_text,
             "using measure::span;\n\n",
+        );
+
+        let source = "fun run() i32 { spa() }\n";
+        let mut unloaded = documents;
+        unloaded.get_mut(&main).unwrap().document = Document::new(2, source.into());
+        let cursor = Position::new(0, (source.find("spa()").unwrap() + 3) as u32);
+        let full = session.analyze(&unloaded, &main).unwrap();
+        let module = full.file(&main).unwrap().module;
+        assert!(
+            full.graph.package_aliases(module).all(|(alias, _)| {
+                full.db.source_symbol_text(alias).as_deref() != Some("measure")
+            })
+        );
+        let items = probe
+            .complete(&full, &unloaded, &main, cursor, &cancel)
+            .unwrap();
+        let [item] = items.as_slice() else {
+            panic!("expected one dependency import, got {items:?}");
+        };
+        assert_eq!(item.label, "span");
+        assert_eq!(item.detail.as_deref(), Some("fun distance() i32"));
+        assert_eq!(
+            item.documentation,
+            Some(lsp_types::Documentation::String("Measures a span.".into()))
+        );
+        assert_eq!(
+            item.additional_text_edits.as_ref().unwrap()[0].new_text,
+            "using measure::span;\n\n"
         );
     }
 

@@ -126,8 +126,14 @@ pub enum ModuleRootSegment {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 /// Mapping from source package names to module root paths.
 pub struct ModuleMap {
-    entries: SymbolMap<SourcePath>,
-    scopes: std::collections::BTreeMap<String, SymbolMap<SourcePath>>,
+    entries: SymbolMap<ModuleBinding>,
+    scopes: std::collections::BTreeMap<String, SymbolMap<ModuleBinding>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModuleBinding {
+    name: Arc<str>,
+    path: SourcePath,
 }
 
 impl ModuleMap {
@@ -147,15 +153,25 @@ impl ModuleMap {
         if is_compiler_reserved_module_root(&name) {
             return Err(format!("`{name}` is a compiler-reserved module root"));
         }
-        self.entries
-            .insert(module_root_symbol_from_text(&name), path);
+        self.entries.insert(
+            module_root_symbol_from_text(&name),
+            ModuleBinding {
+                name: name.into(),
+                path,
+            },
+        );
         Ok(())
     }
 
     /// Returns a copy with a default standard-library root.
     pub fn with_default_std(&self, std_path: SourcePath) -> Self {
         let mut map = self.clone();
-        map.entries.entry(known::STD).or_insert(std_path);
+        map.entries
+            .entry(known::STD)
+            .or_insert_with(|| ModuleBinding {
+                name: "std".into(),
+                path: std_path,
+            });
         map
     }
 
@@ -168,7 +184,7 @@ impl ModuleMap {
 
     /// Looks up a root by stable symbol identity.
     pub fn get_name(&self, name: &SymbolId) -> Option<&SourcePath> {
-        self.entries.get(name)
+        self.entries.get(name).map(|binding| &binding.path)
     }
 
     /// Reports whether a root identity is present.
@@ -183,7 +199,9 @@ impl ModuleMap {
 
     /// Iterates root identities and source paths.
     pub fn entries(&self) -> impl Iterator<Item = (SymbolId, &SourcePath)> {
-        self.entries.iter().map(|(name, path)| (*name, path))
+        self.entries
+            .iter()
+            .map(|(name, binding)| (*name, &binding.path))
     }
 
     /// Reports whether this map has no roots.
@@ -218,7 +236,13 @@ impl ModuleMap {
                     .to_owned(),
             )
             .or_default()
-            .insert(known::PROGRAM, program);
+            .insert(
+                known::PROGRAM,
+                ModuleBinding {
+                    name: "program".into(),
+                    path: program,
+                },
+            );
         map
     }
 
@@ -236,14 +260,23 @@ impl ModuleMap {
             .scopes
             .entry(directory.normalized_path().trim_end_matches('/').to_owned())
             .or_default();
-        let name = module_root_symbol_from_text(name);
-        if scope.get(&name).is_some_and(|existing| existing != &path) {
+        let symbol = module_root_symbol_from_text(name);
+        if scope
+            .get(&symbol)
+            .is_some_and(|existing| existing.path != path)
+        {
             return Err(
                 "dependency alias resolves to multiple packages in the same package namespace"
                     .to_owned(),
             );
         }
-        scope.insert(name, path);
+        scope.insert(
+            symbol,
+            ModuleBinding {
+                name: name.into(),
+                path,
+            },
+        );
         Ok(())
     }
 
@@ -281,13 +314,25 @@ impl ModuleMap {
             .map(String::as_str)
     }
 
-    fn source_scope(&self, source: &SourcePath) -> Option<&SymbolMap<SourcePath>> {
+    fn source_scope(&self, source: &SourcePath) -> Option<&SymbolMap<ModuleBinding>> {
         self.scopes.get(self.source_scope_key(source)?)
     }
 
     /// Reports whether a source belongs to an explicitly isolated package namespace.
     pub fn has_scope(&self, source: &SourcePath) -> bool {
         self.source_scope(source).is_some()
+    }
+
+    /// Iterates the package aliases declared for this source's namespace.
+    pub fn declared_aliases(
+        &self,
+        source: &SourcePath,
+    ) -> impl Iterator<Item = (SymbolId, &str, &SourcePath)> {
+        self.source_scope(source)
+            .unwrap_or(&self.entries)
+            .iter()
+            .filter(|(symbol, _)| **symbol != known::STD && **symbol != known::PROGRAM)
+            .map(|(symbol, binding)| (*symbol, binding.name.as_ref(), &binding.path))
     }
 
     /// Returns the names visible to one source module, preserving compiler-owned roots.
@@ -309,7 +354,8 @@ impl ModuleMap {
         source: &SourcePath,
         name: SymbolId,
     ) -> Option<(SymbolId, &SourcePath)> {
-        if let Some(path) = self.source_scope(source).and_then(|scope| scope.get(&name)) {
+        if let Some(binding) = self.source_scope(source).and_then(|scope| scope.get(&name)) {
+            let path = &binding.path;
             // The runtime's `program` is the program tree itself, not a
             // separate instance of the same files.
             if name == known::PROGRAM {
@@ -324,20 +370,28 @@ impl ModuleMap {
         if self.has_scope(source) && name != known::STD {
             return None;
         }
-        self.entries.get(&name).map(|path| (name, path))
+        self.get_name(&name).map(|path| (name, path))
     }
 
     /// Iterates package namespaces, including empty namespaces that isolate a package.
-    pub fn scopes(&self) -> impl Iterator<Item = (&str, &SymbolMap<SourcePath>)> {
-        self.scopes
-            .iter()
-            .map(|(prefix, entries)| (prefix.as_str(), entries))
+    pub fn scopes(
+        &self,
+    ) -> impl Iterator<Item = (&str, impl Iterator<Item = (SymbolId, &SourcePath)>)> {
+        self.scopes.iter().map(|(prefix, entries)| {
+            (
+                prefix.as_str(),
+                entries
+                    .iter()
+                    .map(|(symbol, binding)| (*symbol, &binding.path)),
+            )
+        })
     }
 
     /// Iterates all roots for source registration and eager package-root selection.
     pub fn all_entries(&self) -> impl Iterator<Item = (SymbolId, &SourcePath)> {
         self.entries().chain(self.scopes.values().flat_map(|scope| {
-            scope.values().map(|path| {
+            scope.values().map(|binding| {
+                let path = &binding.path;
                 (
                     module_root_symbol_from_text(&format!(
                         "nia.package.instance:{}",

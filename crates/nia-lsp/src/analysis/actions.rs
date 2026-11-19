@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Projects source-owned compiler suggestions onto the current editor snapshot.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionParams, CodeActionTriggerKind, CompletionItem, OneOf,
@@ -12,7 +15,8 @@ use nia_lexer::{TokenKind, tokenize};
 use nia_span::Span;
 
 use super::{
-    Analysis, Documents, File, OpenDocument, Session, VisibleName, editor_diagnostic, normalized,
+    Analysis, AnalysisMode, Documents, File, OpenDocument, Session, VisibleName, editor_diagnostic,
+    normalized,
 };
 use crate::document::{Document, text_workspace_edit};
 use crate::rewrite::{EditOffsets, Edits, preserves_bindings};
@@ -77,11 +81,15 @@ impl Session {
             {
                 continue;
             }
-            let Some(candidates) =
-                analysis.import_candidates(file, |item| item.name.as_ref() == name, cancel)
-            else {
-                continue;
-            };
+            let candidates = self
+                .find_import_candidates(
+                    analysis,
+                    documents,
+                    path,
+                    |item| item.name.as_ref() == name,
+                    cancel,
+                )
+                .unwrap_or_default();
             for candidate in candidates {
                 let Some(import) =
                     self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)
@@ -119,14 +127,17 @@ impl Session {
         cancel: &Cancellation,
     ) -> Option<Vec<CompletionItem>> {
         let file = analysis.file(path)?;
-        let (span, candidates) = nia_query::with_cancellation(Some(cancel.token()), || {
-            Ok(analysis.import_completion(path, position, cancel))
-        })
-        .ok()
-        .flatten()?;
+        let (span, prefix, type_only) = crate::editing::unqualified_completion(file, position)?;
         if analysis.symbol_at_offset(file, span.start).is_some() {
             return None;
         }
+        let candidates = self.find_import_candidates(
+            analysis,
+            documents,
+            path,
+            |item| completion_matches_import(item, prefix, type_only),
+            cancel,
+        )?;
         let range = file.lines.range(&file.text, span);
         let mut items = Vec::new();
         for candidate in candidates {
@@ -145,16 +156,57 @@ impl Session {
                 detail: None,
                 description: Some(candidate.path),
             });
-            if let Some(callable) = candidate
-                .symbol
-                .and_then(|symbol| analysis.callable_declaration(symbol))
-            {
-                callable.describe_completion(&mut item);
-            }
+            item.detail = candidate.signature;
+            item.documentation = candidate
+                .documentation
+                .map(lsp_types::Documentation::String);
             item.additional_text_edits = Some(vec![import]);
             items.push(item);
         }
         Some(items)
+    }
+
+    fn find_import_candidates(
+        &mut self,
+        analysis: &Analysis,
+        documents: &Documents,
+        path: &Path,
+        matches: impl Fn(&VisibleName) -> bool,
+        cancel: &Cancellation,
+    ) -> Option<Vec<ImportCandidate>> {
+        let file = analysis.file(path)?;
+        let mut candidates = analysis.import_candidates(file, &matches, None, cancel)?;
+        let aliases = analysis.unmounted_aliases(file);
+        if aliases.is_empty() {
+            return Some(candidates);
+        }
+        let mut overlay = documents.clone();
+        let open = overlay.get_mut(path)?;
+        let mut text = String::new();
+        for alias in &aliases {
+            text.push_str(&format!("using {alias}::*;\n"));
+        }
+        text.push_str(&file.text);
+        open.document = Document::new(open.document.version, text);
+        if let Ok(discovery) = self.analyze_snapshot(
+            &overlay,
+            &analysis.request,
+            cancel,
+            AnalysisMode::Declarations,
+        ) && let Some(discovered) = discovery
+            .file(path)
+            .and_then(|file| discovery.import_candidates(file, &matches, Some(&aliases), cancel))
+        {
+            candidates.extend(discovered);
+        }
+        candidates.sort_by(|left, right| {
+            (left.path.len(), &left.path).cmp(&(right.path.len(), &right.path))
+        });
+        let mut seen = BTreeSet::new();
+        candidates
+            .retain(|candidate| seen.insert((candidate.target.clone(), candidate.name.clone())));
+        candidates.sort_by(|left, right| left.path.cmp(&right.path));
+        Some(candidates)
     }
 
     fn verified_import_edit(
@@ -188,7 +240,7 @@ impl Session {
         let mut updated = documents.clone();
         updated.get_mut(path)?.document = Document::new(open.document.version, edited);
         let after = self
-            .analyze_with_cancel(&updated, path, Some(cancel))
+            .analyze_snapshot(&updated, &analysis.request, cancel, AnalysisMode::Full)
             .ok()?;
         verified_import(
             analysis,
@@ -208,41 +260,59 @@ pub(super) struct ImportCandidate {
     path: String,
     name: std::sync::Arc<str>,
     kind: Option<nia_defs::DefKind>,
-    symbol: Option<super::Symbol>,
+    signature: Option<String>,
+    documentation: Option<String>,
 }
 
 impl Analysis {
-    pub(super) fn import_completion(
+    pub(super) fn may_complete_import(
         &self,
         path: &Path,
         position: lsp_types::Position,
         cancel: &Cancellation,
-    ) -> Option<(Span, Vec<ImportCandidate>)> {
-        use nia_defs::DefKind;
-        let file = self.file(path)?;
-        let (span, prefix, type_only) = crate::editing::unqualified_completion(file, position)?;
-        let candidates = self.import_candidates(
-            file,
-            |item| {
-                item.name.starts_with(prefix)
-                    && item.kind.is_some_and(|kind| {
-                        if type_only {
-                            matches!(
-                                kind,
-                                DefKind::Struct
-                                    | DefKind::Enum
-                                    | DefKind::Union
-                                    | DefKind::Trait
-                                    | DefKind::TypeAlias
-                            )
-                        } else {
-                            matches!(kind, DefKind::Function | DefKind::Const | DefKind::Global)
-                        }
-                    })
-            },
-            cancel,
-        )?;
-        (!candidates.is_empty()).then_some((span, candidates))
+    ) -> bool {
+        let Some(file) = self.file(path) else {
+            return false;
+        };
+        let Some((_, prefix, type_only)) = crate::editing::unqualified_completion(file, position)
+        else {
+            return false;
+        };
+        !self.unmounted_aliases(file).is_empty()
+            || self
+                .import_candidates(
+                    file,
+                    |item| completion_matches_import(item, prefix, type_only),
+                    None,
+                    cancel,
+                )
+                .is_some_and(|candidates| !candidates.is_empty())
+    }
+
+    fn unmounted_aliases(&self, file: &File) -> BTreeSet<String> {
+        let Some(module) = self.graph.get(file.module) else {
+            return BTreeSet::new();
+        };
+        let mounted: BTreeSet<_> = self
+            .graph
+            .package_aliases(file.module)
+            .map(|(alias, _)| alias)
+            .collect();
+        let owner = self
+            .graph
+            .current_package_root(file.module)
+            .and_then(|id| self.graph.get(id));
+        self.request
+            .check
+            .module_map
+            .declared_aliases(&module.path)
+            .filter(|(alias, name, root)| {
+                !mounted.contains(alias)
+                    && owner.is_none_or(|owner| root.identity_ref() != owner.path.identity_ref())
+                    && crate::rename::identifier(name)
+            })
+            .map(|(_, name, _)| name.to_owned())
+            .collect()
     }
 
     fn code_actions(
@@ -309,6 +379,7 @@ impl Analysis {
         &self,
         file: &File,
         matches: impl Fn(&VisibleName) -> bool,
+        aliases: Option<&BTreeSet<String>>,
         cancel: &Cancellation,
     ) -> Option<Vec<ImportCandidate>> {
         let imports = self.db.source_imports(file.module, 0).ok()?;
@@ -377,6 +448,9 @@ impl Analysis {
         let mut found = BTreeMap::<_, ImportCandidate>::new();
         for (path, module) in paths {
             cancel.check().ok()?;
+            if aliases.is_some_and(|aliases| !aliases.contains(&path[0])) {
+                continue;
+            }
             let available = self.namespace_names(file.module, module).ok()?;
             for item in available.into_iter().filter(&matches) {
                 let Some(target) = item.symbol.and_then(|symbol| symbol_site(self, symbol)) else {
@@ -389,6 +463,9 @@ impl Analysis {
                         current.path = import;
                     }
                 } else {
+                    let callable = item
+                        .symbol
+                        .and_then(|symbol| self.callable_declaration(symbol));
                     found.insert(
                         key,
                         ImportCandidate {
@@ -396,7 +473,10 @@ impl Analysis {
                             path: import,
                             name: item.name,
                             kind: item.kind,
-                            symbol: item.symbol,
+                            signature: callable
+                                .as_ref()
+                                .map(|callable| callable.signature.to_owned()),
+                            documentation: callable.and_then(|callable| callable.documentation),
                         },
                     );
                 }
@@ -406,6 +486,25 @@ impl Analysis {
         candidates.sort_by(|left, right| left.path.cmp(&right.path));
         Some(candidates)
     }
+}
+
+fn completion_matches_import(item: &VisibleName, prefix: &str, type_only: bool) -> bool {
+    use nia_defs::DefKind;
+    item.name.starts_with(prefix)
+        && item.kind.is_some_and(|kind| {
+            if type_only {
+                matches!(
+                    kind,
+                    DefKind::Struct
+                        | DefKind::Enum
+                        | DefKind::Union
+                        | DefKind::Trait
+                        | DefKind::TypeAlias
+                )
+            } else {
+                matches!(kind, DefKind::Function | DefKind::Const | DefKind::Global)
+            }
+        })
 }
 
 fn requests_quick_fixes(params: &CodeActionParams) -> bool {
