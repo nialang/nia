@@ -155,7 +155,11 @@ pub(super) fn settle_provider_worklist<T>(
                 let demands = nia_timing::time_query(
                     timings,
                     &format!("executable_provider_demands.round_{rounds}"),
-                    || database.executable_provider_demands(),
+                    || {
+                        nia_query::with_cancellation(cancel, || {
+                            database.executable_provider_demands()
+                        })
+                    },
                 )?;
                 checkpoint()?;
                 emit_provider_demand_batch(database.db.context().timings(), rounds, &demands);
@@ -173,7 +177,7 @@ pub(super) fn settle_provider_worklist<T>(
                     continue;
                 }
             }
-            let output = compile(database)?;
+            let output = nia_query::with_cancellation(cancel, || compile(database))?;
             checkpoint()?;
             match database.update_provider_demands_with_telemetry(
                 rounds,

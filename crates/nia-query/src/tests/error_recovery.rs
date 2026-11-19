@@ -1,6 +1,70 @@
 use super::*;
 use std::time::{Duration, Instant};
 
+struct CancellableProvider {
+    token: CancellationToken,
+    runs: AtomicUsize,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct CachedWhileCanceling;
+
+impl QueryKey<CancellableProvider> for CachedWhileCanceling {
+    type Value = usize;
+
+    fn name() -> &'static str {
+        "cached_while_canceling"
+    }
+
+    fn execute_result(&self, db: &QueryDb<CancellableProvider>) -> QueryResult<Self::Value> {
+        if db.context().runs.fetch_add(1, Ordering::Relaxed) == 0 {
+            db.context().token.cancel();
+            // A speculative provider can handle child failures and return a fallback.
+            return Ok(db.get(Self).map_or(99, |value| *value));
+        }
+        Ok(7)
+    }
+}
+
+#[test]
+fn cancellation_discards_fallback_results_and_leaves_cache_retryable() {
+    let token = CancellationToken::default();
+    let db = QueryDb::new(CancellableProvider {
+        token: token.clone(),
+        runs: AtomicUsize::new(0),
+    })
+    .unwrap();
+    assert_eq!(
+        with_cancellation(Some(&token), || db.get(CachedWhileCanceling)),
+        Err(QueryError::Canceled),
+    );
+    assert_eq!(*db.get(CachedWhileCanceling).unwrap(), 7);
+    assert_eq!(db.context().runs.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn query_workers_observe_the_submitting_requests_token() {
+    let token = CancellationToken::default();
+    let db = QueryDb::new(CancellableProvider {
+        token: token.clone(),
+        runs: AtomicUsize::new(1),
+    })
+    .unwrap();
+    let tasks = (0..4).map(|_| {
+        let token = token.clone();
+        move |db: QueryDb<CancellableProvider>| {
+            token.cancel();
+            db.get(CachedWhileCanceling)
+        }
+    });
+    assert_eq!(
+        with_cancellation(Some(&token), || db.map_tasks(tasks)),
+        Err(QueryError::Canceled),
+    );
+    assert_eq!(db.context().runs.load(Ordering::Relaxed), 1);
+    assert_eq!(*db.get(CachedWhileCanceling).unwrap(), 7);
+}
+
 fn assert_wait_graph_released(nodes: impl IntoIterator<Item = QueryNodeId>) {
     let wait_graph = query_wait_graph().lock();
     for node in nodes {

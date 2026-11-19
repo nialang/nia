@@ -248,6 +248,7 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
+        cancellation_checkpoint()?;
         self.inner.session.inner.ensure_healthy()?;
         if K::STORAGE != QueryStoragePolicy::SingleConsumerOwned {
             return Err(Self::internal_query_error(
@@ -270,6 +271,7 @@ impl<C> QueryDb<C> {
             record_dependency_on_current_stack(self.inner.session.inner.id, node_id)
         });
         loop {
+            cancellation_checkpoint()?;
             let mut state = slot.state.lock();
             match &*state {
                 QueryState::Published { .. } => {
@@ -319,7 +321,10 @@ impl<C> QueryDb<C> {
                             nia_timing::time_detail(
                                 detail_timing,
                                 &format!("query.provider.{}", K::name()),
-                                || key.execute_result(self),
+                                || {
+                                    let result = key.execute_result(self);
+                                    cancellation_checkpoint().and(result)
+                                },
                             )
                         }) {
                             Ok(value) => value,
@@ -542,6 +547,7 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
+        cancellation_checkpoint()?;
         if K::STORAGE != QueryStoragePolicy::CacheOwnedArc {
             return Err(Self::internal_query_error(
                 &key,
@@ -558,6 +564,7 @@ impl<C> QueryDb<C> {
         });
         let mut stale_value = None;
         loop {
+            cancellation_checkpoint()?;
             let mut state = slot.state.lock();
             match &*state {
                 QueryState::Published { .. } => {
@@ -730,7 +737,10 @@ impl<C> QueryDb<C> {
                             nia_timing::time_detail(
                                 detail_timing,
                                 &format!("query.provider.{}", K::name()),
-                                || key.execute_result(self),
+                                || {
+                                    let result = key.execute_result(self);
+                                    cancellation_checkpoint().and(result)
+                                },
                             )
                         }) {
                             Ok(value) => value,

@@ -167,6 +167,7 @@ impl QuerySession {
         let batch_id = Arc::as_ptr(&batch) as usize;
         let executor = &self.inner.executor;
         let executor_shared = Arc::clone(&executor.shared);
+        let cancellation = QUERY_CANCELLATION.with_borrow(Clone::clone);
         let tasks = tasks
             .into_iter()
             .enumerate()
@@ -174,9 +175,11 @@ impl QuerySession {
                 let batch = Arc::clone(&batch);
                 let executor_shared = Arc::clone(&executor_shared);
                 let session = Arc::clone(&self.inner);
+                let cancellation = cancellation.clone();
                 QueryTask {
                     batch: batch_id,
                     settle: Box::new(move |failure| {
+                        let _scope = CancellationScope::install(cancellation);
                         let outcome = match failure {
                             Some(ice) => Err(session.record_failure(ice)),
                             None => session
@@ -217,6 +220,7 @@ impl QuerySession {
         let batch_id = Arc::as_ptr(&batch) as usize;
         let executor = &self.inner.executor;
         let executor_shared = Arc::clone(&executor.shared);
+        let cancellation = QUERY_CANCELLATION.with_borrow(Clone::clone);
         let tasks = tasks
             .into_iter()
             .enumerate()
@@ -224,9 +228,11 @@ impl QuerySession {
                 let batch = Arc::clone(&batch);
                 let executor_shared = Arc::clone(&executor_shared);
                 let session = Arc::clone(&self.inner);
+                let cancellation = cancellation.clone();
                 QueryTask {
                     batch: batch_id,
                     settle: Box::new(move |failure| {
+                        let _scope = CancellationScope::install(cancellation);
                         let outcome = match failure {
                             Some(ice) => Err(session.record_failure(ice)),
                             None => session

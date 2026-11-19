@@ -846,6 +846,37 @@ impl CancellationToken {
     }
 }
 
+/// Runs a query operation with cancellable cache access on this thread and its
+/// query workers. Callers should keep state-changing transactions outside the scope.
+pub fn with_cancellation<T>(
+    token: Option<&CancellationToken>,
+    execute: impl FnOnce() -> QueryResult<T>,
+) -> QueryResult<T> {
+    let _scope = token.map(|token| CancellationScope::install(Some(token.clone())));
+    cancellation_checkpoint()?;
+    let result = execute()?;
+    cancellation_checkpoint()?;
+    Ok(result)
+}
+
+struct CancellationScope(Option<CancellationToken>);
+
+impl CancellationScope {
+    fn install(token: Option<CancellationToken>) -> Self {
+        Self(QUERY_CANCELLATION.replace(token))
+    }
+}
+
+impl Drop for CancellationScope {
+    fn drop(&mut self) {
+        QUERY_CANCELLATION.replace(self.0.take());
+    }
+}
+
+fn cancellation_checkpoint() -> QueryResult<()> {
+    QUERY_CANCELLATION.with_borrow(|token| token.as_ref().map_or(Ok(()), CancellationToken::check))
+}
+
 /// Recoverable failure reported while executing or accessing a query.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryError {
@@ -1029,6 +1060,7 @@ impl<O> QueryCompletionStream<'_, '_, O> {
 }
 
 thread_local! {
+    static QUERY_CANCELLATION: RefCell<Option<CancellationToken>> = const { RefCell::new(None) };
     static QUERY_STACK: RefCell<Vec<QueryStackEntry>> = const { RefCell::new(Vec::new()) };
     static QUERY_EXECUTOR_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     static QUERY_EXECUTION_BUDGET_STACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };

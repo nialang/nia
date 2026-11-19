@@ -11,7 +11,7 @@ from queue import Queue
 import statistics
 import subprocess
 import threading
-from time import perf_counter
+from time import perf_counter, sleep
 
 
 class Client:
@@ -112,7 +112,7 @@ def position(text, symbol):
     return dict(line=head.count("\n"), character=len(line.encode("utf-16-le")) // 2)
 
 
-def benchmark(client, source, root, symbol, repeat, replacement=None):
+def benchmark(client, source, root, symbol, repeat, replacement=None, cancel_delay_ms=0):
     initialize = client.measure("initialize", {
         "processId": None,
         "rootUri": root.as_uri(),
@@ -200,10 +200,14 @@ def benchmark(client, source, root, symbol, repeat, replacement=None):
         semantic.append(1000 * (perf_counter() - started))
 
         request = client.request("textDocument/references", dict(**cursor, context=references["context"]))
+        if cancel_delay_ms:
+            sleep(cancel_delay_ms / 1000)
+        cancel_sent = perf_counter()
         client.notify("$/cancelRequest", {"id": request})
+        started_request = client.started[request]
         elapsed, response = client.wait(request)
         if response.get("error", {}).get("code") == -32800:
-            canceled.append(elapsed)
+            canceled.append(max(0, elapsed - 1000 * (cancel_sent - started_request)))
         elif "error" not in response:
             completed_before_cancel += 1
         else:
@@ -277,15 +281,22 @@ def main():
     parser.add_argument("--configuration", help="target and build settings used for the sample")
     parser.add_argument("--replace", nargs=2, metavar=("OLD", "NEW"),
                         help="alternate one exact source replacement with the original text")
+    parser.add_argument("--cancel-delay-ms", type=float, default=0,
+                        help="wait this long after sending a reference request before canceling it")
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be positive")
+    if not math.isfinite(args.cancel_delay_ms) or args.cancel_delay_ms < 0:
+        parser.error("--cancel-delay-ms must be finite and nonnegative")
     source = args.source.resolve()
     root = args.workspace.resolve() if args.workspace else source.parent
     command = [str(args.server.resolve()), "--resource-root", str(args.resource_root.resolve())]
     with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
         try:
-            report = benchmark(Client(process, args.timeout), source, root, args.symbol, args.repeat, args.replace)
+            report = benchmark(
+                Client(process, args.timeout), source, root, args.symbol, args.repeat,
+                args.replace, args.cancel_delay_ms,
+            )
             process.stdin.close()
             process.wait(timeout=args.timeout)
             if process.returncode:
@@ -306,6 +317,7 @@ def main():
         revision=args.revision,
         configuration=args.configuration,
         replacement=args.replace,
+        cancel_delay_ms=args.cancel_delay_ms,
     )
     print(json.dumps(report, indent=2))
 
