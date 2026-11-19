@@ -566,11 +566,12 @@ fn file_rename_updates_the_live_module_declaration_and_imports() {
         "[package]\nname = \"example\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
     )
     .unwrap();
-    let source = "module outer;\nfun use_it() i32 { outer::inner::value() }\n";
+    let source = "module outer;\nfun use_it() i32 { outer::inner::value() + other::value() }\nmodule other;\n";
     std::fs::write(&entry, source).unwrap();
     std::fs::create_dir(root.join("outer")).unwrap();
     std::fs::write(root.join("outer.nia"), "pub module inner;\n").unwrap();
     std::fs::write(root.join("outer/inner.nia"), "pub fun value() i32 { 2 }\n").unwrap();
+    std::fs::write(root.join("other.nia"), "pub fun value() i32 { 3 }\n").unwrap();
     let entry_uri = uri(&entry).unwrap();
     let documents = Documents::from([(
         entry,
@@ -641,6 +642,39 @@ fn file_rename_updates_the_live_module_declaration_and_imports() {
         .unwrap()
         .unwrap();
     assert_eq!(edit.changes.unwrap()[&entry_uri].len(), 2);
+    let batch = [
+        file.clone(),
+        directory.clone(),
+        rename("other.nia", "renamed.nia"),
+    ];
+    let edit = request(batch.to_vec(), true).unwrap().unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
+        panic!("expected a single set of versioned text edits");
+    };
+    let [edit] = edits.as_slice() else {
+        panic!("expected one edited document");
+    };
+    assert_eq!(edit.text_document.version, Some(7));
+    assert_eq!(
+        edit.edits
+            .iter()
+            .map(|edit| match edit {
+                lsp_types::OneOf::Left(edit) => (edit.range.start.line, edit.new_text.as_str()),
+                _ => panic!("expected a plain text edit"),
+            })
+            .collect::<Vec<_>>(),
+        [(1, "moved"), (2, "moved"), (2, "renamed"), (3, "renamed")]
+    );
+    let shared_destination = vec![
+        file.clone(),
+        directory.clone(),
+        rename("other.nia", "moved.nia"),
+    ];
+    assert!(
+        request(shared_destination, false)
+            .unwrap_err()
+            .contains("Overlapping module moves")
+    );
     let case_only = request(
         vec![rename("outer.nia", "Outer.nia"), rename("outer", "Outer")],
         false,
