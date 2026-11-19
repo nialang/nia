@@ -258,6 +258,13 @@ struct Publication {
     highlights: Arc<Resolved>,
 }
 
+struct CurrentAnalysis {
+    revision: u64,
+    path: PathBuf,
+    analysis: Result<Arc<Analysis>, String>,
+    highlights: Arc<Resolved>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Lane {
     Editor,
@@ -291,7 +298,7 @@ fn analyze(
 ) {
     let mut session = Session::new(toolchain.clone());
     let mut completion_probe = None;
-    let mut cached = None;
+    let mut cached: Option<Arc<CurrentAnalysis>> = None;
     for message in queue {
         let WorkerMessage::Analyze(mut work) = message else {
             cached = None;
@@ -356,9 +363,10 @@ fn analyze(
             }
             continue;
         }
-        if !cached
+        let cached_for_path = cached
             .as_ref()
-            .is_some_and(|(revision, path, _)| (*revision, path) == (work.revision, &work.path))
+            .filter(|cached| cached.revision == work.revision && cached.path == work.path);
+        if cached_for_path.is_none()
             && let Some(response) =
                 complete_declarations(&mut session, &mut completion_probe, &mut work)
         {
@@ -377,14 +385,19 @@ fn analyze(
             }
             continue;
         }
-        let key = (work.revision, &work.path);
-        let current = if let Some((revision, path, current)) = &cached
-            && (*revision, path) == key
-        {
+        let current = if let Some(current) = cached_for_path {
             Arc::clone(current)
         } else {
-            let analysis =
-                session.analyze_with_cancel(&work.documents, &work.path, Some(&work.cancel));
+            let previous = cached
+                .as_ref()
+                .filter(|cached| lane == Lane::Editor && cached.revision == work.revision)
+                .and_then(|cached| cached.analysis.as_ref().ok());
+            let analysis = session.analyze_editor_snapshot(
+                &work.documents,
+                &work.path,
+                &work.cancel,
+                previous,
+            );
             let highlights = Arc::new(analysis.as_ref().map_or_else(
                 |_| Resolved::new(),
                 |analysis| {
@@ -395,13 +408,22 @@ fn analyze(
                     }
                 },
             ));
-            let current = Arc::new((analysis, highlights));
+            let current = Arc::new(CurrentAnalysis {
+                revision: work.revision,
+                path: work.path.clone(),
+                analysis,
+                highlights,
+            });
             if work.cancel.check().is_ok() {
-                cached = Some((work.revision, work.path.clone(), current.clone()));
+                cached = Some(current.clone());
             }
             current
         };
-        let (analysis, highlights) = current.as_ref();
+        let CurrentAnalysis {
+            analysis,
+            highlights,
+            ..
+        } = current.as_ref();
         let document = &work.documents[&work.path].document;
         let publication = (lane == Lane::Editor).then(|| Publication {
             diagnostics: analysis

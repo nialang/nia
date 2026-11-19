@@ -113,7 +113,7 @@ impl Session {
         &mut self,
         documents: &Documents,
         entry: &Path,
-    ) -> Result<Analysis, String> {
+    ) -> Result<Arc<Analysis>, String> {
         self.analyze_with_cancel(documents, entry, None)
     }
 
@@ -122,8 +122,18 @@ impl Session {
         documents: &Documents,
         entry: &Path,
         cancel: Option<&Cancellation>,
-    ) -> Result<Analysis, String> {
-        self.analyze_mode(documents, entry, cancel, AnalysisMode::Full)
+    ) -> Result<Arc<Analysis>, String> {
+        self.analyze_mode(documents, entry, cancel, AnalysisMode::Full, None)
+    }
+
+    pub(crate) fn analyze_editor_snapshot(
+        &mut self,
+        documents: &Documents,
+        entry: &Path,
+        cancel: &Cancellation,
+        previous: Option<&Arc<Analysis>>,
+    ) -> Result<Arc<Analysis>, String> {
+        self.analyze_mode(documents, entry, Some(cancel), AnalysisMode::Full, previous)
     }
 
     pub(crate) fn complete_names(
@@ -133,8 +143,13 @@ impl Session {
         position: Position,
         cancel: &Cancellation,
     ) -> Result<Option<Vec<lsp_types::CompletionItem>>, String> {
-        let analysis =
-            self.analyze_mode(documents, path, Some(cancel), AnalysisMode::Declarations)?;
+        let analysis = self.analyze_mode(
+            documents,
+            path,
+            Some(cancel),
+            AnalysisMode::Declarations,
+            None,
+        )?;
         nia_query::with_cancellation(Some(cancel.token()), || {
             let items = analysis.complete(path, position);
             if items.as_ref().is_some_and(Vec::is_empty)
@@ -159,7 +174,13 @@ impl Session {
         overlay.get_mut(path)?.document =
             Document::new(document.version, member.probe(&document.text));
         let analysis = self
-            .analyze_mode(&overlay, path, Some(cancel), AnalysisMode::Declarations)
+            .analyze_mode(
+                &overlay,
+                path,
+                Some(cancel),
+                AnalysisMode::Declarations,
+                None,
+            )
             .ok()?;
         let file = analysis.file(path)?;
         let items = nia_timing::time_stage(
@@ -182,7 +203,8 @@ impl Session {
         entry: &Path,
         cancel: Option<&Cancellation>,
         mode: AnalysisMode,
-    ) -> Result<Analysis, String> {
+        mut previous: Option<&Arc<Analysis>>,
+    ) -> Result<Arc<Analysis>, String> {
         if let Some(cancel) = cancel {
             cancel.check()?;
         }
@@ -192,9 +214,21 @@ impl Session {
             "lsp.install_sources",
             || self.install_documents(documents),
         )?;
-        let analyze = |request| {
+        let mut analyze = |request, warning: Option<&str>| {
             if let Some(cancel) = cancel {
                 cancel.check()?;
+            }
+            // The worker only offers an analysis from this source revision.
+            // Reuse it after the normal entry selection reaches its exact
+            // compilation request. A different request may update the DB.
+            if let Some(previous) = previous.take()
+                && previous.request == request
+                && previous.configuration_warning.as_deref() == warning
+            {
+                if crate::timing_mode().enabled() {
+                    nia_timing::emit_counter("lsp.editor_entries_reused", 1);
+                }
+                return Ok(Arc::clone(previous));
             }
             analyze_editor_request(
                 &self.driver,
@@ -204,9 +238,13 @@ impl Session {
                 cancel,
                 mode,
             )
+            .map(|mut analysis| {
+                analysis.configuration_warning = warning.map(str::to_owned);
+                Arc::new(analysis)
+            })
         };
         let Some(package) = self.projects.package(entry)? else {
-            return analyze(EditorRequest::standalone(entry, &self.toolchain));
+            return analyze(EditorRequest::standalone(entry, &self.toolchain), None);
         };
         let entry_path = normalized(entry);
         let (mut configured, configuration_warning) = match package
@@ -222,7 +260,7 @@ impl Session {
         };
         configured.sort_by_key(|request| request.check.entry_path.as_str() != entry_path);
         for request in configured {
-            if let Ok(analysis) = analyze(request)
+            if let Ok(analysis) = analyze(request, None)
                 && analysis.files.contains_key(&entry_path)
             {
                 return Ok(analysis);
@@ -233,16 +271,13 @@ impl Session {
         while let Some((path, context)) = entries.next() {
             let analysis = package
                 .editor_request(&path, context, &self.toolchain)
-                .and_then(analyze);
+                .and_then(|request| analyze(request, configuration_warning.as_deref()));
             if entries.peek().is_none()
                 || analysis
                     .as_ref()
                     .is_ok_and(|analysis| analysis.files.contains_key(&entry_path))
             {
-                return analysis.map(|mut analysis| {
-                    analysis.configuration_warning = configuration_warning;
-                    analysis
-                });
+                return analysis;
             }
         }
         unreachable!("editor requests always include the current source")
@@ -2219,6 +2254,62 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn editor_analysis_reuses_an_entry_across_its_open_source_files() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-editor-entry-reuse");
+        let entry = root.join("root.nia");
+        let child = root.join("child.nia");
+        let example = root.join("example.nia");
+        std::fs::write(
+            root.join("nia.toml"),
+            concat!(
+                "[package]\nname = \"fixture\"\nversion = \"1.0.0\"\n",
+                "[library]\npath = \"root.nia\"\n",
+                "[[executable]]\nname = \"example\"\npath = \"example.nia\"\n",
+            ),
+        )
+        .unwrap();
+        let documents = [
+            (
+                &entry,
+                "module child;\npub fun read() i32 { child::value() }\n",
+            ),
+            (&child, "pub fun value() i32 { 42 }\n"),
+            (&example, "fun main() i32 { 0 }\n"),
+        ]
+        .into_iter()
+        .map(|(path, text)| {
+            std::fs::write(path, text).unwrap();
+            (
+                path.clone(),
+                OpenDocument {
+                    uri: uri(path).unwrap(),
+                    document: Document::new(1, text.into()),
+                },
+            )
+        })
+        .collect();
+        let mut session = test_session();
+        let cancel = Cancellation::default();
+        let parent = session
+            .analyze_editor_snapshot(&documents, &entry, &cancel, None)
+            .unwrap();
+        let nested = session
+            .analyze_editor_snapshot(&documents, &child, &cancel, Some(&parent))
+            .unwrap();
+        assert!(Arc::ptr_eq(&parent, &nested));
+        assert_eq!(nested.first_error(), None);
+        let other = session
+            .analyze_editor_snapshot(&documents, &example, &cancel, Some(&nested))
+            .unwrap();
+        assert!(!Arc::ptr_eq(&nested, &other));
+        assert_eq!(
+            other.request.check.entry_path.as_str(),
+            normalized(&example)
+        );
     }
 
     #[test]
