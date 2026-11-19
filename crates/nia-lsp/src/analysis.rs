@@ -417,6 +417,20 @@ impl Session {
     }
 
     pub(crate) fn reload_changed_sources(&mut self, paths: &BTreeSet<PathBuf>) {
+        if paths.iter().all(|path| {
+            self.overlays.get(path).is_some_and(|text| {
+                nia_source::read_source_text(path).is_ok_and(|disk| disk == **text)
+            })
+        }) {
+            // Saving an installed buffer leaves the compiler's source revision
+            // intact. Re-read plans because configuration can observe that file.
+            self.projects = Projects::default();
+            if self.workspace_index.is_some() {
+                self.changed_disk_sources
+                    .extend(paths.iter().map(|path| normalized(path)));
+            }
+            return;
+        }
         let index = self.workspace_index.take();
         let mut changed = std::mem::take(&mut self.changed_disk_sources);
         changed.extend(paths.iter().map(|path| normalized(path)));
@@ -2526,6 +2540,42 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn saving_an_installed_overlay_keeps_its_analysis() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let path = test_dir("lsp-save-overlay").join("root.nia");
+        let mut session = test_session();
+        let cancel = Cancellation::default();
+        let source = "pub fun value() i32 { 2 }\n";
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "pub fun value() i32 { 1 }\n").unwrap();
+        let documents = Documents::from([(
+            path.clone(),
+            OpenDocument {
+                uri: uri(&path).unwrap(),
+                document: Document::new(1, source.into()),
+            },
+        )]);
+        let before = session
+            .analyze_editor_snapshot(&documents, &path, &cancel, None)
+            .unwrap();
+        let revision = session.source_revision();
+        std::fs::write(&path, source).unwrap();
+        session.reload_changed_sources(&BTreeSet::from([path.clone()]));
+        let saved = session
+            .analyze_editor_snapshot(&documents, &path, &cancel, Some((revision, &before)))
+            .unwrap();
+        assert!(Arc::ptr_eq(&before, &saved));
+
+        std::fs::write(&path, "pub fun diskValue() i32 { 3 }\n").unwrap();
+        session.reload_changed_sources(&BTreeSet::from([path.clone()]));
+        let closed = session.analyze(&Documents::new(), &path).unwrap();
+        assert_eq!(
+            closed.file(&path).unwrap().text.as_ref(),
+            "pub fun diskValue() i32 { 3 }\n"
+        );
     }
 
     #[test]

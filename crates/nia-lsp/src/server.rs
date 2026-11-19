@@ -310,13 +310,19 @@ fn analyze(
             nia_alloc::collect_unused();
             continue;
         };
-        let changes = std::mem::take(&mut work.disk_changes);
-        if !matches!(changes, DiskChanges::None) {
-            cached = None;
-            completion_probe = None;
-            if let DiskChanges::Sources(paths) = changes {
+        match std::mem::take(&mut work.disk_changes) {
+            DiskChanges::None => {}
+            DiskChanges::Sources(paths) => {
+                let revision = session.source_revision();
                 session.reload_changed_sources(&paths);
-            } else {
+                if session.source_revision() != revision {
+                    cached = None;
+                }
+                completion_probe = None;
+            }
+            DiskChanges::Configuration => {
+                cached = None;
+                completion_probe = None;
                 session.reload();
             }
         }
