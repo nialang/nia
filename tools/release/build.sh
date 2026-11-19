@@ -29,7 +29,7 @@ if [[ "${version}" != 23.1.2 ]]; then
     printf 'expected LLVM 23.1.2, found %s\n' "${version}" >&2
     exit 1
 fi
-if [[ "$("${llvm_config}" --shared-mode)" != static ]]; then
+if [[ "$("${llvm_config}" --link-static --shared-mode)" != static ]]; then
     printf 'release LLVM prefix is not static: %s\n' "${llvm_prefix}" >&2
     exit 1
 fi
