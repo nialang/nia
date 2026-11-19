@@ -18,11 +18,13 @@ use crate::queries::{ModuleDeclarationsValue, module_facade_facts_query, provide
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use crate::{LoaderContext, RuntimeSpec, runtime_package_root_path};
 use nia_diagnostic::Diagnostic;
+use nia_ids::ModuleId;
 use nia_imports::{
     ModuleGraph, ModuleGraphError, ModuleGraphSnapshot, ModuleNode, ModulePath,
     ResolvedModuleDeclaration, module_declaration_visibility_allows,
 };
 use nia_loader_contract::{ProgramDiagnostic, ProgramDiagnosticBundles};
+use nia_provider_summary::ProviderSummary;
 use nia_query::{QueryDb, QueryError, QueryFingerprintPolicy, QueryKey, QueryResult};
 use nia_source::{SourceId, SourceIdentity, SourcePath};
 use nia_symbol::SymbolId;
@@ -49,6 +51,7 @@ pub(crate) struct ModuleGraphFactMemo<'a> {
     >,
     module_facade_facts:
         std::collections::HashMap<nia_source::SourceIdentity, std::sync::Arc<ModuleFacadeFacts>>,
+    trait_provider_modules: HashMap<Vec<ModuleId>, Vec<TraitProviderModule>>,
 }
 
 impl<'a> ModuleGraphFactMemo<'a> {
@@ -59,6 +62,7 @@ impl<'a> ModuleGraphFactMemo<'a> {
             module_declarations: std::collections::HashMap::new(),
             provider_summaries: std::collections::HashMap::new(),
             module_facade_facts: std::collections::HashMap::new(),
+            trait_provider_modules: HashMap::new(),
         }
     }
 
@@ -109,6 +113,18 @@ impl<'a> ModuleGraphFactMemo<'a> {
         self.module_facade_facts
             .insert(identity, std::sync::Arc::clone(&value));
         Ok(value)
+    }
+
+    fn trait_provider_modules(
+        &mut self,
+        graph: &ModuleGraph,
+        roots: Vec<ModuleId>,
+    ) -> QueryResult<&[TraitProviderModule]> {
+        if !self.trait_provider_modules.contains_key(&roots) {
+            let modules = collect_trait_provider_modules(graph, &roots, self)?;
+            self.trait_provider_modules.insert(roots.clone(), modules);
+        }
+        Ok(&self.trait_provider_modules[&roots])
     }
 }
 
@@ -992,8 +1008,7 @@ fn apply_trait_demand(
     let mut packages = packages;
     packages.sort();
     packages.dedup();
-    let mut visited = HashSet::new();
-    let mut providers = Vec::new();
+    let mut roots = Vec::new();
     for package in packages {
         if graph.package_root(&package).is_none() {
             mount_module_packages(db, graph, requesting_node, &[package])?;
@@ -1004,21 +1019,14 @@ fn apply_trait_demand(
         else {
             continue;
         };
-        let Some(root) = graph.get(root_id).cloned() else {
-            continue;
-        };
-        let package = root.module_path.package;
-        TraitProviderSearch {
-            graph,
-            package,
-            target_type_name,
-            target_module_segments,
-            wanted,
-            visited: &mut visited,
-            providers: &mut providers,
-        }
-        .collect(&root.path, &root.module_path, &[], fact_memo)?;
+        roots.push(root_id);
     }
+    let providers = fact_memo
+        .trait_provider_modules(graph, roots)?
+        .iter()
+        .filter(|module| wanted.matches(module, target_type_name, target_module_segments))
+        .map(|module| (module.path.package, module.path.segments.clone()))
+        .collect::<Vec<_>>();
     for (package, segments) in providers {
         record_traversal_diagnostic(
             add_package_trait_provider(
@@ -1079,76 +1087,68 @@ enum TraitProviderMatch<'a> {
     Method { method_name: SymbolId },
 }
 
-struct TraitProviderSearch<'a> {
-    graph: &'a ModuleGraph,
-    package: SymbolId,
-    target_type_name: Option<SymbolId>,
-    target_module_segments: &'a [SymbolId],
-    wanted: TraitProviderMatch<'a>,
-    visited: &'a mut HashSet<String>,
-    providers: &'a mut Vec<(SymbolId, Vec<SymbolId>)>,
+struct TraitProviderModule {
+    path: ModulePath,
+    summary: Arc<ProviderSummary>,
 }
 
-impl TraitProviderSearch<'_> {
-    fn collect(
-        &mut self,
-        parent_path: &SourcePath,
-        parent_module_path: &ModulePath,
-        segments: &[SymbolId],
-        fact_memo: &mut ModuleGraphFactMemo<'_>,
-    ) -> QueryResult<()> {
-        // Package-owned discovery can walk a large standard or dependency
-        // package. Keep the traversal worklist based so module depth cannot
-        // consume the query worker's stack.
-        let mut pending = vec![(
-            parent_path.clone(),
-            parent_module_path.clone(),
-            segments.to_vec(),
-        )];
-        while let Some((path, module_path, path_segments)) = pending.pop() {
+impl TraitProviderMatch<'_> {
+    fn matches(
+        &self,
+        module: &TraitProviderModule,
+        target_type_name: Option<SymbolId>,
+        target_module_segments: &[SymbolId],
+    ) -> bool {
+        match self {
+            Self::Trait {
+                trait_name,
+                trait_type_argument_names,
+            } => module.summary.defines_trait_impl_at_module(
+                target_type_name.as_ref(),
+                target_module_segments,
+                &module.path.segments,
+                trait_name,
+                trait_type_argument_names,
+                None,
+            ),
+            Self::Method { method_name } => module.summary.defines_trait_method_impl_at_module(
+                target_type_name.as_ref(),
+                target_module_segments,
+                &module.path.segments,
+                method_name,
+            ),
+        }
+    }
+}
+
+fn collect_trait_provider_modules(
+    graph: &ModuleGraph,
+    roots: &[ModuleId],
+    fact_memo: &mut ModuleGraphFactMemo<'_>,
+) -> QueryResult<Vec<TraitProviderModule>> {
+    let mut modules = Vec::new();
+    let mut visited = HashSet::new();
+    for root in roots.iter().filter_map(|&id| graph.get(id)) {
+        let mut pending = vec![(root.path.clone(), root.module_path.clone())];
+        while let Some((path, module_path)) = pending.pop() {
             let summary = fact_memo.provider_summary(&path)?;
-            let matches = match &self.wanted {
-                TraitProviderMatch::Trait {
-                    trait_name,
-                    trait_type_argument_names,
-                } => summary.defines_trait_impl_at_module(
-                    self.target_type_name.as_ref(),
-                    self.target_module_segments,
-                    &module_path.segments,
-                    trait_name,
-                    trait_type_argument_names,
-                    None,
-                ),
-                TraitProviderMatch::Method { method_name } => summary
-                    .defines_trait_method_impl_at_module(
-                        self.target_type_name.as_ref(),
-                        self.target_module_segments,
-                        &module_path.segments,
-                        method_name,
-                    ),
-            };
-            if matches {
-                self.providers.push((self.package, path_segments.clone()));
-            }
             let declarations = fact_memo.module_declarations(&path)?;
             for declaration in declarations.semantic.declarations.iter().rev() {
-                let child_path = self.graph.declared_child_source_path_for(
-                    &path,
-                    &module_path,
-                    declaration.name,
-                );
-                let child_module_path = module_path.child(declaration.name);
-                let key = child_path.identity().normalized_path().to_owned();
-                if !self.visited.insert(key) {
-                    continue;
+                let child_path =
+                    graph.declared_child_source_path_for(&path, &module_path, declaration.name);
+                if visited.insert(child_path.identity()) {
+                    pending.push((child_path, module_path.child(declaration.name)));
                 }
-                let mut child_segments = path_segments.clone();
-                child_segments.push(declaration.name);
-                pending.push((child_path, child_module_path, child_segments));
+            }
+            if summary.has_providers() {
+                modules.push(TraitProviderModule {
+                    path: module_path,
+                    summary,
+                });
             }
         }
-        Ok(())
     }
+    Ok(modules)
 }
 
 fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> bool {
