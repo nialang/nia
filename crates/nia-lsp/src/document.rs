@@ -57,6 +57,7 @@ impl Document {
     pub(crate) fn format(
         &self,
         options: lsp_types::FormattingOptions,
+        range: Option<Range>,
     ) -> Result<Option<Vec<lsp_types::TextEdit>>, String> {
         let indentation = if options.insert_spaces {
             let width = u8::try_from(options.tab_size)
@@ -67,7 +68,38 @@ impl Document {
         } else {
             nia_syntax::Indentation::Tabs
         };
-        match nia_syntax::format_source(&self.text, indentation) {
+        let range = if let Some(range) = range {
+            let (Some(start), Some(end)) = (
+                self.lines.offset(&self.text, range.start),
+                self.lines.offset(&self.text, range.end),
+            ) else {
+                return Err("Formatting range is outside the document".into());
+            };
+            if range.start > range.end {
+                return Err("Formatting range is reversed".into());
+            }
+            if start == end {
+                return Ok(Some(Vec::new()));
+            }
+            let last_line = self.lines.line_index(end);
+            let end = if self.lines.line_start(last_line) == end {
+                end
+            } else {
+                self.lines
+                    .next_line_start(last_line)
+                    .unwrap_or(self.text.len())
+            };
+            Some(Span::new(
+                self.lines.line_start(self.lines.line_index(start)),
+                end,
+            ))
+        } else {
+            None
+        };
+        let parsed = self
+            .syntax()
+            .ok_or("Could not load the source syntax tree")?;
+        match nia_syntax::format_parsed(parsed, indentation, range) {
             Ok(formatted) => Ok(Some(
                 formatted
                     .edits
@@ -184,6 +216,27 @@ impl Lines {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn range_formatting_preserves_lone_carriage_returns() {
+        let document = Document::new(1, "fun add() i32 {\r1 + 2\r}\r".to_owned());
+        let format = lsp_types::FormattingOptions {
+            tab_size: 2,
+            insert_spaces: true,
+            ..Default::default()
+        };
+        let from = Position::new(1, 0);
+        let until = Position::new(2, 0);
+        assert_eq!(
+            document
+                .format(format, Some(Range::new(from, until)))
+                .unwrap(),
+            Some(vec![lsp_types::TextEdit::new(
+                Range::new(from, from),
+                "  ".to_owned()
+            )]),
+        );
+    }
 
     #[test]
     fn applies_utf16_edits_in_order_and_preserves_unedited_lines() {

@@ -71,6 +71,7 @@ def smoke(server, root):
             })["capabilities"]
             assert capabilities["positionEncoding"] == "utf-16"
             assert capabilities["documentFormattingProvider"]
+            assert capabilities["documentRangeFormattingProvider"]
             assert capabilities["inlayHintProvider"]
             assert capabilities["callHierarchyProvider"]
             assert capabilities["semanticTokensProvider"]["full"]["delta"]
@@ -103,12 +104,20 @@ def smoke(server, root):
             formatting = dict(**params, options={"tabSize": 2, "insertSpaces": True})
             before_eq = position(source, '="')
             after_eq = dict(before_eq, character=before_eq["character"] + 1)
-            assert request(client, "textDocument/formatting", formatting) == [
+            indent_edits = [
                 {"range": {"start": {"line": line, "character": 0},
                            "end": {"line": line, "character": 4}}, "newText": "  "}
                 for line in (3, 4)
-            ] + [{"range": {"start": point, "end": point}, "newText": " "}
-                 for point in (before_eq, after_eq)]
+            ]
+            operator_edits = [{"range": {"start": point, "end": point}, "newText": " "}
+                              for point in (before_eq, after_eq)]
+            assert request(client, "textDocument/formatting", formatting) == indent_edits + operator_edits
+            assert request(client, "textDocument/rangeFormatting", dict(**formatting, range={
+                "start": position(source, "shape.width"), "end": {"line": 5, "character": 0},
+            })) == indent_edits[1:]
+            assert request(client, "textDocument/rangeFormatting", dict(**formatting, range={
+                "start": position(source, "shapes::distance"), "end": {"line": 7, "character": 0},
+            })) == operator_edits
             shape = dict(**params, position=position(source, "shape.width"))
             target = request(client, "textDocument/typeDefinition", shape)
             assert target["uri"] == shapes.as_uri(), target

@@ -40,6 +40,7 @@ const CALL_INCOMING: &str = "callHierarchy/incomingCalls";
 const CALL_OUTGOING: &str = "callHierarchy/outgoingCalls";
 const CODE_ACTION: &str = "textDocument/codeAction";
 const FORMATTING: &str = "textDocument/formatting";
+const RANGE_FORMATTING: &str = "textDocument/rangeFormatting";
 const RENAME: &str = "textDocument/rename";
 const PREPARE_RENAME: &str = "textDocument/prepareRename";
 const REFERENCES: &str = "textDocument/references";
@@ -133,6 +134,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "workspaceSymbolProvider": true,
                 "foldingRangeProvider": true,
                 "documentFormattingProvider": true,
+                "documentRangeFormattingProvider": true,
                 "codeActionProvider": if code_actions { json!({ "codeActionKinds": ["quickfix", "source.organizeImports"] }) } else { json!(false) },
                 "semanticTokensProvider": { "legend": highlight::legend(), "full": { "delta": true }, "range": true },
                 "completionProvider": { "triggerCharacters": [":", "."] },
@@ -980,6 +982,7 @@ impl Server {
                 | CALL_PREPARE
                 | CODE_ACTION
                 | FORMATTING
+                | RANGE_FORMATTING
                 | "textDocument/signatureHelp"
                 | "textDocument/documentSymbol"
                 | "textDocument/foldingRange"
@@ -1031,9 +1034,16 @@ impl Server {
             }
             return Ok(());
         }
-        if request.method == FORMATTING {
-            let response = match decode::<lsp_types::DocumentFormattingParams>(request.params) {
-                Ok(params) => match open.document.format(params.options) {
+        if matches!(request.method.as_str(), FORMATTING | RANGE_FORMATTING) {
+            let params = if request.method == FORMATTING {
+                decode::<lsp_types::DocumentFormattingParams>(request.params)
+                    .map(|params| (params.options, None))
+            } else {
+                decode::<lsp_types::DocumentRangeFormattingParams>(request.params)
+                    .map(|params| (params.options, Some(params.range)))
+            };
+            let response = match params {
+                Ok((options, range)) => match open.document.format(options, range) {
                     Ok(edits) => Response::new_ok(request.id, edits),
                     Err(error) => {
                         Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)

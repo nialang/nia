@@ -40,7 +40,7 @@ mod tree;
 #[cfg(test)]
 mod tests;
 
-pub use format::{FormatError, FormattedSource, Indentation, format_source};
+pub use format::{FormatError, FormattedSource, Indentation, format_parsed, format_source};
 pub use kind::SyntaxKind;
 pub use tree::{
     GreenBuildError, GreenElement, GreenEvent, GreenNode, GreenToken, SyntaxNode, SyntaxToken,

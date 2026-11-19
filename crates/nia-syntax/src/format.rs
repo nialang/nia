@@ -50,6 +50,19 @@ pub fn format_source(
     indentation: Indentation,
 ) -> Result<FormattedSource, FormatError> {
     let parsed = parse(source, None).map_err(|_| FormatError::InvalidTree)?;
+    format_parsed(&parsed, indentation, None)
+}
+
+/// Formats a parsed source, optionally limiting edits to an original byte range.
+///
+/// Indentation comes from the complete tree. The selected edits are verified
+/// together by reparsing the resulting document.
+pub fn format_parsed(
+    parsed: &crate::Parse,
+    indentation: Indentation,
+    range: Option<Span>,
+) -> Result<FormattedSource, FormatError> {
+    let source = parsed.tree.source();
     if let Some(error) = parsed.errors.first() {
         return Err(FormatError::Syntax(error.clone()));
     }
@@ -83,6 +96,13 @@ pub fn format_source(
     }
     edits.sort_unstable_by_key(|edit| edit.span);
     edits.dedup();
+    if let Some(range) = range {
+        edits.retain(|edit| {
+            range.start <= edit.span.start
+                && edit.span.start < range.end
+                && edit.span.end <= range.end
+        });
+    }
     let mut text = String::with_capacity(source.len());
     let mut copied = 0;
     for edit in &edits {
@@ -159,8 +179,13 @@ fn layout_edits(
     let mut line_start = 0;
     let mut token_end = 0;
     let mut depth: usize = 0;
-    for line in source.split_inclusive('\n') {
-        let line_end = line_start + line.len();
+    let mut lines = source.split_inclusive(['\r', '\n']).peekable();
+    while let Some(line) = lines.next() {
+        let mut line_end = line_start + line.len();
+        if line.ends_with('\r') && lines.peek() == Some(&"\n") {
+            lines.next();
+            line_end += 1;
+        }
         let body_end = line_start + line.trim_end_matches(['\r', '\n']).len();
         let start = index;
         while index < tokens.len() && tokens[index].span().start < line_end {

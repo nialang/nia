@@ -102,7 +102,8 @@ Workspace symbol searches accept names and qualifiers such as
 
 Formatting uses the lossless syntax tree to normalize indentation, operator
 spacing, and trailing whitespace. It preserves comments, literals, and existing
-line breaks. The editor sends its indentation setting. The CLI
+line breaks. Range formatting applies edits to the lines intersecting the
+selection. The editor sends its indentation setting. The CLI
 command `nia fmt path/to/file.nia` prints the formatted text to stdout with
 four-space indentation.
 
