@@ -1021,12 +1021,18 @@ impl Analysis {
                             })
                     })
                     .collect();
+                let mut node_types = HashMap::new();
+                for (key, &ty) in module.semantic_facts.iter_node_expr_types() {
+                    // Keep the first fact, as the semantic lookup checks the
+                    // module before checking function-owned facts.
+                    node_types.entry(key).or_insert(ty);
+                }
                 let mut method_calls = HashMap::new();
                 for (span, key) in db.source_origins(module.id)?.entries() {
                     if let Some(&(caller, callee)) = function_calls.get(&key) {
                         result.calls.push((caller, callee, span));
                     }
-                    if let Some(ty) = module.semantic_facts.node_expr_type(&key)
+                    if let Some(&ty) = node_types.get(&key)
                         && ty != result.types.error()
                     {
                         expr_types.insert(span, module.type_normalization.normalize(ty));
@@ -1089,14 +1095,13 @@ impl Analysis {
                             });
                         }
                     }
-                    let names = tokens_in(span);
                     let target = match module.semantic_uses.node_value_use(&key) {
-                        Some(SemanticValueUse::Local(id)) => names
+                        Some(SemanticValueUse::Local(id)) => tokens_in(span)
                             .last()
                             .map(|&name| (name, Symbol::Local(module.id, id))),
-                        Some(SemanticValueUse::Global(id)) => {
-                            names.last().map(|&name| (name, Symbol::Global(id)))
-                        }
+                        Some(SemanticValueUse::Global(id)) => tokens_in(span)
+                            .last()
+                            .map(|&name| (name, Symbol::Global(id))),
                         None => module.semantic_uses.node_type_prefix(&key).and_then(|id| {
                             Some((type_name_span(&tokens, span)?, Symbol::Global(id)))
                         }),
