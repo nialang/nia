@@ -112,7 +112,7 @@ def position(text, symbol):
     return dict(line=head.count("\n"), character=len(line.encode("utf-16-le")) // 2)
 
 
-def benchmark(client, source, root, symbol, repeat):
+def benchmark(client, source, root, symbol, repeat, replacement=None):
     initialize = client.measure("initialize", {
         "processId": None,
         "rootUri": root.as_uri(),
@@ -120,10 +120,30 @@ def benchmark(client, source, root, symbol, repeat):
     })
     client.notify("initialized", {})
     text = source.read_text(encoding="utf-8")
+    if replacement is not None:
+        old, new = replacement
+        if not old or old == new or text.count(old) != 1:
+            raise ValueError("--replace must change exactly one occurrence")
+        alternate = text.replace(old, new)
+        if symbol not in alternate:
+            raise ValueError("--replace must preserve --symbol in the alternate snapshot")
+    else:
+        alternate = None
     document = dict(uri=source.as_uri())
     text_document = dict(textDocument=document)
     cursor = dict(**text_document, position=position(text, symbol))
     references = dict(**cursor, context=dict(includeDeclaration=True))
+
+    def change(version):
+        if alternate is None:
+            edited = text + f"\n// latency sample {version}\n"
+        else:
+            edited = alternate if version % 2 == 0 else text
+        client.notify("textDocument/didChange", {
+            "textDocument": dict(**document, version=version),
+            "contentChanges": [dict(text=edited)],
+        })
+        return dict(**text_document, position=position(edited, symbol))
     opened = perf_counter()
     client.notify("textDocument/didOpen", {
         "textDocument": dict(**document, languageId="nia", version=1, text=text),
@@ -152,10 +172,7 @@ def benchmark(client, source, root, symbol, repeat):
     }
     highlight, completion = [], []
     for version in range(2, repeat + 2):
-        client.notify("textDocument/didChange", {
-            "textDocument": dict(**document, version=version),
-            "contentChanges": [dict(text=text + f"\n// latency sample {version}\n")],
-        })
+        cursor = change(version)
         highlight.append(client.measure("textDocument/semanticTokens/full", text_document))
         completion.append(client.measure("textDocument/completion", cursor))
     report["highlight_after_edit"] = summary(highlight)
@@ -175,17 +192,14 @@ def benchmark(client, source, root, symbol, repeat):
     completed_before_cancel = 0
     for version in range(repeat + 2, 2 * repeat + 2):
         started = perf_counter()
-        client.notify("textDocument/didChange", {
-            "textDocument": dict(**document, version=version),
-            "contentChanges": [dict(text=text + f"\n// diagnostics sample {version}\n")],
-        })
+        cursor = change(version)
         client.measure("textDocument/semanticTokens/full", text_document)
         published, _ = client.wait_diagnostics(document["uri"], version)
         diagnostics.append(1000 * (published - started))
         client.measure("textDocument/semanticTokens/full", text_document)
         semantic.append(1000 * (perf_counter() - started))
 
-        request = client.request("textDocument/references", references)
+        request = client.request("textDocument/references", dict(**cursor, context=references["context"]))
         client.notify("$/cancelRequest", {"id": request})
         elapsed, response = client.wait(request)
         if response.get("error", {}).get("code") == -32800:
@@ -200,12 +214,11 @@ def benchmark(client, source, root, symbol, repeat):
     report["cancellation"]["completed_before_cancel"] = completed_before_cancel
     references_after_edit = []
     for version in range(2 * repeat + 2, 3 * repeat + 2):
-        client.notify("textDocument/didChange", {
-            "textDocument": dict(**document, version=version),
-            "contentChanges": [dict(text=text + f"\n// workspace index sample {version}\n")],
-        })
+        cursor = change(version)
         client.wait_diagnostics(document["uri"], version)
-        references_after_edit.append(client.measure("textDocument/references", references))
+        references_after_edit.append(client.measure(
+            "textDocument/references", dict(**cursor, context=references["context"]),
+        ))
     report["references_after_edit"] = summary(references_after_edit)
     if os.name == "nt":
         report["peak_rss_bytes"] = windows_peak_rss(client.process.pid)
@@ -262,6 +275,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=120, help="seconds to wait for each message")
     parser.add_argument("--revision", help="commit used to build the server")
     parser.add_argument("--configuration", help="target and build settings used for the sample")
+    parser.add_argument("--replace", nargs=2, metavar=("OLD", "NEW"),
+                        help="alternate one exact source replacement with the original text")
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be positive")
@@ -270,7 +285,7 @@ def main():
     command = [str(args.server.resolve()), "--resource-root", str(args.resource_root.resolve())]
     with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
         try:
-            report = benchmark(Client(process, args.timeout), source, root, args.symbol, args.repeat)
+            report = benchmark(Client(process, args.timeout), source, root, args.symbol, args.repeat, args.replace)
             process.stdin.close()
             process.wait(timeout=args.timeout)
             if process.returncode:
@@ -290,6 +305,7 @@ def main():
         symbol=args.symbol,
         revision=args.revision,
         configuration=args.configuration,
+        replacement=args.replace,
     )
     print(json.dumps(report, indent=2))
 
