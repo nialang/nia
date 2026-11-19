@@ -313,15 +313,28 @@ impl Analysis {
                 ))
             })
             .collect();
-        for module in self
-            .graph
-            .modules()
-            .filter(|module| !module.module_path.segments.is_empty())
-        {
+        let mut packages = BTreeMap::<_, Vec<_>>::new();
+        packages.entry(root).or_default().push("root".to_owned());
+        for (alias, package) in self.graph.package_aliases(file.module) {
+            let Some(name) = self.db.source_symbol_text(alias) else {
+                continue;
+            };
+            if matches!(tokenize(&name).as_slice(), [token, _] if token.kind == TokenKind::Ident) {
+                packages.entry(package).or_default().push(name.to_string());
+            }
+        }
+        for module in self.graph.modules() {
             cancel.check().ok()?;
-            if self.graph.current_package_root(module.id) != Some(root) {
+            if module.id == file.module {
                 continue;
             }
+            let Some(roots) = self
+                .graph
+                .current_package_root(module.id)
+                .and_then(|root| packages.get(&root))
+            else {
+                continue;
+            };
             let Some(segments) = module
                 .module_path
                 .segments
@@ -335,15 +348,20 @@ impl Analysis {
             else {
                 continue;
             };
-            let path: Vec<_> = std::iter::once("root".to_owned()).chain(segments).collect();
-            let qualifier: Vec<_> = path.iter().map(String::as_str).collect();
-            if self
-                .resolve_namespace(file.module, &imports, &qualifier)
-                .ok()
-                .flatten()
-                == Some(module.id)
-            {
-                paths.insert(path, module.id);
+            for root in roots {
+                let qualifier: Vec<_> = std::iter::once(root.as_str())
+                    .chain(segments.iter().map(String::as_str))
+                    .collect();
+                if self
+                    .resolve_namespace(file.module, &imports, &qualifier)
+                    .ok()?
+                    == Some(module.id)
+                {
+                    paths.insert(
+                        qualifier.into_iter().map(str::to_owned).collect(),
+                        module.id,
+                    );
+                }
             }
         }
         let mut found: Option<ImportCandidate> = None;

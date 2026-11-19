@@ -740,6 +740,25 @@ impl ModuleGraph {
             })
     }
 
+    /// Lists the package roots available by name from this source module.
+    pub fn package_aliases(
+        &self,
+        module: ModuleId,
+    ) -> impl Iterator<Item = (SymbolId, ModuleId)> + '_ {
+        let scoped = self.module_package_aliases.get(&module);
+        scoped
+            .into_iter()
+            .flat_map(|aliases| aliases.iter())
+            .chain(
+                self.package_roots
+                    .iter()
+                    .filter(move |(name, _)| scoped.is_none() || is_std_module_root(**name)),
+            )
+            .filter_map(move |(&name, &root)| {
+                (self.root_module_for_name(module, name) == Some(root)).then_some((name, root))
+            })
+    }
+
     /// Isolates a module's named package roots from the global package-instance registry.
     pub fn isolate_package_roots(&mut self, module: ModuleId) {
         Arc::make_mut(&mut self.module_package_aliases)

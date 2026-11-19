@@ -3030,6 +3030,61 @@ mod tests {
     }
 
     #[test]
+    fn completion_finds_reexports_through_a_loaded_dependency_alias() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-completion-dependency");
+        let dep = root.join("dep");
+        std::fs::create_dir(&dep).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n[dependencies]\nmeasure = { path = \"dep\" }\n",
+        ).unwrap();
+        std::fs::write(
+            dep.join("nia.toml"),
+            "[package]\nname = \"math\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dep.join("root.nia"),
+            "module units;\npub using root::units::distance as span;\npub struct Marker {}\n",
+        )
+        .unwrap();
+        std::fs::write(dep.join("units.nia"), "pub fun distance() i32 { 2 }\n").unwrap();
+        let main = root.join("root.nia");
+        let source = "fun run(marker: measure::Marker) i32 { _ = marker; spa() }\n";
+        std::fs::write(&main, source).unwrap();
+        let documents = Documents::from([(
+            main.clone(),
+            OpenDocument {
+                uri: uri(&main).unwrap(),
+                document: Document::new(1, source.into()),
+            },
+        )]);
+        let cursor = Position::new(0, (source.find("spa()").unwrap() + 3) as u32);
+        let cancel = Cancellation::default();
+        let mut session = test_session();
+        assert!(
+            session
+                .complete_names(&documents, &main, cursor, &cancel)
+                .unwrap()
+                .is_none()
+        );
+        let full = session.analyze(&documents, &main).unwrap();
+        let mut probe = test_session();
+        let items = probe
+            .complete(&full, &documents, &main, cursor, &cancel)
+            .unwrap();
+        let [item] = items.as_slice() else {
+            panic!("expected one dependency import, got {items:?}");
+        };
+        assert_eq!(item.label, "span");
+        assert_eq!(
+            item.additional_text_edits.as_ref().unwrap()[0].new_text,
+            "using measure::span;\n\n",
+        );
+    }
+
+    #[test]
     fn completion_and_signature_help_follow_the_current_buffer() {
         let _resources = acquire_test_resources(TestWorkload::Compiler);
         let root = test_dir("lsp-editing");
