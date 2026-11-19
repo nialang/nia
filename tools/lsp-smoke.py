@@ -308,8 +308,13 @@ def smoke(server, root):
 
             unordered = updated.replace(
                 "using std::process;",
-                "using std::process;\nusing root::shapes as geo;",
-            ).replace("shapes::Shape", "geo::Shape")
+                "using std::process;\n"
+                "using root::shapes::{weight as w, distance as d};\n"
+                "using root::shapes as geo;",
+            ).replace("shapes::Shape", "geo::Shape").replace(
+                "shapes::distance(low, 10)", "d(low, 10) + w()",
+            )
+            unordered += "\n// Public API\npub using root::shapes::{weight as mass, distance as width};\n"
             client.notify("textDocument/didChange", {
                 "textDocument": dict(**document, version=9),
                 "contentChanges": [{"text": unordered}],
@@ -324,11 +329,19 @@ def smoke(server, root):
             assert action["kind"] == "source.organizeImports", actions
             change, = action["edit"]["documentChanges"]
             assert change["textDocument"] == dict(**document, version=9), change
-            reorder, = change["edits"]
-            assert reorder["newText"] == "using root::shapes as geo;\nusing std::process;", reorder
+            reorder, public = change["edits"]
+            assert reorder["newText"] == (
+                "using root::shapes as geo;\n"
+                "using root::shapes::{distance as d, weight as w};\n"
+                "using std::process;"
+            ), reorder
+            assert public["newText"] == "distance as width, weight as mass", public
             client.notify("textDocument/didChange", {
                 "textDocument": dict(**document, version=10),
-                "contentChanges": [{"range": reorder["range"], "text": reorder["newText"]}],
+                "contentChanges": [
+                    {"range": edit["range"], "text": edit["newText"]}
+                    for edit in reversed(change["edits"])
+                ],
             })
             client.wait_diagnostics(main.as_uri(), 10, lambda items: not items)
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Organizes adjacent import directives while proving their bindings survived.
+//! Organizes import directives and named selectors with binding verification.
 
 use std::{collections::BTreeMap, path::Path};
 
@@ -33,14 +33,38 @@ impl Session {
             return None;
         }
         let source = &file.text;
-        let imports = ImportOrder::new(source, parsed.tree.green_root());
-        if imports.edits.is_empty() {
+        let root = parsed.tree.green_root();
+        let mut selectors = ImportOrder::default();
+        selectors.sort_selectors(source, root);
+        selectors.edits.sort_by_key(|edit| edit.span);
+        let mut text = source.to_string();
+        selectors.apply(&mut text);
+        let directives = ImportOrder::directives(&text, root);
+        if selectors.edits.is_empty() && directives.edits.is_empty() {
             return None;
         }
-        let mut text = source.to_string();
-        for edit in imports.edits.iter().rev() {
-            text.replace_range(edit.span.start..edit.span.end, &edit.replacement);
-        }
+        directives.apply(&mut text);
+        let mut ranges: Vec<_> = directives.edits.iter().map(|edit| edit.span).collect();
+        ranges.extend(selectors.edits.iter().filter_map(|edit| {
+            let index = directives
+                .edits
+                .partition_point(|outer| outer.span.end <= edit.span.start);
+            directives
+                .edits
+                .get(index)
+                .is_none_or(|outer| edit.span.end <= outer.span.start)
+                .then_some(edit.span)
+        }));
+        ranges.sort_unstable();
+        let edits = ranges
+            .into_iter()
+            .map(|span| {
+                OneOf::Left(lsp_types::TextEdit::new(
+                    open.document.lines.range(source, span),
+                    text[span.start..span.end].to_owned(),
+                ))
+            })
+            .collect();
         let mut documents = documents.clone();
         documents.get_mut(path)?.document = Document::new(open.document.version, text);
         let after = self
@@ -53,7 +77,7 @@ impl Session {
                 &bindings(&after, cancel).ok()?,
                 |file, span| {
                     if file == source_path {
-                        imports.translate(span)
+                        directives.translate(selectors.translate(span))
                     } else {
                         span
                     }
@@ -63,16 +87,6 @@ impl Session {
         {
             return None;
         }
-        let edits = imports
-            .edits
-            .into_iter()
-            .map(|edit| {
-                OneOf::Left(lsp_types::TextEdit::new(
-                    open.document.lines.range(source, edit.span),
-                    edit.replacement,
-                ))
-            })
-            .collect();
         Some(CodeAction {
             kind: Some(CodeActionKind::SOURCE_ORGANIZE_IMPORTS),
             title: "Organize imports".into(),
@@ -98,7 +112,7 @@ struct ImportOrder {
 }
 
 impl ImportOrder {
-    fn new(source: &str, root: &GreenNode) -> Self {
+    fn directives(source: &str, root: &GreenNode) -> Self {
         let mut result = Self::default();
         let mut group = Vec::new();
         for item in root.child_nodes() {
@@ -118,6 +132,35 @@ impl ImportOrder {
         }
         result.sort(source, &group);
         result
+    }
+
+    fn sort_selectors(&mut self, source: &str, node: &GreenNode) {
+        if node.kind() == &SyntaxKind::UsingGroup {
+            let mut group: Vec<Span> = Vec::new();
+            for child in node.child_nodes() {
+                let selector = (child.kind() == &SyntaxKind::UsingName)
+                    .then(|| child.token_span())
+                    .flatten();
+                if let Some(&previous) = group.last()
+                    && selector
+                        .is_none_or(|next: Span| source[previous.end..next.start].trim() != ",")
+                {
+                    self.sort(source, &group);
+                    group.clear();
+                }
+                group.extend(selector);
+            }
+            self.sort(source, &group);
+        }
+        for child in node.child_nodes() {
+            self.sort_selectors(source, child);
+        }
+    }
+
+    fn apply(&self, source: &mut String) {
+        for edit in self.edits.iter().rev() {
+            source.replace_range(edit.span.start..edit.span.end, &edit.replacement);
+        }
     }
 
     fn sort(&mut self, source: &str, group: &[Span]) {
