@@ -1061,7 +1061,7 @@ pub(in crate::query) fn editor_receiver_methods(
     receiver: nia_span::Span,
     names: &[SymbolId],
 ) -> QueryResult<(
-    Vec<nia_body_check::EditorMethodCandidate>,
+    Option<nia_body_check::EditorReceiver>,
     Vec<crate::ProviderDemand>,
 )> {
     let defs = full_module_defs_semantic(db, module_id)?;
@@ -1108,7 +1108,7 @@ pub(in crate::query) fn editor_receiver_methods(
         Some(&probe),
     )?;
     Ok((
-        probe.into_candidates(),
+        probe.into_receiver(),
         checked
             .body_check
             .provider_demands

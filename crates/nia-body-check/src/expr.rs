@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
+use crate::{BodyChecker, EditorReceiver};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, PathSegmentKind, UnaryOp};
 use nia_defs::{DefId, DefKind, VisibleExtensionAssociatedValue};
 use nia_diagnostic::{Diagnostic, codes};
@@ -92,9 +92,11 @@ impl<'a> BodyChecker<'a> {
             && !self.is_error_recovery_ty(ty)
             && probe.result.borrow().is_none()
         {
-            probe
-                .result
-                .replace(Some(self.editor_method_candidates(expr, ty, probe.names)));
+            let methods = self.editor_method_candidates(expr, ty, probe.names);
+            probe.result.replace(Some(EditorReceiver {
+                ty: self.normalize_aliases_in_type(ty),
+                methods,
+            }));
         }
         ty
     }

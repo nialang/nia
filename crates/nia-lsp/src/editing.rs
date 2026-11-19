@@ -11,7 +11,6 @@ use lsp_types::{
 use nia_defs::DefKind;
 use nia_lexer::{LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_span::Span;
-use nia_symbol::SymbolId;
 use nia_syntax::{GreenNode, SyntaxKind};
 
 use crate::analysis::{Analysis, File, Symbol};
@@ -49,16 +48,9 @@ impl MemberCompletion {
         text
     }
 
-    pub(crate) fn candidates(
-        &self,
-        analysis: &Analysis,
-        file: &File,
-        names: &[SymbolId],
-        cancel: &Cancellation,
-    ) -> Option<Vec<CompletionItem>> {
+    pub(crate) fn receiver(&self, file: &File) -> Option<Span> {
         let root = file.syntax()?.tree.green_root();
-        let receiver = receiver_at_dot(root, self.dot)?;
-        analysis.receiver_members(file, receiver, names, cancel)
+        receiver_at_dot(root, self.dot)
     }
 
     pub(crate) fn prefix<'a>(&self, source: &'a str) -> &'a str {

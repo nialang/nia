@@ -13,7 +13,15 @@ pub struct EditorMethodCandidate {
 pub struct EditorMethodProbe<'a> {
     pub(crate) receiver: Span,
     pub(crate) names: &'a [SymbolId],
-    pub(crate) result: RefCell<Option<Vec<EditorMethodCandidate>>>,
+    pub(crate) result: RefCell<Option<EditorReceiver>>,
+}
+
+/// Type and applicable methods for the receiver expression at a probe site.
+pub struct EditorReceiver {
+    /// Receiver type after resolving aliases.
+    pub ty: InternedTyId,
+    /// Methods applicable in the receiver's lexical context.
+    pub methods: Vec<EditorMethodCandidate>,
 }
 
 impl<'a> EditorMethodProbe<'a> {
@@ -25,8 +33,8 @@ impl<'a> EditorMethodProbe<'a> {
         }
     }
 
-    pub fn into_candidates(self) -> Vec<EditorMethodCandidate> {
-        self.result.into_inner().unwrap_or_default()
+    pub fn into_receiver(self) -> Option<EditorReceiver> {
+        self.result.into_inner()
     }
 }
 

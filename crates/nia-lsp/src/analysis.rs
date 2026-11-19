@@ -316,7 +316,10 @@ impl Session {
             return Some(items);
         };
         let names = analysis.method_names(member.prefix(&file.text));
-        let fields = member.candidates(analysis, file, &[], cancel);
+        let fields = member
+            .receiver(file)
+            .and_then(|receiver| analysis.receiver_type(file, receiver))
+            .map(|ty| analysis.receiver_fields(ty));
         let candidates = if names.is_empty() && fields.is_some() {
             fields
         } else {
@@ -330,10 +333,12 @@ impl Session {
                 nia_timing::TimingLevel::Summary,
                 "lsp.member_completion_analysis",
                 || {
-                    self.analyze_with_cancel(&overlay, path, Some(cancel))
+                    self.analyze_mode(&overlay, path, Some(cancel), AnalysisMode::Declarations)
                         .ok()
                         .and_then(|checked| {
-                            member.candidates(&checked, checked.file(path)?, &names, cancel)
+                            let source = checked.file(path)?;
+                            let receiver = member.receiver(source)?;
+                            checked.receiver_members(source, receiver, &names, cancel)
                         })
                         .or(fields)
                 },
@@ -1215,7 +1220,10 @@ impl Analysis {
     }
 
     fn receiver_type(&self, file: &File, receiver: Span) -> Option<&TyKind> {
-        let mut ty = *file.expr_types.get(&receiver)?;
+        self.dereferenced_type(*file.expr_types.get(&receiver)?)
+    }
+
+    fn dereferenced_type(&self, mut ty: InternedTyId) -> Option<&TyKind> {
         loop {
             match self.types.get(ty)? {
                 TyKind::Pointer { elem, .. } | TyKind::VolatilePointer { elem, .. } => ty = *elem,
@@ -1234,43 +1242,34 @@ impl Analysis {
         Some(&scope.fields)
     }
 
-    pub(crate) fn receiver_members(
+    fn receiver_members(
         &self,
         file: &File,
         receiver: Span,
         names: &[SymbolId],
         cancel: &Cancellation,
     ) -> Option<Vec<lsp_types::CompletionItem>> {
-        let mut members: Vec<_> = self
-            .receiver_fields(file, receiver)?
-            .into_iter()
-            .map(|label| lsp_types::CompletionItem {
+        let checked = self
+            .db
+            .source_receiver_members(file.module, receiver, names, Some(cancel.token()))
+            .ok()??;
+        let mut members = self.receiver_fields(self.dereferenced_type(checked.ty)?);
+        members.extend(checked.methods.into_iter().filter_map(|method| {
+            let label = self.db.source_symbol_text(method.name)?.to_string();
+            let mut item = lsp_types::CompletionItem {
                 label,
-                kind: Some(CompletionItemKind::FIELD),
+                kind: Some(CompletionItemKind::METHOD),
                 ..lsp_types::CompletionItem::default()
-            })
-            .collect();
-        if let Ok(methods) =
-            self.db
-                .source_receiver_methods(file.module, receiver, names, Some(cancel.token()))
-        {
-            members.extend(methods.into_iter().filter_map(|method| {
-                let label = self.db.source_symbol_text(method.name)?.to_string();
-                let mut item = lsp_types::CompletionItem {
-                    label,
-                    kind: Some(CompletionItemKind::METHOD),
-                    ..lsp_types::CompletionItem::default()
-                };
-                if let Some((source, span)) = method.declaration
-                    && let Some(source) = self.files.get(source.as_str())
-                    && let Some(callable) = crate::editing::CallableDeclaration::at(source, span)
-                    && callable.name == item.label
-                {
-                    callable.describe_completion(&mut item);
-                }
-                Some(item)
-            }));
-        }
+            };
+            if let Some((source, span)) = method.declaration
+                && let Some(source) = self.files.get(source.as_str())
+                && let Some(callable) = crate::editing::CallableDeclaration::at(source, span)
+                && callable.name == item.label
+            {
+                callable.describe_completion(&mut item);
+            }
+            Some(item)
+        }));
         Some(members)
     }
 
@@ -1290,8 +1289,8 @@ impl Analysis {
         names
     }
 
-    fn receiver_fields(&self, file: &File, receiver: Span) -> Option<Vec<String>> {
-        Some(match self.receiver_type(file, receiver)? {
+    fn receiver_fields(&self, ty: &TyKind) -> Vec<lsp_types::CompletionItem> {
+        let names: Vec<String> = match ty {
             TyKind::Nominal { def_id, .. } => self
                 .nominal_fields(*def_id)
                 .into_iter()
@@ -1304,7 +1303,15 @@ impl Analysis {
                 .collect(),
             TyKind::Tuple(elems) => (0..elems.len()).map(|index| index.to_string()).collect(),
             _ => Vec::new(),
-        })
+        };
+        names
+            .into_iter()
+            .map(|label| lsp_types::CompletionItem {
+                label,
+                kind: Some(CompletionItemKind::FIELD),
+                ..lsp_types::CompletionItem::default()
+            })
+            .collect()
     }
 
     fn field_uses<'a>(&self, file: &'a File) -> &'a [(Span, GlobalDefId)] {

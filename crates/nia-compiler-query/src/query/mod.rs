@@ -59,6 +59,14 @@ pub struct SourceReceiverMethod {
     /// Physical source and declaration span when the receiver identifies one member.
     pub declaration: Option<(SourcePath, Span)>,
 }
+
+/// Compiler-checked receiver and its applicable methods at a source location.
+pub struct SourceReceiverMembers {
+    /// Type inferred at the receiver expression.
+    pub ty: InternedTyId,
+    /// Applicable methods with declaration locations where resolvable.
+    pub methods: Vec<SourceReceiverMethod>,
+}
 use nia_public_surface::{
     TypeExposureIndex, compute_exported_public_surfaces_with_symbols,
     compute_using_scopes_from_surfaces_with_symbols,
@@ -341,26 +349,27 @@ impl CompilerDatabase {
         Ok(bindings)
     }
 
-    /// Resolves methods for a source receiver in an isolated editor database.
-    pub fn source_receiver_methods(
+    /// Resolves a receiver type and its methods in an isolated editor database.
+    pub fn source_receiver_members(
         &self,
         module: ModuleId,
         receiver: nia_span::Span,
         names: &[SymbolId],
         cancel: Option<&CancellationToken>,
-    ) -> QueryResult<Vec<SourceReceiverMethod>> {
-        if names.is_empty() {
-            return Ok(Vec::new());
-        }
-        let (candidates, _) = settlement::settle_provider_worklist(
+    ) -> QueryResult<Option<SourceReceiverMembers>> {
+        let (receiver, _) = settlement::settle_provider_worklist(
             self,
             false,
             |database| editor_receiver_methods(&database.db, module, receiver, names),
             |(_, demands)| demands.clone(),
             cancel,
         )?;
+        let Some(receiver) = receiver else {
+            return Ok(None);
+        };
         let graph = self.current_graph()?;
-        candidates
+        let methods = receiver
+            .methods
             .into_iter()
             .map(|candidate| {
                 if let Some(cancel) = cancel {
@@ -381,7 +390,11 @@ impl CompilerDatabase {
                     declaration,
                 })
             })
-            .collect()
+            .collect::<QueryResult<_>>()?;
+        Ok(Some(SourceReceiverMembers {
+            ty: receiver.ty,
+            methods,
+        }))
     }
 
     /// Checks every loaded module after settling provider-demand fixed points.
