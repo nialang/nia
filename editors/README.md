@@ -2,7 +2,8 @@
 
 `nia-lsp` is a Rust language server that uses the compiler's loader and
 semantic queries. Its current editor features are live diagnostics,
-definition navigation, hover at resolved names, workspace references,
+definition and type-definition navigation, workspace symbol search,
+trait implementation navigation, hover at resolved names, workspace references,
 occurrence highlighting in the current file, completion for
 local names, module members, receiver fields and methods, signature help for
 source functions and resolved methods,
@@ -56,6 +57,8 @@ Workspace references and rename share an index for the current document
 revision. Reference results can include resolved sources from entries
 that have diagnostics. Workspace requests run independently of interactive
 analysis and stop at the next cancellation checkpoint when the input changes.
+Workspace symbol searches accept names and qualifiers such as
+`app::geometry::Point` and include declarations in unsaved buffers.
 
 For a repeatable latency sample, run the stdio benchmark with Python 3.9+
 and a release server binary. It reports request round trips, versioned

@@ -348,6 +348,8 @@ pub(crate) struct Analysis {
     pub(crate) definitions: HashMap<Symbol, (String, Span)>,
     diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
     configuration_warning: Option<String>,
+    trait_implementations: Vec<(GlobalDefId, String, Span)>,
+    trait_members: HashMap<GlobalDefId, GlobalDefId>,
     db: CompilerDatabase,
     graph: ModuleGraphSnapshot,
     defs: HashMap<ModuleId, Arc<DefCollection>>,
@@ -426,6 +428,8 @@ impl Analysis {
             definitions: HashMap::new(),
             diagnostics: program.diagnostics,
             configuration_warning: None,
+            trait_implementations: Vec::new(),
+            trait_members: HashMap::new(),
             db: db.clone(),
             graph: program.graph.clone(),
             defs: program
@@ -518,7 +522,14 @@ impl Analysis {
                     .map(|(&id, &ty)| (id, ty))
                     .collect();
                 if file.text.contains("extend") {
-                    trait_members.extend(db.source_trait_member_bindings(module)?.into_iter().map(
+                    let implementations = db.source_trait_implementations(module)?;
+                    result.trait_implementations.extend(
+                        implementations
+                            .traits
+                            .into_iter()
+                            .map(|(id, span)| (id, path.to_owned(), span)),
+                    );
+                    trait_members.extend(implementations.members.into_iter().map(
                         |(definition, member)| {
                             (
                                 GlobalDefId {
@@ -731,6 +742,7 @@ impl Analysis {
                 }
             }
         }
+        result.trait_members = trait_members;
         Ok(result)
     }
 
@@ -1514,6 +1526,21 @@ impl Analysis {
                     .join("::");
                 Some((source.as_str(), *span, name, kind, container))
             })
+    }
+
+    pub(crate) fn workspace_implementations(&self) -> impl Iterator<Item = (Symbol, &str, Span)> {
+        self.trait_implementations
+            .iter()
+            .map(|(id, source, span)| (Symbol::Global(*id), source.as_str(), *span))
+            .chain(
+                self.trait_members
+                    .iter()
+                    .filter_map(|(implementation, member)| {
+                        let (source, span) =
+                            self.definitions.get(&Symbol::Global(*implementation))?;
+                        Some((Symbol::Global(*member), source.as_str(), *span))
+                    }),
+            )
     }
 
     pub(crate) fn hover(&self, path: &Path, position: Position) -> Option<lsp_types::Hover> {

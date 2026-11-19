@@ -42,6 +42,15 @@ use nia_program_signatures::{
     visible_extensions_for_module, visible_trait_impls_for_module,
 };
 pub use nia_public_surface::LexicalUsingScopes;
+
+/// Source locations and member bindings for a module's trait implementations.
+#[derive(Default)]
+pub struct SourceTraitImplementations {
+    /// Implemented trait and the source span naming it in each implementation.
+    pub traits: Vec<(GlobalDefId, Span)>,
+    /// Local member definition and the trait member it implements.
+    pub members: Vec<(DefId, GlobalDefId)>,
+}
 use nia_public_surface::{
     TypeExposureIndex, compute_exported_public_surfaces_with_symbols,
     compute_using_scopes_from_surfaces_with_symbols,
@@ -245,14 +254,14 @@ impl CompilerDatabase {
         full_module_defs_semantic(&self.db, module)
     }
 
-    /// Returns local definitions paired with the source trait members they implement.
-    pub fn source_trait_member_bindings(
+    /// Resolves a module's implementations to their source traits and members.
+    pub fn source_trait_implementations(
         &self,
         module: &CheckedModule,
-    ) -> QueryResult<Vec<(DefId, GlobalDefId)>> {
+    ) -> QueryResult<SourceTraitImplementations> {
         let signatures = self.db.get(ItemSignaturesQuery(module.id))?;
         let types = self.type_store();
-        let mut bindings = Vec::new();
+        let mut bindings = SourceTraitImplementations::default();
         for implementation in &signatures.semantic.trait_impls {
             let Some(trait_ty) = implementation.trait_ty else {
                 continue;
@@ -263,47 +272,57 @@ impl CompilerDatabase {
             else {
                 continue;
             };
+            bindings.traits.push((
+                *trait_id,
+                implementation.trait_span.unwrap_or(implementation.span),
+            ));
             let defs = self.source_definitions(trait_id.module_id)?;
             let Some(members) = defs.scopes.struct_members.get(&trait_id.def_id) else {
                 continue;
             };
-            bindings.extend(implementation.methods.iter().filter_map(|method| {
-                Some((
-                    method.def_id,
-                    GlobalDefId {
-                        module_id: trait_id.module_id,
-                        def_id: members.methods.get(&method.name)?,
-                    },
-                ))
-            }));
-            bindings.extend(implementation.associated_values.iter().filter_map(|value| {
-                Some((
-                    value.def_id,
-                    GlobalDefId {
-                        module_id: trait_id.module_id,
-                        def_id: members.values.get(&value.name)?,
-                    },
-                ))
-            }));
-            bindings.extend(
-                implementation
-                    .associated_types
-                    .iter()
-                    .filter_map(|associated| {
-                        let (local, _) = module.defs.defs.iter().find(|(_, def)| {
-                            def.kind == nia_defs::DefKind::TraitAssociatedType
-                                && def.name == associated.name
-                                && def.span == associated.span
-                        })?;
-                        Some((
-                            local,
-                            GlobalDefId {
-                                module_id: trait_id.module_id,
-                                def_id: members.fields.get(&associated.name)?,
-                            },
-                        ))
-                    }),
-            );
+            bindings
+                .members
+                .extend(implementation.methods.iter().filter_map(|method| {
+                    Some((
+                        method.def_id,
+                        GlobalDefId {
+                            module_id: trait_id.module_id,
+                            def_id: members.methods.get(&method.name)?,
+                        },
+                    ))
+                }));
+            bindings
+                .members
+                .extend(implementation.associated_values.iter().filter_map(|value| {
+                    Some((
+                        value.def_id,
+                        GlobalDefId {
+                            module_id: trait_id.module_id,
+                            def_id: members.values.get(&value.name)?,
+                        },
+                    ))
+                }));
+            bindings
+                .members
+                .extend(
+                    implementation
+                        .associated_types
+                        .iter()
+                        .filter_map(|associated| {
+                            let (local, _) = module.defs.defs.iter().find(|(_, def)| {
+                                def.kind == nia_defs::DefKind::TraitAssociatedType
+                                    && def.name == associated.name
+                                    && def.span == associated.span
+                            })?;
+                            Some((
+                                local,
+                                GlobalDefId {
+                                    module_id: trait_id.module_id,
+                                    def_id: members.fields.get(&associated.name)?,
+                                },
+                            ))
+                        }),
+                );
         }
         Ok(bindings)
     }

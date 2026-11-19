@@ -203,6 +203,58 @@ fn opening_a_build_script_child_uses_the_build_dependency_scope() {
 }
 
 #[test]
+fn workspace_implementation_search_follows_trait_and_member_bindings_across_packages() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-workspace-implementations");
+    let write = |path: &str, text: &str| {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        path
+    };
+    write("nia.toml", "[workspace]\nmembers = [\"api\", \"client\"]\n");
+    write(
+        "api/nia.toml",
+        "[package]\nname = \"api\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+    );
+    let api = write(
+        "api/root.nia",
+        "pub trait Source { fun read(&self) i32; }\n",
+    );
+    write(
+        "client/nia.toml",
+        "[package]\nname = \"client\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n\
+         [dependencies]\napi = { path = \"../api\" }\n",
+    );
+    let client = write("client/root.nia", "pub struct Value {}\n");
+    let documents = Documents::from([(
+        client.clone(),
+        OpenDocument {
+            uri: uri(&client).unwrap(),
+            document: Document::new(
+                1,
+                "pub struct Value {}\nextend Value : api::Source { fun read(&self) i32 { 42 } }\n"
+                    .into(),
+            ),
+        },
+    )]);
+    let mut session = test_session();
+    let analysis = session.analyze(&documents, &api).unwrap();
+    let cancel = Cancellation::default();
+    let index = session
+        .workspace_index(&api, &documents, &[root.to_path_buf()], &cancel)
+        .unwrap();
+    for (position, expected_column) in [(Position::new(0, 12), 15), (Position::new(0, 24), 33)] {
+        let locations = index
+            .implementations(&analysis, &api, position, &cancel)
+            .unwrap();
+        assert_eq!(locations.len(), 1, "{position:?}");
+        assert_eq!(locations[0].uri, uri(&client).unwrap());
+        assert_eq!(locations[0].range.start, Position::new(1, expected_column));
+    }
+}
+
+#[test]
 fn rename_updates_associated_types_in_implementations_projections_and_bounds() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-rename-associated-types");

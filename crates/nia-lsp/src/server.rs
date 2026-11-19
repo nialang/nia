@@ -33,6 +33,7 @@ const RENAME: &str = "textDocument/rename";
 const PREPARE_RENAME: &str = "textDocument/prepareRename";
 const REFERENCES: &str = "textDocument/references";
 const WORKSPACE_SYMBOL: &str = "workspace/symbol";
+const IMPLEMENTATION: &str = "textDocument/implementation";
 
 pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error> {
     let (connection, io) = Connection::stdio();
@@ -83,6 +84,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
                 "textDocumentSync": { "openClose": true, "change": 2, "save": true },
                 "definitionProvider": true,
                 "typeDefinitionProvider": true,
+                "implementationProvider": true,
                 "referencesProvider": true,
                 "documentHighlightProvider": true,
                 "renameProvider": { "prepareProvider": true },
@@ -181,7 +183,7 @@ impl Lane {
     fn for_request(request: &Request) -> Self {
         if matches!(
             request.method.as_str(),
-            REFERENCES | RENAME | WORKSPACE_SYMBOL
+            REFERENCES | RENAME | WORKSPACE_SYMBOL | IMPLEMENTATION
         ) {
             Self::Workspace
         } else {
@@ -346,6 +348,35 @@ fn analyze(
                     );
                     match result {
                         Ok(edit) => Response::new_ok(request.id, edit),
+                        Err(error) => {
+                            Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
+                        }
+                    }
+                }
+                Ok(analysis) if request.method == IMPLEMENTATION => {
+                    let params =
+                        match decode::<lsp_types::TextDocumentPositionParams>(request.params) {
+                            Ok(params) => params,
+                            Err(error) => {
+                                return Response::new_err(
+                                    request.id,
+                                    ErrorCode::InvalidParams as i32,
+                                    error.to_string(),
+                                );
+                            }
+                        };
+                    let result = session
+                        .workspace_index(&work.path, &work.documents, &work.folders, &work.cancel)
+                        .and_then(|index| {
+                            index.implementations(
+                                analysis,
+                                &work.path,
+                                params.position,
+                                &work.cancel,
+                            )
+                        });
+                    match result {
+                        Ok(locations) => Response::new_ok(request.id, locations),
                         Err(error) => {
                             Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
                         }
@@ -569,6 +600,7 @@ impl Server {
             request.method.as_str(),
             "textDocument/definition"
                 | "textDocument/typeDefinition"
+                | IMPLEMENTATION
                 | REFERENCES
                 | "textDocument/documentHighlight"
                 | RENAME
