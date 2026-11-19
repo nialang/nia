@@ -607,108 +607,49 @@ fn configured_imports_respect_the_scopes_of_local_plan_packages() {
 
 #[test]
 fn configured_generated_modules_are_indexed_and_restrict_rename() {
-    use nia_build_plan::{
-        ActionKey, ActionKind, ArtifactConfiguration, BuildPlan, BuildPlanDraft, LogicalPath,
-        LogicalPathRoot, ModuleImport, ModuleKey, OptimizationMode, PackageKey, PlanAction,
-        PlanModule, PlanPackage, PlanPackageSource, PlanStep, Runtime, StepKey, StepVisibility,
-        publish_build_plan,
-    };
-    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let _resources = acquire_test_resources(TestWorkload::Build);
     let root = test_dir("lsp-generated-module");
     let path = root.join("root.nia");
-    std::fs::write(
-        root.join("nia.toml"),
-        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
-    )
-    .unwrap();
+    let manifest = root.join("nia.toml");
+    let manifest_text = "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n";
+    std::fs::write(&manifest, manifest_text).unwrap();
     let source = "using generated::amount as local;\nfun use_it() i32 { local() }\n";
     std::fs::write(&path, source).unwrap();
-    let output = root.join("build/out");
-    std::fs::create_dir_all(&output).unwrap();
-    let generated = output.join("generated.nia");
-    let generated_text = "@[release]\npub fun amount() i32 { 42 }\n";
-    std::fs::write(&generated, generated_text).unwrap();
-    let package = PackageKey::root();
-    let module = ModuleKey::new(package.clone(), "source").unwrap();
-    let generated_path = LogicalPath::new(LogicalPathRoot::Build, "generated.nia").unwrap();
-    let generate = ActionKey::new(package.clone(), "generate").unwrap();
-    let check = ActionKey::new(package.clone(), "check").unwrap();
-    let generator = StepKey::new(package.clone(), "generate").unwrap();
-    let checker = StepKey::new(package.clone(), "check").unwrap();
-    let target = nia_target::TargetConfig::host().unwrap();
-    let plan = BuildPlan::freeze(BuildPlanDraft {
-        root_package: package.clone(),
-        packages: vec![PlanPackage {
-            key: package.clone(),
-            source: PlanPackageSource::Local(String::new()),
-        }],
-        host_target: target,
-        artifact_target: target,
-        modules: vec![PlanModule {
-            key: module.clone(),
-            root_source: LogicalPath::new(LogicalPathRoot::Package(package), "root.nia").unwrap(),
-            optimization: OptimizationMode::O0,
-            imports: vec![ModuleImport {
-                name: "generated".into(),
-                path: generated_path.clone(),
-            }],
-        }],
-        artifacts: Vec::new(),
-        actions: vec![
-            PlanAction {
-                key: generate.clone(),
-                kind: ActionKind::GeneratedFile {
-                    output: generated_path,
-                    contents: generated_text.as_bytes().to_vec(),
-                },
-            },
-            PlanAction {
-                key: check.clone(),
-                kind: ActionKind::CompilerCheck {
-                    module,
-                    target,
-                    runtime: Runtime::Bare,
-                    mode: nia_build_plan::CompilationMode::Normal,
-                    configuration: ArtifactConfiguration::default(),
-                },
-            },
-        ],
-        steps: vec![
-            PlanStep {
-                key: generator.clone(),
-                visibility: StepVisibility::Internal,
-                action: generate,
-                dependencies: Vec::new(),
-            },
-            PlanStep {
-                key: checker.clone(),
-                visibility: StepVisibility::Public,
-                action: check,
-                dependencies: vec![generator],
-            },
-        ],
-        default_step: Some(checker),
-        selected_step: None,
-    })
-    .unwrap();
-    let mut observations =
-        nia_build::ConfigureManifest::new(nia_build::ObservationPolicy::Disallow);
-    observations
-        .push(nia_build::observe_file_contents(&root, "nia.toml").unwrap())
-        .unwrap();
-    publish_build_plan(
-        &output.join("build-plan.bin"),
-        &nia_build_plan::BuildDraft {
-            plan,
-            observations: observations.encode().unwrap(),
-        },
-        nia_build_plan::PlanConfiguration {
-            profile: nia_target_config::BuildProfile::Release,
-            ..Default::default()
-        },
+    std::fs::write(
+        root.join("build.nia"),
+        r#"using std::build;
+using std::fs;
+
+pub fun build(b: &mut build::Build) build::Error!() {
+    let generated = build::BuildPathView::init(&"generated.nia");
+    let imports = [build::ModuleImport::fromBuild(&"generated", generated)];
+    let source = b.addModule(
+        build::ModuleOptions::init(&"source", fs::PathView::init(&"root.nia"))
+            .withImports(&imports[..]),
+    ).?;
+    let generate = b.addGeneratedFileStep(
+        &"generate",
+        generated,
+        &b"@[release]\npub fun amount() i32 { 42 }\n"[..],
+    ).?;
+    let check = b.addCheckModuleStep(&"check", source).?;
+    b.dependOn(check, generate).?;
+    b.setDefaultStep(check).?;
+    !()
+}
+"#,
     )
     .unwrap();
+
     let mut session = test_session();
+    nia_build::run_build(
+        nia_build::BuildRequest::new(Arc::clone(&session.toolchain))
+            .with_root(&root)
+            .with_profile(nia_target_config::BuildProfile::Release),
+    )
+    .unwrap();
+    let generated = root.join("build/out/generated.nia");
+    let generated_text = "@[release]\npub fun amount() i32 { 42 }\n";
     let documents = Documents::new();
     let analyzed = session.analyze(&documents, &path).unwrap();
     assert_eq!(analyzed.first_error(), None);
@@ -727,9 +668,11 @@ fn configured_generated_modules_are_indexed_and_restrict_rename() {
     );
     assert_eq!(std::fs::read_to_string(&generated).unwrap(), generated_text);
 
-    let manifest = root.join("nia.toml");
-    let contents = std::fs::read_to_string(&manifest).unwrap();
-    std::fs::write(&manifest, format!("{contents}# configuration changed\n")).unwrap();
+    std::fs::write(
+        &manifest,
+        format!("{manifest_text}# configuration changed\n"),
+    )
+    .unwrap();
     session.reload();
     let analyzed = session.analyze(&documents, &path).unwrap();
     assert!(analyzed.definition(&path, Position::new(1, 19)).is_none());
