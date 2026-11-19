@@ -326,6 +326,10 @@ def smoke(server, root):
             assert [action["title"] for action in actions] == [
                 "Import `root::alternate::weight`", "Import `root::shapes::weight`",
             ], actions
+            completions = request(client, "textDocument/completion", dict(**params, position=end))
+            assert [item["labelDetails"]["description"] for item in completions] == [
+                "root::alternate::weight", "root::shapes::weight",
+            ], completions
 
             unordered = updated.replace(
                 "using std::process;",

@@ -110,16 +110,16 @@ impl Session {
         actions
     }
 
-    pub(super) fn complete_import(
+    pub(super) fn complete_imports(
         &mut self,
         analysis: &Analysis,
         documents: &Documents,
         path: &Path,
         position: lsp_types::Position,
         cancel: &Cancellation,
-    ) -> Option<CompletionItem> {
+    ) -> Option<Vec<CompletionItem>> {
         let file = analysis.file(path)?;
-        let (span, candidate) = nia_query::with_cancellation(Some(cancel.token()), || {
+        let (span, candidates) = nia_query::with_cancellation(Some(cancel.token()), || {
             Ok(analysis.import_completion(path, position, cancel))
         })
         .ok()
@@ -127,26 +127,34 @@ impl Session {
         if analysis.symbol_at_offset(file, span.start).is_some() {
             return None;
         }
-        let import =
-            self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)?;
         let range = file.lines.range(&file.text, span);
-        let mut item = crate::editing::completion_item(
-            candidate.name.to_string(),
-            candidate.kind.map(crate::editing::completion_kind),
-            range,
-        );
-        item.label_details = Some(lsp_types::CompletionItemLabelDetails {
-            detail: None,
-            description: Some(candidate.path),
-        });
-        if let Some(callable) = candidate
-            .symbol
-            .and_then(|symbol| analysis.callable_declaration(symbol))
-        {
-            callable.describe_completion(&mut item);
+        let mut items = Vec::new();
+        for candidate in candidates {
+            cancel.check().ok()?;
+            let Some(import) =
+                self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)
+            else {
+                continue;
+            };
+            let mut item = crate::editing::completion_item(
+                candidate.name.to_string(),
+                candidate.kind.map(crate::editing::completion_kind),
+                range,
+            );
+            item.label_details = Some(lsp_types::CompletionItemLabelDetails {
+                detail: None,
+                description: Some(candidate.path),
+            });
+            if let Some(callable) = candidate
+                .symbol
+                .and_then(|symbol| analysis.callable_declaration(symbol))
+            {
+                callable.describe_completion(&mut item);
+            }
+            item.additional_text_edits = Some(vec![import]);
+            items.push(item);
         }
-        item.additional_text_edits = Some(vec![import]);
-        Some(item)
+        Some(items)
     }
 
     fn verified_import_edit(
@@ -209,7 +217,7 @@ impl Analysis {
         path: &Path,
         position: lsp_types::Position,
         cancel: &Cancellation,
-    ) -> Option<(Span, ImportCandidate)> {
+    ) -> Option<(Span, Vec<ImportCandidate>)> {
         use nia_defs::DefKind;
         let file = self.file(path)?;
         let (span, prefix, type_only) = crate::editing::unqualified_completion(file, position)?;
@@ -234,8 +242,7 @@ impl Analysis {
             },
             cancel,
         )?;
-        let [candidate] = candidates.try_into().ok()?;
-        Some((span, candidate))
+        (!candidates.is_empty()).then_some((span, candidates))
     }
 
     fn code_actions(

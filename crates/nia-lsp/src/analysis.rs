@@ -324,7 +324,9 @@ impl Session {
             .ok()
             .flatten()?;
             if items.is_empty() {
-                items.extend(self.complete_import(analysis, documents, path, position, cancel));
+                items = self
+                    .complete_imports(analysis, documents, path, position, cancel)
+                    .unwrap_or_default();
             }
             return Some(items);
         };
@@ -3055,7 +3057,7 @@ mod tests {
     }
 
     #[test]
-    fn completion_imports_only_an_unambiguous_visible_declaration() {
+    fn completion_offers_verified_imports_from_distinct_visible_declarations() {
         let _resources = acquire_test_resources(TestWorkload::Compiler);
         let root = test_dir("lsp-completion-import");
         let main = root.join("main.nia");
@@ -3108,14 +3110,24 @@ mod tests {
             session
                 .complete_names(&documents, &main, cursor, &cancel)
                 .unwrap(),
-            Some(vec![])
+            None
         );
         let full = session.analyze(&documents, &main).unwrap();
-        assert!(
-            probe
-                .complete(&full, &documents, &main, cursor, &cancel)
-                .unwrap()
-                .is_empty()
+        let items = probe
+            .complete(&full, &documents, &main, cursor, &cancel)
+            .unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item
+                    .label_details
+                    .as_ref()
+                    .unwrap()
+                    .description
+                    .as_deref()
+                    .unwrap())
+                .collect::<Vec<_>>(),
+            ["root::alpha::weight", "root::beta::weight"],
         );
     }
 
