@@ -168,6 +168,61 @@ def benchmark_members(client, source, root, repeat, member):
     )
 
 
+def benchmark_syntax(client, source, root, repeat, replacement):
+    original = source.read_text(encoding="utf-8")
+    old, new = replacement
+    if not old or old == new or original.count(old) != 1:
+        raise ValueError("--replace must change exactly one occurrence")
+    alternate = original.replace(old, new)
+    client.measure("initialize", {
+        "processId": None,
+        "rootUri": root.as_uri(),
+        "capabilities": {"workspace": {"semanticTokens": {"refreshSupport": True}}},
+    })
+    client.notify("initialized", {})
+    document = dict(uri=source.as_uri())
+    params = dict(textDocument=document)
+    methods = [
+        ("highlight", "textDocument/semanticTokens/full", params),
+        ("folding", "textDocument/foldingRange", params),
+        ("formatting", "textDocument/formatting", dict(**params, options=dict(tabSize=4, insertSpaces=True))),
+    ]
+    client.notify("textDocument/didOpen", {"textDocument": dict(
+        **document, languageId="nia", version=1, text=original,
+    )})
+    first_highlight = client.measure("textDocument/semanticTokens/full", params)
+    client.wait_diagnostics(document["uri"], 1)
+    report = {"first_highlight": summary([first_highlight])}
+    samples = {name: [] for name, _, _ in methods}
+    version = 1
+    for _ in range(repeat):
+        for name, method, request_params in methods:
+            version += 1
+            text = alternate if version % 2 == 0 else original
+            started = perf_counter()
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=version),
+                "contentChanges": [dict(text=text)],
+            })
+            ident = client.request(method, request_params)
+            queued_ms = 1000 * (client.started[ident] - started)
+            elapsed, response = client.wait(ident)
+            if "error" in response:
+                raise RuntimeError(f"{method}: {response['error']}")
+            samples[name].append(elapsed + queued_ms)
+    for name, values in samples.items():
+        report[f"{name}_after_edit"] = summary(values)
+    client.wait_diagnostics(document["uri"], version)
+    report["semantic_highlight_after_diagnostics"] = summary([
+        client.measure("textDocument/semanticTokens/full", params),
+    ])
+    if os.name == "nt":
+        report["peak_rss_bytes"] = windows_working_set(client.process.pid)[1]
+    client.measure("shutdown", None)
+    client.notify("exit", None)
+    return report
+
+
 def benchmark(client, source, root, symbol, repeat, replacement=None, cancel_delay_ms=0,
               reopen_cycles=0):
     initialize = client.measure("initialize", {
@@ -397,6 +452,7 @@ def main():
     workload.add_argument("--symbol", help="first exact substring to use as the cursor")
     workload.add_argument("--member", nargs=3, metavar=("ORIGINAL", "RECEIVER", "NAME"),
                           help="replace one expression and type NAME character by character after RECEIVER.")
+    workload.add_argument("--syntax", action="store_true", help="measure syntax requests after --replace edits")
     parser.add_argument("--repeat", type=int, default=15)
     parser.add_argument("--reopen-cycles", type=int, default=0,
                         help="measure repeated close, workspace switch, and reopen in the same process")
@@ -415,7 +471,9 @@ def main():
     if not math.isfinite(args.cancel_delay_ms) or args.cancel_delay_ms < 0:
         parser.error("--cancel-delay-ms must be finite and nonnegative")
     if args.member and (args.replace or args.reopen_cycles or args.cancel_delay_ms):
-        parser.error("--replace, --reopen-cycles, and --cancel-delay-ms require --symbol")
+        parser.error("--member cannot be combined with --replace, --reopen-cycles, or --cancel-delay-ms")
+    if args.syntax and (not args.replace or args.reopen_cycles or args.cancel_delay_ms):
+        parser.error("--syntax requires --replace and measures only syntax requests")
     source = args.source.resolve()
     root = args.workspace.resolve() if args.workspace else source.parent
     command = [str(args.server.resolve()), "--resource-root", str(args.resource_root.resolve())]
@@ -424,6 +482,8 @@ def main():
             client = Client(process, args.timeout)
             if args.member:
                 report = benchmark_members(client, source, root, args.repeat, args.member)
+            elif args.syntax:
+                report = benchmark_syntax(client, source, root, args.repeat, args.replace)
             else:
                 report = benchmark(client, source, root, args.symbol, args.repeat,
                                    args.replace, args.cancel_delay_ms, args.reopen_cycles)
@@ -448,6 +508,7 @@ def main():
         configuration=args.configuration,
         replacement=args.replace,
         member=args.member,
+        syntax=args.syntax,
         cancel_delay_ms=args.cancel_delay_ms,
     )
     print(json.dumps(report, indent=2))
