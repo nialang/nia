@@ -1163,6 +1163,56 @@ pub fun build(b: &mut build::Build) build::Error!() {
                 process.kill()
 
 
+def smoke_long_expression(server, root):
+    entry = root / "root.nia"
+    helper = root / "helper.nia"
+    (root / "nia.toml").write_text(
+        '[package]\nname = "long_expression"\nversion = "0.1.0"\n[library]\npath = "root.nia"\n',
+        encoding="utf-8",
+    )
+    helper.write_text("pub fun value() i32 { 1 }\n", encoding="utf-8")
+    terms = " + ".join(["helper::value()"] * 576)
+    source = f"module helper;\npub fun probe() i32 {{ {terms} }}\n"
+    entry.write_text(source, encoding="utf-8")
+    compiler = server.with_name("nia" + server.suffix)
+    subprocess.run([str(compiler), "check", str(entry)], cwd=root, check=True, timeout=60)
+
+    with subprocess.Popen([str(server)], cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
+        try:
+            client = Client(process, 60)
+            request(client, "initialize", {"rootUri": root.as_uri(), "capabilities": {}})
+            client.notify("initialized", {})
+            document = {"uri": entry.as_uri()}
+            client.notify("textDocument/didOpen", {"textDocument": {
+                **document, "languageId": "nia", "version": 1, "text": source,
+            }})
+            target = request(client, "textDocument/definition", {
+                "textDocument": document, "position": position(source, "value()"),
+            })
+            assert target["uri"] == helper.as_uri(), target
+            tokens = request(client, "textDocument/semanticTokens/full", {"textDocument": document})
+            assert tokens["data"], tokens
+            _, diagnostics = client.wait_diagnostics(entry.as_uri(), 1)
+            assert not diagnostics, diagnostics
+            for version, text in [(2, source.replace("value()", "missing()", 1)), (3, source)]:
+                client.notify("textDocument/didChange", {
+                    "textDocument": dict(**document, version=version),
+                    "contentChanges": [{"text": text}],
+                })
+                _, diagnostics = client.wait_diagnostics(entry.as_uri(), version)
+                if version == 2:
+                    assert any("missing" in item["message"] for item in diagnostics), diagnostics
+                else:
+                    assert not diagnostics, diagnostics
+            request(client, "shutdown", None)
+            client.notify("exit", None)
+            process.stdin.close()
+            assert process.wait(timeout=30) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("server", type=Path)
@@ -1186,6 +1236,8 @@ def main():
         smoke_build_context(server, Path(directory).resolve())
     with tempfile.TemporaryDirectory(prefix="nia-lsp-generated-chain-") as directory:
         smoke_generated_chain(server, Path(directory).resolve())
+    with tempfile.TemporaryDirectory(prefix="nia-lsp-long-expression-") as directory:
+        smoke_long_expression(server, Path(directory).resolve())
 
 
 if __name__ == "__main__":

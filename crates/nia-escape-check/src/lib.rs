@@ -992,6 +992,19 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_expr(&mut self, expr: &TypedExpr, env: &mut Environment) -> ValueProvenance {
+        if let Some((lhs, rhs)) = binary_operands(expr) {
+            let mut pending = vec![(expr.ty, rhs)];
+            let mut left = lhs;
+            while let Some((lhs, rhs)) = binary_operands(left) {
+                pending.push((left.ty, rhs));
+                left = lhs;
+            }
+            let first = self.analyze_expr(left, env);
+            return pending.into_iter().rev().fold(first, |lhs, (ty, rhs)| {
+                let rhs = self.analyze_expr(rhs, env);
+                self.filter_for_type(ValueProvenance::from_value(union(lhs.all(), rhs.all())), ty)
+            });
+        }
         // Expression transfer is deliberately conservative at effectful
         // boundaries: stores and calls record all incoming origins, while
         // pure constructors preserve child origins under their projections.
@@ -1185,10 +1198,7 @@ impl<'a> Analyzer<'a> {
                 self.record_error_return(&value.error, expr.span);
                 ValueProvenance::from_value(value.value)
             }
-            TypedExprKind::Binary { lhs, rhs, .. } => ValueProvenance::from_value(union(
-                self.analyze_expr(lhs, env).all(),
-                self.analyze_expr(rhs, env).all(),
-            )),
+            TypedExprKind::Binary { .. } => unreachable!("binary operands are handled first"),
             TypedExprKind::Index { lhs, index } => {
                 let lhs = self.analyze_expr(lhs, env).all();
                 self.analyze_expr(index, env);
@@ -2386,6 +2396,20 @@ fn bind_pattern(pattern: &TypedPattern, value: &ValueProvenance, env: &mut Envir
 fn join_environment(target: &mut Environment, source: &Environment) {
     for (local_id, origins) in source {
         target.entry(*local_id).or_default().extend(origins.clone());
+    }
+}
+
+fn binary_operands(expr: &TypedExpr) -> Option<(&TypedExpr, &TypedExpr)> {
+    match &expr.kind {
+        TypedExprKind::Binary { lhs, rhs, .. } => Some((lhs, rhs)),
+        TypedExprKind::Call {
+            callee: TypedCallee::BuiltinOperator(_),
+            args,
+        } => match args.as_slice() {
+            [lhs, rhs] => Some((lhs, rhs)),
+            _ => None,
+        },
+        _ => None,
     }
 }
 

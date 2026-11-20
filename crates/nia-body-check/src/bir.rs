@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::{
-    ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, IndexArg, MatchArmBody,
+    ArrayElements, AssignOp, BinaryOp, BindingStmt, Block, Expr, ExprKind, IndexArg, MatchArmBody,
     SliceRange, Stmt, StmtKind, UnaryOp,
 };
 use nia_body_ir::{
@@ -839,14 +839,30 @@ impl<'a> BodyChecker<'a> {
         let ty = forced_ty
             .or_else(|| self.expr_ty(expr))
             .unwrap_or_else(|| self.error());
+        if let Some(value) = self.lower_special_expr(expr, forced_ty, ty) {
+            return value;
+        }
+        if let ExprKind::Binary { lhs, op, rhs } = &expr.kind {
+            let lhs = self.lower_binary_left(lhs);
+            return self.finish_binary_expr(expr.span, ty, lhs, *op, rhs);
+        }
+        self.lower_expr_kind(expr, forced_ty, ty)
+    }
+
+    fn lower_special_expr(
+        &mut self,
+        expr: &Expr,
+        forced_ty: Option<nia_ids::InternedTyId>,
+        ty: nia_ids::InternedTyId,
+    ) -> Option<TypedExpr> {
         if matches!(self.interner.get(ty), Some(TyKind::FunctionItem { .. }))
             && let Some(kind) = self.lower_function_item_ref(expr)
         {
-            return TypedExpr {
+            return Some(TypedExpr {
                 span: expr.span,
                 ty,
                 kind,
-            };
+            });
         }
         if let Some(projection) = self
             .semantic_uses
@@ -856,12 +872,12 @@ impl<'a> BodyChecker<'a> {
             if let Ok(value) =
                 self.resolve_associated_const_projection_for_env(expr.span, projection.clone())
             {
-                return self.lower_const_value_expr_with_origin(
+                return Some(self.lower_const_value_expr_with_origin(
                     expr.span,
                     ty,
                     Some(value),
                     nia_body_ir::PromotedAllocationId::new(self.defs.module_id, expr.span),
-                );
+                ));
             }
             if self.type_contains_generic_param(projection.self_ty)
                 || self.type_contains_const_generic_param(projection.self_ty)
@@ -876,7 +892,7 @@ impl<'a> BodyChecker<'a> {
                     })
                 })
             {
-                return TypedExpr {
+                return Some(TypedExpr {
                     span: expr.span,
                     ty,
                     kind: TypedExprKind::AssociatedConstProjection(
@@ -888,39 +904,39 @@ impl<'a> BodyChecker<'a> {
                             name: projection.name,
                         },
                     ),
-                };
+                });
             }
         }
         if let Some(def_id) = self.global_const_use(expr) {
             let ty = forced_ty.unwrap_or_else(|| self.runtime_ty_for_global_const_use(def_id, ty));
             if self.const_use_failed(expr, nia_const_check::ConstKey::Global(def_id)) {
-                return self.failed_const_use(expr.span, ty);
+                return Some(self.failed_const_use(expr.span, ty));
             }
-            return self.lower_const_value_expr_with_origin(
+            return Some(self.lower_const_value_expr_with_origin(
                 expr.span,
                 ty,
                 self.global_const_value(def_id),
                 self.global_const_allocation(def_id, expr.span),
-            );
+            ));
         }
         if matches!(self.interner.get(ty), Some(TyKind::FunctionPointer { .. }))
             && let Some(variant) = self.enum_constructor_variant(expr, Some(ty))
         {
-            return TypedExpr {
+            return Some(TypedExpr {
                 span: expr.span,
                 ty,
                 kind: TypedExprKind::EnumConstructor(variant),
-            };
+            });
         }
         if let Some(variant_id) = self.qualified_enum_variant(expr) {
-            return TypedExpr {
+            return Some(TypedExpr {
                 span: expr.span,
                 ty,
                 kind: TypedExprKind::EnumVariant {
                     variant: variant_id,
                     fields: Vec::new(),
                 },
-            };
+            });
         }
         if let Some(def_id) = self.qualified_value(expr) {
             let kind = match self.global_def_kind(def_id) {
@@ -932,23 +948,87 @@ impl<'a> BodyChecker<'a> {
                     let ty = forced_ty
                         .unwrap_or_else(|| self.runtime_ty_for_global_const_use(def_id, ty));
                     if self.const_use_failed(expr, nia_const_check::ConstKey::Global(def_id)) {
-                        return self.failed_const_use(expr.span, ty);
+                        return Some(self.failed_const_use(expr.span, ty));
                     }
-                    return self.lower_const_value_expr_with_origin(
+                    return Some(self.lower_const_value_expr_with_origin(
                         expr.span,
                         ty,
                         self.global_const_value(def_id),
                         self.global_const_allocation(def_id, expr.span),
-                    );
+                    ));
                 }
                 _ => TypedExprKind::Error,
             };
-            return TypedExpr {
+            return Some(TypedExpr {
                 span: expr.span,
                 ty,
                 kind,
-            };
+            });
         }
+        None
+    }
+
+    fn lower_binary_left(&mut self, mut expr: &Expr) -> TypedExpr {
+        let mut pending = Vec::new();
+        let lhs = loop {
+            let ExprKind::Binary { lhs, op, rhs } = &expr.kind else {
+                break self.lower_expr(expr);
+            };
+            // Keep implicit adjustments at the exact operand they apply to.
+            if self.node_expr_adjustments.contains_key(&expr.node_key) {
+                break self.lower_expr(expr);
+            }
+            let ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
+            if let Some(value) = self.lower_special_expr(expr, None, ty) {
+                break value;
+            }
+            pending.push((expr.span, ty, *op, rhs));
+            expr = lhs;
+        };
+        pending
+            .into_iter()
+            .rev()
+            .fold(lhs, |lhs, (span, ty, op, rhs)| {
+                self.finish_binary_expr(span, ty, lhs, op, rhs)
+            })
+    }
+
+    fn finish_binary_expr(
+        &mut self,
+        span: Span,
+        ty: nia_ids::InternedTyId,
+        lhs: TypedExpr,
+        op: BinaryOp,
+        rhs: &Expr,
+    ) -> TypedExpr {
+        let kind = if let Some(trait_id) = BuiltinOperatorOp::Binary(op).trait_id() {
+            let rhs_ty = self.expr_ty(rhs).or_else(|| {
+                self.can_expected_type_drive_builtin_operator(lhs.ty, op)
+                    .then_some(lhs.ty)
+            });
+            TypedExprKind::Call {
+                callee: TypedCallee::BuiltinOperator(BuiltinOperator {
+                    trait_id,
+                    op: BuiltinOperatorOp::Binary(op),
+                }),
+                args: vec![lhs, self.lower_expr_with_ty(rhs, rhs_ty)],
+            }
+        } else {
+            TypedExprKind::Binary {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(self.lower_expr(rhs)),
+            }
+        };
+        TypedExpr { span, ty, kind }
+    }
+
+    fn lower_expr_kind(
+        &mut self,
+        expr: &Expr,
+        forced_ty: Option<nia_ids::InternedTyId>,
+        ty: nia_ids::InternedTyId,
+    ) -> TypedExpr {
         let mut lowered_ty = ty;
         let kind = match &expr.kind {
             ExprKind::Error | ExprKind::Raw(_) | ExprKind::Underscore | ExprKind::PathRoot(_) => {
@@ -1468,27 +1548,7 @@ impl<'a> BodyChecker<'a> {
                     error_conversion,
                 }
             }
-            ExprKind::Binary { lhs, op, rhs }
-                if let Some(trait_id) = BuiltinOperatorOp::Binary(*op).trait_id() =>
-            {
-                let lhs_expr = self.lower_expr(lhs);
-                let rhs_ty = self.expr_ty(rhs).or_else(|| {
-                    self.can_expected_type_drive_builtin_operator(lhs_expr.ty, *op)
-                        .then_some(lhs_expr.ty)
-                });
-                TypedExprKind::Call {
-                    callee: TypedCallee::BuiltinOperator(BuiltinOperator {
-                        trait_id,
-                        op: BuiltinOperatorOp::Binary(*op),
-                    }),
-                    args: vec![lhs_expr, self.lower_expr_with_ty(rhs, rhs_ty)],
-                }
-            }
-            ExprKind::Binary { lhs, op, rhs } => TypedExprKind::Binary {
-                lhs: Box::new(self.lower_expr(lhs)),
-                op: *op,
-                rhs: Box::new(self.lower_expr(rhs)),
-            },
+            ExprKind::Binary { .. } => unreachable!("binary expressions use iterative lowering"),
             ExprKind::Assign {
                 lhs,
                 op: AssignOp::Assign,

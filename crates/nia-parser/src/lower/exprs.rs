@@ -170,14 +170,7 @@ impl Lower<'_> {
                     None => return *expr,
                 }
             }
-            SyntaxKind::BinaryExpr => {
-                let (lhs, rhs) = self.operands(node);
-                let op = node
-                    .child_tokens()
-                    .find_map(|token| binary_op(token_kind(token)))
-                    .unwrap_or(BinaryOp::Add);
-                ExprKind::Binary { lhs, op, rhs }
-            }
+            SyntaxKind::BinaryExpr => return self.binary_expr(node),
             SyntaxKind::AssignExpr => {
                 let (lhs, rhs) = self.operands(node);
                 let op = node
@@ -243,6 +236,38 @@ impl Lower<'_> {
             _ => ExprKind::Error,
         };
         self.make_expr(span, kind)
+    }
+
+    fn binary_expr(&mut self, mut node: &GreenNode) -> Expr {
+        let mut pending = Vec::new();
+        let lhs = loop {
+            let mut operands = nodes_where(node, SyntaxKind::is_expr);
+            let left = operands.next();
+            let right = operands.next();
+            pending.push((node, right));
+            match left {
+                Some(left) if left.kind() == &SyntaxKind::BinaryExpr => node = left,
+                _ => break self.boxed_expr(left, node.span()),
+            }
+        };
+        // Lower operands and allocate their origins in the grammar's original
+        // left-to-right order, including mixed operators on the left spine.
+        pending.into_iter().rev().fold(*lhs, |lhs, (node, right)| {
+            let span = node.span();
+            let rhs = self.boxed_expr(right, span);
+            let op = node
+                .child_tokens()
+                .find_map(|token| binary_op(token_kind(token)))
+                .unwrap_or(BinaryOp::Add);
+            self.make_expr(
+                span,
+                ExprKind::Binary {
+                    lhs: Box::new(lhs),
+                    op,
+                    rhs,
+                },
+            )
+        })
     }
 
     fn literal(&mut self, node: &GreenNode) -> ExprKind {
