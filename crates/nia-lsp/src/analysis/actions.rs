@@ -176,10 +176,27 @@ impl Session {
             let document = &mut overlay.get_mut(path)?.document;
             let mut text = document.text.to_string();
             text.insert(end, ';');
+            if file.text[end..].trim().is_empty() {
+                // Nested blocks may still be open when the user types at EOF.
+                // Count lexer tokens so braces in strings or comments are inert.
+                let open_blocks =
+                    tokenize(&text)
+                        .iter()
+                        .fold(0usize, |open, token| match token.kind {
+                            TokenKind::LBrace => open + 1,
+                            TokenKind::RBrace => open.saturating_sub(1),
+                            _ => open,
+                        });
+                text.extend(std::iter::repeat_n('}', open_blocks));
+            }
             *document = Document::new(document.version, text);
             let checked = self
                 .analyze_snapshot(&overlay, &analysis.request, cancel, AnalysisMode::Full)
                 .ok()?;
+            let names = checked.complete(path, position)?;
+            if !names.is_empty() {
+                return Some(names);
+            }
             return self.complete_import_names(&checked, &overlay, path, position, cancel);
         }
         self.complete_import_names(analysis, documents, path, position, cancel)

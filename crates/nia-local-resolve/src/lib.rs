@@ -37,6 +37,7 @@ mod allocation;
 mod resolver;
 
 use allocation::LocalDefinitionAllocator;
+pub use resolver::visible_local_names;
 use resolver::{
     resolve_module_locals_from_filtered_items, resolve_module_locals_from_items,
     resolve_module_locals_from_items_with_symbols,

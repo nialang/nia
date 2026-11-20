@@ -11,22 +11,12 @@ pub(super) fn resolve_module_locals_from_filtered_items(
     node_store: &NodeStore,
 ) -> nia_ice::IceResult<LocalResolution> {
     let allocated = LocalDefinitionAllocator::allocate_items(full_items)?;
-    let mut resolver = LocalResolver {
-        defs,
-        values,
-        locals: allocated.locals,
-        node_local_defs: allocated.node_local_defs.clone(),
-        node_uses: HashMap::new(),
-        node_type_prefixes: HashMap::new(),
-        diagnostics: Vec::new(),
-        internal_error: None,
-        symbols,
-        scopes: Vec::new(),
-        closure_scope_starts: Vec::new(),
-        self_locals: Vec::new(),
-        pattern_names: Vec::new(),
-        definition_ids: Some(allocated.node_local_defs),
-    };
+    let mut resolver = LocalResolver::new(defs, values, symbols);
+    resolver.locals = allocated.locals;
+    resolver
+        .node_local_defs
+        .clone_from(&allocated.node_local_defs);
+    resolver.definition_ids = Some(allocated.node_local_defs);
     resolver.resolve_items(filtered_items);
     finish_local_resolution(resolver, node_store)
 }
@@ -47,24 +37,58 @@ pub(super) fn resolve_module_locals_from_items_with_symbols(
     symbols: Option<&dyn SymbolText>,
     node_store: &NodeStore,
 ) -> nia_ice::IceResult<LocalResolution> {
-    let mut resolver = LocalResolver {
-        defs,
-        values,
-        locals: LocalMap::default(),
-        node_local_defs: HashMap::new(),
-        node_uses: HashMap::new(),
-        node_type_prefixes: HashMap::new(),
-        diagnostics: Vec::new(),
-        internal_error: None,
-        symbols,
-        scopes: Vec::new(),
-        closure_scope_starts: Vec::new(),
-        self_locals: Vec::new(),
-        pattern_names: Vec::new(),
-        definition_ids: None,
-    };
+    let mut resolver = LocalResolver::new(defs, values, symbols);
     resolver.resolve_items(items);
     finish_local_resolution(resolver, node_store)
+}
+
+/// Enumerates the names in the resolver's lexical scopes at a source position.
+pub fn visible_local_names(
+    tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    offset: usize,
+) -> nia_ice::IceResult<Vec<LocalBindingName>> {
+    let Some(item) = tree
+        .items
+        .iter()
+        .find(|item| item.span.start <= offset && offset < item.span.end)
+    else {
+        return Ok(Vec::new());
+    };
+    let mut resolver = LocalResolver::new(defs, values, None);
+    resolver.cursor = Some((offset, Vec::new()));
+    resolver.resolve_item_tree_node(item);
+    if let Some(error) = resolver.internal_error {
+        return Err(error);
+    }
+    Ok(resolver.cursor.expect("installed scope probe").1)
+}
+
+impl<'a> LocalResolver<'a> {
+    fn new(
+        defs: &'a DefCollection,
+        values: &'a ValueResolution,
+        symbols: Option<&'a dyn SymbolText>,
+    ) -> Self {
+        Self {
+            cursor: None,
+            defs,
+            values,
+            locals: LocalMap::default(),
+            node_local_defs: HashMap::new(),
+            node_uses: HashMap::new(),
+            node_type_prefixes: HashMap::new(),
+            diagnostics: Vec::new(),
+            internal_error: None,
+            symbols,
+            scopes: Vec::new(),
+            closure_scope_starts: Vec::new(),
+            self_locals: Vec::new(),
+            pattern_names: Vec::new(),
+            definition_ids: None,
+        }
+    }
 }
 
 fn finish_local_resolution(
@@ -90,6 +114,7 @@ fn finish_local_resolution(
 }
 
 struct LocalResolver<'a> {
+    cursor: Option<(usize, Vec<LocalBindingName>)>,
     defs: &'a DefCollection,
     values: &'a ValueResolution,
     locals: LocalMap,
@@ -133,6 +158,32 @@ struct Scope {
 }
 
 impl<'a> LocalResolver<'a> {
+    fn observe_scope(&mut self, span: Span) {
+        let Some((offset, names)) = &mut self.cursor else {
+            return;
+        };
+        if !(span.start <= *offset && *offset < span.end) {
+            return;
+        }
+        names.clear();
+        let start = self.closure_scope_starts.last().copied().unwrap_or(0);
+        names.extend(
+            self.scopes[start..]
+                .iter()
+                .flat_map(|scope| scope.locals.keys().copied().map(LocalBindingName::Named)),
+        );
+        names.extend(
+            self.scopes
+                .iter()
+                .flat_map(|scope| scope.statics.keys().copied().map(LocalBindingName::Named)),
+        );
+        if self.closure_scope_starts.is_empty()
+            && self.self_locals.last().is_some_and(Option::is_some)
+        {
+            names.push(LocalBindingName::SelfValue);
+        }
+    }
+
     fn symbol_name(&self, symbol: SymbolId) -> String {
         symbol_text_from_optional_resolver(self.symbols, symbol)
     }
@@ -215,9 +266,13 @@ impl<'a> LocalResolver<'a> {
 
     fn resolve_block(&mut self, block: &Block) {
         self.push_scope();
+        let mut previous = block.span.start;
         for stmt in &block.stmts {
+            self.observe_scope(Span::new(previous, stmt.span.start));
             self.resolve_stmt(stmt);
+            previous = stmt.span.end;
         }
+        self.observe_scope(Span::new(previous, block.span.end));
         if let Some(tail) = &block.tail {
             self.resolve_expr(tail);
         }
@@ -225,6 +280,7 @@ impl<'a> LocalResolver<'a> {
     }
 
     fn resolve_stmt(&mut self, stmt: &Stmt) {
+        self.observe_scope(stmt.span);
         match &stmt.kind {
             StmtKind::Binding(binding) => {
                 self.resolve_binding(stmt.span, binding, stmt.node_key.clone());
@@ -450,6 +506,7 @@ impl<'a> LocalResolver<'a> {
     }
 
     fn resolve_expr(&mut self, expr: &Expr) {
+        self.observe_scope(expr.span);
         match &expr.kind {
             ExprKind::Ident(name) => {
                 self.resolve_ident(name, expr.span, expr.node_key.clone());

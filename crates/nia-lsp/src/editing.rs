@@ -299,9 +299,9 @@ impl Analysis {
             }
         }
         if qualifier.is_empty() && !context.type_only {
-            for name in local_names(root, &file.text, start) {
+            for name in self.local_names(file, start)? {
                 candidates.insert(
-                    name.to_owned(),
+                    name.to_string(),
                     (Some(CompletionItemKind::VARIABLE), None, true),
                 );
             }
@@ -386,8 +386,10 @@ impl Analysis {
         let name = &file.text[call.name.start..call.name.end];
         let (qualifier, _) = qualifier(&file.text, call.name.start);
         if qualifier.is_empty()
-            && local_names(file.syntax().tree.green_root(), &file.text, call.name.start)
-                .contains(&name)
+            && self
+                .local_names(file, call.name.start)?
+                .iter()
+                .any(|local| local.as_ref() == name)
         {
             return None;
         }
@@ -583,121 +585,6 @@ fn inside_literal_or_comment(source: &str, offset: usize) -> bool {
                 .starts_with(['\'', '"']),
             _ => false,
         })
-}
-
-fn local_names<'a>(root: &GreenNode, source: &'a str, cursor: usize) -> Vec<&'a str> {
-    let mut scope_path = vec![root];
-    while let Some(node) = scope_path.last().and_then(|parent| {
-        parent.child_nodes().find(|child| {
-            let span = child.span();
-            span.start <= cursor && cursor < span.end
-        })
-    }) {
-        scope_path.push(node);
-    }
-    let mut names = Vec::new();
-    for (index, scope) in scope_path.iter().enumerate() {
-        let inner = scope_path.get(index + 1).map(|node| node.kind());
-        match scope.kind() {
-            SyntaxKind::Block => {
-                for binding in scope
-                    .child_nodes()
-                    .take_while(|node| node.span().end <= cursor)
-                {
-                    if *binding.kind() == SyntaxKind::LetStmt {
-                        add_pattern_names(binding, source, &mut names);
-                    }
-                    if *binding.kind() == SyntaxKind::StaticStmt
-                        && let Some(binding) = binding.child(&SyntaxKind::BindingDecl)
-                    {
-                        add_names(binding, source, &mut names);
-                    }
-                }
-            }
-            SyntaxKind::FunctionDecl if inner == Some(&SyntaxKind::Block) => {
-                add_params(scope.child(&SyntaxKind::ParamList), source, &mut names);
-            }
-            SyntaxKind::ClosureExpr if inner.is_some_and(SyntaxKind::is_expr) => {
-                names.clear();
-                add_params(
-                    scope.child(&SyntaxKind::ClosureParamList),
-                    source,
-                    &mut names,
-                );
-                if let Some(captures) = scope.child(&SyntaxKind::CaptureList) {
-                    for capture in captures.child_nodes() {
-                        add_names(capture, source, &mut names);
-                    }
-                }
-            }
-            SyntaxKind::ForStmt if inner == Some(&SyntaxKind::Block) => {
-                add_pattern_names(scope, source, &mut names);
-            }
-            SyntaxKind::MatchArm
-                if scope
-                    .token(&TokenKind::FatArrow)
-                    .is_some_and(|arrow| arrow.span().end <= cursor) =>
-            {
-                add_pattern_names(scope, source, &mut names);
-            }
-            SyntaxKind::IfExpr
-                if !scope
-                    .token(&TokenKind::Else)
-                    .is_some_and(|token| token.span().start < cursor) =>
-            {
-                for clause in scope
-                    .child_nodes()
-                    .take_while(|node| node.span().end < cursor)
-                {
-                    if *clause.kind() == SyntaxKind::IsClause {
-                        add_pattern_names(clause, source, &mut names);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    names
-}
-
-fn add_names<'a>(node: &GreenNode, source: &'a str, names: &mut Vec<&'a str>) {
-    if let Some(token) = node
-        .child_tokens()
-        .find(|token| token.is(&TokenKind::Ident) || token.is(&TokenKind::SelfValue))
-    {
-        let span = token.span();
-        names.push(&source[span.start..span.end]);
-    }
-}
-
-fn add_params<'a>(list: Option<&GreenNode>, source: &'a str, names: &mut Vec<&'a str>) {
-    for param in list.into_iter().flat_map(GreenNode::child_nodes) {
-        if *param.kind() == SyntaxKind::Param {
-            add_names(param, source, names);
-        }
-    }
-}
-
-fn add_pattern_names<'a>(node: &GreenNode, source: &'a str, names: &mut Vec<&'a str>) {
-    if *node.kind() == SyntaxKind::BindPattern {
-        add_names(node, source, names);
-        return;
-    }
-    for child in node.child_nodes().filter(|child| {
-        child.kind().is_pattern()
-            || matches!(
-                child.kind(),
-                SyntaxKind::NominalNamedFields
-                    | SyntaxKind::NominalTupleFields
-                    | SyntaxKind::NamedPatternField
-            )
-    }) {
-        if *child.kind() == SyntaxKind::NamedPatternField && child.child_nodes().next().is_none() {
-            add_names(child, source, names);
-        } else {
-            add_pattern_names(child, source, names);
-        }
-    }
 }
 
 pub(crate) struct CallableDeclaration<'a> {

@@ -2408,6 +2408,10 @@ impl Analysis {
         Some((self.files.get(source)?, *span))
     }
 
+    pub(crate) fn local_names(&self, file: &File, offset: usize) -> Option<Vec<Arc<str>>> {
+        self.db.source_local_names(file.module, offset).ok()
+    }
+
     pub(crate) fn names(
         &self,
         file: &File,
@@ -4720,6 +4724,69 @@ mod tests {
         ));
         let nested = source.find("api::{").unwrap();
         assert!(analysis.symbol_at_offset(file, nested).is_none());
+    }
+
+    #[test]
+    fn completion_observes_the_compilers_lexical_scopes() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-compiler-lexical-scopes");
+        let entry = root.join("root.nia");
+        std::fs::write(&entry, "").unwrap();
+        let mut session = test_session();
+        let mut probe = test_session();
+        for (marked, expected) in [
+            ("fun f() () { let prior=1; let x=pr|; }", Some("prior")),
+            ("fun f() () { let later=la|; }", None),
+            ("fun f() () { let prior=1; let x=pr| }", Some("prior")),
+            ("fun f() () { let prior=1; { let x=pr|", Some("prior")),
+            (
+                "fun f() () { static number:i32=1; let x=\\arg -> nu|; }",
+                Some("number"),
+            ),
+            (
+                "fun f(shown:i32) () { let x=\\[shown] arg -> sh|; }",
+                Some("shown"),
+            ),
+            ("fun f(hidden:i32) () { let x=\\arg -> hi|; }", None),
+            (
+                "fun f(xs:[i32;2]) () { for value in xs { _ = va|; } }",
+                Some("value"),
+            ),
+            (
+                "enum E { One(i32) } fun f(x:E) i32 { match x { .One(inner) => inn|, } }",
+                Some("inner"),
+            ),
+        ] {
+            let cursor = marked.find('|').unwrap();
+            let source = marked.replace('|', "");
+            let document = Document::new(1, source.clone());
+            let position = document.lines.position(&source, cursor);
+            let documents = Documents::from([(
+                entry.clone(),
+                OpenDocument {
+                    uri: uri(&entry).unwrap(),
+                    document,
+                },
+            )]);
+            let full = session.analyze(&documents, &entry).unwrap();
+            let items = probe
+                .complete(
+                    &full,
+                    &documents,
+                    &entry,
+                    position,
+                    &Cancellation::default(),
+                )
+                .unwrap();
+            assert_eq!(
+                items
+                    .iter()
+                    .map(|item| item.label.as_str())
+                    .collect::<Vec<_>>(),
+                expected.into_iter().collect::<Vec<_>>(),
+                "{marked}"
+            );
+        }
     }
 
     #[test]

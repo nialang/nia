@@ -209,6 +209,27 @@ impl CompilerDatabase {
         Ok(Arc::clone(&items.inactive_spans))
     }
 
+    /// Lists names from the local resolver's scopes at a source position.
+    pub fn source_local_names(
+        &self,
+        module: ModuleId,
+        offset: usize,
+    ) -> QueryResult<Vec<Arc<str>>> {
+        let tree = self.db.get(FullActiveModuleItemTreeQuery(module))?;
+        let defs = full_module_defs_semantic(&self.db, module)?;
+        let values = value_resolution_semantic(&self.db, module)?;
+        Ok(
+            nia_local_resolve::visible_local_names(&tree, &defs, &values, offset)?
+                .into_iter()
+                .filter_map(|name| match name {
+                    nia_local_resolve::LocalBindingName::Named(id) => self.source_symbol_text(id),
+                    nia_local_resolve::LocalBindingName::SelfValue => Some(Arc::from("self")),
+                    nia_local_resolve::LocalBindingName::Unnamed => None,
+                })
+                .collect(),
+        )
+    }
+
     /// Returns the effective import scope at a source position.
     pub fn source_imports(
         &self,
