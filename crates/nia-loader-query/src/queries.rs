@@ -827,7 +827,7 @@ impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
 pub(crate) struct ModuleDeclarationsValue {
     pub(crate) semantic: ModuleDeclarations,
     pub(crate) diagnostics: Arc<[nia_diagnostic::DiagnosticBundle]>,
-    readable: bool,
+    pub(crate) readable: bool,
 }
 
 impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {

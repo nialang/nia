@@ -13,8 +13,10 @@ use crate::provider_loading::{
     add_public_reexport_source_module, module_defines_extensions, process_provider_request,
     process_reexport_provider_request,
 };
-use crate::queries::module_declarations_query;
-use crate::queries::{ModuleDeclarationsValue, module_facade_facts_query, provider_summary_query};
+use crate::queries::{
+    ModuleDeclarationsQuery, module_declarations_query, module_facade_facts_query,
+    provider_summary_query,
+};
 use crate::used_paths::{UsedModulePath, UsedModulePathProcessing};
 use crate::{LoaderContext, RuntimeSpec, runtime_package_root_path};
 use nia_diagnostic::Diagnostic;
@@ -33,6 +35,53 @@ use std::{
     sync::Arc,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct GraphModuleDeclarationsQuery(ModuleDeclarationsQuery);
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct GraphModuleDeclarations {
+    readable: bool,
+    declarations: Vec<ResolvedModuleDeclaration>,
+    package_roots: Vec<SymbolId>,
+    used_module_paths: Vec<UsedModulePath>,
+    explicit_imports: Vec<(SymbolId, UsedModulePath)>,
+}
+
+impl QueryKey<LoaderContext> for GraphModuleDeclarationsQuery {
+    type Value = GraphModuleDeclarations;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "graph_module_declarations"
+    }
+
+    fn description(&self) -> String {
+        format!("{}({:?})", Self::name(), self.0)
+    }
+
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        let module = db.get(self.0)?;
+        let declarations = &module.semantic;
+        Ok(GraphModuleDeclarations {
+            readable: module.readable,
+            // The graph carries module declaration spans for navigation and
+            // traversal diagnostics. Import name spans are only used by diagnostics.
+            declarations: declarations.declarations.clone(),
+            package_roots: declarations.package_roots.clone(),
+            used_module_paths: declarations.used_module_paths.clone(),
+            explicit_imports: declarations
+                .explicit_imports
+                .iter()
+                .map(|import| (import.alias, import.path.clone()))
+                .collect(),
+        })
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
 /// Query-local memoization for facts repeatedly consulted while one module
 /// graph revision is being assembled. The first lookup still goes through the
 /// query database and records the dependency; later lookups in the same graph
@@ -43,7 +92,7 @@ pub(crate) struct ModuleGraphFactMemo<'a> {
     sources: BTreeSet<String>,
     module_declarations: std::collections::HashMap<
         nia_source::SourceIdentity,
-        std::sync::Arc<ModuleDeclarationsValue>,
+        std::sync::Arc<GraphModuleDeclarations>,
     >,
     provider_summaries: std::collections::HashMap<
         nia_source::SourceIdentity,
@@ -70,15 +119,16 @@ impl<'a> ModuleGraphFactMemo<'a> {
         self.db
     }
 
-    pub(crate) fn module_declarations(
+    fn module_declarations(
         &mut self,
         path: &SourcePath,
-    ) -> QueryResult<std::sync::Arc<ModuleDeclarationsValue>> {
+    ) -> QueryResult<std::sync::Arc<GraphModuleDeclarations>> {
         let identity = path.identity();
         if let Some(value) = self.module_declarations.get(&identity) {
             return Ok(std::sync::Arc::clone(value));
         }
-        let value = self.db.get(module_declarations_query(self.db, path)?)?;
+        let declarations = module_declarations_query(self.db, path)?;
+        let value = self.db.get(GraphModuleDeclarationsQuery(declarations))?;
         self.sources.insert(path.as_str().to_owned());
         self.module_declarations
             .insert(identity, std::sync::Arc::clone(&value));
@@ -352,7 +402,7 @@ fn build_module_graph(
             .transpose()?;
         let imports = declarations
             .as_ref()
-            .map(|declarations| declarations.semantic.explicit_imports.as_slice())
+            .map(|declarations| declarations.explicit_imports.as_slice())
             .unwrap_or_default();
         apply_provider_demands(
             &mut graph,
@@ -377,7 +427,7 @@ fn build_module_graph(
             break;
         };
         let declarations = fact_memo.module_declarations(&node.path)?;
-        mount_module_packages(db, &mut graph, &node, &declarations.semantic.package_roots)?;
+        mount_module_packages(db, &mut graph, &node, &declarations.package_roots)?;
         let builtin_traits = fact_memo
             .provider_summary(&node.path)?
             .implemented_builtin_trait_names();
@@ -405,7 +455,7 @@ fn build_module_graph(
             )?;
         }
         if should_process_used_module_paths(db.context(), &node) {
-            for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
+            for path in ordered_used_module_paths(&declarations.used_module_paths) {
                 record_traversal_diagnostic(
                     add_used_module_path(db, &mut graph, node.id, &path, &mut fact_memo),
                     &mut fresh_diagnostics,
@@ -416,7 +466,7 @@ fn build_module_graph(
         apply_provider_demands(
             &mut graph,
             &node,
-            &declarations.semantic.explicit_imports,
+            &declarations.explicit_imports,
             provider_demands_by_target
                 .get(&node.path.identity())
                 .map(Vec::as_slice)
@@ -576,7 +626,7 @@ fn find_declared_module_segments(
             continue;
         }
         let declarations = fact_memo.module_declarations(&parent.path)?;
-        for declaration in declarations.semantic.declarations.iter().rev() {
+        for declaration in declarations.declarations.iter().rev() {
             let child_path = graph.declared_child_source_path_for(
                 &parent.path,
                 &parent.module_path,
@@ -671,8 +721,8 @@ fn process_trait_provider_imports(
         return Ok(());
     };
     let declarations = fact_memo.module_declarations(&node.path)?;
-    mount_module_packages(db, graph, &node, &declarations.semantic.package_roots)?;
-    for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
+    mount_module_packages(db, graph, &node, &declarations.package_roots)?;
+    for path in ordered_used_module_paths(&declarations.used_module_paths) {
         if matches!(
             path.processing(),
             UsedModulePathProcessing::IfSelectedItem
@@ -762,8 +812,8 @@ fn process_semantic_module_dependencies(
     fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> TraversalResult<()> {
     let declarations = fact_memo.module_declarations(&node.path)?;
-    mount_module_packages(db, graph, node, &declarations.semantic.package_roots)?;
-    for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
+    mount_module_packages(db, graph, node, &declarations.package_roots)?;
+    for path in ordered_used_module_paths(&declarations.used_module_paths) {
         add_semantic_used_module_path(db, graph, node.id, &path, fact_memo)?;
     }
     Ok(())
@@ -817,7 +867,7 @@ fn add_semantic_used_module_path(
 fn apply_provider_demands(
     graph: &mut ModuleGraph,
     node: &ModuleNode,
-    imports: &[crate::used_paths::ExplicitUsingImport],
+    imports: &[(SymbolId, UsedModulePath)],
     demands: &[&nia_loader_contract::ProviderDemand],
     diagnostics: &mut Vec<(SourcePath, Diagnostic)>,
     pending_trait_provider_imports: &mut Vec<nia_imports::ModuleId>,
@@ -862,7 +912,7 @@ fn apply_provider_demands(
         ) {
             continue;
         }
-        for import in imports {
+        for (alias, import) in imports {
             let processing = match &demand.request {
                 nia_loader_contract::ProviderRequest::Method {
                     target_type_name,
@@ -876,10 +926,7 @@ fn apply_provider_demands(
                 nia_loader_contract::ProviderRequest::ModuleBody { .. } => continue,
                 nia_loader_contract::ProviderRequest::TraitImpl { .. } => continue,
             };
-            let path =
-                import
-                    .path
-                    .with_appended_segments_with_processing_mode(&[], false, processing);
+            let path = import.with_appended_segments_with_processing_mode(&[], false, processing);
             let before = graph
                 .get(node.id)
                 .map(|module| module.provider_dependencies.clone())
@@ -898,7 +945,7 @@ fn apply_provider_demands(
                 .unwrap_or_default();
             for provider in selected {
                 if before.binary_search(&provider).is_err() {
-                    graph.add_import_provider_dependency(node.id, import.alias, provider);
+                    graph.add_import_provider_dependency(node.id, *alias, provider);
                 }
             }
         }
@@ -1124,7 +1171,7 @@ fn collect_trait_provider_modules(
         while let Some((path, module_path)) = pending.pop() {
             let summary = fact_memo.provider_summary(&path)?;
             let declarations = fact_memo.module_declarations(&path)?;
-            for declaration in declarations.semantic.declarations.iter().rev() {
+            for declaration in declarations.declarations.iter().rev() {
                 let child_path =
                     graph.declared_child_source_path_for(&path, &module_path, declaration.name);
                 if visited.insert(child_path.identity()) {
@@ -1212,8 +1259,8 @@ fn activate_package_facade(
         return Ok(());
     };
     let declarations = fact_memo.module_declarations(&node.path)?;
-    mount_module_packages(db, graph, &node, &declarations.semantic.package_roots)?;
-    for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
+    mount_module_packages(db, graph, &node, &declarations.package_roots)?;
+    for path in ordered_used_module_paths(&declarations.used_module_paths) {
         add_used_module_path(db, graph, root, &path, fact_memo)?;
     }
     Ok(())
@@ -1249,8 +1296,8 @@ pub(crate) fn mark_process_used_paths_and_process(
         return Ok(());
     };
     let declarations = fact_memo.module_declarations(&node.path)?;
-    mount_module_packages(db, graph, &node, &declarations.semantic.package_roots)?;
-    for path in ordered_used_module_paths(&declarations.semantic.used_module_paths) {
+    mount_module_packages(db, graph, &node, &declarations.package_roots)?;
+    for path in ordered_used_module_paths(&declarations.used_module_paths) {
         add_used_module_path(db, graph, module_id, &path, fact_memo)?;
     }
     Ok(())
@@ -1454,7 +1501,7 @@ fn add_declared_module_children(
         return Ok(());
     };
     let declarations = fact_memo.module_declarations(&node.path)?;
-    for declaration in declarations.semantic.declarations.iter().cloned() {
+    for declaration in declarations.declarations.iter().cloned() {
         add_declared_module_child(db, graph, module_id, declaration, fact_memo)?;
     }
     Ok(())
@@ -1483,7 +1530,6 @@ pub(crate) fn add_visible_declared_module_child_if_present(
     };
     let declarations = fact_memo.module_declarations(&node.path)?;
     let Some(declaration) = declarations
-        .semantic
         .declarations
         .iter()
         .find(|declaration| {

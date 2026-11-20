@@ -78,6 +78,7 @@ fn loader_query_registry() -> QueryResult<nia_query::QueryRegistry> {
     register!(
         graph::ModuleGraphQuery,
         graph::ModuleGraphRevisionQuery,
+        graph::GraphModuleDeclarationsQuery,
         graph::ModuleSourceIdQuery,
         queries::LoadDiagnosticsQuery,
         queries::ActiveModuleItemTreeFactQuery,

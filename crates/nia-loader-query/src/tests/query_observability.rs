@@ -20,6 +20,10 @@ fn query_trace_records_source_frontend_dependencies() {
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "module_graph_revision"
+            && dependency.to.name == "graph_module_declarations"
+    }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "graph_module_declarations"
             && dependency.to.name == "module_declarations"
     }));
 }
@@ -43,6 +47,39 @@ fn trivia_edit_reuses_the_module_graph() {
         .expect("add module declaration");
     let changed = database.module_graph().expect("graph with new module");
     assert_eq!(changed.modules().count(), before.modules().count() + 1);
+}
+
+#[test]
+fn moving_an_import_keeps_the_graph_and_updates_its_name_span() {
+    let root = temp_dir("moving_an_import_keeps_the_graph");
+    let main = root.join("main.nia");
+    let source = "module child;\nusing root::child;\nfun main() i32 { 0 }\n";
+    write(&main, source);
+    write(&root.join("child.nia"), "pub fun value() i32 { 0 }\n");
+    let path = main.to_string_lossy();
+    let database = LoaderDatabase::new_for_test(test_request(path.as_ref()));
+    let before = database.module_graph().unwrap();
+    let import_query =
+        crate::queries::ModuleUsingImportsFactQuery(before.get(before.entry()).unwrap().source_id);
+    let original_imports = database.db.expect_get(import_query);
+    let prefix = "// move the import\n";
+    let edited = source.replace("using", &format!("{prefix}using"));
+    database.set_source(path.as_ref(), edited).unwrap();
+
+    let after = database.module_graph().unwrap();
+    let updated_imports = database.db.expect_get(import_query);
+    assert!(before.ptr_eq(&after));
+    assert_eq!(original_imports.len(), 1);
+    assert_eq!(updated_imports.len(), 1);
+    assert_eq!(original_imports[0].module, updated_imports[0].module);
+    assert_eq!(
+        updated_imports[0].name_span.start,
+        original_imports[0].name_span.start + prefix.len(),
+    );
+    assert_eq!(
+        updated_imports[0].name_span.end,
+        original_imports[0].name_span.end + prefix.len(),
+    );
 }
 
 #[test]
