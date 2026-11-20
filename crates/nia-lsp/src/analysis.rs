@@ -16,13 +16,13 @@ use nia_diagnostic::LabelStyle;
 use nia_driver::{CheckRequest, Driver, DriverConfig};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_imports::{ModuleGraphSnapshot, ModuleRootSegment};
-use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
+use nia_lexer::TokenKind;
 use nia_loader_query::LoaderDatabase;
 use nia_sema_ir::{ResolvedCall, SemanticValueUse};
 use nia_source::SourcePath;
 use nia_span::Span;
 use nia_symbol::{SymbolId, stable_hash};
-use nia_syntax::{GreenNode, SyntaxKind};
+use nia_syntax::{GreenElement, GreenNode, GreenToken, SyntaxKind};
 use nia_toolchain::ToolchainLayout;
 use nia_ty::{TyKind, TypeStore};
 use nia_type_resolve::TypeNameResolution;
@@ -904,16 +904,17 @@ impl Analysis {
                 None => db.source_definitions(node.id)?,
             };
             result.defs.insert(node.id, defs.clone());
-            let tokens = tokenize_lossless(&file.text);
+            let syntax = loader.source_syntax(file.version())?;
+            let tokens = lexical_tokens(syntax.tree.green_root());
             let names: Vec<_> = tokens
                 .iter()
                 .filter(|token| {
                     matches!(
-                        token.kind,
-                        LosslessTokenKind::Token(TokenKind::Ident | TokenKind::SelfValue)
+                        token.kind().token_kind(),
+                        Some(TokenKind::Ident | TokenKind::SelfValue)
                     )
                 })
-                .map(|token| token.span)
+                .map(|token| token.span())
                 .collect();
             let tokens_in = |span: Span| {
                 let start = names.partition_point(|name| name.start < span.start);
@@ -929,7 +930,6 @@ impl Analysis {
             let mut locals = HashMap::new();
             let mut type_highlights = Resolved::new();
             let mut expr_types = HashMap::new();
-            let syntax = loader.source_syntax(file.version())?;
             let mut rename_aliases = HashMap::new();
             let mut declare = |symbol, span| {
                 result.definitions.insert(symbol, (path.to_owned(), span));
@@ -1021,30 +1021,35 @@ impl Analysis {
                         _ => None,
                     })
                     .collect();
-                let function_calls: HashMap<_, _> = module
-                    .semantic_facts
-                    .function_facts
-                    .iter()
-                    .flat_map(|(&caller, facts)| {
-                        facts
-                            .node_resolved_calls
-                            .iter()
-                            .filter_map(move |(key, call)| {
-                                let callee = match call {
-                                    ResolvedCall::Function(id)
-                                    | ResolvedCall::FunctionInstance { def_id: id, .. }
-                                    | ResolvedCall::Method { def_id: id, .. }
-                                    | ResolvedCall::TraitMethod { method_id: id, .. }
-                                    | ResolvedCall::DynamicTraitMethod { method_id: id, .. }
-                                    | ResolvedCall::TraitAssociatedFunction {
-                                        method_id: id, ..
-                                    } => *id,
-                                    _ => return None,
-                                };
-                                Some((key, (caller, callee)))
-                            })
-                    })
-                    .collect();
+                let function_calls = (program.mode == AnalysisMode::Workspace).then(|| {
+                    module
+                        .semantic_facts
+                        .function_facts
+                        .iter()
+                        .flat_map(|(&caller, facts)| {
+                            facts
+                                .node_resolved_calls
+                                .iter()
+                                .filter_map(move |(key, call)| {
+                                    let callee = match call {
+                                        ResolvedCall::Function(id)
+                                        | ResolvedCall::FunctionInstance { def_id: id, .. }
+                                        | ResolvedCall::Method { def_id: id, .. }
+                                        | ResolvedCall::TraitMethod { method_id: id, .. }
+                                        | ResolvedCall::DynamicTraitMethod {
+                                            method_id: id, ..
+                                        }
+                                        | ResolvedCall::TraitAssociatedFunction {
+                                            method_id: id,
+                                            ..
+                                        } => *id,
+                                        _ => return None,
+                                    };
+                                    Some((key, (caller, callee)))
+                                })
+                        })
+                        .collect::<HashMap<_, _>>()
+                });
                 let mut node_types = HashMap::new();
                 for (key, &ty) in module.semantic_facts.iter_node_expr_types() {
                     // Keep the first fact, as the semantic lookup checks the
@@ -1053,7 +1058,9 @@ impl Analysis {
                 }
                 let mut method_calls = HashMap::new();
                 for (span, key) in db.source_origins(module.id)?.entries() {
-                    if let Some(&(caller, callee)) = function_calls.get(&key) {
+                    if let Some(&(caller, callee)) =
+                        function_calls.as_ref().and_then(|calls| calls.get(&key))
+                    {
                         result.calls.push((caller, callee, span));
                     }
                     if let Some(&ty) = node_types.get(&key)
@@ -1152,7 +1159,7 @@ impl Analysis {
             if program.mode != AnalysisMode::Declarations
                 && tokens
                     .iter()
-                    .any(|token| token.kind == LosslessTokenKind::Token(TokenKind::Using))
+                    .any(|token| token.kind().token_kind() == Some(&TokenKind::Using))
             {
                 let mut imports = ImportOccurrences {
                     graph: &program.graph,
@@ -2475,18 +2482,31 @@ fn editor_diagnostic(
     }
 }
 
-fn type_name_span(tokens: &[LosslessToken], span: Span) -> Option<Span> {
-    let start = tokens.partition_point(|token| token.span.start < span.start);
+fn lexical_tokens(root: &GreenNode) -> Vec<&GreenToken> {
+    let mut tokens = Vec::new();
+    let mut pending: Vec<_> = root.children().iter().rev().collect();
+    while let Some(element) = pending.pop() {
+        match element {
+            GreenElement::Node(node) => pending.extend(node.children().iter().rev()),
+            GreenElement::Token(token) if token.kind().token_kind().is_some() => tokens.push(token),
+            GreenElement::Token(_) => {}
+        }
+    }
+    tokens
+}
+
+fn type_name_span(tokens: &[&GreenToken], span: Span) -> Option<Span> {
+    let start = tokens.partition_point(|token| token.span().start < span.start);
     let mut depth = 0_u32;
     let mut name = None;
     for token in tokens[start..]
         .iter()
-        .take_while(|token| token.span.end <= span.end)
+        .take_while(|token| token.span().end <= span.end)
     {
-        match token.kind {
-            LosslessTokenKind::Token(TokenKind::LBracket) => depth += 1,
-            LosslessTokenKind::Token(TokenKind::RBracket) => depth = depth.saturating_sub(1),
-            LosslessTokenKind::Token(TokenKind::Ident) if depth == 0 => name = Some(token.span),
+        match token.kind().token_kind() {
+            Some(TokenKind::LBracket) => depth += 1,
+            Some(TokenKind::RBracket) => depth = depth.saturating_sub(1),
+            Some(TokenKind::Ident) if depth == 0 => name = Some(token.span()),
             _ => {}
         }
     }

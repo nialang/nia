@@ -70,7 +70,7 @@ pub(super) struct ImportOccurrences<'a> {
     pub(super) graph: &'a ModuleGraphSnapshot,
     pub(super) module: ModuleId,
     pub(super) text: &'a str,
-    pub(super) tokens: &'a [LosslessToken],
+    pub(super) tokens: &'a [&'a GreenToken],
     pub(super) occurrences: &'a mut Vec<Occurrence>,
     pub(super) aliases: &'a mut HashMap<Span, Symbol>,
     pub(super) bindings: HashMap<Span, Symbol>,
@@ -171,14 +171,10 @@ impl ImportOccurrences<'_> {
     fn is_qualified(&self, span: Span) -> bool {
         let index = self
             .tokens
-            .partition_point(|token| token.span.start < span.start);
+            .partition_point(|token| token.span().start < span.start);
         self.tokens[..index]
-            .iter()
-            .rev()
-            .find_map(|token| match &token.kind {
-                LosslessTokenKind::Token(kind) => Some(kind),
-                _ => None,
-            })
+            .last()
+            .and_then(|token| token.kind().token_kind())
             == Some(&TokenKind::ColonColon)
     }
 
