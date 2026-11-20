@@ -93,11 +93,25 @@ pub(crate) struct Session {
     pub(crate) changed_disk_sources: BTreeSet<String>,
 }
 
+pub(crate) fn changed_embedded_paths<'a>(
+    resources: impl Iterator<Item = &'a nia_source::EmbeddedResource>,
+) -> BTreeSet<String> {
+    let mut seen = std::collections::HashSet::new();
+    resources
+        .filter(|resource| seen.insert(*resource) && !resource.is_current())
+        .map(embedded_path)
+        .collect()
+}
+
+pub(crate) fn embedded_path(resource: &nia_source::EmbeddedResource) -> String {
+    normalized(&resource.resolve_at(Path::new(resource.source.as_str())))
+}
+
 struct CompilationEntry {
     request: EditorRequest,
     driver: Driver,
     consulted_sources: Option<Arc<BTreeSet<String>>>,
-    embedded_inputs: BTreeSet<String>,
+    embedded_inputs: std::collections::HashSet<nia_source::EmbeddedResource>,
 }
 
 const MIN_RETAINED_COMPILATION_ENTRIES: usize = 2;
@@ -452,7 +466,28 @@ impl Session {
         analyze(request, configuration_warning.as_deref())
     }
 
+    pub(crate) fn refresh_embedded_inputs(&mut self) {
+        let drivers = self.drivers.get_mut();
+        let changed =
+            changed_embedded_paths(drivers.iter().flat_map(|entry| &entry.embedded_inputs));
+        if changed.is_empty() {
+            return;
+        }
+        drivers.retain(|entry| {
+            !entry
+                .embedded_inputs
+                .iter()
+                .any(|resource| changed.contains(&embedded_path(resource)))
+        });
+        if self.workspace_index.is_some() {
+            self.changed_disk_sources.extend(changed);
+        }
+        self.source_revision += 1;
+        self.member_probe = None;
+    }
+
     pub(crate) fn install_documents(&mut self, documents: &Documents) -> Result<(), String> {
+        self.refresh_embedded_inputs();
         self.drivers
             .get_mut()
             .truncate(documents.len().max(MIN_RETAINED_COMPILATION_ENTRIES));
@@ -574,7 +609,11 @@ impl Session {
         self.drivers.get_mut().retain(|entry| {
             // Embedded bytes come directly from disk, even when the editor
             // owns an overlay at the same path.
-            if !entry.embedded_inputs.is_disjoint(&changed) {
+            if entry
+                .embedded_inputs
+                .iter()
+                .any(|resource| changed.contains(&embedded_path(resource)))
+            {
                 invalidated = true;
                 return false;
             }
@@ -842,7 +881,7 @@ fn analyze_editor_request(
             request: request.clone(),
             driver,
             consulted_sources: None,
-            embedded_inputs: BTreeSet::new(),
+            embedded_inputs: Default::default(),
         }
     };
     drivers.push_front(entry);
@@ -862,11 +901,9 @@ fn analyze_editor_request(
         .ok()
         .map(|analysis| analysis.consulted_sources.clone());
     if let Ok(analysis) = &result {
-        entry.embedded_inputs = analysis
-            .embedded_resources
-            .iter()
-            .map(|resource| normalized(&resource.resolve_at(Path::new(resource.source.as_str()))))
-            .collect();
+        entry
+            .embedded_inputs
+            .clone_from(&analysis.embedded_resources);
     }
     result
 }
@@ -3432,6 +3469,55 @@ mod tests {
         let fresh = test_session().analyze(&documents, &entry).unwrap();
         assert!(fresh.first_error().is_some());
         assert_eq!(after.first_error(), fresh.first_error());
+    }
+
+    #[test]
+    fn embedded_assets_invalidate_cached_results_without_file_notifications() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-embed-without-notifications");
+        let entry = root.join("root.nia");
+        let data = root.join("data.bin");
+        let source = "const bytes = std::builtin::embed(\"data.bin\");\nconst mustMatch: [u8; bytes[0] as usize] = [42u8];\n";
+        std::fs::write(&entry, source).unwrap();
+        std::fs::write(&data, [1u8]).unwrap();
+        let documents = Documents::from([(
+            entry.clone(),
+            OpenDocument {
+                uri: uri(&entry).unwrap(),
+                document: Document::new(1, source.into()),
+            },
+        )]);
+        let mut session = test_session();
+        let before = session.analyze(&documents, &entry).unwrap();
+        assert_eq!(before.first_error(), None);
+        let mut workspace = test_session();
+        let cancel = Cancellation::default();
+        let scan = |session: &mut Session| {
+            session
+                .index_workspace(None, &documents, &[], &cancel)
+                .unwrap()
+        };
+        let initial = scan(&mut workspace);
+        assert_eq!(initial.entries.len(), 1);
+        assert!(initial.entries[0].coverage.source_errors().is_empty());
+        // Workspace entries can outlive their compiler drivers.
+        workspace.drivers.get_mut().clear();
+        for contents in [Some(2u8), None, Some(1)] {
+            if let Some(byte) = contents {
+                std::fs::write(&data, [byte]).unwrap();
+            } else {
+                std::fs::remove_file(&data).unwrap();
+            }
+            let current = session.analyze(&documents, &entry).unwrap();
+            let fresh = test_session().analyze(&documents, &entry).unwrap();
+            assert_eq!(fresh.first_error().is_some(), contents != Some(1));
+            let index = scan(&mut workspace);
+            assert_eq!(
+                index.entries[0].coverage.source_errors().is_empty(),
+                contents == Some(1)
+            );
+            assert_eq!(current.first_error(), fresh.first_error());
+        }
     }
 
     #[test]

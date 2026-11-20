@@ -1906,6 +1906,7 @@ dependencies = [
 name = "nia-source"
 version = "0.3.0-dev"
 dependencies = [
+ "blake3",
  "nia-hash",
  "parking_lot",
 ]

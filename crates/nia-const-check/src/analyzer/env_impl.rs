@@ -33,7 +33,6 @@ use nia_symbol::{SymbolId, SymbolMap};
 use nia_ty::{IntConst, PrimitiveTy, TyKind};
 use std::collections::BTreeMap;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 
 impl ConstCommonEnv for Analyzer<'_> {
     fn begin_const_eval(&mut self) {
@@ -172,13 +171,16 @@ impl ConstCommonEnv for Analyzer<'_> {
                 message: "builtin `embed` path cannot be empty".to_string(),
             });
         }
-        let Some(resolved) = self.embedded_path(path) else {
+        let Some(source) = self.current_execution_source_path() else {
             return Err(ConstError {
                 span,
                 message: "builtin `embed` cannot resolve the current source path".to_string(),
             });
         };
-        let bytes = std::fs::read(&resolved).map_err(|error| ConstError {
+        let (resource, bytes) = nia_source::EmbeddedResource::read_bytes(source, path);
+        let resolved = resource.resolve_at(std::path::Path::new(resource.source.as_str()));
+        self.embedded_resources.insert(resource);
+        let bytes = bytes.map_err(|error| ConstError {
             span,
             message: format!("failed to embed `{}`: {error}", resolved.display()),
         })?;
@@ -661,14 +663,11 @@ impl Analyzer<'_> {
 }
 
 impl Analyzer<'_> {
-    pub(super) fn embedded_path(&mut self, path: &str) -> Option<PathBuf> {
-        let resource = nia_source::EmbeddedResource {
-            source: self.current_execution_source_path()?,
-            path: path.to_owned(),
-        };
-        let resolved = resource.resolve_at(Path::new(resource.source.as_str()));
+    pub(super) fn embedded_length(&mut self, path: &str) -> Option<u64> {
+        let (resource, length) =
+            nia_source::EmbeddedResource::read_length(self.current_execution_source_path()?, path);
         self.embedded_resources.insert(resource);
-        Some(resolved)
+        length.ok()
     }
 }
 

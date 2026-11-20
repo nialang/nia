@@ -799,8 +799,7 @@ impl Analyzer<'_> {
                     return None;
                 };
                 let path = nia_const_eval::eval_string_literal(path)?;
-                let resolved = self.embedded_path(&path)?;
-                let len = std::fs::metadata(resolved).ok()?.len();
+                let len = self.embedded_length(&path)?;
                 self.const_byte_string_literal_type(len).and_then(|ty| {
                     let ConstValueType::Runtime(ty) = ty else {
                         return None;

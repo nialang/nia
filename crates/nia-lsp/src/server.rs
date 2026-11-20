@@ -373,10 +373,14 @@ fn install_analysis_sources(
     work: &Work,
     cached: &mut Option<Arc<CurrentAnalysis>>,
 ) -> Result<(), String> {
-    if cached.as_ref().is_some_and(|current| {
-        current.revision == work.revision && current.source_revision == session.source_revision()
-    }) {
-        return Ok(());
+    if let Some(current) = cached.as_ref()
+        && current.revision == work.revision
+        && current.source_revision == session.source_revision()
+    {
+        session.refresh_embedded_inputs();
+        if current.source_revision == session.source_revision() {
+            return Ok(());
+        }
     }
     let installed = session.install_analysis_sources(&work.documents, Some(&work.cancel));
     if cached

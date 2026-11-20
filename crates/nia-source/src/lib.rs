@@ -507,15 +507,78 @@ pub struct EmbeddedResource {
     pub source: SourcePath,
     /// The decoded path supplied by the program.
     pub path: String,
+    observed: EmbeddedObservation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum EmbeddedObservation {
+    Bytes(Result<blake3::Hash, io::ErrorKind>),
+    Length(Result<u64, io::ErrorKind>),
 }
 
 impl EmbeddedResource {
+    /// Reads the bytes and records the exact input used by constant evaluation.
+    pub fn read_bytes(source: SourcePath, path: &str) -> (Self, io::Result<Vec<u8>>) {
+        let resolved = Self::resolve(Path::new(source.as_str()), path);
+        let result = fs::read(resolved);
+        let observed = EmbeddedObservation::Bytes(
+            result
+                .as_ref()
+                .map(|bytes| blake3::hash(bytes))
+                .map_err(io::Error::kind),
+        );
+        (
+            Self {
+                source,
+                path: path.to_owned(),
+                observed,
+            },
+            result,
+        )
+    }
+
+    /// Reads the length used to infer the type of an embedded byte array.
+    pub fn read_length(source: SourcePath, path: &str) -> (Self, io::Result<u64>) {
+        let resolved = Self::resolve(Path::new(source.as_str()), path);
+        let result = fs::metadata(resolved).map(|metadata| metadata.len());
+        let observed =
+            EmbeddedObservation::Length(result.as_ref().copied().map_err(io::Error::kind));
+        (
+            Self {
+                source,
+                path: path.to_owned(),
+                observed,
+            },
+            result,
+        )
+    }
+
+    /// Checks whether disk still supplies the input observed by the compiler.
+    pub fn is_current(&self) -> bool {
+        let path = self.resolve_at(Path::new(self.source.as_str()));
+        match &self.observed {
+            EmbeddedObservation::Bytes(expected) => {
+                fs::read(path)
+                    .map(|bytes| blake3::hash(&bytes))
+                    .map_err(|error| error.kind())
+                    == *expected
+            }
+            EmbeddedObservation::Length(expected) => {
+                fs::metadata(path)
+                    .map(|metadata| metadata.len())
+                    .map_err(|error| error.kind())
+                    == *expected
+            }
+        }
+    }
+
     /// Resolves the resource relative to the file containing the read.
     pub fn resolve_at(&self, source: &Path) -> std::path::PathBuf {
-        source
-            .parent()
-            .unwrap_or_else(|| Path::new(""))
-            .join(&self.path)
+        Self::resolve(source, &self.path)
+    }
+
+    fn resolve(source: &Path, path: &str) -> std::path::PathBuf {
+        source.parent().unwrap_or_else(|| Path::new("")).join(path)
     }
 }
 

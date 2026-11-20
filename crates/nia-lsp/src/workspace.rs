@@ -245,6 +245,16 @@ impl Session {
             .map(|(path, open)| (normalized(path), open.document.text.clone()))
             .collect();
         let previous = self.workspace_index.as_ref();
+        if let Some(previous) = previous {
+            self.changed_disk_sources
+                .extend(crate::analysis::changed_embedded_paths(
+                    previous
+                        .state
+                        .entries()
+                        .iter()
+                        .flat_map(|entry| &entry.embedded_resources),
+                ));
+        }
         if let Some(previous) = previous
             && let Some(index) = previous.state.index()
             && previous.folders == folders
@@ -589,9 +599,10 @@ impl Entry {
                 .consulted_sources
                 .as_ref()
                 .is_some_and(|paths| paths.contains(source))
-            || self.embedded_resources.iter().any(|resource| {
-                normalized(&resource.resolve_at(Path::new(resource.source.as_str()))) == source
-            })
+            || self
+                .embedded_resources
+                .iter()
+                .any(|resource| crate::analysis::embedded_path(resource) == source)
     }
 
     pub(crate) fn inactive_at(&self, source: &str, span: Span) -> bool {
