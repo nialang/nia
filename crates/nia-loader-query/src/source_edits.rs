@@ -64,6 +64,8 @@ impl LoaderDatabase {
             .id_for_path(&path)
             .map_err(|error| QueryError::internal(error.to_string()))?;
         self.db.with_retirement(|retirement| {
+            let source_query = SourceTextQuery(source_id);
+            let observed = retirement.has_slot(&source_query)?;
             let previous = self.sources.source_for_id(source_id);
             let (text, edit) = prepare(previous.as_ref())?;
             let previous_version = previous.as_ref().map_or(
@@ -102,7 +104,9 @@ impl LoaderDatabase {
                         && syntax.same_grammar(&edited);
                     (Some(edited), same_grammar)
                 }
-                (Some(previous), _, None) if previous.text.as_ref() != text.as_ref() => {
+                (Some(previous), _, None)
+                    if observed && previous.text.as_ref() != text.as_ref() =>
+                {
                     // A relocated source can have an overlay under an
                     // additional identity with no cached parse of its own.
                     let parsed = nia_syntax::parse(&text, Some(version)).ok();
@@ -120,13 +124,14 @@ impl LoaderDatabase {
             // Parsing and edit validation finish before any old resource is retired.
             // Provider demands name sources and symbols, so changes to trivia
             // and positions alone do not invalidate settled demands.
-            if same_grammar {
+            // A persisted plan may have read sources outside the query database.
+            if same_grammar || !observed {
                 *self.db.context().provider_demand_plan_candidate.lock() = None;
             } else {
                 self.advance_source_grammar_revision(retirement)?;
                 self.reset_provider_facts(retirement)?;
             }
-            retirement.invalidate(SourceTextQuery(source_id))?;
+            retirement.invalidate(source_query)?;
             queries::retire_source_revision_queries(retirement, previous_version)?;
             self.db
                 .context()
@@ -134,11 +139,7 @@ impl LoaderDatabase {
                 .retire_revision(previous_version);
             let published = syntax.is_some();
             if let Some(syntax) = syntax {
-                retirement.publish_shared(
-                    SyntaxModuleQuery(version),
-                    syntax,
-                    &SourceTextQuery(source_id),
-                )?;
+                retirement.publish_shared(SyntaxModuleQuery(version), syntax, &source_query)?;
             }
             // Source replacement commits last; no query can observe the prepared
             // syntax until session admission reopens.

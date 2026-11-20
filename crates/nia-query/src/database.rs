@@ -1558,6 +1558,14 @@ impl<C> QueryDb<C> {
 }
 
 impl<C> QueryRetirement<'_, C> {
+    /// Reports whether this key already has a slot, including invalidated slots.
+    pub fn has_slot<K>(&self, key: &K) -> QueryResult<bool>
+    where
+        K: QueryKey<C>,
+    {
+        Ok(self.db.cached_slot(key)?.is_some())
+    }
+
     /// Borrows a current shared snapshot without creating a slot or executing a
     /// query. Outdated values are unavailable. The snapshot survives retirement.
     pub fn cached<K>(&self, key: &K) -> QueryResult<Option<Arc<K::Value>>>

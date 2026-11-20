@@ -1,6 +1,89 @@
 use super::*;
 
 #[test]
+fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
+    let root = temp_dir("compiler_withdraws_provider_body");
+    let main = root.join("main.nia");
+    let package = root.join("dep/root.nia");
+    let provider = root.join("dep/provider.nia");
+    let without_call = "using dep;\nusing dep::provider;\nfun main(counter: &dep::Counter) i32 { _ = counter; 0 }\n";
+    let with_call = without_call.replace("_ = counter; 0", "counter.measure()");
+    write(&main, without_call);
+    write(&package, "pub module provider;\npub struct Counter {}\n");
+    write(
+        &provider,
+        "using root::Counter;\nextend Counter { pub fun measure(&self) i32 { 42 } }\n",
+    );
+    let provider_identity = SourcePath::new(provider.to_string_lossy()).identity();
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert("dep", SourcePath::new(package.to_string_lossy()))
+        .unwrap();
+    let loader = LoaderDatabase::new_for_test(
+        test_request(main.to_string_lossy()).with_module_map(module_map),
+    );
+    let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone())).unwrap();
+    let assert_provider_body = |expected| {
+        compiler
+            .update(CompileRequest::new(loader.clone()))
+            .unwrap();
+        let analyzed = compiler.analyze_entry_program().unwrap();
+        assert!(
+            !has_error_diagnostics(&analyzed.diagnostics),
+            "{:?}",
+            analyzed.diagnostics
+        );
+        let provider = analyzed
+            .graph
+            .module_id_for_source_identity(&provider_identity)
+            .and_then(|id| analyzed.graph.get(id));
+        assert_eq!(
+            provider.is_some_and(|node| node.process_used_paths),
+            expected
+        );
+        let facts = loader.provider_facts().unwrap();
+        assert_eq!(
+            facts.demands().iter().any(|demand| matches!(
+                &demand.request, nia_compiler_query::ProviderRequest::ModuleBody { module_path }
+                    if module_path.identity() == provider_identity
+            )),
+            expected
+        );
+    };
+
+    assert_provider_body(false);
+    loader
+        .set_source(main.to_string_lossy(), with_call.clone())
+        .unwrap();
+    assert_provider_body(true);
+    let grammar = loader.source_grammar_revision().unwrap();
+    let provider_revision = loader.provider_facts().unwrap().revision();
+    let graph = loader.module_graph().unwrap();
+    let unrelated = root.join("unrelated.nia");
+    for text in ["fun value() i32 { 1 }", "fun value() bool { true }"] {
+        loader
+            .set_source(unrelated.to_string_lossy(), text)
+            .unwrap();
+        assert_provider_body(true);
+        assert_eq!(loader.source_grammar_revision().unwrap(), grammar);
+        assert_eq!(
+            loader.provider_facts().unwrap().revision(),
+            provider_revision
+        );
+        assert!(loader.module_graph().unwrap().ptr_eq(&graph));
+    }
+
+    loader
+        .set_source(main.to_string_lossy(), without_call)
+        .unwrap();
+    assert_provider_body(false);
+    loader
+        .set_source(main.to_string_lossy(), with_call)
+        .unwrap();
+    assert_provider_body(true);
+}
+
+#[test]
 fn source_edit_preserves_demands_for_comments_and_retires_them_for_grammar_changes() {
     let sources = SourceDatabase::new();
     let main = SourcePath::new("main.nia");
