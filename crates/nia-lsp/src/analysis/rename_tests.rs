@@ -419,7 +419,6 @@ fn rename_updates_trait_constants_in_implementations_and_projections() {
 fn rename_at(path: &Path, token: &str, new_name: &str) -> Result<lsp_types::WorkspaceEdit, String> {
     let documents = Documents::new();
     let analysis = test_session().analyze(&documents, path)?;
-    assert_eq!(analysis.first_error(), None);
     let file = analysis.file(path).unwrap();
     let start = file.text.find(token).unwrap();
     test_session().rename(
@@ -435,6 +434,20 @@ fn rename_at(path: &Path, token: &str, new_name: &str) -> Result<lsp_types::Work
         },
         &Cancellation::default(),
     )
+}
+
+#[test]
+fn rename_rejects_edits_when_parse_recovery_hides_name_conflicts() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-rename-syntax-error");
+    let source = root.join("root.nia");
+    std::fs::write(
+        &source,
+        "fun make() i32 { 1 }\nfun broken() i32 { let x = ; 2 }\n",
+    )
+    .unwrap();
+    let error = rename_at(&source, "make()", "broken").unwrap_err();
+    assert!(error.contains("syntax errors"), "{error}");
 }
 
 #[test]

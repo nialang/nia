@@ -488,6 +488,18 @@ impl Session {
         });
         for entry in affected {
             cancel.check()?;
+            // Parser recovery can retain a declaration while suppressing its
+            // module's semantic diagnostics, including duplicate definitions.
+            if let Some(error) = entry.coverage.source_errors().iter().find(|error| {
+                let source = error.path.as_str();
+                error.diagnostic.code.def().stage == nia_diagnostic::codes::DiagnosticStage::Parse
+                    && (edits.contains_key(source) || relocated(source, &moves).is_some())
+            }) {
+                return Err(format!(
+                    "Cannot verify rename in {} until its syntax errors are fixed",
+                    error.path.as_str()
+                ));
+            }
             let proposed;
             let request = if manifest_edits.proposed.is_empty() {
                 &entry.request
