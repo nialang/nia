@@ -448,6 +448,20 @@ fn rename_at(path: &Path, token: &str, new_name: &str) -> Result<lsp_types::Work
 }
 
 #[test]
+fn rename_checks_the_new_name_in_inactive_statements() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-inactive-rename-capture");
+    let source = root.join("root.nia");
+    std::fs::write(
+        &source,
+        "static total: i32 = 10;\nfun run() i32 { let sum = 1; @[release] return total; sum }",
+    )
+    .unwrap();
+    assert!(rename_at(&source, "sum =", "total").is_err());
+    assert!(rename_at(&source, "sum =", "amount").is_ok());
+}
+
+#[test]
 fn rename_rejects_edits_when_parse_recovery_hides_name_conflicts() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-rename-syntax-error");

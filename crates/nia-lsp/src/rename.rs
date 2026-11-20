@@ -752,21 +752,32 @@ fn collect_rename(
             let (_, text) = &files[source];
             if (workspace_symbol || source.as_str() == target.source.as_ref())
                 && workspace.editable_source(Path::new(source))
-                && tokenize(text).into_iter().any(|token| {
+                && let Some(token) = tokenize(text).into_iter().find(|token| {
                     token.kind == TokenKind::Ident
                         && scope.is_none_or(|scope| {
                             scope.start <= token.span.start && token.span.end <= scope.end
                         })
-                        && &text[token.span.start..token.span.end] == old
+                        && {
+                            let name = &text[token.span.start..token.span.end];
+                            name == old
+                                || (name == new_name && entry.inactive_at(source, token.span))
+                        }
                         && !occurrences.contains_key(&token.span)
                         && !(entry.inactive_at(source, token.span)
                             && workspace.has_resolved_binding(source, token.span))
                 })
             {
-                return Err(format!(
-                    "Cannot determine every use of `{old}` in {source} under {}",
-                    entry.request
-                ));
+                return Err(if &text[token.span.start..token.span.end] == old {
+                    format!(
+                        "Cannot determine every use of `{old}` in {source} under {}",
+                        entry.request
+                    )
+                } else {
+                    format!(
+                        "Cannot verify the binding of `{new_name}` in inactive code in {source} under {}",
+                        entry.request
+                    )
+                });
             }
             for (&span, candidates) in occurrences {
                 if &text[span.start..span.end] == old && candidates.iter().any(matches_target) {
