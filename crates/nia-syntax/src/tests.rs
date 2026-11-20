@@ -1,6 +1,36 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{AlternateKind, GreenElement, GreenNode, SyntaxKind, parse};
 
+#[test]
+fn delimiter_limit_matches_across_edits_and_recovers() {
+    let expression = |levels| format!("{}1{}", "(".repeat(levels), ")".repeat(levels));
+    let source = |expr| format!("fun sample() i32 {{ {expr} }}");
+    // The function body contributes one delimiter.
+    let at_limit = source(expression(crate::MAX_DELIMITER_DEPTH - 1));
+    let valid = parse(&at_limit, None).unwrap();
+    assert!(valid.errors.is_empty());
+
+    let over_limit = source(expression(crate::MAX_DELIMITER_DEPTH));
+    let invalid = parse(&over_limit, None).unwrap();
+    assert_eq!(invalid.errors.len(), 1);
+    let error = &invalid.errors[0];
+    assert_eq!(error.span.end, over_limit.find('1').unwrap());
+    assert!(error.message.contains("nesting limit"));
+    assert_eq!(invalid.tree.full_text(), over_limit);
+    assert_eq!(
+        valid
+            .reparse(&crate::TextEdit::between(&at_limit, &over_limit), None)
+            .unwrap(),
+        invalid,
+    );
+    assert_eq!(
+        invalid
+            .reparse(&crate::TextEdit::between(&over_limit, &at_limit), None)
+            .unwrap(),
+        valid,
+    );
+}
+
 fn kinds(node: &GreenNode, output: &mut Vec<SyntaxKind>) {
     output.push(node.kind().clone());
     for child in node.child_nodes() {

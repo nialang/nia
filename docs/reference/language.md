@@ -113,6 +113,10 @@ A package's `build.nia` is an ordinary Nia program that uses `std::build`; see
 
 ## Lexical Structure
 
+The compiler accepts up to 64 nested delimiters, counting parentheses,
+brackets, and braces together. Delimiter characters inside literals and
+comments do not count.
+
 ### Comments And Whitespace
 
 A line comment starts with `//` and runs to the end of the line. There are no

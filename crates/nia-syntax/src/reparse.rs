@@ -47,6 +47,9 @@ impl Parse {
             return parse(&source, version);
         }
         let tokens = tokenize_lossless(&source);
+        if let Some(parse) = crate::check_nesting(&source, version, &tokens)? {
+            return Ok(parse);
+        }
         let mut old_tokens = Vec::new();
         collect_tokens(self.tree.green_root(), &mut old_tokens);
         let equal = |old: &&GreenToken, new: &LosslessToken| token_matches(old, new, &source);

@@ -2051,6 +2051,19 @@ fn long_expression() {
     write_text(&helper, "pub fun value() i32 { 1 }\n");
     let terms = vec!["helper::value()"; 576].join(" + ");
     let source = format!("module helper;\npub fun probe() i32 {{ {terms} }}\n");
+    let nested = format!(
+        "pub fun probe() i32 {{ {}1{} }}",
+        "(".repeat(64),
+        ")".repeat(64)
+    );
+    write_text(&entry, &nested);
+    let rejected = nia_command()
+        .arg("check")
+        .arg(&entry)
+        .current_dir(root)
+        .output_timeout_in_session("nia check");
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("nesting limit"));
     write_text(&entry, &source);
     let output = nia_command()
         .arg("check")
@@ -2084,11 +2097,15 @@ fn long_expression() {
     for (version, text) in [
         (2, source.replacen("value()", "missing()", 1)),
         (3, source.clone()),
+        (4, nested),
+        (5, source.clone()),
     ] {
         replace_text(&mut client, &document, version, &text);
         let diagnostics = diagnostics_of(&mut client, &uri(&entry), Some(version), |_| true);
         if version == 2 {
             assert!(mentions(&diagnostics, "missing"), "{diagnostics:?}");
+        } else if version == 4 {
+            assert!(mentions(&diagnostics, "nesting limit"), "{diagnostics:?}");
         } else {
             assert!(diagnostics.is_empty(), "{diagnostics:?}");
         }

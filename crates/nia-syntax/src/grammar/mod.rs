@@ -99,6 +99,10 @@ pub(crate) struct Depth {
 }
 
 impl Depth {
+    pub(crate) fn level(&self) -> usize {
+        self.paren + self.bracket + self.brace
+    }
+
     pub(crate) fn top(&self) -> bool {
         self.paren == 0 && self.bracket == 0 && self.brace == 0
     }

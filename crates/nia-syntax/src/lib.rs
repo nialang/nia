@@ -48,7 +48,7 @@ pub use tree::{
 };
 
 use nia_diagnostic::{Diagnostic, codes};
-use nia_lexer::{TokenKind, tokenize_lossless};
+use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_node_id::VersionedNodeKey;
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -210,7 +210,11 @@ impl Parse {
 
 /// Parses one source file into a complete grammar tree.
 pub fn parse(source: &str, version: Option<SourceVersion>) -> Result<Parse, GreenBuildError> {
-    let mut parser = Parser::new(source, tokenize_lossless(source));
+    let tokens = tokenize_lossless(source);
+    if let Some(parse) = check_nesting(source, version, &tokens)? {
+        return Ok(parse);
+    }
+    let mut parser = Parser::new(source, tokens);
     parser.start_root();
     let mut iterations = Vec::new();
     grammar::source_file(&mut parser, &mut iterations, |_| false);
@@ -229,6 +233,45 @@ pub fn parse(source: &str, version: Option<SourceVersion>) -> Result<Parse, Gree
         iterations,
         blocks,
     ))
+}
+
+// Delimited expressions enter several recursive grammar productions per level.
+// Apply the same bound before clean, block and declaration parsing.
+const MAX_DELIMITER_DEPTH: usize = 64;
+
+fn check_nesting(
+    source: &str,
+    version: Option<SourceVersion>,
+    tokens: &[LosslessToken],
+) -> Result<Option<Parse>, GreenBuildError> {
+    let mut depth = grammar::Depth::default();
+    let Some(token) = tokens.iter().find(|token| {
+        matches!(&token.kind, LosslessTokenKind::Token(kind)
+            if depth.track(kind) && depth.level() > MAX_DELIMITER_DEPTH)
+    }) else {
+        return Ok(None);
+    };
+    let events = [
+        GreenEvent::Start(SyntaxKind::SourceFile),
+        GreenEvent::Start(SyntaxKind::Error),
+    ]
+    .into_iter()
+    .chain(tokens.iter().cloned().map(GreenEvent::Token))
+    .chain([GreenEvent::Finish, GreenEvent::Finish]);
+    let tree = SyntaxTree::from_green_events(source, version, events)?;
+    let error = RawError {
+        span: token.span,
+        token: Some(token.span),
+        kind: ParseErrorKind::Grammar,
+        message: format!("source exceeds the nesting limit of {MAX_DELIMITER_DEPTH} delimiters"),
+    };
+    Ok(Some(finish_parse(
+        tree,
+        vec![error],
+        vec![],
+        vec![],
+        vec![],
+    )))
 }
 
 fn finish_parse(
