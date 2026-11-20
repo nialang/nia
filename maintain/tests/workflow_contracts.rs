@@ -23,6 +23,9 @@ fn build_std_workflow_runs_complete_rust_maintenance_and_correctness_gates() {
         "lib/**",
         "examples/**",
         "benchmarks/build/**",
+        ".github/actions/windows-editor-smoke/**",
+        "editors/**",
+        "assets/brand/**",
         "maintain/**",
     ] {
         assert!(
@@ -48,6 +51,8 @@ fn build_std_workflow_runs_complete_rust_maintenance_and_correctness_gates() {
     assert!(workflow.contains("qemu-user-static"));
     // Executables link with LLD by default, so its drivers must be on PATH.
     assert!(workflow.contains("echo \"/usr/lib/llvm-23/bin\" >> \"${GITHUB_PATH}\""));
+    assert!(workflow.contains("uses: ./.github/actions/windows-editor-smoke"));
+    assert!(workflow.contains("server: ${{ steps.editor-toolchain.outputs.server }}"));
     assert!(!workflow.contains("report[\"acceptance\"][\"passed\"]"));
     assert!(workflow.contains("actions/upload-artifact@v7"));
 }
@@ -195,6 +200,8 @@ fn performance_workflow_uses_rust_baselines_and_preserves_evidence() {
         "cargo maintain baseline compiler",
         "cargo maintain baseline compare",
         "--repeat 3",
+        "edit_latency_by_open_documents -- --ignored --exact",
+        "lsp-edit-latency.json",
         "--runner-class github-hosted-ubuntu-24.04-x64",
     ] {
         assert!(workflow.contains(command), "missing command {command}");
@@ -276,6 +283,8 @@ fn release_workflow_publishes_the_supported_host_matrix() {
             "missing release platform {platform}"
         );
     }
+    assert!(workflow.contains("uses: ./nia-source/.github/actions/windows-editor-smoke"));
+    assert!(workflow.contains("server: ${{ steps.windows-archive.outputs.server }}"));
     assert!(workflow.contains("name: nia-release-${{ matrix.platform }}"));
     assert!(workflow.contains("SHA256SUMS"));
     assert!(workflow.contains("gh release upload"));
@@ -302,25 +311,22 @@ fn workflows_have_no_parallel_python_or_node_toolchain() {
         "release.yml",
     ] {
         let workflow = workflow(name);
-        for forbidden in ["setup-python", "python", ".python-version"] {
-            assert!(
-                !workflow.contains(forbidden),
-                "{name} still contains {forbidden}"
-            );
-        }
-        // Packaging the VS Code extension needs Node and npm (`vsce`). That is
-        // the only Node use: the release workflow sets it up for the VSIX job
-        // steps, and the extension's own lockfile pins its dependencies.
-        let node_allowed = name == "release.yml";
-        for forbidden in ["setup-node", "npm", ".node-version", "package-lock.json"] {
-            assert!(
-                node_allowed || !workflow.contains(forbidden),
-                "{name} still contains {forbidden}"
-            );
+        for forbidden in [
+            "python",
+            "setup-node",
+            "npm",
+            "node-version",
+            "package-lock.json",
+        ] {
+            assert!(!workflow.contains(forbidden), "{name} contains {forbidden}");
         }
     }
-    let release = workflow("release.yml");
-    let node_lines = release
+    let action = fs::read_to_string(
+        repository_root().join(".github/actions/windows-editor-smoke/action.yml"),
+    )
+    .unwrap();
+    assert!(!action.contains("python"));
+    let node_lines = action
         .lines()
         .filter(|line| {
             ["setup-node", "npm", "node-version", "package-lock.json"]
@@ -335,9 +341,9 @@ fn workflows_have_no_parallel_python_or_node_toolchain() {
             "uses: actions/setup-node@v6",
             "node-version: '24'",
             "cache: npm",
-            "cache-dependency-path: nia-source/editors/vscode/package-lock.json",
+            "cache-dependency-path: ${{ inputs.source }}/editors/vscode/package-lock.json",
             "npm.cmd ci",
-            "npm.cmd exec --yes --package=@vscode/vsce@4.1.1 -- vsce package --out ../../target/release-package/nia-${{ needs.validate.outputs.version }}.vsix",
+            "npm.cmd exec --yes --package=@vscode/vsce@4.1.1 -- vsce package --out $env:NIA_SMOKE_VSIX",
         ],
         "Node is used only to package the VS Code extension"
     );

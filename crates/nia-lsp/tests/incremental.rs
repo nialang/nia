@@ -565,3 +565,75 @@ fn provider_position() {
 fn unresolved_name() {
     audit_dependencies("unresolved_name");
 }
+
+#[test]
+#[ignore = "release-profile latency measurement for the performance workflow"]
+fn edit_latency_by_open_documents() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let workload = dependency_workload("provider_demand");
+    let source = uri(&workload.source);
+    let original = &workload.original[0].1;
+    let edited = replace_once(original, "util::amount() + 1", "util::amount() + 2");
+    let document = json!({ "uri": source });
+    let definition = definition_params(&document, original, "util::amount() +", "amount");
+    let mut samples = Vec::new();
+
+    for open_documents in [1, workload.original.len()] {
+        let mut client = Client::start(&workload.root, TIMEOUT);
+        client.call(
+            "initialize",
+            json!({ "processId": null, "rootUri": uri(&workload.root), "capabilities": {} }),
+        );
+        client.notify("initialized", json!({}));
+        for (path, text) in &workload.original[..open_documents] {
+            client.notify(
+                "textDocument/didOpen",
+                json!({ "textDocument": {
+                    "uri": uri(path), "languageId": "nia", "version": 1, "text": text,
+                }}),
+            );
+        }
+        for (path, _) in &workload.original[..open_documents] {
+            let (_, diagnostics) = client.wait_diagnostics(&uri(path), Some(1), None, |_| true);
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        }
+        for version in 2..=6 {
+            let text = if version % 2 == 0 { &edited } else { original };
+            let started = Instant::now();
+            client.notify(
+                "textDocument/didChange",
+                json!({
+                    "textDocument": { "uri": source, "version": version },
+                    "contentChanges": [{ "text": text }],
+                }),
+            );
+            let (received, diagnostics) =
+                client.wait_diagnostics(&source, Some(version), Some(started), |_| true);
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+            let request = Instant::now();
+            let target = client.call("textDocument/definition", definition.clone());
+            let definition_ms = request.elapsed().as_secs_f64() * 1000.0;
+            assert!(!is_empty(&target));
+            let request = Instant::now();
+            let tokens = client.call(
+                "textDocument/semanticTokens/full",
+                json!({ "textDocument": document }),
+            );
+            let tokens_ms = request.elapsed().as_secs_f64() * 1000.0;
+            assert!(!array(&tokens["data"]).is_empty());
+            samples.push(json!({
+                "open_documents": open_documents,
+                "version": version,
+                "diagnostics_ms": (received - started).as_secs_f64() * 1000.0,
+                "definition_ms": definition_ms,
+                "semantic_tokens_ms": tokens_ms,
+            }));
+        }
+        client.shutdown(Duration::from_secs(30));
+    }
+    let report = serde_json::to_string_pretty(&samples).unwrap();
+    println!("{report}");
+    if let Some(path) = std::env::var_os("NIA_LSP_LATENCY_OUTPUT") {
+        std::fs::write(path, report).expect("write latency samples");
+    }
+}

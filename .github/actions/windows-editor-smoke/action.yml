@@ -1,0 +1,63 @@
+name: Windows editor smoke tests
+description: Test the checked-out Neovim client and packaged VSIX against an installed Nia toolchain
+inputs:
+  source:
+    description: Checkout path relative to the workflow workspace
+    default: '.'
+  server:
+    description: Absolute path of the installed nia-lsp.exe
+    required: true
+  vsix:
+    description: Absolute path for the VSIX to build and test
+    required: true
+  neovim-version:
+    description: Neovim release tag
+    default: v0.11.5
+runs:
+  using: composite
+  steps:
+    - name: Test Neovim
+      shell: pwsh
+      working-directory: ${{ inputs.source }}
+      env:
+        NEOVIM_VERSION: ${{ inputs.neovim-version }}
+        NIA_SMOKE_SERVER: ${{ inputs.server }}
+      run: |
+        $zip = Join-Path $env:RUNNER_TEMP 'nvim-win64.zip'
+        $url = "https://github.com/neovim/neovim/releases/download/$env:NEOVIM_VERSION/nvim-win64.zip"
+        curl.exe --fail --location --retry 3 --silent --show-error $url -o $zip
+        if ($LASTEXITCODE -ne 0) { throw 'Neovim download failed' }
+        Expand-Archive -LiteralPath $zip -DestinationPath $env:RUNNER_TEMP
+        & "$env:RUNNER_TEMP/nvim-win64/bin/nvim.exe" --headless -u NONE -i NONE -l tools/lsp-neovim-smoke.lua $env:NIA_SMOKE_SERVER
+        if ($LASTEXITCODE -ne 0) { throw 'Neovim client smoke test failed' }
+    - name: Set up Node.js for the VSIX
+      uses: actions/setup-node@v6
+      with:
+        node-version: '24'
+        cache: npm
+        cache-dependency-path: ${{ inputs.source }}/editors/vscode/package-lock.json
+    - name: Build the VSIX
+      shell: pwsh
+      working-directory: ${{ inputs.source }}/editors/vscode
+      env:
+        NIA_SMOKE_VSIX: ${{ inputs.vsix }}
+      run: |
+        npm.cmd ci
+        if ($LASTEXITCODE -ne 0) { throw 'VS Code extension dependency installation failed' }
+        npm.cmd exec --yes --package=@vscode/vsce@4.1.1 -- vsce package --out $env:NIA_SMOKE_VSIX
+        if ($LASTEXITCODE -ne 0) { throw 'VSIX packaging failed' }
+    - name: Test the installed VSIX
+      shell: pwsh
+      working-directory: ${{ inputs.source }}
+      env:
+        VSCODE_VERSION: '1.147.0'
+        NIA_SMOKE_SERVER: ${{ inputs.server }}
+        NIA_SMOKE_VSIX: ${{ inputs.vsix }}
+      run: |
+        $zip = Join-Path $env:RUNNER_TEMP "vscode-$env:VSCODE_VERSION.zip"
+        $desktop = Join-Path $env:RUNNER_TEMP "vscode-$env:VSCODE_VERSION"
+        $url = "https://update.code.visualstudio.com/$env:VSCODE_VERSION/win32-x64-archive/stable"
+        curl.exe --fail --location --retry 3 --silent --show-error $url -o $zip
+        if ($LASTEXITCODE -ne 0) { throw 'VS Code desktop download failed' }
+        Expand-Archive -LiteralPath $zip -DestinationPath $desktop
+        & ./tools/lsp-vscode-smoke/smoke.ps1 -Code "$desktop/Code.exe" -Cli "$desktop/bin/code.cmd" -Server $env:NIA_SMOKE_SERVER -Vsix $env:NIA_SMOKE_VSIX

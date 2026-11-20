@@ -137,6 +137,11 @@ jobs:
             --output target/nia-perf/candidate.json \
             2>&1 | tee target/nia-perf/candidate.log
 
+      - name: Measure edit latency with one and three open documents
+        env:
+          NIA_LSP_LATENCY_OUTPUT: ${{ github.workspace }}/target/nia-perf/lsp-edit-latency.json
+        run: cargo test --locked --release -p nia-lsp --test incremental edit_latency_by_open_documents -- --ignored --exact --nocapture
+
       - name: Compare with main baseline
         id: comparison
         if: steps.main_baseline.outputs.available == 'true'
@@ -207,6 +212,9 @@ jobs:
           fi
           if test -f target/nia-perf/reference.json; then
             cp target/nia-perf/reference.json target/nia-perf/artifact/reference.json
+          fi
+          if test -f target/nia-perf/lsp-edit-latency.json; then
+            cp target/nia-perf/lsp-edit-latency.json target/nia-perf/artifact/
           fi
           if test -f target/nia-perf/reference.log; then
             cp target/nia-perf/reference.log target/nia-perf/artifact/reference.log

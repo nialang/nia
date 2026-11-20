@@ -78,7 +78,6 @@ jobs:
             neovim: nvim-linux-arm64
           - platform: windows-x86_64
             runner: windows-2022
-            neovim: nvim-win64
           - platform: darwin-x86_64
             runner: macos-15-intel
             neovim: nvim-macos-x86_64
@@ -240,54 +239,15 @@ jobs:
           tar -xzf "$archive" -C "$editor_dir"
           "${editor_dir}/${NEOVIM_ASSET}/bin/nvim" --headless -u NONE -i NONE \
             -l tools/lsp-neovim-smoke.lua "$NIA_SMOKE_SERVER"
-      - name: Verify the unpacked Windows toolchain with Neovim
+      - name: Test Windows editors with the unpacked toolchain
         if: runner.os == 'Windows'
-        shell: pwsh
-        working-directory: nia-source
-        timeout-minutes: 5
-        env:
-          NEOVIM_ASSET: ${{ matrix.neovim }}
-          NIA_SMOKE_SERVER: ${{ steps.windows-archive.outputs.server }}
-        run: |
-          $zip = Join-Path $env:RUNNER_TEMP "$env:NEOVIM_ASSET.zip"
-          $url = "https://github.com/neovim/neovim/releases/download/$env:NEOVIM_VERSION/$env:NEOVIM_ASSET.zip"
-          curl.exe --fail --location --retry 3 --silent --show-error $url -o $zip
-          if ($LASTEXITCODE -ne 0) { throw 'Neovim download failed' }
-          Expand-Archive -LiteralPath $zip -DestinationPath $env:RUNNER_TEMP
-          & "$env:RUNNER_TEMP/$env:NEOVIM_ASSET/bin/nvim.exe" --headless -u NONE -i NONE -l tools/lsp-neovim-smoke.lua $env:NIA_SMOKE_SERVER
-          if ($LASTEXITCODE -ne 0) { throw 'Neovim client smoke test failed' }
-      - name: Set up Node.js for the VSIX
-        if: runner.os == 'Windows'
-        uses: actions/setup-node@v6
+        timeout-minutes: 15
+        uses: ./nia-source/.github/actions/windows-editor-smoke
         with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: nia-source/editors/vscode/package-lock.json
-      - name: Build the VS Code extension
-        if: runner.os == 'Windows'
-        shell: pwsh
-        working-directory: nia-source/editors/vscode
-        run: |
-          npm.cmd ci
-          if ($LASTEXITCODE -ne 0) { throw 'VS Code extension dependency installation failed' }
-          npm.cmd exec --yes --package=@vscode/vsce@4.1.1 -- vsce package --out ../../target/release-package/nia-${{ needs.validate.outputs.version }}.vsix
-          if ($LASTEXITCODE -ne 0) { throw 'VSIX packaging failed' }
-      - name: Verify the VSIX with the unpacked Windows toolchain
-        if: runner.os == 'Windows'
-        shell: pwsh
-        timeout-minutes: 10
-        env:
-          NIA_SMOKE_SERVER: ${{ steps.windows-archive.outputs.server }}
-          VSCODE_VERSION: '1.147.0'
-        run: |
-          $zip = Join-Path $env:RUNNER_TEMP "vscode-$env:VSCODE_VERSION.zip"
-          $desktop = Join-Path $env:RUNNER_TEMP "vscode-$env:VSCODE_VERSION"
-          $url = "https://update.code.visualstudio.com/$env:VSCODE_VERSION/win32-x64-archive/stable"
-          curl.exe --fail --location --retry 3 --silent --show-error $url -o $zip
-          if ($LASTEXITCODE -ne 0) { throw 'VS Code desktop download failed' }
-          Expand-Archive -LiteralPath $zip -DestinationPath $desktop
-          $vsix = "nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}.vsix"
-          & nia-source/tools/lsp-vscode-smoke/smoke.ps1 -Code "$desktop/Code.exe" -Cli "$desktop/bin/code.cmd" -Server $env:NIA_SMOKE_SERVER -Vsix $vsix
+          source: nia-source
+          server: ${{ steps.windows-archive.outputs.server }}
+          vsix: ${{ github.workspace }}/nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}.vsix
+          neovim-version: ${{ env.NEOVIM_VERSION }}
       - name: Upload platform release assets
         uses: actions/upload-artifact@v7
         with:

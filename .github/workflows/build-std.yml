@@ -14,6 +14,9 @@ on:
       - "benchmarks/build/**"
       - "maintain/**"
       - "tools/**"
+      - ".github/actions/windows-editor-smoke/**"
+      - "editors/**"
+      - "assets/brand/**"
   push:
     branches:
       - main
@@ -29,6 +32,9 @@ on:
       - "benchmarks/build/**"
       - "maintain/**"
       - "tools/**"
+      - ".github/actions/windows-editor-smoke/**"
+      - "editors/**"
+      - "assets/brand/**"
   workflow_dispatch:
 
 permissions:
@@ -273,6 +279,23 @@ jobs:
       - name: Run Windows workspace tests
         shell: pwsh
         run: cargo test --workspace --no-default-features --target x86_64-pc-windows-msvc
+
+      - name: Stage Windows toolchain for editor tests
+        id: editor-toolchain
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'nia-editor-toolchain'
+          $bin = New-Item -ItemType Directory -Path "$root/bin" -Force
+          Copy-Item target/x86_64-pc-windows-msvc/debug/nia.exe,target/x86_64-pc-windows-msvc/debug/nia-lsp.exe $bin
+          Copy-Item lib "$root/lib" -Recurse
+          "server=$bin/nia-lsp.exe" >> $env:GITHUB_OUTPUT
+
+      - name: Test Windows editors
+        timeout-minutes: 15
+        uses: ./.github/actions/windows-editor-smoke
+        with:
+          server: ${{ steps.editor-toolchain.outputs.server }}
+          vsix: ${{ runner.temp }}/nia.vsix
 
       - name: Run Windows native backend diagnostic failures
         shell: pwsh

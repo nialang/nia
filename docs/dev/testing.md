@@ -151,6 +151,14 @@ with the checkout's `lib`; build `nia-cli` first when running them alone
 beside it instead; the release workflow does so for every platform archive,
 and `platform.yml` on Darwin.
 
+The performance workflow runs `edit_latency_by_open_documents` in release
+mode. It opens the same caller by itself and with two dependency files, waits
+for their first diagnostics, then edits the caller five times in each session.
+It saves the time from each edit to its versioned diagnostics, followed by the
+definition and semantic token request times, in `lsp-edit-latency.json` in the
+performance artifact. To print the samples locally, run
+`cargo test --release -p nia-lsp --test incremental edit_latency_by_open_documents -- --ignored --exact --nocapture`.
+
 `tools/lsp-latency.py` is a local benchmark, not part of any gate; it needs
 Python 3.9 or later. It measures request round trips, versioned diagnostic
 arrival, and a semantic-token fetch after diagnostics, plus rename,
@@ -174,11 +182,14 @@ Set `NIA_LSP_TIMINGS=summary` to make the server print a JSON timing report
 on stderr at shutdown; `NIA_LSP_TIMINGS=detail` adds individual compiler query
 timings.
 
-The editor clients have their own smoke tests, which the release workflow runs
-against the packaged server and VSIX:
+The Windows correctness job runs both editor smoke tests on pull requests
+and on main. It stages the server built by the workspace tests with the
+checkout's `lib` and installs a freshly built VSIX. The release workflow
+runs the same tests against the unpacked Windows archive and also tests
+Neovim on each Unix release platform.
 
 - `tools/lsp-vscode-smoke/smoke.ps1` installs the VSIX in a temporary VS Code
-  profile and checks language detection, the file icon, semantic tokens,
+  profile and checks language detection, line comments, the file icon, semantic tokens,
   folding, and a module move with its child directory. Pass the VS Code
   desktop executable and CLI, the server from an unpacked release, and the
   VSIX. Run it in a desktop session:
