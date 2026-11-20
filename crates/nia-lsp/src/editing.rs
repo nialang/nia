@@ -761,6 +761,59 @@ fn enclosing_function<'a>(
         .find_map(|child| enclosing_function(child, declaration, container))
 }
 
+/// Extracts the declaration containing a resolved name, stopping before its body.
+pub(crate) fn declaration_header(
+    root: &GreenNode,
+    source: &str,
+    name: Span,
+) -> Option<(String, Option<String>)> {
+    let mut node = root;
+    let mut wrapper = None;
+    loop {
+        if matches!(node.kind(), SyntaxKind::Item | SyntaxKind::Member) {
+            wrapper = Some(node);
+        }
+        if node
+            .token(&TokenKind::Ident)
+            .is_some_and(|token| token.span() == name)
+        {
+            let start = node.first_token()?.span().start;
+            let end = node
+                .child_nodes()
+                .find(|child| {
+                    matches!(
+                        child.kind(),
+                        SyntaxKind::FieldList
+                            | SyntaxKind::VariantList
+                            | SyntaxKind::MemberList
+                            | SyntaxKind::Block
+                    )
+                })
+                .and_then(GreenNode::first_token)
+                .map_or(node.last_token()?.span().end, |token| token.span().start);
+            let owner = wrapper.filter(|parent| {
+                parent
+                    .child_nodes()
+                    .any(|child| child.span() == node.span())
+            });
+            let docs = owner
+                .and_then(GreenNode::first_token)
+                .map_or(start, |token| token.span().start);
+            let start = owner
+                .and_then(|owner| owner.child(&SyntaxKind::Visibility))
+                .and_then(GreenNode::first_token)
+                .map_or(start, |token| token.span().start);
+            return Some((
+                source[start..end].trim().trim_end_matches(';').to_owned(),
+                leading_documentation(source, docs),
+            ));
+        }
+        node = node
+            .child_nodes()
+            .find(|child| child.span().start <= name.start && name.end <= child.span().end)?;
+    }
+}
+
 fn leading_documentation(source: &str, start: usize) -> Option<String> {
     let mut preceding = source[..start].rsplit('\n');
     if !preceding.next()?.trim().is_empty() {

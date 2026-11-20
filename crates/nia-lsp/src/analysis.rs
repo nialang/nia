@@ -2750,36 +2750,39 @@ impl Analysis {
 
     pub(crate) fn hover(&self, path: &Path, position: Position) -> Option<lsp_types::Hover> {
         let symbol = self.symbol_at(path, position)?;
-        let (file, span) = self.declaration_file(symbol)?;
-        if let Some(callable) = self.callable_declaration(symbol) {
-            let signature = lsp_types::MarkedString::LanguageString(lsp_types::LanguageString {
-                language: "nia".into(),
-                value: callable.signature.to_owned(),
-            });
-            let contents = match callable.documentation {
-                Some(docs) => lsp_types::HoverContents::Array(vec![
-                    signature,
-                    lsp_types::MarkedString::String(docs),
-                ]),
-                None => lsp_types::HoverContents::Scalar(signature),
-            };
-            return Some(lsp_types::Hover {
-                contents,
-                range: None,
-            });
-        }
-        let start = file.text[..span.start]
-            .rfind(['\r', '\n'])
-            .map_or(0, |index| index + 1);
-        let line = file.text[start..].lines().next()?.trim();
-        let header = line.split_once(" {").map_or(line, |(header, _)| header);
+        let (header, documentation) = if let Some(callable) = self.callable_declaration(symbol) {
+            (callable.signature.to_owned(), callable.documentation)
+        } else if let Some((file, span)) = self.declaration_file(symbol) {
+            if matches!(symbol, Symbol::Local(..))
+                && let Some(ty) = self.local_type_hint(file, span)
+            {
+                (format!("{}: {ty}", &file.text[span.start..span.end]), None)
+            } else {
+                crate::editing::declaration_header(
+                    file.syntax().tree.green_root(),
+                    &file.text,
+                    span,
+                )?
+            }
+        } else if let Symbol::Global(id) = symbol {
+            let (source, span) = self.foreign_declaration(id)?;
+            crate::editing::declaration_header(source.syntax.tree.green_root(), &source.text, span)?
+        } else {
+            return None;
+        };
+        let signature = lsp_types::MarkedString::LanguageString(lsp_types::LanguageString {
+            language: "nia".into(),
+            value: header,
+        });
+        let contents = match documentation {
+            Some(docs) => lsp_types::HoverContents::Array(vec![
+                signature,
+                lsp_types::MarkedString::String(docs),
+            ]),
+            None => lsp_types::HoverContents::Scalar(signature),
+        };
         Some(lsp_types::Hover {
-            contents: lsp_types::HoverContents::Scalar(lsp_types::MarkedString::LanguageString(
-                lsp_types::LanguageString {
-                    language: "nia".into(),
-                    value: header.into(),
-                },
-            )),
+            contents,
             range: None,
         })
     }
@@ -4350,6 +4353,32 @@ mod tests {
                 hint(13, 12, ": closure(i32) i32"),
             ]
         );
+    }
+
+    #[test]
+    fn hover_describes_local_types_and_multiline_declarations() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-hover-declarations");
+        let entry = root.join("root.nia");
+        let source = "/// Stored pair.\npub struct Pair[\n    T,\n] { x: T }\nfun read() i32 { let answer = 42; answer }";
+        std::fs::write(&entry, source).unwrap();
+        let checked = test_session().analyze(&Documents::new(), &entry).unwrap();
+        let hover = |offset| {
+            checked
+                .hover(&entry, Lines::new(source).position(source, offset))
+                .unwrap()
+                .contents
+        };
+        let pair = serde_json::to_value(hover(source.find("Pair").unwrap())).unwrap();
+        assert!(
+            pair[0]["value"]
+                .as_str()
+                .unwrap()
+                .contains("Pair[\n    T,\n]")
+        );
+        assert_eq!(pair[1], "Stored pair.");
+        let local = serde_json::to_value(hover(source.rfind("answer").unwrap())).unwrap();
+        assert_eq!(local["value"], "answer: i32");
     }
 
     #[test]

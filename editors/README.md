@@ -17,19 +17,17 @@ your project, and how to set it up in VS Code, Neovim, and Vim.
   selectors, and module aliases.
 - **Completion.** Completion offers local names, names visible in the current
   module, members of a module path (`module::`), and fields and methods after
-  `.` on a receiver. It does not yet complete members of a type path
-  (`Type::`) or enum variants written with the type omitted (`.Variant`).
+  `.` on a receiver. After a named type's `::`, it offers inherent members
+  and enum variants.
   When an unqualified name has no visible completion, the server searches the
   available modules and declared dependencies, and offers the name together
   with the `using` it needs; each such pair is checked against the compiler
   before it is offered. Callable items show their signature and adjacent
   `///` documentation.
 - **Signature help.** The signature, documentation, and active parameter for
-  calls of source functions and resolved methods. Calls of associated
-  functions written as `Type::f(` are not covered.
-- **Hover.** Hover on a resolved name shows its declaration: the signature
-  and adjacent `///` documentation for a callable, and the declaration line
-  for other items. Hover does not show inferred types; inlay hints do.
+  calls of source functions, associated functions, and resolved methods.
+- **Hover.** Hover shows the signature or declaration header and adjacent
+  `///` documentation. Locals and parameters show their inferred types.
 - **Inlay hints.** Parameter names at call sites and the inferred types of
   local bindings.
 - **Structure.** Document outline, folding, and expand-selection use the
