@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use crate::literals::{
     byte_string_literal_len, float_literal_suffix_ty, float_literal_text,
     has_numeric_literal_suffix, integer_literal_suffix_ty, integer_literal_value,
-    numeric_literal_suffix, parse_float_literal, string_literal_char_len,
+    numeric_literal_suffix, string_literal_char_len,
 };
 use crate::{BodyChecker, BodyTypeCx};
 use nia_ast::{Expr, ExprKind, TypeRef, UnaryOp};
@@ -1623,7 +1623,7 @@ impl<'a> BodyChecker<'a> {
         };
         match primitive {
             PrimitiveTy::F32 => {
-                if !parse_float_literal::<f32>(text) {
+                if !nia_literals::eval_f32_literal(text).is_ok_and(f32::is_finite) {
                     let summary =
                         format!("float literal `{text}` is out of range for f32 in {context}");
                     let mut diagnostic = Diagnostic::user_error(codes::TYPE_CHECK, summary.clone())
@@ -1632,7 +1632,7 @@ impl<'a> BodyChecker<'a> {
                             "the literal is not finite or cannot be represented by `{}`",
                             self.ty_name(expected)
                         ));
-                    if parse_float_literal::<f64>(text) {
+                    if nia_literals::eval_float_literal(text).is_ok_and(f64::is_finite) {
                         diagnostic = diagnostic.help(
                             "use an `f64` literal suffix or an `f64` target when the additional range is intended",
                         );
@@ -1646,7 +1646,7 @@ impl<'a> BodyChecker<'a> {
                 true
             }
             PrimitiveTy::F64 => {
-                if !parse_float_literal::<f64>(text) {
+                if !nia_literals::eval_float_literal(text).is_ok_and(f64::is_finite) {
                     let summary =
                         format!("float literal `{text}` is out of range for f64 in {context}");
                     self.diagnostics.push(

@@ -2164,6 +2164,13 @@ impl<'a> BodyChecker<'a> {
         if source == target {
             return true;
         }
+        match (self.interner.get(source), self.interner.get(target)) {
+            (Some(TyKind::Vector { lanes: from, .. }), Some(TyKind::Vector { lanes: to, .. })) => {
+                return from == to && self.is_numeric(source) && self.is_numeric(target);
+            }
+            (Some(TyKind::Vector { .. }), _) | (_, Some(TyKind::Vector { .. })) => return false,
+            _ => {}
+        }
         if self.is_numeric(source) && self.is_numeric(target) {
             return true;
         }

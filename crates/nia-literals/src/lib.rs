@@ -17,14 +17,30 @@ pub fn eval_int_literal(text: &str) -> Result<u128, String> {
 
 /// Evaluates a decimal floating-point literal after removing its suffix.
 pub fn eval_float_literal(text: &str) -> Result<f64, String> {
+    parse_decimal_float(text)
+}
+
+/// Decodes a float directly at single precision.
+pub fn eval_f32_literal(text: &str) -> Result<f32, String> {
+    parse_decimal_float(text)
+}
+
+fn parse_decimal_float<T: std::str::FromStr>(text: &str) -> Result<T, String> {
     let body = numeric_literal_body(text);
     if !has_valid_digit_separators(body, 10)
         || numeric_literal_suffix(text).is_some_and(|suffix| !is_float_suffix(suffix))
     {
         return Err("invalid float constant".to_string());
     }
-    body.replace('_', "")
-        .parse::<f64>()
+    let compact;
+    let digits = if body.contains('_') {
+        compact = body.replace('_', "");
+        &compact
+    } else {
+        body
+    };
+    digits
+        .parse()
         .map_err(|_| "invalid float constant".to_string())
 }
 

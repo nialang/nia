@@ -144,28 +144,6 @@ fn float_suffix_ty(text: &str) -> Option<PrimitiveTy> {
     primitive.is_float().then_some(primitive)
 }
 
-pub(super) trait FiniteFloat: Sized {
-    fn parse(text: &str) -> Option<Self>;
-}
-
-impl FiniteFloat for f32 {
-    fn parse(text: &str) -> Option<Self> {
-        let value = text.parse::<f32>().ok()?;
-        value.is_finite().then_some(value)
-    }
-}
-
-impl FiniteFloat for f64 {
-    fn parse(text: &str) -> Option<Self> {
-        let value = text.parse::<f64>().ok()?;
-        value.is_finite().then_some(value)
-    }
-}
-
-pub(super) fn parse_float_literal<T: FiniteFloat>(text: &str) -> bool {
-    T::parse(text).is_some()
-}
-
 pub(super) fn string_literal_char_len(literal: &StringLiteral) -> Option<usize> {
     nia_literals::string_literal_char_len(literal.parts.iter().map(String::as_str))
 }

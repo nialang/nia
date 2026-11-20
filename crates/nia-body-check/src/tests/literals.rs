@@ -557,6 +557,8 @@ fun main() usize {
 
 #[test]
 fn checks_float_literal_suffixes_with_exponents_and_separators() {
+    let valid = pipeline("fun single() f32 { 1_000.5f32 }\nfun double() f64 { 1.2_5e1_0 }");
+    assert!(valid.diagnostics.is_empty(), "{:?}", valid.diagnostics);
     let checked = pipeline(
         r#"
 fun take_f32(value: f32) usize { value as usize }
@@ -641,4 +643,24 @@ fun main(ptr: & u8, other: & i32, flag: bool) i32 {
         "function items are supported as static zero-sized values: {:?}",
         checked.diagnostics
     );
+}
+
+#[test]
+fn numeric_vector_casts_preserve_lane_count() {
+    let checked = pipeline(
+        "fun widen(v: i16x4) f32x4 { v as f32x4 }
+         fun narrow(v: f32x4) i16x4 { v as i16x4 }
+         fun scalar(v: i32x4) i32 { v as i32 }
+         fun vector(v: i32) i32x4 { v as i32x4 }
+         fun lanes(v: i32x4) i32x2 { v as i32x2 }",
+    );
+    let messages = checked
+        .diagnostics
+        .iter()
+        .map(|d| &d.summary)
+        .collect::<Vec<_>>();
+    assert_eq!(messages.len(), 3, "{messages:?}");
+    for message in messages {
+        assert!(message.contains("invalid cast"), "{message}");
+    }
 }
