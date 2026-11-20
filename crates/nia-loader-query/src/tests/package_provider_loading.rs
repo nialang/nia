@@ -397,6 +397,7 @@ pub fun score(&self) i32 {
         .expect("replace source");
     let reset = database.load_program().expect("reset program load");
 
-    assert_ne!(reset.graph.entry(), provider_entry);
+    assert_eq!(reset.graph.entry(), provider_entry);
+    assert!(!program.graph.ptr_eq(&reset.graph));
     assert_module_not_loaded(&reset, "facade/providers.nia");
 }

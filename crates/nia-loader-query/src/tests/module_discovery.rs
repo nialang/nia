@@ -135,7 +135,12 @@ fn source_existence_change_rebuilds_missing_module_graph() {
         .expect("present-module program load");
 
     assert_no_error_diagnostics(&present);
-    assert_ne!(present.graph.entry(), missing_entry);
+    assert_eq!(present.graph.entry(), missing_entry);
+    let defs_path = defs.to_string_lossy();
+    assert_eq!(
+        missing.graph.module_id_for_path(&defs_path),
+        present.graph.module_id_for_path(&defs_path)
+    );
     assert_module_loaded(&present, defs.to_string_lossy().as_ref());
     let defs_module = present
         .modules

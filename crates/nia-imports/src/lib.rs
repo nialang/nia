@@ -14,7 +14,10 @@
 //! [`SourcePath`], which semantic consumers use when a diagnostic relates a
 //! use site to a declaration in another module.
 
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{Arc, Mutex},
+};
 
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ice::Ice;
@@ -489,13 +492,52 @@ impl StableDefKey {
     }
 }
 
+/// Source interner and module identities shared by graphs in one loader session.
+#[derive(Clone)]
+pub struct ModuleGraphSession {
+    sources: SourceTable,
+    identities: Arc<ModuleIdentities>,
+}
+
+struct ModuleIdentities {
+    allocator: ModuleIdAllocator,
+    by_source: Mutex<nia_hash::FastHashMap<SourceId, ModuleId>>,
+}
+
+impl ModuleGraphSession {
+    /// Starts an independent module identity domain for the given source table.
+    pub fn new(sources: SourceTable) -> nia_ice::IceResult<Self> {
+        Ok(Self {
+            sources,
+            identities: Arc::new(ModuleIdentities {
+                allocator: ModuleIdAllocator::new()?,
+                by_source: Mutex::default(),
+            }),
+        })
+    }
+
+    fn module_id(&self, source: SourceId) -> nia_ice::IceResult<ModuleId> {
+        use std::collections::hash_map::Entry;
+
+        let mut identities = self
+            .identities
+            .by_source
+            .lock()
+            .map_err(|_| Ice::new("module identity table lock poisoned"))?;
+        match identities.entry(source) {
+            Entry::Occupied(entry) => Ok(*entry.get()),
+            Entry::Vacant(entry) => Ok(*entry.insert(self.identities.allocator.allocate()?)),
+        }
+    }
+}
+
 #[derive(Clone)]
 /// Mutable module graph keyed by stable source and module-path identities.
 pub struct ModuleGraph {
-    module_ids: ModuleIdAllocator,
-    sources: SourceTable,
+    session: ModuleGraphSession,
     entry: ModuleId,
     modules: Arc<Vec<Arc<ModuleNode>>>,
+    positions: Arc<nia_hash::FastHashMap<ModuleId, usize>>,
     by_source_id: Arc<nia_hash::FastHashMap<SourceId, ModuleId>>,
     by_stable_key: Arc<nia_hash::FastHashMap<StableModuleKey, ModuleId>>,
     by_module_path: Arc<nia_hash::FastHashMap<ModulePath, ModuleId>>,
@@ -509,8 +551,7 @@ pub struct ModuleGraph {
 impl fmt::Debug for ModuleGraph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ModuleGraph")
-            .field("module_ids", &self.module_ids)
-            .field("source_store_id", &self.sources.id())
+            .field("source_store_id", &self.source_store_id())
             .field("entry", &self.entry)
             .field("modules", &self.modules)
             .field("by_stable_key", &self.by_stable_key)
@@ -524,8 +565,7 @@ impl fmt::Debug for ModuleGraph {
 
 impl PartialEq for ModuleGraph {
     fn eq(&self, other: &Self) -> bool {
-        self.module_ids == other.module_ids
-            && self.entry == other.entry
+        self.entry == other.entry
             && self.modules == other.modules
             && self.by_source_id == other.by_source_id
             && self.by_stable_key == other.by_stable_key
@@ -598,11 +638,20 @@ impl ModuleGraph {
         symbols: Arc<dyn SymbolText + Send + Sync>,
         sources: SourceTable,
     ) -> nia_ice::IceResult<Self> {
-        let module_ids = ModuleIdAllocator::new()?;
-        let entry = module_ids.allocate()?;
-        let entry_source_id = sources
+        Self::in_session(entry_path, symbols, ModuleGraphSession::new(sources)?)
+    }
+
+    /// Starts a fresh graph with the module identities of an existing session.
+    pub fn in_session(
+        entry_path: SourcePath,
+        symbols: Arc<dyn SymbolText + Send + Sync>,
+        session: ModuleGraphSession,
+    ) -> nia_ice::IceResult<Self> {
+        let entry_source_id = session
+            .sources
             .id_for_path(&entry_path)
             .map_err(|error| Ice::new(error.to_string()))?;
+        let entry = session.module_id(entry_source_id)?;
         let entry_module_path = ModulePath {
             package: known::PROGRAM_TREE,
             segments: Vec::new(),
@@ -616,9 +665,10 @@ impl ModuleGraph {
         package_roots.insert(known::PROGRAM_TREE, entry);
         let mut by_source_id = nia_hash::FastHashMap::default();
         by_source_id.insert(entry_source_id, entry);
+        let mut positions = nia_hash::FastHashMap::default();
+        positions.insert(entry, 0);
         Ok(Self {
-            module_ids,
-            sources,
+            session,
             entry,
             modules: Arc::new(vec![Arc::new(ModuleNode {
                 id: entry,
@@ -636,6 +686,7 @@ impl ModuleGraph {
                 process_used_paths: true,
                 process_declared_children: true,
             })]),
+            positions: Arc::new(positions),
             by_source_id: Arc::new(by_source_id),
             by_stable_key: Arc::new(by_stable_key),
             by_module_path: Arc::new(by_module_path),
@@ -654,7 +705,7 @@ impl ModuleGraph {
 
     /// Returns the source-store owner accepted by this graph.
     pub fn source_store_id(&self) -> SourceStoreId {
-        self.sources.id()
+        self.session.sources.id()
     }
 
     /// Resolves an owner-qualified source handle to its module.
@@ -684,17 +735,12 @@ impl ModuleGraph {
 
     /// Looks up a module node by its allocated id.
     pub fn get(&self, id: ModuleId) -> Option<&ModuleNode> {
-        self.modules
-            .get(usize::try_from(id.local_index()).ok()?)
-            .map(Arc::as_ref)
-            .filter(|module| module.id == id)
+        Some(&self.modules[*self.positions.get(&id)?])
     }
 
     fn get_mut(&mut self, id: ModuleId) -> Option<&mut ModuleNode> {
-        Arc::make_mut(&mut self.modules)
-            .get_mut(usize::try_from(id.local_index()).ok()?)
-            .map(Arc::make_mut)
-            .filter(|module| module.id == id)
+        let index = *self.positions.get(&id)?;
+        Some(Arc::make_mut(&mut Arc::make_mut(&mut self.modules)[index]))
     }
 
     /// Resolves a source path to its module id.
@@ -1134,6 +1180,7 @@ impl ModuleGraph {
         process_declared_children: bool,
     ) -> nia_ice::IceResult<ModuleId> {
         let source_id = self
+            .session
             .sources
             .id_for_path(&path)
             .map_err(|error| Ice::new(error.to_string()))?;
@@ -1157,18 +1204,14 @@ impl ModuleGraph {
             }
             return Ok(id);
         }
-        let id = self.module_ids.allocate()?;
-        if id.local_index() as usize != self.modules.len() {
-            return Err(nia_ice::Ice::new(
-                "module ID allocation order does not match the module graph",
-            ));
-        }
+        let id = self.session.module_id(source_id)?;
         if module_path.is_package_root() {
             Arc::make_mut(&mut self.package_roots).insert(module_path.package, id);
         }
         Arc::make_mut(&mut self.by_stable_key).insert(stable_key.clone(), id);
         Arc::make_mut(&mut self.by_source_id).insert(source_id, id);
         Arc::make_mut(&mut self.by_module_path).insert(module_path.clone(), id);
+        Arc::make_mut(&mut self.positions).insert(id, self.modules.len());
         Arc::make_mut(&mut self.modules).push(Arc::new(ModuleNode {
             id,
             stable_key,
@@ -1354,10 +1397,11 @@ impl ModuleGraph {
     ) -> nia_ice::IceResult<(SourceId, SourcePath)> {
         let child = resolved_module_symbol_text(self.symbols.as_ref(), child);
         let source_id = self
+            .session
             .sources
             .id_for_child_path(parent, &child, sibling)
             .map_err(|error| Ice::new(error.to_string()))?;
-        self.sources.path_for_id(source_id).map_or_else(
+        self.session.sources.path_for_id(source_id).map_or_else(
             || Err(Ice::new("source interner lost a derived child path")),
             |path| Ok((source_id, path.as_ref().clone())),
         )
@@ -2125,27 +2169,36 @@ mod tests {
     }
 
     #[test]
-    fn module_graph_forks_keep_existing_handles_and_separate_new_generations() {
+    fn module_graph_forks_share_source_handles_and_track_membership_independently() {
         let graph = ModuleGraph::new(SourcePath::new("main.nia")).expect("create module graph");
         let entry = graph.entry();
         let mut first = graph.clone();
         let mut second = graph;
         let child = module_root_symbol_from_text("child");
+        let other = module_root_symbol_from_text("other");
         let first_child = first
             .intern_declared_child(entry, &child, Visibility::Public, Span::default())
             .expect("first fork child");
+        assert!(second.get(first_child).is_none());
+        let other_child = second
+            .intern_declared_child(entry, &other, Visibility::Public, Span::default())
+            .expect("other child");
         let second_child = second
             .intern_declared_child(entry, &child, Visibility::Public, Span::default())
             .expect("second fork child");
 
-        assert_eq!(first_child.local_index(), second_child.local_index());
-        assert_ne!(first_child, second_child);
+        assert_eq!(first_child, second_child);
+        assert_ne!(first_child, other_child);
         assert!(first.get(entry).is_some());
         assert!(second.get(entry).is_some());
         assert!(first.get(first_child).is_some());
         assert!(second.get(second_child).is_some());
-        assert!(first.get(second_child).is_none());
-        assert!(second.get(first_child).is_none());
+        assert!(first.get(other_child).is_none());
+        assert!(second.get(other_child).is_some());
+        assert_eq!(
+            second.modules().map(|node| node.id).collect::<Vec<_>>(),
+            [entry, other_child, first_child]
+        );
     }
 
     #[test]

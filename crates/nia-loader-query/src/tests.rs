@@ -200,6 +200,8 @@ fn test_loader_context(
     module_map: ModuleMap,
     sources: SourceDatabase,
 ) -> LoaderContext {
+    let module_graph_session =
+        ModuleGraphSession::new(sources.source_table()).expect("create module graph session");
     LoaderContext {
         entry_path: entry_path.clone(),
         module_map: effective_module_map(
@@ -209,6 +211,7 @@ fn test_loader_context(
             Some(test_toolchain_layout().as_ref()),
         ),
         sources,
+        module_graph_session,
         source_grammar_revision: Mutex::new(0),
         node_store: nia_node_id::NodeStore::new(),
         diagnostic_store: Arc::new(

@@ -199,7 +199,8 @@ fn invalidates_module_graph_after_module_declaration_text_change() {
 
     let second = db.expect_get(LoadedProgramQuery).to_program();
     assert_no_error_diagnostics(&second);
-    assert_ne!(second.graph.entry(), first_entry);
+    assert_eq!(second.graph.entry(), first_entry);
+    assert!(!first.graph.ptr_eq(&second.graph));
     assert!(
         second
             .modules
@@ -237,7 +238,8 @@ fn loader_source_update_replaces_graph_only_at_query_boundary() {
         executions_before_update
     );
     let second = database.load_program().expect("updated program load");
-    assert_ne!(second.graph.entry(), first.graph.entry());
+    assert_eq!(second.graph.entry(), first.graph.entry());
+    assert!(!first.graph.ptr_eq(&second.graph));
     assert_module_loaded(&second, "defs.nia");
     assert!(
         query_executions(

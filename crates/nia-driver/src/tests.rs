@@ -26,8 +26,8 @@ mod value_inference_matrix;
 mod visibility_matrix;
 
 #[test]
-fn editor_graph_handle_replacement_preserves_the_prepared_loader_snapshot() {
-    let root = common::temp_dir("editor_graph_handle_replacement");
+fn editor_graph_rebuild_preserves_handles_and_the_prepared_loader_snapshot() {
+    let root = common::temp_dir("editor_graph_rebuild");
     let main = root.join("main.nia");
     common::write(&main, "fun main() i32 { 0 }\n");
     common::write(&root.join("added.nia"), "pub fun value() i32 { 1 }\n");
@@ -48,7 +48,9 @@ fn editor_graph_handle_replacement_preserves_the_prepared_loader_snapshot() {
             Ok((db.query_session(), graph, loader.query_trace()?))
         })
         .expect("load graph after edit");
-    assert_ne!(initial.entry(), graph.entry());
+    assert_eq!(initial.entry(), graph.entry());
+    assert!(!initial.ptr_eq(&graph));
+    assert_eq!(initial.modules().count(), 1);
     assert!(
         trace
             .queries

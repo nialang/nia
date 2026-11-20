@@ -230,7 +230,7 @@ fn stable_graph_entry_remaps_after_module_graph_owner_replacement() {
 }
 
 #[test]
-fn stable_graph_relations_remap_fork_local_module_handles() {
+fn stable_graph_relations_reuse_handles_across_graph_forks() {
     let base = LoadedProgramFixture::new(
         "main.nia",
         "pub module child; using self::child; fun main() i32 { 0 }",
@@ -278,8 +278,8 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
         "pkg/root.nia",
         "pub fun value() i32 { 1 }",
     ));
-    assert_ne!(old_child, new_child);
-    assert_ne!(old_root, new_root);
+    assert_eq!(old_child, new_child);
+    assert_eq!(old_root, new_root);
     let database = old_fixture.database();
     let first_child = database
         .db
@@ -304,12 +304,8 @@ fn stable_graph_relations_remap_fork_local_module_handles() {
     let latest_using = database
         .db
         .expect_get(UsingScopeModuleQuery(entry, child_name));
-    assert!(!Arc::ptr_eq(&first_child, &latest_child));
-    assert!(!Arc::ptr_eq(&first_root, &latest_root));
     assert_eq!(first_child.as_ref(), latest_child.as_ref());
     assert_eq!(first_root.as_ref(), latest_root.as_ref());
-    assert!(!Arc::ptr_eq(&first_public, &latest_public));
-    assert!(!Arc::ptr_eq(&first_using, &latest_using));
     assert_eq!(first_public.as_ref(), latest_public.as_ref());
     assert_eq!(first_using.as_ref(), latest_using.as_ref());
     let lookup =

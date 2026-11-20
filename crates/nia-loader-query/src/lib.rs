@@ -39,7 +39,7 @@ mod used_paths;
 #[cfg(test)]
 mod tests;
 
-use nia_imports::{ModuleMap, StableModuleKey};
+use nia_imports::{ModuleGraphSession, ModuleMap, StableModuleKey};
 use nia_loader_contract::{
     FrontendCacheNamespace, FrontendProgramSourceFingerprint, FrontendProviderDemandPlanCacheKey,
     LoadedProgram, LoaderFactProvider, ProviderDemand, SourceContentFingerprint,
@@ -340,6 +340,7 @@ impl LoaderDatabase {
                 entry_path,
                 module_map,
                 sources: sources.clone(),
+                module_graph_session: ModuleGraphSession::new(sources.source_table())?,
                 source_grammar_revision: Mutex::new(0),
                 node_store: nia_node_id::NodeStore::new(),
                 diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()?),
@@ -1041,11 +1042,15 @@ fn load_program_trace(
         &RuntimeSpec::Bare,
         Some(tests::test_toolchain_layout().as_ref()),
     );
+    let sources = SourceDatabase::new();
+    let module_graph_session =
+        ModuleGraphSession::new(sources.source_table()).expect("create module graph session");
     let db = QueryDb::new_registered(
         LoaderContext {
             entry_path,
             module_map,
-            sources: SourceDatabase::new(),
+            sources,
+            module_graph_session,
             source_grammar_revision: Mutex::new(0),
             node_store: nia_node_id::NodeStore::new(),
             diagnostic_store: Arc::new(
@@ -1119,6 +1124,7 @@ pub(crate) struct LoaderContext {
     pub(crate) entry_path: SourcePath,
     pub(crate) module_map: ModuleMap,
     pub(crate) sources: SourceDatabase,
+    pub(crate) module_graph_session: ModuleGraphSession,
     pub(crate) source_grammar_revision: Mutex<u64>,
     pub(crate) node_store: nia_node_id::NodeStore,
     pub(crate) diagnostic_store: Arc<nia_diagnostic::DiagnosticStore>,

@@ -333,11 +333,10 @@ fn build_module_graph(
             (graph, value.diagnostics.clone(), existing_modules)
         }
         None => {
-            let source_table = db.context().sources.source_table();
-            let mut graph = ModuleGraph::with_source_table(
+            let mut graph = ModuleGraph::in_session(
                 db.context().entry_path.clone(),
                 std::sync::Arc::new(db.context().symbols.clone()),
-                source_table,
+                db.context().module_graph_session.clone(),
             )?;
             bind_entry_as_std(db, &mut graph);
             inject_entry_runtime(db, &mut graph)?;

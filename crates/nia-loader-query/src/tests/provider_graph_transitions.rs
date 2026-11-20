@@ -36,11 +36,9 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
         let provider = analyzed
             .graph
             .module_id_for_source_identity(&provider_identity)
-            .and_then(|id| analyzed.graph.get(id));
-        assert_eq!(
-            provider.is_some_and(|node| node.process_used_paths),
-            expected
-        );
+            .and_then(|id| analyzed.graph.get(id))
+            .expect("explicitly imported provider");
+        assert_eq!(provider.process_used_paths, expected);
         let facts = loader.provider_facts().unwrap();
         assert_eq!(
             facts.demands().iter().any(|demand| matches!(
@@ -49,13 +47,14 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
             )),
             expected
         );
+        provider.id
     };
 
-    assert_provider_body(false);
+    let provider_id = assert_provider_body(false);
     loader
         .set_source(main.to_string_lossy(), with_call.clone())
         .unwrap();
-    assert_provider_body(true);
+    assert_eq!(assert_provider_body(true), provider_id);
     let grammar = loader.source_grammar_revision().unwrap();
     let provider_revision = loader.provider_facts().unwrap().revision();
     let graph = loader.module_graph().unwrap();
@@ -76,11 +75,45 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
     loader
         .set_source(main.to_string_lossy(), without_call)
         .unwrap();
-    assert_provider_body(false);
+    assert_eq!(assert_provider_body(false), provider_id);
     loader
         .set_source(main.to_string_lossy(), with_call)
         .unwrap();
-    assert_provider_body(true);
+    assert_eq!(assert_provider_body(true), provider_id);
+}
+
+#[test]
+fn rebuilt_graphs_track_module_removal_and_reintroduction() {
+    let root = temp_dir("rebuilt_graphs_track_module_removal");
+    let main = root.join("main.nia");
+    let main_path = main.to_string_lossy();
+    let child = root.join("child.nia");
+    let child_path = child.to_string_lossy();
+    let source = "module child;\nfun main() i32 { child::value() }";
+    write(&main, source);
+    write(&child, "pub fun value() i32 { 1 }");
+    let loader = LoaderDatabase::new_for_test(test_request(main_path.as_ref()));
+    let before = loader.module_graph().unwrap();
+    let child_id = before.module_id_for_path(&child_path).unwrap();
+
+    loader
+        .set_source(main_path.as_ref(), "fun main() i32 { 2 }")
+        .unwrap();
+    let without_child = loader.module_graph().unwrap();
+    assert_eq!(without_child.entry(), before.entry());
+    assert!(without_child.module_id_for_path(&child_path).is_none());
+    assert!(without_child.get(child_id).is_none());
+    assert!(before.get(child_id).is_some());
+
+    loader.set_source(main_path.as_ref(), source).unwrap();
+    let with_child = loader.module_graph().unwrap();
+    assert_eq!(with_child.module_id_for_path(&child_path), Some(child_id));
+    assert!(with_child.get(child_id).is_some());
+
+    let independent = LoaderDatabase::new_for_test(test_request(main_path.as_ref()));
+    let independent_graph = independent.module_graph().unwrap();
+    assert!(independent_graph.module_id_for_path(&child_path).is_some());
+    assert!(independent_graph.get(child_id).is_none());
 }
 
 #[test]
