@@ -96,8 +96,8 @@ pub(super) fn provide_value_resolution(
     time_module_provider(db, "value_resolution", module_id, || {
         let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
         let defs = full_module_defs_semantic(db, module_id)?;
-        let graph = db.get(ModuleGraphQuery)?;
-        let public_surfaces = db.get(PublicSurfacesQuery)?;
+        let graph = QueryModuleGraphLookup::new(db)?;
+        let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = db.get(ModuleLexicalUsingScopesQuery(module_id))?;
         let query_failure = RefCell::new(None);
         let program_defs = |module_id| {
@@ -112,9 +112,9 @@ pub(super) fn provide_value_resolution(
             &defs,
             nia_value_resolve::ProgramDefsContext {
                 defs: Some(&program_defs),
-                graph: Some(graph.as_ref()),
+                graph: Some(&graph),
             },
-            &public_surfaces.surfaces,
+            &public_surfaces,
             &using_scope.scopes,
             nia_value_resolve::ValueResolveOptions::with_store(
                 Some(&associated_values),
@@ -125,6 +125,8 @@ pub(super) fn provide_value_resolution(
         if let Some(error) = query_failure
             .into_inner()
             .or_else(|| associated_values.take_failure())
+            .or_else(|| graph.take_failure())
+            .or_else(|| public_surfaces.take_failure())
         {
             Err(error)
         } else {
@@ -180,9 +182,9 @@ pub(super) fn provide_semantic_use_table(
         None
     } else {
         let defs = full_module_defs_semantic(db, module_id)?;
-        let public_surfaces = db.get(PublicSurfacesQuery)?;
+        let public_surfaces = QueryPublicSurfaceLookup::new(db);
         let using_scope = db.get(ModuleLexicalUsingScopesQuery(module_id))?;
-        let graph = db.get(ModuleGraphQuery)?;
+        let graph = QueryModuleGraphLookup::new(db)?;
         let query_failure = RefCell::new(None);
         let visible_extensions = || db.get(VisibleExtensionsQuery(module_id));
         let associated_values =
@@ -199,9 +201,9 @@ pub(super) fn provide_semantic_use_table(
                 &defs,
                 nia_value_resolve::ProgramDefsContext {
                     defs: Some(&program_defs),
-                    graph: Some(graph.as_ref()),
+                    graph: Some(&graph),
                 },
-                &public_surfaces.surfaces,
+                &public_surfaces,
                 &using_scope.scopes,
                 nia_value_resolve::ValueResolveOptions::with_store(
                     Some(&associated_values),
@@ -212,6 +214,8 @@ pub(super) fn provide_semantic_use_table(
         if let Some(error) = query_failure
             .into_inner()
             .or_else(|| associated_values.take_failure())
+            .or_else(|| graph.take_failure())
+            .or_else(|| public_surfaces.take_failure())
         {
             return Err(error);
         }

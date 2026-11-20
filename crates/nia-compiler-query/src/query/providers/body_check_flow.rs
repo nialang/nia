@@ -178,19 +178,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
         nia_body_check::BodyCheckFilter::All
         | nia_body_check::BodyCheckFilter::ConstDeclarations
         | nia_body_check::BodyCheckFilter::ModuleValueTypes => {
-            let values = db.get(ValueResolutionQuery(module_id))?;
-            let locals = db.get(LocalResolutionQuery(module_id))?;
-            Ok(BodyCheckResolutionInputs {
-                active_item_tree: context.active_item_tree,
-                values: Arc::clone(&values.semantic),
-                locals: Arc::clone(&locals.semantic),
-                semantic_uses: db.get(SemanticUseTableQuery(module_id))?,
-                resolution_diagnostics: vec![
-                    values.diagnostics.clone(),
-                    locals.diagnostics.clone(),
-                    (*db.get(ConstructorCheckQuery(module_id))?).clone(),
-                ],
-            })
+            full_body_resolution_inputs(db, module_id, context.active_item_tree)
         }
         _ => {
             let filtered_active_item_tree = Arc::new(time_module_provider(
@@ -359,28 +347,31 @@ pub(in crate::query) fn full_body_check_resolution_inputs(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<BodyCheckResolutionInputs> {
-    let source_version = *db.get(ModuleSourceVersionQuery(module_id))?;
-    let origins = db.get(ModuleOriginsQuery(module_id))?;
     let active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
-    let defs = full_module_defs_semantic(db, module_id)?;
-    let type_resolution = type_resolution_semantic(db, module_id)?;
-    let lowered = type_lowering_semantic(db, module_id)?;
-    body_check_resolution_inputs_for_filter(
-        db,
-        module_id,
-        nia_body_check::BodyCheckFilter::All,
-        BodyCheckResolutionContext {
-            source_version,
-            origins: &origins,
-            active_item_tree,
-            defs: &defs,
-            type_resolution: &type_resolution,
-            lowered: &lowered,
-        },
-    )
+    full_body_resolution_inputs(db, module_id, active_item_tree)
 }
 
-#[derive(Clone)]
+fn full_body_resolution_inputs(
+    db: &QueryDb<CompilerContext>,
+    module_id: ModuleId,
+    active_item_tree: Arc<ActiveModuleItemTree>,
+) -> QueryResult<BodyCheckResolutionInputs> {
+    let values = db.get(ValueResolutionQuery(module_id))?;
+    let locals = db.get(LocalResolutionQuery(module_id))?;
+    Ok(BodyCheckResolutionInputs {
+        active_item_tree,
+        values: Arc::clone(&values.semantic),
+        locals: Arc::clone(&locals.semantic),
+        semantic_uses: db.get(SemanticUseTableQuery(module_id))?,
+        resolution_diagnostics: vec![
+            values.diagnostics.clone(),
+            locals.diagnostics.clone(),
+            (*db.get(ConstructorCheckQuery(module_id))?).clone(),
+        ],
+    })
+}
+
+#[derive(Clone, PartialEq)]
 pub(in crate::query) struct BodyCheckResolutionInputs {
     pub(super) active_item_tree: Arc<ActiveModuleItemTree>,
     pub(super) values: Arc<ValueResolution>,

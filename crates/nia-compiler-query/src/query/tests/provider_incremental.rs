@@ -72,13 +72,6 @@ fn additive_provider_graph_growth_reuses_existing_executable_facts() {
     {
         let session = database.db.context().executable_fact_session.lock();
         assert!(session.modules.contains_key(&entry_id));
-        assert!(
-            session
-                .caches
-                .body_resolution_inputs
-                .lock()
-                .contains_key(&entry_id)
-        );
         assert!(session.caches.fact_layouts.lock().contains_key(&entry_id));
     }
 
@@ -91,13 +84,6 @@ fn additive_provider_graph_growth_reuses_existing_executable_facts() {
     database.update(CompileRequest::new(fixture.program()));
     let session = database.db.context().executable_fact_session.lock();
     assert!(session.modules.contains_key(&entry_id));
-    assert!(
-        session
-            .caches
-            .body_resolution_inputs
-            .lock()
-            .contains_key(&entry_id)
-    );
     assert!(session.caches.fact_layouts.lock().contains_key(&entry_id));
 }
 
@@ -247,13 +233,6 @@ fn provider_changes_discard_affected_executable_fact_caches() {
     assert_eq!(stats.invalidated_functions, checked_functions);
     assert!(stats.reset_reachability);
     assert!(!session.modules.contains_key(&entry_id));
-    assert!(
-        !session
-            .caches
-            .body_resolution_inputs
-            .lock()
-            .contains_key(&entry_id)
-    );
     assert!(!session.caches.fact_layouts.lock().contains_key(&entry_id));
     assert_eq!(
         session.applied_provider_fact_revision,

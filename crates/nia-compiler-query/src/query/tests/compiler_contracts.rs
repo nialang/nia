@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 146);
+    assert_eq!(descriptors.len(), 147);
     assert!(
         !descriptors
             .iter()
@@ -23,6 +23,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         "compiler_build_profile",
         "current_module_id",
         "executable_fact_epoch",
+        "full_body_resolution_inputs",
         "inferred_module_value_types",
         "module_graph_entry",
         "module_graph_path",
@@ -92,6 +93,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "backend_module_function_instance_plan"
             | "backend_module_source_item_plan"
             | "body_activation_worklist"
+            | "constructor_check"
             | "current_module_id"
             | "declaration_active_module_item_tree"
             | "declaration_active_module_item_tree_input"
@@ -107,11 +109,13 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "extension_provider_module_facts"
             | "full_active_module_item_tree_input"
             | "full_active_module_item_tree"
+            | "full_body_resolution_inputs"
             | "executable_fact_epoch"
             | "full_module_defs"
             | "full_module_item_tree"
             | "full_module_item_tree_input"
             | "lowered_function_body"
+            | "local_resolution"
             | "module_public_surface"
             | "module_defs"
             | "module_item_tree"
@@ -137,9 +141,11 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "signature_type_lowering_semantic"
             | "signature_type_resolution"
             | "signature_type_resolution_semantic"
+            | "semantic_use_table"
             | "using_scope_type"
             | "using_scope_unresolved"
-            | "using_scope_value" => nia_query::QueryFingerprintPolicy::SemanticValue,
+            | "using_scope_value"
+            | "value_resolution" => nia_query::QueryFingerprintPolicy::SemanticValue,
             _ => nia_query::QueryFingerprintPolicy::None,
         };
         assert_eq!(descriptor.fingerprint, expected, "{}", descriptor.name);
@@ -953,7 +959,9 @@ fn missing_loaded_module_id_propagates_query_failure() {
             .db
             .get(InferredModuleValueTypesQuery(missing_module))
             .expect_err("module value type inference should propagate a missing module input"),
-        full_body_check_resolution_inputs(&database.db, missing_module)
+        database
+            .db
+            .get(FullBodyResolutionInputsQuery(missing_module))
             .err()
             .expect("body resolution inputs should propagate a missing module input"),
         database

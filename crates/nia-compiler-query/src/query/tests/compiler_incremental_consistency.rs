@@ -112,13 +112,6 @@ fn semantic_provider_activation_preserves_resolved_caller_facts() {
         session.applied_provider_fact_revision,
         Some(next_revision(revision))
     );
-    assert!(
-        session
-            .caches
-            .body_resolution_inputs
-            .lock()
-            .contains_key(&entry_id)
-    );
 }
 
 #[test]
@@ -202,13 +195,6 @@ fn method_provider_change_removes_only_affected_function_diagnostics() {
     assert!(state.diagnostics.is_empty(), "{:?}", state.diagnostics);
     assert_eq!(state.diagnostic_owners.len(), state.diagnostics.len());
     assert!(!session.caches.fact_layouts.lock().contains_key(&entry_id));
-    assert!(
-        session
-            .caches
-            .body_resolution_inputs
-            .lock()
-            .contains_key(&entry_id)
-    );
 }
 
 #[test]

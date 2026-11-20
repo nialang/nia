@@ -371,7 +371,6 @@ struct ExecutableBodyCheckCacheHandles {
     array_lengths:
         Arc<Mutex<HashMap<ExecutableArrayLengthCacheKey, nia_const_check::ConstArrayLengths>>>,
     fact_layouts: Arc<Mutex<HashMap<ModuleId, ExecutableFactLayoutCacheEntry>>>,
-    body_resolution_inputs: Arc<Mutex<HashMap<ModuleId, BodyCheckResolutionInputs>>>,
     global_initializers: Arc<
         Mutex<
             HashMap<ExecutableGlobalInitializerCacheKey, Option<nia_const_ir::ResolvedConstExpr>>,
@@ -442,29 +441,7 @@ fn executable_body_check_for_prepared_module(
             )
         },
     )?;
-    let resolution_inputs = {
-        let cached = caches
-            .body_resolution_inputs
-            .lock()
-            .get(&module_id)
-            .cloned();
-        match cached {
-            Some(inputs) => inputs,
-            None => {
-                let inputs = time_module_provider(
-                    db,
-                    "executable_checked_modules.full_body_inputs",
-                    module_id,
-                    || full_body_check_resolution_inputs(db, module_id),
-                )?;
-                caches
-                    .body_resolution_inputs
-                    .lock()
-                    .insert(module_id, inputs.clone());
-                inputs
-            }
-        }
-    };
+    let resolution_inputs = db.get(FullBodyResolutionInputsQuery(module_id))?;
     let program_layout_cache = RefCell::new(HashMap::from([(module_id, layouts.clone())]));
     let program_layout_failure = RefCell::new(None);
     let raw_program_layouts = executable_program_layouts(
@@ -492,7 +469,7 @@ fn executable_body_check_for_prepared_module(
                 layouts: Some(Arc::clone(&layouts.semantic)),
                 program_layouts_override: Some(&program_layouts),
                 fact_mode: ExecutableFactMode::executable(body_modules),
-                resolution_inputs: Some(resolution_inputs),
+                resolution_inputs: Some(resolution_inputs.as_ref().clone()),
                 seed,
                 global_initializer_cache: Some(&caches.global_initializers),
                 const_module_cache: Some(&caches.const_modules),
@@ -975,7 +952,6 @@ fn executable_check_in_session(
         let cache_handles = ExecutableBodyCheckCacheHandles {
             array_lengths: Arc::clone(&caches.array_lengths),
             fact_layouts: Arc::clone(&caches.fact_layouts),
-            body_resolution_inputs: Arc::clone(&caches.body_resolution_inputs),
             global_initializers: Arc::clone(&caches.global_initializers),
             const_modules: Arc::clone(&caches.const_modules),
             body_function_signatures: Arc::clone(&caches.body_function_signatures),
@@ -2032,29 +2008,7 @@ fn final_executable_checked_modules(
                     already_checked_functions: None,
                     already_checked_globals: None,
                 };
-                let resolution_inputs = {
-                    let cached = caches
-                        .body_resolution_inputs
-                        .lock()
-                        .get(&module_id)
-                        .cloned();
-                    match cached {
-                        Some(inputs) => inputs,
-                        None => {
-                            let inputs = time_module_provider(
-                                db,
-                                "executable_checked_modules.full_body_inputs",
-                                module_id,
-                                || full_body_check_resolution_inputs(db, module_id),
-                            )?;
-                            caches
-                                .body_resolution_inputs
-                                .lock()
-                                .insert(module_id, inputs.clone());
-                            inputs
-                        }
-                    }
-                };
+                let resolution_inputs = db.get(FullBodyResolutionInputsQuery(module_id))?;
                 let state = fact_by_id.get(&module_id);
                 let prechecked = state.map(|state| nia_body_check::PrecheckedBodyCheck {
                     ir: state.body_ir.clone(),
@@ -2077,7 +2031,7 @@ fn final_executable_checked_modules(
                                 fact_mode: ExecutableFactMode::executable(
                                     ReachableBodyModules::new(&reachable_body_modules),
                                 ),
-                                resolution_inputs: Some(resolution_inputs),
+                                resolution_inputs: Some(resolution_inputs.as_ref().clone()),
                                 seed: None,
                                 global_initializer_cache: Some(&caches.global_initializers),
                                 const_module_cache: Some(&caches.const_modules),

@@ -54,6 +54,10 @@ fn body_sensitive_resolution_uses_full_active_item_tree_query() {
         dependency.from.name == "value_resolution"
             && dependency.to.name == "full_active_module_item_tree"
     }));
+    assert!(!trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "value_resolution"
+            && matches!(dependency.to.name, "module_graph" | "public_surfaces")
+    }));
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "full_active_module_item_tree"
             && dependency.to.name == "full_module_item_tree"

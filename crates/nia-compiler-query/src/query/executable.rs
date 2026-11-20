@@ -9,7 +9,6 @@ use std::collections::{HashMap, HashSet};
 pub(super) struct ExecutableCheckCaches {
     pub(super) array_lengths:
         Arc<Mutex<HashMap<ExecutableArrayLengthCacheKey, nia_const_check::ConstArrayLengths>>>,
-    pub(super) body_resolution_inputs: Arc<Mutex<HashMap<ModuleId, BodyCheckResolutionInputs>>>,
     pub(super) reachability_function_signatures:
         Arc<Mutex<HashMap<GlobalDefId, std::sync::Arc<ProgramFunctionSignature>>>>,
     pub(super) body_function_signatures: Arc<Mutex<HashMap<GlobalDefId, ProgramFunctionSignature>>>,
@@ -28,7 +27,6 @@ impl Default for ExecutableCheckCaches {
     fn default() -> Self {
         Self {
             array_lengths: Arc::new(Mutex::new(HashMap::new())),
-            body_resolution_inputs: Arc::new(Mutex::new(HashMap::new())),
             reachability_function_signatures: Arc::new(Mutex::new(HashMap::new())),
             body_function_signatures: Arc::new(Mutex::new(HashMap::new())),
             global_initializers: Arc::new(Mutex::new(HashMap::new())),
@@ -45,9 +43,6 @@ impl ExecutableCheckCaches {
         self.array_lengths
             .lock()
             .retain(|key, _| modules.contains(&key.module_id));
-        self.body_resolution_inputs
-            .lock()
-            .retain(|module_id, _| modules.contains(module_id));
         self.reachability_function_signatures
             .lock()
             .retain(|def_id, _| modules.contains(&def_id.module_id));
