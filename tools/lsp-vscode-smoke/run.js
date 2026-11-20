@@ -19,6 +19,12 @@ exports.run = async () => {
         assert.ok(extension);
         await extension.activate();
         assert.equal(doc.languageId, "nia");
+        const editor = vscode.window.activeTextEditor;
+        editor.selection = new vscode.Selection(0, 0, 0, 0);
+        await vscode.commands.executeCommand("editor.action.commentLine");
+        assert.match(doc.lineAt(0).text, /^\/\/\s*module source;/);
+        await vscode.commands.executeCommand("editor.action.commentLine");
+        assert.equal(doc.lineAt(0).text, "module source;");
         const definitions = async () => vscode.commands.executeCommand(
             "vscode.executeDefinitionProvider", main, new vscode.Position(2, 21),
         );

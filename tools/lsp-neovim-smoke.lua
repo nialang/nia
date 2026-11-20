@@ -30,6 +30,7 @@ local ok, err = xpcall(function()
     local buffer = vim.api.nvim_get_current_buf()
     assert(vim.bo.filetype == "nia", "Nia file type was not detected")
     assert(vim.wo.foldexpr == "v:lua.vim.lsp.foldexpr()", "Nia fold expression was not installed")
+    assert(vim.bo.commentstring == "// %s", "Nia line comments were not installed")
 
     assert(vim.wait(10000, function()
         return #vim.lsp.get_clients({ bufnr = buffer, name = "nia" }) == 1

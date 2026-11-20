@@ -1,0 +1,31 @@
+{
+  "name": "Nia",
+  "scopeName": "source.nia",
+  "patterns": [
+    { "name": "comment.line.double-slash.nia", "match": "//.*$" },
+    {
+      "name": "string.quoted.double.nia", "begin": "b?\"", "end": "\"|$",
+      "patterns": [{ "include": "#escape" }]
+    },
+    {
+      "name": "string.quoted.single.nia", "begin": "b?'", "end": "'|$",
+      "patterns": [{ "include": "#escape" }]
+    },
+    { "name": "constant.language.nia", "match": "\\b(?:true|false|null)\\b" },
+    {
+      "name": "storage.type.nia",
+      "match": "\\b(?:Self|bool|char|never|[iu](?:8|16|32|64|128|size)|f(?:32|64))\\b"
+    },
+    {
+      "name": "keyword.control.nia",
+      "match": "\\b(?:and|as|break|const|continue|defer|else|enum|extend|extern|for|fun|if|in|is|let|loop|match|module|mut|not|opaque|or|pub|return|root|self|static|struct|super|trait|type|union|using|where|while)\\b"
+    },
+    {
+      "name": "constant.numeric.nia",
+      "match": "\\b(?:0[xX][0-9a-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+|[0-9][0-9_]*(?:\\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9][0-9_]*)?)(?:[iu](?:8|16|32|64|128|size)|f(?:32|64))?\\b"
+    }
+  ],
+  "repository": {
+    "escape": { "name": "constant.character.escape.nia", "match": "\\\\." }
+  }
+}

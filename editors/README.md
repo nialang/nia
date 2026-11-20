@@ -208,7 +208,8 @@ To build the VSIX from a checkout, run `npm ci` and then
 `editors/vscode` with Node.js 24. For a checkout build of `nia-lsp`, set
 `nia.server.resourceRoot` to the checkout's `lib` directory.
 
-The extension enables semantic highlighting for Nia by default. To show the
+The extension provides syntax highlighting, bracket matching and line comment
+toggling. Semantic highlighting is enabled by default. To show the
 Nia icon on `.nia` files, select **Nia File Icons** in
 **Preferences: File Icon Theme**.
 

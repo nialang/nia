@@ -28,6 +28,9 @@ $cliPath = $cliCommand.Source
 function Invoke-Waited([string] $FilePath, [string[]] $Arguments, [string] $What) {
     $line = ($Arguments | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join ' '
     $process = Start-Process -FilePath $FilePath -ArgumentList $line -NoNewWindow -PassThru
+    # Windows PowerShell needs to retain the handle to read the exit code
+    # after the child has exited.
+    $null = $process.Handle
     if (-not $process.WaitForExit(60000)) {
         $process.Kill($true)
         throw "$What timed out"
@@ -42,13 +45,14 @@ try {
     $user = Join-Path $root 'user'
     $settings = Join-Path $user 'User/settings.json'
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $settings) | Out-Null
-    @{
+    $configuration = @{
         'nia.server.path' = $serverPath
         'workbench.iconTheme' = 'nia'
         'telemetry.telemetryLevel' = 'off'
         'extensions.autoUpdate' = $false
         'extensions.autoCheckUpdates' = $false
-    } | ConvertTo-Json | Set-Content -LiteralPath $settings -Encoding utf8NoBOM
+    } | ConvertTo-Json
+    [IO.File]::WriteAllText($settings, $configuration, [Text.UTF8Encoding]::new($false))
 
     $workspace = Join-Path $root 'workspace'
     New-Item -ItemType Directory -Force -Path (Join-Path $workspace 'source') | Out-Null
