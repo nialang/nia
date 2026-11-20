@@ -1252,6 +1252,8 @@ impl Analysis {
                     node_types.entry(key).or_insert(ty);
                 }
                 let mut calls = HashMap::new();
+                let omitted: HashMap<_, _> =
+                    module.semantic_facts.iter_node_omitted_variants().collect();
                 for (span, key) in db.source_origins(module.id)?.entries() {
                     if let Some(&(caller, callee)) =
                         function_calls.as_ref().and_then(|calls| calls.get(&key))
@@ -1328,9 +1330,18 @@ impl Analysis {
                         Some(SemanticValueUse::Global(id)) => tokens_in(span)
                             .last()
                             .map(|&name| (name, Symbol::Global(id))),
-                        None => module.semantic_uses.node_type_prefix(&key).and_then(|id| {
-                            Some((type_name_span(&tokens, span)?, Symbol::Global(id)))
-                        }),
+                        None => omitted
+                            .get(&key)
+                            .and_then(|id| {
+                                tokens_in(span)
+                                    .last()
+                                    .map(|&name| (name, Symbol::Global(**id)))
+                            })
+                            .or_else(|| {
+                                module.semantic_uses.node_type_prefix(&key).and_then(|id| {
+                                    Some((type_name_span(&tokens, span)?, Symbol::Global(id)))
+                                })
+                            }),
                     };
                     if let Some((span, symbol)) = target {
                         occurrences.push(Occurrence {

@@ -2568,6 +2568,7 @@ impl<'a> BodyChecker<'a> {
             node_associated_const_projections: FastHashMap::default(),
             node_array_repeat_counts: FastHashMap::default(),
             node_pattern_values: FastHashMap::default(),
+            node_omitted_variants: FastHashMap::default(),
             node_resolved_calls: FastHashMap::default(),
             node_function_references: FastHashMap::default(),
             inferred_closures: self.inferred_closures.clone(),

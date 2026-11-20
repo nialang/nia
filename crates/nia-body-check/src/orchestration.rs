@@ -203,6 +203,7 @@ fn check_bodies<'a>(
         node_associated_const_projections: FastHashMap::default(),
         node_array_repeat_counts: FastHashMap::default(),
         node_pattern_values: FastHashMap::default(),
+        node_omitted_variants: FastHashMap::default(),
         node_resolved_calls: FastHashMap::default(),
         node_function_references: FastHashMap::default(),
         inferred_closures: FastHashMap::default(),
@@ -315,6 +316,7 @@ fn check_bodies<'a>(
             node_associated_const_projections: checker.node_associated_const_projections,
             node_array_repeat_counts: checker.node_array_repeat_counts,
             node_pattern_values: checker.node_pattern_values,
+            node_omitted_variants: checker.node_omitted_variants,
             node_resolved_calls: checker.node_resolved_calls,
             node_function_references: checker.node_function_references,
         };

@@ -1436,14 +1436,15 @@ fn rename_updates_enum_constructors_and_named_patterns() {
     std::fs::write(&path, concat!(
         "enum Event { Close, Resize { width: i32 } }\n",
         "fun create() Event { Event::Resize { width: 3 } }\n",
-        "fun size(event: Event) i32 { match event { Event::Close => 0, Event::Resize { width } => width } }\n",
+        "fun size(event: Event) i32 { match event { .Close => 0, .Resize { width } => width } }\n",
+        "fun another() Event { .Resize { width: 1 } }\n",
     )).unwrap();
     for (old, new) in [("Resize", "Scale"), ("width:", "extent")] {
         let edit = rename_at(&path, old, new).unwrap();
         let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
             panic!("expected text edits");
         };
-        assert_eq!(edits[0].edits.len(), 3);
+        assert_eq!(edits[0].edits.len(), 4);
     }
 }
 

@@ -1289,6 +1289,7 @@ pub fn filter_semantic_facts_for_reachable_items(
     reachable_facts.node_associated_const_projections = facts.node_associated_const_projections;
     reachable_facts.node_array_repeat_counts = facts.node_array_repeat_counts;
     reachable_facts.node_pattern_values = facts.node_pattern_values;
+    reachable_facts.node_omitted_variants = facts.node_omitted_variants;
     reachable_facts.node_resolved_calls = facts.node_resolved_calls;
     reachable_facts.node_function_references = facts.node_function_references;
     reachable_facts.function_facts = facts

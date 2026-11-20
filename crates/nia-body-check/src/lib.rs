@@ -252,6 +252,7 @@ struct BodyChecker<'a> {
     node_associated_const_projections: FastHashMap<VersionedNodeKey, AssociatedConstProjection>,
     node_array_repeat_counts: FastHashMap<VersionedNodeKey, ArrayLenTy>,
     node_pattern_values: FastHashMap<VersionedNodeKey, i128>,
+    node_omitted_variants: FastHashMap<VersionedNodeKey, GlobalDefId>,
     node_resolved_calls: FastHashMap<VersionedNodeKey, ResolvedCall>,
     node_function_references: FastHashMap<VersionedNodeKey, FunctionReference>,
     inferred_closures: FastHashMap<VersionedNodeKey, inference::InferredClosureSignature>,

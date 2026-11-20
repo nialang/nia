@@ -418,6 +418,8 @@ pub struct SemanticFacts {
     pub node_array_repeat_counts: NodeMap<ArrayLenTy>,
     /// Evaluated pattern constants owned by module-level expressions.
     pub node_pattern_values: NodeMap<i128>,
+    /// resolved omitted enum variants owned by module-level expressions.
+    pub node_omitted_variants: NodeMap<GlobalDefId>,
     /// Call dispatch resolutions owned by module-level expressions.
     pub node_resolved_calls: NodeMap<ResolvedCall>,
     /// Function references owned by module-level expressions.
@@ -451,6 +453,8 @@ pub struct SemanticFactsBuilder {
     pub node_array_repeat_counts: FastHashMap<VersionedNodeKey, ArrayLenTy>,
     /// Module-level evaluated pattern constants.
     pub node_pattern_values: FastHashMap<VersionedNodeKey, i128>,
+    /// Module-level resolved omitted enum variants.
+    pub node_omitted_variants: FastHashMap<VersionedNodeKey, GlobalDefId>,
     /// Module-level resolved call dispatches.
     pub node_resolved_calls: FastHashMap<VersionedNodeKey, ResolvedCall>,
     /// Module-level function references.
@@ -512,6 +516,7 @@ impl SemanticFacts {
             facts.node_array_repeat_counts,
         );
         extend_node_map(&mut self.node_pattern_values, facts.node_pattern_values);
+        extend_node_map(&mut self.node_omitted_variants, facts.node_omitted_variants);
         extend_node_map(&mut self.node_resolved_calls, facts.node_resolved_calls);
         extend_node_map(
             &mut self.node_function_references,
@@ -543,6 +548,7 @@ impl SemanticFacts {
                 .collect(),
             node_array_repeat_counts: self.node_array_repeat_counts.into_entries().collect(),
             node_pattern_values: self.node_pattern_values.into_entries().collect(),
+            node_omitted_variants: self.node_omitted_variants.into_entries().collect(),
             node_resolved_calls: self.node_resolved_calls.into_entries().collect(),
             node_function_references: self.node_function_references.into_entries().collect(),
         }
@@ -640,6 +646,16 @@ impl SemanticFacts {
                 .flat_map(|facts| facts.node_pattern_values.iter()),
         )
     }
+    /// Iterates resolved omitted enum variants across all ownership domains.
+    pub fn iter_node_omitted_variants(
+        &self,
+    ) -> impl Iterator<Item = (VersionedNodeKey, &GlobalDefId)> + '_ {
+        self.node_omitted_variants.iter().chain(
+            self.function_facts
+                .values()
+                .flat_map(|facts| facts.node_omitted_variants.iter()),
+        )
+    }
 
     /// Iterates resolved calls across all ownership domains.
     pub fn iter_node_resolved_calls(
@@ -694,6 +710,9 @@ impl SemanticFactsBuilder {
             for key in facts.node_pattern_values.keys() {
                 self.node_pattern_values.remove(&key);
             }
+            for key in facts.node_omitted_variants.keys() {
+                self.node_omitted_variants.remove(&key);
+            }
             for key in facts.node_resolved_calls.keys() {
                 self.node_resolved_calls.remove(&key);
             }
@@ -731,6 +750,7 @@ impl SemanticFactsBuilder {
             ),
             node_array_repeat_counts: node_map_from_entries(store, self.node_array_repeat_counts),
             node_pattern_values: node_map_from_entries(store, self.node_pattern_values),
+            node_omitted_variants: node_map_from_entries(store, self.node_omitted_variants),
             node_resolved_calls: node_map_from_entries(store, self.node_resolved_calls),
             node_function_references: node_map_from_entries(store, self.node_function_references),
         }
@@ -760,6 +780,8 @@ pub struct FunctionSemanticFacts {
     pub node_array_repeat_counts: NodeMap<ArrayLenTy>,
     /// Evaluated pattern constants.
     pub node_pattern_values: NodeMap<i128>,
+    /// resolved omitted enum variants.
+    pub node_omitted_variants: NodeMap<GlobalDefId>,
     /// Resolved call dispatches.
     pub node_resolved_calls: NodeMap<ResolvedCall>,
     /// Concrete function references.
@@ -791,6 +813,8 @@ pub struct FunctionSemanticFactsBuilder {
     pub node_array_repeat_counts: FastHashMap<VersionedNodeKey, ArrayLenTy>,
     /// Evaluated pattern constants.
     pub node_pattern_values: FastHashMap<VersionedNodeKey, i128>,
+    /// resolved omitted enum variants.
+    pub node_omitted_variants: FastHashMap<VersionedNodeKey, GlobalDefId>,
     /// Resolved call dispatches.
     pub node_resolved_calls: FastHashMap<VersionedNodeKey, ResolvedCall>,
     /// Concrete function references.
@@ -830,6 +854,7 @@ impl FunctionSemanticFacts {
                 .collect(),
             node_array_repeat_counts: self.node_array_repeat_counts.into_entries().collect(),
             node_pattern_values: self.node_pattern_values.into_entries().collect(),
+            node_omitted_variants: self.node_omitted_variants.into_entries().collect(),
             node_resolved_calls: self.node_resolved_calls.into_entries().collect(),
             node_function_references: self.node_function_references.into_entries().collect(),
             trait_method_refs: self.trait_method_refs,
@@ -858,6 +883,7 @@ impl FunctionSemanticFactsBuilder {
             && self.node_associated_const_projections.is_empty()
             && self.node_array_repeat_counts.is_empty()
             && self.node_pattern_values.is_empty()
+            && self.node_omitted_variants.is_empty()
             && self.node_resolved_calls.is_empty()
             && self.node_function_references.is_empty()
             && self.trait_method_refs.is_empty()
@@ -882,6 +908,7 @@ impl FunctionSemanticFactsBuilder {
             ),
             node_array_repeat_counts: node_map_from_entries(store, self.node_array_repeat_counts),
             node_pattern_values: node_map_from_entries(store, self.node_pattern_values),
+            node_omitted_variants: node_map_from_entries(store, self.node_omitted_variants),
             node_resolved_calls: node_map_from_entries(store, self.node_resolved_calls),
             node_function_references: node_map_from_entries(store, self.node_function_references),
             trait_method_refs: self.trait_method_refs,

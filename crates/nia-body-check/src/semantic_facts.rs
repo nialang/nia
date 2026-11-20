@@ -470,6 +470,10 @@ impl<'a> BodyChecker<'a> {
             &mut facts.node_pattern_values,
         );
         std::mem::swap(
+            &mut self.node_omitted_variants,
+            &mut facts.node_omitted_variants,
+        );
+        std::mem::swap(
             &mut self.node_resolved_calls,
             &mut facts.node_resolved_calls,
         );

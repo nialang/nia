@@ -1577,6 +1577,13 @@ impl<'a> BodyChecker<'a> {
             .into_iter()
             .find(|(variant_name, _)| variant_name == name)
             .map(|(_, def_id)| def_id)?;
+        self.node_omitted_variants.insert(
+            expr.node_key.clone(),
+            GlobalDefId {
+                module_id: enum_id.module_id,
+                def_id: variant_id,
+            },
+        );
         Some((enum_id, variant_id))
     }
 

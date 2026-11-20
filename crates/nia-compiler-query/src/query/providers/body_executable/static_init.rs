@@ -116,6 +116,9 @@ fn executable_static_init_semantic_facts(
             .node_pattern_values
             .extend(owner_facts.node_pattern_values);
         facts
+            .node_omitted_variants
+            .extend(owner_facts.node_omitted_variants);
+        facts
             .node_resolved_calls
             .extend(owner_facts.node_resolved_calls);
         facts
