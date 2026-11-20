@@ -56,6 +56,17 @@ fn unreadable_plan_keeps_manifest_navigation_available() {
         Position::new(0, 4)
     );
     let diagnostics = analysis.diagnostics(&entry, &Document::new(1, source.into()));
+    let end = Position::new(1, 22);
+    let file = analysis.file(&entry).unwrap();
+    let offset = file.lines.offset(&file.text, end).unwrap();
+    let (_, name) = analysis
+        .rename_symbol_at(file, offset)
+        .expect("callee at its end");
+    assert_eq!(name.end, offset);
+    assert_eq!(
+        analysis.definition(&entry, end).unwrap().range.start,
+        Position::new(0, 4)
+    );
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
     assert!(diagnostics[0].message.contains("build-plan.bin"));

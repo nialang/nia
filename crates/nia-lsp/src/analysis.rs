@@ -1439,7 +1439,20 @@ impl Analysis {
     fn symbol_at(&self, path: &Path, position: Position) -> Option<Symbol> {
         let file = self.file(path)?;
         let offset = file.lines.offset(&file.text, position)?;
+        self.symbol_at_cursor(file, offset)
+            .map(|(symbol, _)| symbol)
+    }
+
+    // An editor caret can sit immediately after the last byte of a name.
+    // Preserve exact offsets for callers that index a source token.
+    fn symbol_at_cursor(&self, file: &File, offset: usize) -> Option<(Symbol, usize)> {
         self.symbol_at_offset(file, offset)
+            .map(|symbol| (symbol, offset))
+            .or_else(|| {
+                let left = offset.checked_sub(1)?;
+                self.symbol_at_offset(file, left)
+                    .map(|symbol| (symbol, left))
+            })
     }
 
     pub(crate) fn file(&self, path: &Path) -> Option<&File> {
@@ -1462,7 +1475,7 @@ impl Analysis {
     }
 
     pub(crate) fn rename_symbol_at(&self, file: &File, offset: usize) -> Option<(Symbol, Span)> {
-        let symbol = self.symbol_at_offset(file, offset)?;
+        let (symbol, offset) = self.symbol_at_cursor(file, offset)?;
         let span = self
             .reference_spans(file, symbol, true)
             .into_iter()
@@ -2377,7 +2390,8 @@ impl Analysis {
     pub(crate) fn type_definition(&self, path: &Path, position: Position) -> Option<Location> {
         let file = self.file(path)?;
         let offset = file.lines.offset(&file.text, position)?;
-        if let Some(Symbol::Global(id)) = self.symbol_at_offset(file, offset)
+        let target = self.symbol_at_cursor(file, offset);
+        if let Some((Symbol::Global(id), _)) = target
             && self
                 .defs
                 .get(&id.module_id)
@@ -2397,6 +2411,7 @@ impl Analysis {
             return self.symbol_location(Symbol::Global(id));
         }
 
+        let offset = target.map_or(offset, |(_, position)| position);
         let (_, &inferred) = file
             .expr_types
             .iter()
