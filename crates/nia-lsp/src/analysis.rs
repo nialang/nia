@@ -110,6 +110,7 @@ pub(crate) fn embedded_path(resource: &nia_source::EmbeddedResource) -> String {
 struct CompilationEntry {
     request: EditorRequest,
     driver: Driver,
+    overlays_current: bool,
     consulted_sources: Option<Arc<BTreeSet<String>>>,
     embedded_inputs: std::collections::HashSet<nia_source::EmbeddedResource>,
 }
@@ -505,26 +506,35 @@ impl Session {
                 self.source_revision += 1;
                 break;
             };
-            if self.overlays[&path].as_ref() != text {
-                self.replace_source(&path, text.into())?;
-            }
+            // An inactive entry can still hold an older version of this
+            // buffer, even if its latest editor text was saved to disk.
+            self.replace_source(&path, text.into(), true)?;
             self.overlays.remove(&path);
         }
         for (path, open) in documents {
             let text = &open.document.text;
-            if self.overlays.get(path).is_some_and(|old| old == text) {
+            if self
+                .overlays
+                .get(path)
+                .is_some_and(|old| Arc::ptr_eq(old, text) || old == text)
+            {
                 continue;
             }
-            self.replace_source(path, text.clone())?;
+            self.replace_source(path, text.clone(), false)?;
             self.overlays.insert(path.clone(), text.clone());
         }
         Ok(())
     }
 
-    fn replace_source(&mut self, path: &Path, text: Arc<str>) -> Result<(), String> {
+    fn replace_source(&mut self, path: &Path, text: Arc<str>, closing: bool) -> Result<(), String> {
         let drivers = self.drivers.get_mut();
         let mut changed = false;
-        for entry in drivers.iter() {
+        for (index, entry) in drivers.iter_mut().enumerate() {
+            if index != 0 && !closing {
+                entry.overlays_current = false;
+                changed = true;
+                continue;
+            }
             match set_source(&entry.driver, path, text.clone()) {
                 Ok(updated) => changed |= updated,
                 Err(error) => {
@@ -866,24 +876,28 @@ fn analyze_editor_request(
         nia_build::compiler_inputs::runtime_spec(context.runtime, toolchain, &context.target)
             .map_err(|error| error.to_string())?;
     let mut drivers = drivers.borrow_mut();
-    let entry = if let Some(index) = drivers.iter().position(|entry| entry.request == request) {
+    let mut entry = if let Some(index) = drivers.iter().position(|entry| entry.request == request) {
         drivers.remove(index).expect("located compilation entry")
     } else {
         let config = DriverConfig::new(toolchain.clone())
             .with_artifact_target(context.target)
             .with_cpu(context.cpu);
         let driver = Driver::with_config(config);
-        for (path, text) in overlays {
-            set_source(&driver, path, text.clone())?;
-        }
         drivers.truncate(overlays.len().max(MIN_RETAINED_COMPILATION_ENTRIES) - 1);
         CompilationEntry {
             request: request.clone(),
             driver,
+            overlays_current: false,
             consulted_sources: None,
             embedded_inputs: Default::default(),
         }
     };
+    if !entry.overlays_current {
+        for (path, text) in overlays {
+            set_source(&entry.driver, path, text.clone())?;
+        }
+        entry.overlays_current = true;
+    }
     drivers.push_front(entry);
     let entry = drivers.front_mut().expect("current compilation entry");
     let check = request
@@ -3246,6 +3260,46 @@ mod tests {
         ))
         .unwrap();
         Session::new(Arc::new(toolchain))
+    }
+
+    #[test]
+    fn switching_entries_installs_the_latest_editor_text_before_loading_new_imports() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-deferred-entry");
+        let parent = root.join("root.nia");
+        let child = root.join("child.nia");
+        let initial = "pub fun old() i32 { 1 }\n";
+        let edited = "pub fun latest() i32 { 2 }\n";
+        let mut documents = Documents::new();
+        for path in [&parent, &child] {
+            std::fs::write(path, initial).unwrap();
+            documents.insert(
+                path.clone(),
+                OpenDocument {
+                    uri: uri(path).unwrap(),
+                    document: Document::new(1, initial.into()),
+                },
+            );
+        }
+        let mut session = test_session();
+        session.analyze(&documents, &parent).unwrap();
+        session.analyze(&documents, &child).unwrap();
+        documents.get_mut(&child).unwrap().document = Document::new(2, edited.into());
+        session.analyze(&documents, &child).unwrap();
+        let path = SourcePath::new(normalized(&child));
+        let idle_text = || {
+            let entries = session.drivers.borrow();
+            let idle = entries.back().unwrap();
+            idle.driver.sources().source_for_path(&path).unwrap().text
+        };
+        assert_eq!(idle_text().as_ref(), initial);
+        documents.get_mut(&parent).unwrap().document = Document::new(
+            2,
+            "module child;\nfun read() i32 { child::latest() }".into(),
+        );
+        let refreshed = session.analyze(&documents, &parent).unwrap();
+        assert_eq!(refreshed.first_error(), None);
+        assert_eq!(refreshed.file(&child).unwrap().text.as_ref(), edited);
     }
 
     #[test]
