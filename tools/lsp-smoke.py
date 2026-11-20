@@ -391,16 +391,21 @@ def smoke(server, root):
                 "    measured_weight() + measured_distance(2, 4)\n"
                 "}\n"
             )
+            unordered += "fun unfinished() i32 { pendingValue }\n"
             client.notify("textDocument/didChange", {
                 "textDocument": dict(**document, version=10),
                 "contentChanges": [{"text": unordered}],
             })
-            client.wait_diagnostics(main.as_uri(), 10, lambda items: not items)
-            actions = request(client, "textDocument/codeAction", dict(
+            _, before_organize = client.wait_diagnostics(main.as_uri(), 10, lambda items: any(
+                "unknown value `pendingValue`" in diagnostic["message"] for diagnostic in items
+            ))
+            organize_params = dict(
                 **params, range={"start": {"line": 0, "character": 0},
                                  "end": {"line": 0, "character": 0}},
                 context={"diagnostics": [], "only": ["source.organizeImports"]},
-            ))
+            )
+            actions = request(client, "textDocument/codeAction", organize_params)
+            assert len(actions) == 1, actions
             action, = actions
             assert action["kind"] == "source.organizeImports", actions
             change, = action["edit"]["documentChanges"]
@@ -423,7 +428,8 @@ def smoke(server, root):
                     for edit in reversed(change["edits"])
                 ],
             })
-            client.wait_diagnostics(main.as_uri(), 11, lambda items: not items)
+            _, after_organize = client.wait_diagnostics(main.as_uri(), 11, lambda _: True)
+            assert after_organize == before_organize, (before_organize, after_organize)
 
             member_source = updated.replace("shape.height", "shape.he")
             client.notify("textDocument/didChange", {
@@ -493,6 +499,20 @@ def smoke(server, root):
                     "range": {"start": start, "end": end}, "newText": "measureHeight",
                 }, completion
                 assert completion["additionalTextEdits"] == change["edits"], completion
+
+            broken_import = unordered.replace("distance as d", "missingSelector as d", 1)
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=17),
+                "contentChanges": [{"text": broken_import}],
+            })
+            _, broken_diagnostics = client.wait_diagnostics(main.as_uri(), 17, lambda _: True)
+            selector = position(broken_import, "missingSelector")
+            assert any(
+                diagnostic["severity"] == 1
+                and diagnostic["range"]["start"]["line"] == selector["line"]
+                for diagnostic in broken_diagnostics
+            ), broken_diagnostics
+            assert request(client, "textDocument/codeAction", organize_params) == []
 
             client.notify("textDocument/didClose", params)
             client.wait_diagnostics(main.as_uri(), None, lambda items: not items)

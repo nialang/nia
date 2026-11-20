@@ -9,9 +9,9 @@ use lsp_types::{
 use nia_span::Span;
 use nia_syntax::{GreenNode, SyntaxKind, TextEdit};
 
-use super::{Analysis, Documents, Session, normalized};
+use super::{Analysis, AnalysisMode, Documents, Session, normalized};
 use crate::document::{Document, text_workspace_edit};
-use crate::rewrite::preserves_bindings;
+use crate::rewrite::{EditOffsets, Edits, preserves_bindings};
 use crate::workspace::{Cancellation, bindings};
 
 impl Session {
@@ -25,7 +25,7 @@ impl Session {
     ) -> Option<CodeAction> {
         let open = documents.get(path)?;
         let file = analysis.file(path)?;
-        if file.text != open.document.text || analysis.errors().next().is_some() {
+        if file.text != open.document.text {
             return None;
         }
         let parsed = file.syntax();
@@ -56,22 +56,20 @@ impl Session {
                 .then_some(edit.span)
         }));
         ranges.sort_unstable();
-        let edits = ranges
+        let replacements: BTreeMap<_, _> = ranges
             .into_iter()
-            .map(|span| {
-                OneOf::Left(lsp_types::TextEdit::new(
-                    open.document.lines.range(source, span),
-                    text[span.start..span.end].to_owned(),
-                ))
-            })
+            .map(|span| (span, text[span.start..span.end].to_owned()))
             .collect();
         let mut documents = documents.clone();
         documents.get_mut(path)?.document = Document::new(open.document.version, text);
         let after = self
-            .analyze_with_cancel(&documents, path, Some(cancel))
+            .analyze_snapshot(&documents, &analysis.request, cancel, AnalysisMode::Full)
             .ok()?;
         let source_path = normalized(path);
-        if after.errors().next().is_some()
+        let changes = Edits::from([(source_path.clone(), replacements)]);
+        if EditOffsets::new(&changes)
+            .new_error(analysis.errors(), after.errors(), &[])
+            .is_some()
             || !preserves_bindings(
                 bindings(analysis, cancel).ok()?,
                 &bindings(&after, cancel).ok()?,
@@ -87,6 +85,16 @@ impl Session {
         {
             return None;
         }
+        let edits = changes
+            .into_values()
+            .flatten()
+            .map(|(span, replacement)| {
+                OneOf::Left(lsp_types::TextEdit::new(
+                    open.document.lines.range(source, span),
+                    replacement,
+                ))
+            })
+            .collect();
         Some(CodeAction {
             kind: Some(CodeActionKind::SOURCE_ORGANIZE_IMPORTS),
             title: "Organize imports".into(),
