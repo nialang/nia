@@ -260,7 +260,10 @@ impl Session {
         if let Some(previous) = previous {
             for (path, old) in &previous.overlays {
                 let unchanged = overlays.get(path).map_or_else(
-                    || self.installed_source_matches(path, old),
+                    || {
+                        nia_source::read_source_text(Path::new(path))
+                            .is_ok_and(|disk| disk == **old)
+                    },
                     |open| open == old,
                 );
                 if !unchanged {

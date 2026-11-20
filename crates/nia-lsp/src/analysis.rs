@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
 };
@@ -80,8 +80,7 @@ pub(crate) fn normalized(path: &Path) -> String {
 
 pub(crate) struct Session {
     pub(crate) toolchain: Arc<ToolchainLayout>,
-    driver: Driver,
-    target_drivers: RefCell<HashMap<(nia_target::TargetConfig, nia_target::CpuLevel), Driver>>,
+    drivers: RefCell<VecDeque<(EditorRequest, Driver)>>,
     overlays: BTreeMap<PathBuf, Arc<str>>,
     source_revision: u64,
     configuration_changed: bool,
@@ -90,6 +89,8 @@ pub(crate) struct Session {
     pub(crate) workspace_index: Option<crate::workspace::WorkspaceSnapshot>,
     pub(crate) changed_disk_sources: BTreeSet<String>,
 }
+
+const RETAINED_COMPILATION_ENTRIES: usize = 2;
 
 struct MemberProbe {
     source_revision: u64,
@@ -109,8 +110,7 @@ enum AnalysisMode {
 impl Session {
     pub(crate) fn new(toolchain: Arc<ToolchainLayout>) -> Self {
         Self {
-            driver: Driver::new(toolchain.clone()),
-            target_drivers: RefCell::default(),
+            drivers: RefCell::default(),
             toolchain,
             overlays: BTreeMap::new(),
             source_revision: 0,
@@ -284,8 +284,8 @@ impl Session {
                 return Ok(Arc::clone(previous));
             }
             analyze_editor_request(
-                &self.driver,
-                &self.target_drivers,
+                &self.toolchain,
+                &self.drivers,
                 &self.overlays,
                 request,
                 cancel,
@@ -346,8 +346,7 @@ impl Session {
         for path in closed {
             let Ok(text) = nia_source::read_source_text(&path) else {
                 // Reload when a closed path has no readable disk snapshot.
-                self.driver = Driver::new(self.toolchain.clone());
-                self.target_drivers.get_mut().clear();
+                self.drivers.get_mut().clear();
                 self.overlays.clear();
                 self.source_revision += 1;
                 break;
@@ -369,21 +368,20 @@ impl Session {
     }
 
     fn replace_source(&mut self, path: &Path, text: Arc<str>) -> Result<(), String> {
-        for driver in std::iter::once(&self.driver).chain(self.target_drivers.get_mut().values()) {
-            let changed = set_source(driver, path, text.clone());
-            if !matches!(changed, Ok(false)) {
-                self.source_revision += 1;
+        let drivers = self.drivers.get_mut();
+        let mut changed = false;
+        for (_, driver) in drivers.iter() {
+            match set_source(driver, path, text.clone()) {
+                Ok(updated) => changed |= updated,
+                Err(error) => {
+                    drivers.clear();
+                    self.source_revision += 1;
+                    return Err(error);
+                }
             }
-            changed?;
         }
+        self.source_revision += u64::from(changed);
         Ok(())
-    }
-
-    pub(crate) fn installed_source_matches(&self, path: &str, text: &str) -> bool {
-        self.driver
-            .sources()
-            .source_for_path(&SourcePath::new(path))
-            .is_some_and(|source| source.text.as_ref() == text)
     }
 
     pub(crate) fn analyze_request(
@@ -392,8 +390,8 @@ impl Session {
         cancel: &Cancellation,
     ) -> Result<Analysis, String> {
         analyze_editor_request(
-            &self.driver,
-            &self.target_drivers,
+            &self.toolchain,
+            &self.drivers,
             &self.overlays,
             request,
             Some(cancel),
@@ -411,8 +409,8 @@ impl Session {
         self.member_probe = None;
         self.install_documents(documents)?;
         analyze_editor_request(
-            &self.driver,
-            &self.target_drivers,
+            &self.toolchain,
+            &self.drivers,
             &self.overlays,
             request.clone(),
             Some(cancel),
@@ -608,40 +606,35 @@ impl Session {
 }
 
 fn analyze_editor_request(
-    driver: &Driver,
-    drivers: &RefCell<HashMap<(nia_target::TargetConfig, nia_target::CpuLevel), Driver>>,
+    toolchain: &Arc<ToolchainLayout>,
+    drivers: &RefCell<VecDeque<(EditorRequest, Driver)>>,
     overlays: &BTreeMap<PathBuf, Arc<str>>,
     request: EditorRequest,
     cancel: Option<&Cancellation>,
     mode: AnalysisMode,
 ) -> Result<Analysis, String> {
     let context = request.context;
-    let mut target_drivers;
-    let config = driver.config();
-    let configured = if (context.target, context.cpu) == (config.artifact_target, config.cpu) {
-        driver
+    let runtime =
+        nia_build::compiler_inputs::runtime_spec(context.runtime, toolchain, &context.target)
+            .map_err(|error| error.to_string())?;
+    let mut drivers = drivers.borrow_mut();
+    let entry = if let Some(index) = drivers.iter().position(|(key, _)| key == &request) {
+        drivers.remove(index).expect("located compilation entry")
     } else {
-        target_drivers = drivers.borrow_mut();
-        match target_drivers.entry((context.target, context.cpu)) {
-            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                let config = DriverConfig::new(config.toolchain.clone())
-                    .with_artifact_target(context.target)
-                    .with_cpu(context.cpu);
-                let configured = Driver::with_config(config);
-                for (path, text) in overlays {
-                    set_source(&configured, path, text.clone())?;
-                }
-                entry.insert(configured)
-            }
+        let config = DriverConfig::new(toolchain.clone())
+            .with_artifact_target(context.target)
+            .with_cpu(context.cpu);
+        let driver = Driver::with_config(config);
+        for (path, text) in overlays {
+            set_source(&driver, path, text.clone())?;
         }
+        if drivers.len() == RETAINED_COMPILATION_ENTRIES {
+            drivers.pop_back();
+        }
+        (request.clone(), driver)
     };
-    let runtime = nia_build::compiler_inputs::runtime_spec(
-        context.runtime,
-        &config.toolchain,
-        &context.target,
-    )
-    .map_err(|error| error.to_string())?;
+    drivers.push_front(entry);
+    let (_, driver) = drivers.front().expect("current compilation entry");
     let check = request
         .check
         .clone()
@@ -651,7 +644,7 @@ fn analyze_editor_request(
             nia_build_plan::CompilationMode::Normal => nia_target_config::CompilationMode::Normal,
             nia_build_plan::CompilationMode::Test => nia_target_config::CompilationMode::Test,
         });
-    analyze_request(configured, request, check, cancel, mode)
+    analyze_request(driver, request, check, cancel, mode)
 }
 
 fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<bool, String> {
@@ -2615,10 +2608,15 @@ mod tests {
                 },
             )]);
             session.install_documents(&documents).unwrap();
+            session.analyze(&documents, &file).unwrap();
             for path in [SourcePath::new(&physical), logical.clone()] {
                 assert_eq!(
                     session
-                        .driver
+                        .drivers
+                        .borrow()
+                        .front()
+                        .expect("current compilation entry")
+                        .1
                         .sources()
                         .source_for_path(&path)
                         .unwrap()
@@ -2801,6 +2799,44 @@ mod tests {
             other.request.check.entry_path.as_str(),
             normalized(&example)
         );
+
+        documents.get_mut(&child).unwrap().document =
+            Document::new(2, "pub fun value() bool { true }\n".into());
+        let edited = session.analyze(&documents, &entry).unwrap();
+        assert!(parent.db.query_session().ptr_eq(&edited.db.query_session()));
+        assert!(edited.first_error().is_some());
+        let example_again = session.analyze(&documents, &example).unwrap();
+        assert!(
+            other
+                .db
+                .query_session()
+                .ptr_eq(&example_again.db.query_session())
+        );
+        assert_eq!(example_again.first_error(), None);
+
+        documents.remove(&child);
+        let restored = session.analyze(&documents, &entry).unwrap();
+        assert!(
+            parent
+                .db
+                .query_session()
+                .ptr_eq(&restored.db.query_session())
+        );
+        assert_eq!(restored.first_error(), None);
+
+        let standalone = test_dir("lsp-editor-entry-eviction").join("main.nia");
+        std::fs::create_dir_all(standalone.parent().unwrap()).unwrap();
+        std::fs::write(&standalone, "fun main() i32 { 0 }\n").unwrap();
+        session.analyze(&documents, &standalone).unwrap();
+        let retained = session.analyze(&documents, &entry).unwrap();
+        assert!(
+            parent
+                .db
+                .query_session()
+                .ptr_eq(&retained.db.query_session())
+        );
+        let evicted = session.analyze(&documents, &example).unwrap();
+        assert!(!other.db.query_session().ptr_eq(&evicted.db.query_session()));
     }
 
     #[test]
