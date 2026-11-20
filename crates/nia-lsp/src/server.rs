@@ -1047,7 +1047,7 @@ impl Server {
                     }
                     Message::Notification(notification) => {
                         if notification.method == "exit" {
-                            break;
+                            return Err("received exit before shutdown".into());
                         }
                         self.notification(connection, notification)?;
                     }
@@ -1722,6 +1722,21 @@ mod tests {
             .project_editor(&path, &work.cancel, true, None)
             .unwrap();
         assert_eq!(current.source_text(&path).as_deref(), Some(edited));
+    }
+
+    #[test]
+    fn exit_before_shutdown_returns_an_error() {
+        let (server, client) = Connection::memory();
+        let (work, _requests) = unbounded();
+        let (_results, replies) = unbounded();
+        client
+            .sender
+            .send(Notification::new("exit".into(), ()).into())
+            .unwrap();
+        let error = Server::default()
+            .serve(&server, &work, &work, &replies)
+            .unwrap_err();
+        assert!(error.to_string().contains("exit before shutdown"));
     }
 
     #[test]
