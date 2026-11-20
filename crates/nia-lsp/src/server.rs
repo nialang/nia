@@ -203,12 +203,15 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
     result
 }
 
+// Keep analysis dispatch allocation-free when timing is disabled.
+#[allow(clippy::large_enum_variant)]
 enum WorkerMessage {
     Analyze(Work),
     ReleaseAnalysis,
 }
 
 struct Work {
+    dispatched_at: Option<Instant>,
     revision: u64,
     disk_changes: DiskChanges,
     documents: Documents,
@@ -340,6 +343,9 @@ fn analyze(
             nia_alloc::collect_unused();
             continue;
         };
+        if let Some(dispatched_at) = work.dispatched_at {
+            nia_timing::emit_timing("lsp.diagnostics.worker_wait", dispatched_at.elapsed());
+        }
         match std::mem::take(&mut work.disk_changes) {
             DiskChanges::None => {}
             DiskChanges::Sources(paths) => {
@@ -493,12 +499,19 @@ fn analyze(
             ..
         } = current.as_ref();
         let document = &work.documents[&work.path].document;
-        let publication = (lane == Lane::Editor).then(|| Publication {
-            diagnostics: analysis
-                .as_ref()
-                .map(|analysis| analysis.diagnostics(&work.path, document))
-                .map_err(Clone::clone),
-            highlights: highlights.clone(),
+        let publication = (lane == Lane::Editor).then(|| {
+            nia_timing::time_stage(
+                crate::timing_mode(),
+                nia_timing::TimingLevel::Summary,
+                "lsp.diagnostics.prepare",
+                || Publication {
+                    diagnostics: analysis
+                        .as_ref()
+                        .map(|analysis| analysis.diagnostics(&work.path, document))
+                        .map_err(Clone::clone),
+                    highlights: highlights.clone(),
+                },
+            )
         });
         let mut reference_coverage = None;
         let semantic = work.request.take_if(|request| {
@@ -1474,12 +1487,26 @@ impl Server {
             let Some((path, request)) = work else {
                 continue;
             };
+            let dispatched_at = if request.is_none() && crate::timing_mode().enabled() {
+                let now = Instant::now();
+                if let Some(deadline) = self.diagnostics_after {
+                    nia_timing::emit_timing("lsp.diagnostics.debounce", DIAGNOSTIC_DEBOUNCE);
+                    nia_timing::emit_timing(
+                        "lsp.diagnostics.ready_wait",
+                        now.saturating_duration_since(deadline),
+                    );
+                }
+                Some(now)
+            } else {
+                None
+            };
             let cancel = Cancellation::default();
             *active = Some(Active {
                 request: request.as_ref().map(|request| request.id.clone()),
                 cancel: cancel.clone(),
             });
             worker.send(WorkerMessage::Analyze(Work {
+                dispatched_at,
                 revision: self.revision,
                 disk_changes: std::mem::take(disk_changes),
                 documents: self.documents.clone(),
@@ -1532,11 +1559,18 @@ impl Server {
                     ..Diagnostic::default()
                 }]
             });
-            publish(
-                connection,
-                open.uri.clone(),
-                Some(open.document.version),
-                diagnostics,
+            nia_timing::time_stage(
+                crate::timing_mode(),
+                nia_timing::TimingLevel::Summary,
+                "lsp.diagnostics.enqueue_notification",
+                || {
+                    publish(
+                        connection,
+                        open.uri.clone(),
+                        Some(open.document.version),
+                        diagnostics,
+                    )
+                },
             )?;
         }
         if let Some(response) = reply.response {
@@ -1639,6 +1673,7 @@ mod tests {
         let path = test_dir("lsp-release-projection").join("root.nia");
         let uri = analysis::uri(&path).unwrap();
         let mut work = Work {
+            dispatched_at: None,
             revision: 1,
             disk_changes: DiskChanges::None,
             documents: Documents::new(),
@@ -1847,6 +1882,7 @@ mod tests {
         let (output, replies) = unbounded();
         queue
             .send(WorkerMessage::Analyze(Work {
+                dispatched_at: None,
                 revision: 1,
                 disk_changes: DiskChanges::None,
                 documents,
