@@ -568,6 +568,40 @@ fn rename_at(path: &Path, token: &str, new_name: &str) -> Result<lsp_types::Work
 }
 
 #[test]
+fn rename_tracks_local_names_through_shorthand_fields_and_nested_captures() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-rename-captures");
+    let entry = root.join("root.nia");
+    let source = concat!(
+        "struct P { x: i32 }\n",
+        "fun read() i32 {\n",
+        "    let x = 2;\n",
+        "    let add = \\[x] a -> { let f = \\[x] b -> x + b; f(a) };\n",
+        "    let pair = P { x };\n",
+        "    add(pair.x)\n",
+        "}\n",
+    );
+    std::fs::write(&entry, source).unwrap();
+    let edit = rename_at(&entry, "x = 2", "value").unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(changes)) = edit.document_changes else {
+        panic!("expected source edits");
+    };
+    let document = Document::new(0, source.into());
+    let mut edited = source.to_owned();
+    for edit in changes[0].edits.iter().rev() {
+        let lsp_types::OneOf::Left(edit) = edit else {
+            panic!("expected plain edit")
+        };
+        let start = document.lines.offset(source, edit.range.start).unwrap();
+        let end = document.lines.offset(source, edit.range.end).unwrap();
+        edited.replace_range(start..end, &edit.new_text);
+    }
+    assert!(edited.contains(r"\[value] a -> { let f = \[value] b -> value + b;"));
+    assert!(edited.contains("let pair = P { x: value };"));
+    assert!(edited.contains("add(pair.x)"));
+}
+
+#[test]
 fn rename_accepts_source_modules_under_target() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-editable-target-module");

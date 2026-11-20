@@ -1378,6 +1378,35 @@ impl Analysis {
                 import_scopes.insert(node.id, scopes);
             }
             occurrences.sort_by_key(|occurrence| (occurrence.span, !occurrence.declaration));
+            // A capture token declares the closure-local binding and reads the
+            // enclosing binding. Both names change together, even in nested closures.
+            let mut capture_sources = HashMap::new();
+            for group in occurrences.chunk_by(|left, right| left.span == right.span) {
+                if let Some(declared) = group
+                    .iter()
+                    .find(|item| item.declaration && matches!(item.symbol, Symbol::Local(..)))
+                    && let Some(source) = group.iter().find(|item| {
+                        !item.declaration
+                            && matches!(item.symbol, Symbol::Local(..))
+                            && item.symbol != declared.symbol
+                    })
+                {
+                    capture_sources.insert(
+                        declared.symbol,
+                        capture_sources
+                            .get(&source.symbol)
+                            .copied()
+                            .unwrap_or(source.symbol),
+                    );
+                }
+            }
+            if !capture_sources.is_empty() {
+                for item in &occurrences {
+                    if let Some(&source) = capture_sources.get(&item.symbol) {
+                        rename_aliases.insert(item.span, source);
+                    }
+                }
+            }
             let inactive = if program.mode == AnalysisMode::Workspace {
                 let mut spans: Vec<_> =
                     db.source_inactive_spans(node.id)?.iter().copied().collect();
@@ -2039,7 +2068,7 @@ impl Analysis {
             .collect()
     }
 
-    fn field_uses<'a>(&self, file: &'a File) -> &'a [(Span, GlobalDefId)] {
+    pub(crate) fn field_uses<'a>(&self, file: &'a File) -> &'a [(Span, GlobalDefId)] {
         file.field_uses.get_or_init(|| {
             let mut uses = Vec::new();
             if file.expr_types.is_empty() {

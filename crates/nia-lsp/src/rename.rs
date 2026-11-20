@@ -837,18 +837,39 @@ fn collect_rename(
             }
             for (&span, candidates) in occurrences {
                 if &text[span.start..span.end] == old && candidates.iter().any(matches_target) {
-                    let is_shorthand = field
+                    let is_shorthand = (field || matches!(symbol, Symbol::Local(..)))
                         && parsed
                             .entry(source)
                             .or_insert_with(|| nia_syntax::parse(text, None).ok())
                             .as_ref()
                             .is_some_and(|syntax| field_shorthand(syntax.tree.green_root(), span));
                     let (range, replacement) = if is_shorthand {
+                        let (field_site, field_name) = if field {
+                            (target.clone(), new_name)
+                        } else {
+                            let field = analysis
+                                .file(Path::new(source))
+                                .and_then(|file| {
+                                    analysis
+                                        .field_uses(file)
+                                        .iter()
+                                        .find(|(name, _)| *name == span)
+                                })
+                                .and_then(|(_, id)| {
+                                    crate::workspace::symbol_site(analysis, Symbol::Global(*id))
+                                })
+                                .ok_or("Cannot resolve the field in a shorthand rename")?;
+                            edits
+                                .entry(source.clone())
+                                .or_default()
+                                .insert(span, new_name.to_owned());
+                            (field, old)
+                        };
                         shorthand
                             .entry(source.clone())
                             .or_default()
-                            .insert(span, (target.clone(), new_name.len()));
-                        (Span::new(span.start, span.start), format!("{new_name}: "))
+                            .insert(span, (field_site, field_name.len()));
+                        (Span::new(span.start, span.start), format!("{field_name}: "))
                     } else {
                         (span, new_name.to_owned())
                     };
