@@ -448,6 +448,26 @@ fn rename_at(path: &Path, token: &str, new_name: &str) -> Result<lsp_types::Work
 }
 
 #[test]
+fn rename_indexes_associated_function_calls() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-associated-function-uses");
+    let source = root.join("root.nia");
+    std::fs::write(&source, "struct Point { x: i32 }\nextend Point { fun origin() Point { .{ x: 0 } } }\nfun read() Point { Point::origin() }").unwrap();
+    let analysis = test_session().analyze(&Documents::new(), &source).unwrap();
+    let position = Position::new(2, 29);
+    let location = analysis
+        .definition(&source, position)
+        .expect("definition of associated call");
+    assert_eq!(location.range.start.line, 1);
+    assert_eq!(analysis.references(&source, position, true).len(), 2);
+    let edit = rename_at(&source, "origin()", "zero").unwrap();
+    let Some(lsp_types::DocumentChanges::Edits(files)) = edit.document_changes else {
+        panic!("expected versioned edits")
+    };
+    assert_eq!(files[0].edits.len(), 2);
+}
+
+#[test]
 fn rename_checks_the_new_name_in_inactive_statements() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-inactive-rename-capture");

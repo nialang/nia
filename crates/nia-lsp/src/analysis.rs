@@ -1219,15 +1219,7 @@ impl Analysis {
                 let call_targets: HashMap<_, _> = module
                     .semantic_facts
                     .iter_node_resolved_calls()
-                    .filter_map(|(key, call)| match call {
-                        ResolvedCall::Method { def_id, .. } => Some((key, *def_id)),
-                        ResolvedCall::TraitMethod { method_id, .. }
-                        | ResolvedCall::DynamicTraitMethod { method_id, .. }
-                        | ResolvedCall::TraitAssociatedFunction { method_id, .. } => {
-                            Some((key, *method_id))
-                        }
-                        _ => None,
-                    })
+                    .filter_map(|(key, call)| Some((key, source_callee(call)?)))
                     .collect();
                 let function_calls = (program.mode == AnalysisMode::Workspace).then(|| {
                     module
@@ -1239,20 +1231,7 @@ impl Analysis {
                                 .node_resolved_calls
                                 .iter()
                                 .filter_map(move |(key, call)| {
-                                    let callee = match call {
-                                        ResolvedCall::Function(id)
-                                        | ResolvedCall::FunctionInstance { def_id: id, .. }
-                                        | ResolvedCall::Method { def_id: id, .. }
-                                        | ResolvedCall::TraitMethod { method_id: id, .. }
-                                        | ResolvedCall::DynamicTraitMethod {
-                                            method_id: id, ..
-                                        }
-                                        | ResolvedCall::TraitAssociatedFunction {
-                                            method_id: id,
-                                            ..
-                                        } => *id,
-                                        _ => return None,
-                                    };
+                                    let callee = source_callee(call)?;
                                     Some((key, (caller, callee)))
                                 })
                         })
@@ -1264,7 +1243,7 @@ impl Analysis {
                     // module before checking function-owned facts.
                     node_types.entry(key).or_insert(ty);
                 }
-                let mut method_calls = HashMap::new();
+                let mut calls = HashMap::new();
                 for (span, key) in db.source_origins(module.id)?.entries() {
                     if let Some(&(caller, callee)) =
                         function_calls.as_ref().and_then(|calls| calls.get(&key))
@@ -1353,13 +1332,18 @@ impl Analysis {
                         });
                     }
                     if let Some(&id) = call_targets.get(&key) {
-                        method_calls.insert(span, id);
+                        calls.insert(span, id);
                     }
                 }
-                if !method_calls.is_empty() {
-                    index_method_calls(
+                if !calls.is_empty() {
+                    let bound: BTreeSet<_> = occurrences
+                        .iter()
+                        .map(|occurrence| occurrence.span)
+                        .collect();
+                    index_calls(
                         syntax.tree.green_root(),
-                        &mut method_calls,
+                        &mut calls,
+                        &bound,
                         &mut occurrences,
                     );
                 }
@@ -2829,9 +2813,22 @@ fn type_name_span(tokens: &[&GreenToken], span: Span) -> Option<Span> {
     name
 }
 
-fn index_method_calls(
+fn source_callee(call: &ResolvedCall) -> Option<GlobalDefId> {
+    match call {
+        ResolvedCall::Function(id)
+        | ResolvedCall::FunctionInstance { def_id: id, .. }
+        | ResolvedCall::Method { def_id: id, .. }
+        | ResolvedCall::TraitMethod { method_id: id, .. }
+        | ResolvedCall::DynamicTraitMethod { method_id: id, .. }
+        | ResolvedCall::TraitAssociatedFunction { method_id: id, .. } => Some(*id),
+        _ => None,
+    }
+}
+
+fn index_calls(
     node: &GreenNode,
     targets: &mut HashMap<Span, GlobalDefId>,
+    bound: &BTreeSet<Span>,
     occurrences: &mut Vec<Occurrence>,
 ) {
     if targets.is_empty() {
@@ -2841,6 +2838,7 @@ fn index_method_calls(
         && let Some(span) = node.token_span()
         && let Some(id) = targets.remove(&span)
         && let Some((name, _)) = call_target(node)
+        && !bound.contains(&name)
     {
         occurrences.push(Occurrence {
             span: name,
@@ -2849,7 +2847,7 @@ fn index_method_calls(
         });
     }
     for child in node.child_nodes() {
-        index_method_calls(child, targets, occurrences);
+        index_calls(child, targets, bound, occurrences);
     }
 }
 
