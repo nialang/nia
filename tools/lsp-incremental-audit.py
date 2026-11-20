@@ -16,6 +16,7 @@ transport = runpy.run_path(str(Path(__file__).with_name("lsp-latency.py")))
 Client = transport["Client"]
 position = transport["position"]
 summary = transport["summary"]
+current_rss = transport["current_rss"]
 
 
 def fixture(workspace):
@@ -93,7 +94,7 @@ def inspect(client, document, text, use, label):
     }
 
 
-def session(server, resources, workspace, source, texts, use, label, profile):
+def session(server, resources, workspace, source, texts, use, label, profile, sample_rss=False):
     document = {"uri": source.as_uri()}
     environment = os.environ.copy()
     environment["NIA_LSP_TIMINGS"] = "detail" if profile else "off"
@@ -121,6 +122,8 @@ def session(server, resources, workspace, source, texts, use, label, profile):
                 value["diagnostics"] = sorted(diagnostics, key=lambda item: json.dumps(item, sort_keys=True))
                 values.append(value)
                 latency.append(dict(diagnostics_ms=1000 * (published - started), **elapsed))
+                if sample_rss:
+                    latency[-1]["rss_bytes"] = current_rss(process.pid)
             request(client, "shutdown", None)
             client.notify("exit", None)
             process.stdin.close()
@@ -164,25 +167,30 @@ def count_delta(before, after):
     }
 
 
-def audit(server, resources, workspace, name, repeat, profile):
+def audit(server, resources, workspace, name, repeat, profile, sample_rss):
     root, source, original, edits, use, label = workload(resources, workspace, name)
-    def run(texts, profiled=profile):
-        return session(server, resources, root, source, texts, use, label, profiled)
+    def run(texts, measure_rss=False):
+        return session(server, resources, root, source, texts, use, label, profile, measure_rss)
 
     baseline_value, _, baseline = run([original])
     results = {}
     for edit, text in edits.items():
         fresh, _, fresh_timing = run([text])
         latency = []
+        rss = []
         for _ in range(repeat):
             snapshots = [original, text] if profile else [original, text, original]
-            incremental, timings, edited_timing = run(snapshots)
+            incremental, timings, edited_timing = run(snapshots, sample_rss)
             if incremental[1] != fresh[0] or any(value != baseline_value[0] for value in incremental[::2]):
                 raise AssertionError(f"{name}/{edit}: fresh and incremental snapshots differ:\n"
                                      f"fresh={fresh[0]!r}\nincremental={incremental[1]!r}")
             latency.append(timings[1])
+            if sample_rss:
+                rss.append([timing.pop("rss_bytes") for timing in timings])
         observations = {metric: summary([sample[metric] for sample in latency]) for metric in latency[0]}
         results[edit] = dict(latency=observations, diagnostics=len(fresh[0]["diagnostics"]))
+        if sample_rss:
+            results[edit]["snapshot_rss_bytes"] = rss
         if profile:
             results[edit]["edit_count_delta"] = count_delta(baseline, edited_timing)
             results[edit]["timings"] = dict(baseline=baseline, incremental=edited_timing, fresh=fresh_timing)
@@ -195,15 +203,19 @@ def main():
     parser.add_argument("--resource-root", type=Path, required=True)
     parser.add_argument("--workload", choices=("workspace", "array-list"), default="workspace")
     parser.add_argument("--revision", help="commit used to build the server")
+    parser.add_argument("--sample-rss", action="store_true",
+                        help="record RSS after each original, edited, and restored snapshot")
     measurement = parser.add_mutually_exclusive_group()
     measurement.add_argument("--repeat", type=int, default=1)
     measurement.add_argument("--profile", action="store_true")
     args = parser.parse_args()
     if args.repeat < 1:
         parser.error("--repeat must be positive")
+    if args.sample_rss and args.profile:
+        parser.error("--sample-rss requires profiling to be off")
     with tempfile.TemporaryDirectory(prefix="nia-lsp-incremental-") as directory:
         result = audit(args.server.resolve(strict=True), args.resource_root.resolve(strict=True),
-                       Path(directory).resolve(), args.workload, args.repeat, args.profile)
+                       Path(directory).resolve(), args.workload, args.repeat, args.profile, args.sample_rss)
     print(json.dumps(dict(platform=platform.platform(), revision=args.revision, workload=args.workload,
                           profiled=args.profile, edits=result), indent=2))
 
