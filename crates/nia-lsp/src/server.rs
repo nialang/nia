@@ -332,17 +332,70 @@ fn analyze(
     queue: Receiver<WorkerMessage>,
     output: Sender<Reply>,
 ) {
-    let mut session = Session::new(toolchain.clone());
-    let mut completion_probe = None;
-    let mut cached: Option<Arc<CurrentAnalysis>> = None;
+    let mut worker = AnalysisWorker::new(&toolchain);
     for message in queue {
-        let WorkerMessage::Analyze(mut work) = message else {
-            cached = None;
-            completion_probe = None;
-            session.reload();
+        let WorkerMessage::Analyze(work) = message else {
+            worker.cached = None;
+            worker.completion_probe = None;
+            worker.session.reload();
             nia_alloc::collect_unused();
             continue;
         };
+        let path = work.path.clone();
+        let revision = work.revision;
+        let request = work.request.as_ref().map(|request| request.id.clone());
+        let reply =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.analyze(lane, work)))
+                .unwrap_or_else(|_| {
+                    // A partially updated query cache cannot serve the next request.
+                    worker = AnalysisWorker::new(&toolchain);
+                    let error = "Internal error during language server analysis";
+                    Reply {
+                        lane,
+                        revision,
+                        path,
+                        publication: (lane == Lane::Editor).then(|| Publication {
+                            diagnostics: Err(error.into()),
+                            highlights: Arc::new(Resolved::new()),
+                        }),
+                        response: request.map(|id| {
+                            QueryResponse::Value(Response::new_err(
+                                id,
+                                ErrorCode::InternalError as i32,
+                                error.into(),
+                            ))
+                        }),
+                        reference_coverage: None,
+                        configuration_changed: false,
+                    }
+                });
+        if output.send(reply).is_err() {
+            break;
+        }
+    }
+}
+
+struct AnalysisWorker {
+    session: Session,
+    completion_probe: Option<Session>,
+    cached: Option<Arc<CurrentAnalysis>>,
+}
+
+impl AnalysisWorker {
+    fn new(toolchain: &Arc<nia_toolchain::ToolchainLayout>) -> Self {
+        Self {
+            session: Session::new(toolchain.clone()),
+            completion_probe: None,
+            cached: None,
+        }
+    }
+
+    fn analyze(&mut self, lane: Lane, mut work: Work) -> Reply {
+        let Self {
+            session,
+            completion_probe,
+            cached,
+        } = self;
         if let Some(dispatched_at) = work.dispatched_at {
             nia_timing::emit_timing("lsp.diagnostics.worker_wait", dispatched_at.elapsed());
         }
@@ -352,13 +405,13 @@ fn analyze(
                 let revision = session.source_revision();
                 session.reload_changed_sources(&paths);
                 if session.source_revision() != revision {
-                    cached = None;
+                    *cached = None;
                 }
-                completion_probe = None;
+                *completion_probe = None;
             }
             DiskChanges::Configuration => {
-                cached = None;
-                completion_probe = None;
+                *cached = None;
+                *completion_probe = None;
                 session.reload();
             }
         }
@@ -370,21 +423,15 @@ fn analyze(
                     "Request canceled".into(),
                 )
             });
-            if output
-                .send(Reply {
-                    lane,
-                    revision: work.revision,
-                    path: work.path,
-                    publication: None,
-                    response: response.map(QueryResponse::Value),
-                    reference_coverage: None,
-                    configuration_changed: false,
-                })
-                .is_err()
-            {
-                break;
-            }
-            continue;
+            return Reply {
+                lane,
+                revision: work.revision,
+                path: work.path,
+                publication: None,
+                response: response.map(QueryResponse::Value),
+                reference_coverage: None,
+                configuration_changed: false,
+            };
         }
         if let Some(request) = &work.request
             && matches!(
@@ -393,24 +440,18 @@ fn analyze(
             )
         {
             let request = work.request.take().expect("workspace request");
-            let response = workspace_query(&mut session, &work, request);
-            if output
-                .send(Reply {
-                    lane,
-                    revision: work.revision,
-                    path: work.path,
-                    publication: None,
-                    response: Some(QueryResponse::Value(response)),
-                    reference_coverage: None,
-                    configuration_changed: session.take_configuration_change(),
-                })
-                .is_err()
-            {
-                break;
-            }
-            continue;
+            let response = workspace_query(session, &work, request);
+            return Reply {
+                lane,
+                revision: work.revision,
+                path: work.path,
+                publication: None,
+                response: Some(QueryResponse::Value(response)),
+                reference_coverage: None,
+                configuration_changed: session.take_configuration_change(),
+            };
         }
-        let installed = install_analysis_sources(&mut session, &work, &mut cached);
+        let installed = install_analysis_sources(session, &work, cached);
         let cached_for_path = cached.as_ref().filter(|cached| {
             cached.revision == work.revision
                 && cached.source_revision == session.source_revision()
@@ -432,28 +473,18 @@ fn analyze(
         if installed.is_ok()
             && (cached_for_path.is_none()
                 || current_analysis.is_some_and(|analysis| !analysis.supports_navigation()))
-            && let Some(response) = complete_declarations(
-                &mut session,
-                &mut completion_probe,
-                &mut work,
-                current_analysis,
-            )
+            && let Some(response) =
+                complete_declarations(session, completion_probe, &mut work, current_analysis)
         {
-            if output
-                .send(Reply {
-                    lane,
-                    revision: work.revision,
-                    path: work.path,
-                    publication: None,
-                    response: Some(QueryResponse::Value(response)),
-                    reference_coverage: None,
-                    configuration_changed: false,
-                })
-                .is_err()
-            {
-                break;
-            }
-            continue;
+            return Reply {
+                lane,
+                revision: work.revision,
+                path: work.path,
+                publication: None,
+                response: Some(QueryResponse::Value(response)),
+                reference_coverage: None,
+                configuration_changed: false,
+            };
         }
         let current = if let Some(current) = cached_for_path.filter(|current| {
             local_analysis
@@ -489,7 +520,7 @@ fn analyze(
                 && (current.analysis.is_ok()
                     || !cached_for_path.is_some_and(|cached| cached.analysis.is_ok()))
             {
-                cached = Some(current.clone());
+                *cached = Some(current.clone());
             }
             current
         };
@@ -672,9 +703,9 @@ fn analyze(
                         let probe = matches!(request.method.as_str(), COMPLETION | CODE_ACTION)
                             .then(|| {
                                 completion_probe
-                                    .get_or_insert_with(|| Session::new(toolchain.clone()))
+                                    .get_or_insert_with(|| Session::new(session.toolchain.clone()))
                             });
-                        query(analysis, &work, request, &mut session, probe)
+                        query(analysis, &work, request, session, probe)
                     }
                     Err(error) => Response::new_err(
                         request.id,
@@ -685,19 +716,14 @@ fn analyze(
             })
             .map(QueryResponse::Value)
             .or_else(|| semantic.map(QueryResponse::Semantic));
-        if output
-            .send(Reply {
-                lane,
-                revision: work.revision,
-                path: work.path,
-                publication,
-                response,
-                reference_coverage,
-                configuration_changed: session.take_configuration_change(),
-            })
-            .is_err()
-        {
-            break;
+        Reply {
+            lane,
+            revision: work.revision,
+            path: work.path,
+            publication,
+            response,
+            reference_coverage,
+            configuration_changed: session.take_configuration_change(),
         }
     }
 }
@@ -1730,6 +1756,72 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_worker_replies_after_unwinding_and_analyzes_the_next_document() {
+        use nia_test_support::{TestWorkload, acquire_test_resources, test_dir, workspace_root};
+        use nia_toolchain::{ToolchainLayout, ToolchainLayoutRequest};
+
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let toolchain = ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
+            std::env::current_exe().unwrap(),
+            workspace_root().join("lib"),
+        ))
+        .unwrap();
+        let root = test_dir("lsp-worker-recovery");
+        let path = root.join("root.nia");
+        let uri = analysis::uri(&path).unwrap();
+        let (queue, work) = unbounded();
+        let (output, replies) = unbounded();
+        let mut documents = Documents::new();
+        for revision in [1, 2] {
+            // Omit the required document from the first internal task.
+            queue
+                .send(WorkerMessage::Analyze(Work {
+                    dispatched_at: None,
+                    revision,
+                    disk_changes: DiskChanges::None,
+                    documents: documents.clone(),
+                    path: path.clone(),
+                    request: (revision == 1)
+                        .then(|| Request::new(1.into(), DEFINITION.into(), Value::Null)),
+                    folders: Vec::new(),
+                    versioned_edits: false,
+                    resource_rename: false,
+                    cancel: Cancellation::default(),
+                }))
+                .unwrap();
+            documents.insert(
+                path.clone(),
+                OpenDocument {
+                    uri: uri.clone(),
+                    document: Document::new(2, "pub fun sample() i32 { 2 }".into()),
+                },
+            );
+        }
+        drop(queue);
+        analyze(Arc::new(toolchain), Lane::Editor, work, output);
+        let failed = replies.recv().unwrap();
+        let Some(QueryResponse::Value(response)) = failed.response else {
+            panic!("expected an error response");
+        };
+        assert_eq!(response.id, 1.into());
+        assert_eq!(
+            response.response_result.unwrap_err().code,
+            ErrorCode::InternalError as i32
+        );
+        assert!(failed.publication.unwrap().diagnostics.is_err());
+        let recovered = replies.recv().unwrap();
+        assert_eq!(recovered.revision, 2);
+        assert!(
+            recovered
+                .publication
+                .unwrap()
+                .diagnostics
+                .unwrap()
+                .is_empty()
+        );
+    }
 
     #[test]
     fn changed_sources_release_the_cached_projection_before_reanalysis() {
