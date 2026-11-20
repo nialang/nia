@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use lsp_types::{
     DocumentChanges, OneOf, Position, Range, TextDocumentContentChangeEvent, TextDocumentEdit,
@@ -33,8 +33,14 @@ pub(crate) struct Document {
     pub(crate) version: i32,
     pub(crate) text: Arc<str>,
     pub(crate) lines: Lines,
-    syntax: Arc<OnceLock<Option<nia_syntax::Parse>>>,
+    syntax: Arc<DocumentSyntax>,
     pub(crate) highlights: Arc<OnceLock<Vec<crate::highlight::Highlight>>>,
+}
+
+#[derive(Debug, Default)]
+struct DocumentSyntax {
+    parsed: OnceLock<Option<Arc<nia_syntax::Parse>>>,
+    previous: Mutex<Option<Arc<nia_syntax::Parse>>>,
 }
 
 impl Document {
@@ -50,8 +56,26 @@ impl Document {
 
     pub(crate) fn syntax(&self) -> Option<&nia_syntax::Parse> {
         self.syntax
-            .get_or_init(|| nia_syntax::parse(&self.text, None).ok())
-            .as_ref()
+            .parsed
+            .get_or_init(|| {
+                let previous = self
+                    .syntax
+                    .previous
+                    .lock()
+                    .expect("syntax seed lock")
+                    .take();
+                if let Some(previous) = previous {
+                    let old = previous.tree.source();
+                    let edit = nia_syntax::TextEdit::between(old, &self.text);
+                    if edit.span.len() < old.len()
+                        && let Ok(parsed) = previous.reparse(&edit, None)
+                    {
+                        return Some(Arc::new(parsed));
+                    }
+                }
+                nia_syntax::parse(&self.text, None).ok().map(Arc::new)
+            })
+            .as_deref()
     }
 
     pub(crate) fn format(
@@ -140,11 +164,23 @@ impl Document {
             }
             lines = Lines::new(&text);
         }
+        if text == *self.text {
+            return Some(Self {
+                version,
+                ..self.clone()
+            });
+        }
+        // Retain only the already materialized parser result. A run of edits
+        // without syntax requests never builds a chain of old documents.
+        let previous = self.syntax.parsed.get().and_then(|parsed| parsed.clone());
         Some(Self {
             version,
             text: text.into(),
             lines,
-            syntax: Arc::default(),
+            syntax: Arc::new(DocumentSyntax {
+                parsed: OnceLock::new(),
+                previous: Mutex::new(previous),
+            }),
             highlights: Arc::default(),
         })
     }
@@ -258,5 +294,59 @@ mod tests {
             None
         );
         assert!(document.changed(7, vec![]).is_none());
+    }
+
+    #[test]
+    fn edited_syntax_features_match_clean_parses() {
+        let original =
+            "fun first() i32 {\n  1\n}\nfun second() i32 {\n  _ = \"\u{1f34e}\";\n  2\n}\n";
+        let mut current = Document::new(1, original.to_owned());
+        current.syntax().unwrap();
+        let change = |range, text: &str| TextDocumentContentChangeEvent {
+            range,
+            range_length: None,
+            text: text.to_owned(),
+        };
+        let at = |line, start, end| {
+            Some(Range::new(
+                Position::new(line, start),
+                Position::new(line, end),
+            ))
+        };
+        let revisions = [
+            vec![
+                change(at(3, 0, 0), "// comment\n"),
+                change(at(5, 7, 9), "x"),
+            ],
+            vec![change(at(6, 2, 3), "call(")],
+            vec![change(None, &original.replace("  2", "  30"))],
+        ];
+        for (i, changes) in revisions.into_iter().enumerate() {
+            current = current.changed(i as i32 + 2, changes).unwrap();
+            assert!(current.syntax.previous.lock().unwrap().is_some());
+            assert!(current.syntax.parsed.get().is_none());
+            let clean = Document::new(current.version, current.text.to_string());
+            assert_eq!(current.syntax().unwrap(), clean.syntax().unwrap());
+            assert!(current.syntax.previous.lock().unwrap().is_none());
+            assert_eq!(
+                current.semantic_tokens(None, None).data,
+                clean.semantic_tokens(None, None).data
+            );
+            assert_eq!(
+                current.folding_ranges(false, None),
+                clean.folding_ranges(false, None)
+            );
+            let options = lsp_types::FormattingOptions {
+                tab_size: 2,
+                insert_spaces: true,
+                ..Default::default()
+            };
+            assert_eq!(
+                current.format(options.clone(), None),
+                clean.format(options, None)
+            );
+        }
+        let unchanged = current.changed(5, Vec::new()).unwrap();
+        assert!(Arc::ptr_eq(&current.syntax, &unchanged.syntax));
     }
 }

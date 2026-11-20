@@ -136,6 +136,33 @@ pub struct SyntaxNode<'a> {
 }
 
 impl TextEdit {
+    /// Replaces the differing region between two source snapshots.
+    pub fn between(before: &str, after: &str) -> Self {
+        let mut start = before
+            .bytes()
+            .zip(after.bytes())
+            .take_while(|(a, b)| a == b)
+            .count();
+        while !before.is_char_boundary(start) || !after.is_char_boundary(start) {
+            start -= 1;
+        }
+        let mut suffix = before[start..]
+            .bytes()
+            .rev()
+            .zip(after[start..].bytes().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        while !before.is_char_boundary(before.len() - suffix)
+            || !after.is_char_boundary(after.len() - suffix)
+        {
+            suffix -= 1;
+        }
+        Self::replace(
+            Span::new(start, before.len() - suffix),
+            &after[start..after.len() - suffix],
+        )
+    }
+
     /// Creates an edit replacing `span` with `replacement` text.
     pub fn replace(span: Span, replacement: impl Into<String>) -> Self {
         Self {
