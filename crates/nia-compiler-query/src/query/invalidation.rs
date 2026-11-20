@@ -38,15 +38,45 @@ impl CompilerDatabase {
         let (graph_changed, handle_generation_changed) = {
             let observed = self.db.context().observed_graph.lock();
             let changed = !observed.ptr_eq(&new_graph) && *observed != new_graph;
-            let handles_changed = changed
-                && observed.modules().any(|old| {
-                    let Some(key) = observed.stable_key(old.id) else {
-                        return false;
-                    };
-                    new_graph
-                        .module_id_for_stable_key(key)
-                        .is_none_or(|new| new != old.id)
-                });
+            let timings = request.timings;
+            let handles_changed = if changed && timings.detail() {
+                let mut removed = 0;
+                let mut reassigned = 0;
+                for old in observed.modules() {
+                    match new_graph.module_id_for_stable_key(&old.stable_key) {
+                        None => removed += 1,
+                        Some(id) if id != old.id => reassigned += 1,
+                        Some(_) => {}
+                    }
+                }
+                let added = new_graph
+                    .modules()
+                    .filter(|new| observed.module_id_for_stable_key(&new.stable_key).is_none())
+                    .count();
+                for (change, count) in [
+                    ("removed", removed),
+                    ("reassigned", reassigned),
+                    ("added", added),
+                ] {
+                    if count != 0 {
+                        nia_timing::emit_counter(
+                            format!("compiler.module_graph_handles.{change}"),
+                            count as u64,
+                        );
+                    }
+                }
+                removed != 0 || reassigned != 0
+            } else {
+                changed
+                    && observed.modules().any(|old| {
+                        let Some(key) = observed.stable_key(old.id) else {
+                            return false;
+                        };
+                        new_graph
+                            .module_id_for_stable_key(key)
+                            .is_none_or(|new| new != old.id)
+                    })
+            };
             (changed, handles_changed)
         };
         let new_inputs = CompilerInputs::new(request);
