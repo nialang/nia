@@ -139,7 +139,7 @@ def cancel_definition(client, params):
 
 
 def session(server, resources, workspace, source, snapshots, probes, profile, sample_rss=False,
-            cancel_retry=False):
+            cancel_retry=False, semantic_tokens=False):
     document = {"uri": source.as_uri()}
     environment = os.environ.copy()
     environment["NIA_LSP_TIMINGS"] = "detail" if profile else "off"
@@ -183,6 +183,13 @@ def session(server, resources, workspace, source, snapshots, probes, profile, sa
                 for path, version in versions.items():
                     if path != source:
                         client.wait_diagnostics(path.as_uri(), version, since=started)
+                # Capture published highlights before a navigation request can rebuild them.
+                tokens = {}
+                if semantic_tokens:
+                    for path in sorted(versions):
+                        _, result = request(client, "textDocument/semanticTokens/full",
+                                            {"textDocument": {"uri": path.as_uri()}})
+                        tokens[path.as_uri()] = result["data"]
                 use, label = probes[0]
                 value, elapsed = inspect(client, document, text, use, label)
                 if not value["definition"] or not any(item["label"] == label for item in value["completion"]):
@@ -191,6 +198,8 @@ def session(server, resources, workspace, source, snapshots, probes, profile, sa
                     if use in text:
                         value[label], _ = inspect(client, document, text, use, label)
                 value["diagnostics"] = sorted(diagnostics, key=lambda item: json.dumps(item, sort_keys=True))
+                if semantic_tokens:
+                    value["semantic_tokens"] = tokens
                 values.append(value)
                 latency.append(dict(diagnostics_ms=1000 * (published - started), **elapsed))
                 if cancel_retry and index == 1:
@@ -240,10 +249,11 @@ def count_delta(before, after):
     }
 
 
-def audit(server, resources, workspace, name, repeat, profile, sample_rss, cancel_retry):
+def audit(server, resources, workspace, name, repeat, profile, sample_rss, cancel_retry, semantic_tokens):
     root, source, original, edits, probes = workload(resources, workspace, name)
     def run(snapshots, measure_rss=False, cancel=False):
-        return session(server, resources, root, source, snapshots, probes, profile, measure_rss, cancel)
+        return session(server, resources, root, source, snapshots, probes, profile, measure_rss, cancel,
+                       semantic_tokens)
 
     baseline_value, _, baseline = run([original])
     results = {}
@@ -315,6 +325,8 @@ def main():
                         help="record RSS after each original, edited, and restored snapshot")
     parser.add_argument("--cancel-retry", action="store_true",
                         help="cancel a definition request after each edit and validate the retry")
+    parser.add_argument("--semantic-tokens", action="store_true",
+                        help="compare published semantic tokens with a clean session before navigation")
     measurement = parser.add_mutually_exclusive_group()
     measurement.add_argument("--repeat", type=int, default=1)
     measurement.add_argument("--profile", action="store_true")
@@ -328,9 +340,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix="nia-lsp-incremental-") as directory:
         result = audit(args.server.resolve(strict=True), args.resource_root.resolve(strict=True),
                        Path(directory).resolve(), args.workload, args.repeat, args.profile, args.sample_rss,
-                       args.cancel_retry)
+                       args.cancel_retry, args.semantic_tokens)
     print(json.dumps(dict(platform=platform.platform(), revision=args.revision, workload=args.workload,
-                          profiled=args.profile, edits=result), indent=2))
+                          profiled=args.profile, semantic_tokens_checked=args.semantic_tokens,
+                          edits=result), indent=2))
 
 
 if __name__ == "__main__":
