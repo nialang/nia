@@ -7,7 +7,7 @@ import math
 import os
 from pathlib import Path
 import platform
-from queue import Queue
+from queue import Empty, Queue
 import statistics
 import subprocess
 import threading
@@ -22,7 +22,7 @@ class Client:
         self.started = {}
         self.responses = {}
         self.diagnostics = {}
-        self.server_requests = set()
+        self.server_requests = {}
         self.sequence = 0
         threading.Thread(target=self.read, daemon=True).start()
 
@@ -67,7 +67,7 @@ class Client:
             self.diagnostics[params["uri"], params.get("version")] = (timestamp, params["diagnostics"])
         elif "method" in message:
             if "id" in message:
-                self.server_requests.add(message["method"])
+                self.server_requests[message["method"]] = timestamp
                 self.send(dict(id=message["id"], result=None))
         elif "id" in message:
             self.responses[message["id"]] = (timestamp, message)
@@ -88,6 +88,14 @@ class Client:
             self.receive(deadline)
         timestamp, response = self.responses.pop(ident)
         return 1000 * (timestamp - self.started.pop(ident)), response
+
+    def wait_server_request(self, method, *, since):
+        deadline = perf_counter() + self.timeout
+        timestamp = self.server_requests.get(method, float("-inf"))
+        while timestamp < since:
+            self.receive(deadline)
+            timestamp = self.server_requests.get(method, float("-inf"))
+        return timestamp
 
     def measure(self, method, params):
         elapsed, response = self.wait(self.request(method, params))
@@ -168,18 +176,26 @@ def benchmark_members(client, source, root, repeat, member):
     )
 
 
-def benchmark_syntax(client, source, root, repeat, replacement):
-    original = source.read_text(encoding="utf-8")
+def replacement_text(original, replacement):
     old, new = replacement
     if not old or old == new or original.count(old) != 1:
         raise ValueError("--replace must change exactly one occurrence")
-    alternate = original.replace(old, new)
+    return original.replace(old, new)
+
+
+def initialize_syntax_client(client, root):
     client.measure("initialize", {
         "processId": None,
         "rootUri": root.as_uri(),
         "capabilities": {"workspace": {"semanticTokens": {"refreshSupport": True}}},
     })
     client.notify("initialized", {})
+
+
+def benchmark_syntax(client, source, root, repeat, replacement):
+    original = source.read_text(encoding="utf-8")
+    alternate = replacement_text(original, replacement)
+    initialize_syntax_client(client, root)
     document = dict(uri=source.as_uri())
     params = dict(textDocument=document)
     methods = [
@@ -223,6 +239,64 @@ def benchmark_syntax(client, source, root, repeat, replacement):
     return report
 
 
+def benchmark_semantic_refresh(client, source, root, repeat, replacement):
+    original = source.read_text(encoding="utf-8")
+    alternate = replacement_text(original, replacement)
+    initialize_syntax_client(client, root)
+    document = dict(uri=source.as_uri())
+    params = dict(textDocument=document)
+    refresh_method = "workspace/semanticTokens/refresh"
+
+    def tokens():
+        request = client.request("textDocument/semanticTokens/full", params)
+        sent = client.started[request]
+        elapsed, response = client.wait(request)
+        if "error" in response:
+            raise RuntimeError(f"semantic tokens: {response['error']}")
+        return sent + elapsed / 1000, response["result"]["data"]
+
+    def measure_revision(version):
+        text = alternate if version % 2 == 0 else original
+        started = perf_counter()
+        if version == 1:
+            client.notify("textDocument/didOpen", {"textDocument": dict(
+                **document, languageId="nia", version=version, text=text,
+            )})
+        else:
+            client.notify("textDocument/didChange", {
+                "textDocument": dict(**document, version=version),
+                "contentChanges": [dict(text=text)],
+            })
+        first, syntax = tokens()
+        diagnostics, _ = client.wait_diagnostics(document["uri"], version)
+        try:
+            refresh = client.wait_server_request(refresh_method, since=diagnostics)
+        except Empty as error:
+            raise RuntimeError(f"document version {version} did not request a semantic refresh") from error
+        updated, semantic = tokens()
+        if not syntax or not semantic or syntax == semantic:
+            raise AssertionError(f"semantic refresh did not refine tokens in document version {version}")
+        return {
+            "first_highlight": 1000 * (first - started),
+            "diagnostics": 1000 * (diagnostics - started),
+            "semantic_refresh": 1000 * (refresh - started),
+            "refreshed_tokens": 1000 * (updated - started),
+            "tokens_after_refresh": 1000 * (updated - refresh),
+        }
+
+    cold = measure_revision(1)
+    edits = [measure_revision(version) for version in range(2, repeat + 2)]
+    report = {
+        "cold": {name: summary([value]) for name, value in cold.items()},
+        "after_edit": {name: summary([sample[name] for sample in edits]) for name in cold},
+    }
+    if os.name == "nt":
+        report["peak_rss_bytes"] = windows_working_set(client.process.pid)[1]
+    client.measure("shutdown", None)
+    client.notify("exit", None)
+    return report
+
+
 def benchmark(client, source, root, symbol, repeat, replacement=None, cancel_delay_ms=0,
               reopen_cycles=0):
     initialize = client.measure("initialize", {
@@ -236,10 +310,7 @@ def benchmark(client, source, root, symbol, repeat, replacement=None, cancel_del
     client.notify("initialized", {})
     text = source.read_text(encoding="utf-8")
     if replacement is not None:
-        old, new = replacement
-        if not old or old == new or text.count(old) != 1:
-            raise ValueError("--replace must change exactly one occurrence")
-        alternate = text.replace(old, new)
+        alternate = replacement_text(text, replacement)
         if symbol not in alternate:
             raise ValueError("--replace must preserve --symbol in the alternate snapshot")
     else:
@@ -453,6 +524,8 @@ def main():
     workload.add_argument("--member", nargs=3, metavar=("ORIGINAL", "RECEIVER", "NAME"),
                           help="replace one expression and type NAME character by character after RECEIVER.")
     workload.add_argument("--syntax", action="store_true", help="measure syntax requests after --replace edits")
+    workload.add_argument("--semantic-refresh", action="store_true",
+                          help="measure server refresh and refined tokens after --replace edits")
     parser.add_argument("--repeat", type=int, default=15)
     parser.add_argument("--reopen-cycles", type=int, default=0,
                         help="measure repeated close, workspace switch, and reopen in the same process")
@@ -472,8 +545,8 @@ def main():
         parser.error("--cancel-delay-ms must be finite and nonnegative")
     if args.member and (args.replace or args.reopen_cycles or args.cancel_delay_ms):
         parser.error("--member cannot be combined with --replace, --reopen-cycles, or --cancel-delay-ms")
-    if args.syntax and (not args.replace or args.reopen_cycles or args.cancel_delay_ms):
-        parser.error("--syntax requires --replace and measures only syntax requests")
+    if (args.syntax or args.semantic_refresh) and (not args.replace or args.reopen_cycles or args.cancel_delay_ms):
+        parser.error("--syntax and --semantic-refresh require --replace and cannot include reopen or cancellation")
     source = args.source.resolve()
     root = args.workspace.resolve() if args.workspace else source.parent
     command = [str(args.server.resolve()), "--resource-root", str(args.resource_root.resolve())]
@@ -484,6 +557,8 @@ def main():
                 report = benchmark_members(client, source, root, args.repeat, args.member)
             elif args.syntax:
                 report = benchmark_syntax(client, source, root, args.repeat, args.replace)
+            elif args.semantic_refresh:
+                report = benchmark_semantic_refresh(client, source, root, args.repeat, args.replace)
             else:
                 report = benchmark(client, source, root, args.symbol, args.repeat,
                                    args.replace, args.cancel_delay_ms, args.reopen_cycles)
@@ -509,6 +584,7 @@ def main():
         replacement=args.replace,
         member=args.member,
         syntax=args.syntax,
+        semantic_refresh=args.semantic_refresh,
         cancel_delay_ms=args.cancel_delay_ms,
     )
     print(json.dumps(report, indent=2))
