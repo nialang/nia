@@ -546,8 +546,8 @@ fun main() i32 {
 }
 
 #[test]
-fn value_does_not_coerce_to_readonly_trait_object_argument() {
-    let root = temp_dir("value_does_not_coerce_to_readonly_trait_object_argument");
+fn literal_coerces_to_readonly_trait_object_argument() {
+    let root = temp_dir("literal_coerces_to_readonly_trait_object_argument");
     write(
         &root.join("main.nia"),
         r#"
@@ -572,13 +572,12 @@ fun main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(
         program
-            .diagnostics
+            .modules
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
-        "{:?}",
-        program.diagnostics
+            .any(|module| has_trait_object_coercion(module))
     );
 }
 
