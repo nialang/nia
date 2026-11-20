@@ -1042,6 +1042,7 @@ pub fun build(b: &mut build::Build) build::Error!() {{
 }}
 "#)).unwrap();
     let mut plans = std::collections::BTreeMap::new();
+    let mut plan_files = std::collections::BTreeMap::new();
     for (step, json) in [
         ("first", false),
         ("first", true),
@@ -1070,11 +1071,13 @@ pub fun build(b: &mut build::Build) build::Error!() {{
             String::from_utf8_lossy(&configured.stderr)
         );
         plans.insert((step, json), configured.stdout);
+        // Every build publishes the plan of its selected step, configure cache
+        // hits included, so the language server reads the active selection.
+        plan_files.insert(
+            step,
+            std::fs::read(root.join("build/out/build-plan.bin")).unwrap(),
+        );
     }
-    // This file is the configure-runner product. Cache reuse need not publish
-    // it again when another selection becomes active; compare the active plan
-    // through the public inspection above, and preserve this warm product too.
-    let plan_file = std::fs::read(root.join("build/out/build-plan.bin")).unwrap();
     // One pass over every selection, renderer, and parallelism; the samples
     // are compared with the dry-run plans, not with each other.
     for (step, mode, jobs) in [
@@ -1154,7 +1157,7 @@ pub fun build(b: &mut build::Build) build::Error!() {{
         }
         assert_eq!(
             std::fs::read(root.join("build/out/build-plan.bin")).unwrap(),
-            plan_file
+            plan_files[step]
         );
         if mode == "none" {
             assert!(output.stderr.is_empty());
