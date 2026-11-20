@@ -1,0 +1,236 @@
+// The source-mapped code generator of the generated-chain smoke test.
+//
+// `generate <stage> <input> <output> <map> [<unused> <unused map>]` copies
+// `input` to `output` behind a marker line and writes a source map that maps
+// the function name in the output back to `input`. The second stage also
+// writes an unused sibling output with an empty map. The fixture contents are
+// fixed, so the BLAKE3 digests the maps publish are constants.
+
+using std::fmt;
+using std::fs;
+using std::io;
+using std::iter;
+using std::mem;
+using std::option;
+using std::process;
+using std::result;
+using std::slice;
+using std::string;
+
+// Digests of the input, the first output, and the second output while the
+// function is named `amount`.
+static amountDigests = [
+    "e4289ea22685f6b5e7cf03d8af1c3a494588982720dcf2e8d25b078334eee25f",
+    "ca9650b1f0a22e5ef17befd536c6b9e7ebf00025ceeffbfcfff0edfd8ed91abc",
+    "c3ecb1af70e3764b8eb3915fc9c486b97a7fc74b4cfa47e802bcd91c76b0165c",
+];
+
+// The same digests after the function is renamed to `total`.
+static totalDigests = [
+    "0bb259eb96f6d3b5f9d9a69fb9793b861dbc8102996fad1013fe507b73fac1ea",
+    "19686504cf6038f5c358cd3ed4d8fe1ee31a4e5b158ba2784cab57018ef3247f",
+    "891824330ae841e047b9fa128c97c49ad4c182a3c63e415fd755c6edba20de30",
+];
+
+// The digest of the unused output, `// unused\n`.
+static unusedDigest = "9b48c9391f761752db023350c463505b36e1325f5a2af706575b586a9193614b";
+
+// Why the generator failed.
+enum GenerateError {
+    // An argument is missing, or the stage is not a number.
+    Usage,
+    // The input names neither `amount` nor `total`.
+    MissingName,
+    Text(string::TextError),
+    File(fs::OperationError),
+    Fs(fs::Error),
+    Format(fmt::Error),
+    Memory(mem::Error),
+}
+
+extend string::TextError : std::builtin::IntoError[GenerateError] {
+    fun intoError(self) GenerateError {
+        .Text(self)
+    }
+}
+
+extend fs::OperationError : std::builtin::IntoError[GenerateError] {
+    fun intoError(self) GenerateError {
+        .File(self)
+    }
+}
+
+extend fs::Error : std::builtin::IntoError[GenerateError] {
+    fun intoError(self) GenerateError {
+        .Fs(self)
+    }
+}
+
+extend fmt::Error : std::builtin::IntoError[GenerateError] {
+    fun intoError(self) GenerateError {
+        .Format(self)
+    }
+}
+
+extend mem::Error : std::builtin::IntoError[GenerateError] {
+    fun intoError(self) GenerateError {
+        .Memory(self)
+    }
+}
+
+// Every failure ends the build step with status 1.
+extend GenerateError : std::builtin::IntoError[process::ExitCode] {
+    fun intoError(self) process::ExitCode {
+        _ = self;
+        process::ExitCode(1)
+    }
+}
+
+pub fun main(init: process::Init) process::ExitCode!() {
+    let mut page: mem::PageAllocator = .init();
+    let mut allocator: mem::GeneralPurposeAllocator = .init(page);
+    defer allocator.deinit().?;
+    generate(allocator, init.args()).?;
+    !()
+}
+
+// Runs one stage of the chain on the paths in `args`.
+fun generate(allocator: &mut mem::Allocator, args: process::Args) GenerateError!() {
+    let stage = args
+        .get(1)
+        .okOr(GenerateError::Usage).?
+        .parse[usize]()
+        .mapError(\_ -> GenerateError::Usage).?;
+    if stage != 1 and stage != 2 {
+        return .Usage!;
+    }
+    let mut before: std::ArrayList[u8] = .init();
+    defer before.deinit(allocator).?;
+    readFile(allocator, args, 2, &mut before).?;
+    let before = before.asSlice();
+
+    // The function keeps its name through the chain, so the input says which
+    // digests describe the fixture.
+    let renamed = not before.contains(b"amount");
+    let name: &[u8] = if renamed { b"total" } else { b"amount" };
+    let digests: &[[char; 64]] = if renamed { &totalDigests[..] } else { &amountDigests[..] };
+    let start = before.find(name).okOr(GenerateError::MissingName).?;
+    let marker: &[u8] = if stage == 1 { b"// first\n" } else { b"// second\n" };
+
+    let mut buffer: [u8; 512] = [0; 512];
+    let mut output = createFile(allocator, args, 3).?;
+    let mut writer = output.writer(&mut buffer[..]).?;
+    writer.writeAll(marker).?;
+    writer.writeAll(before).?;
+    writer.flush().?;
+    output.close().?;
+
+    // The marker line moves the name in the output by its own length.
+    let generated = marker.len() + start;
+    let mut sourcePath = fileName(allocator, args, 2).?;
+    defer sourcePath.deinit(allocator).?;
+    let generatedDigest: &[char] = &digests[stage][..];
+    let sourceDigest: &[char] = &digests[stage - 1][..];
+    let sourceName = sourcePath.text();
+    let mut map = createFile(allocator, args, 4).?;
+    let mut writer = map.writer(&mut buffer[..]).?;
+    writer.print(
+        "{{\"version\": 1, \"generatedDigest\": \"{}\", \"mappings\": [{{"
+            "\"generated\": [{}, {}], \"sourcePath\": \"{}\", \"sourceDigest\": \"{}\", "
+            "\"source\": [{}, {}], \"editable\": true",
+        &[
+            generatedDigest,
+            &generated,
+            &(generated + name.len()),
+            sourceName,
+            sourceDigest,
+            &start,
+            &(start + name.len()),
+        ],
+    ).?;
+    if stage == 2 {
+        writer.writeAll(b", \"sourceRoot\": \"build\"").?;
+    }
+    writer.writeAll(b"}]}").?;
+    writer.flush().?;
+    map.close().?;
+
+    if stage == 2 {
+        let mut unused = createFile(allocator, args, 5).?;
+        let mut writer = unused.writer(&mut buffer[..]).?;
+        writer.writeAll(b"// unused\n").?;
+        writer.flush().?;
+        unused.close().?;
+
+        let digest: &[char] = &unusedDigest[..];
+        let mut unusedMap = createFile(allocator, args, 6).?;
+        let mut writer = unusedMap.writer(&mut buffer[..]).?;
+        writer.print(
+            "{{\"version\": 1, \"generatedDigest\": \"{}\", \"mappings\": []}}",
+            &[digest],
+        ).?;
+        writer.flush().?;
+        unusedMap.close().?;
+    }
+    !()
+}
+
+// The path in argument `index`.
+fun argument(
+    allocator: &mut mem::Allocator,
+    args: process::Args,
+    index: usize,
+) GenerateError!fs::Path {
+    let arg = args.get(index).okOr(GenerateError::Usage).?;
+    !fs::Path::fromUtf8(allocator, arg.bytes()).?
+}
+
+// The last component of the path in argument `index`, after its last
+// separator.
+fun fileName(
+    allocator: &mut mem::Allocator,
+    args: process::Args,
+    index: usize,
+) GenerateError!string::String {
+    let path = args.get(index).okOr(GenerateError::Usage).?.bytes();
+    let mut start: usize = 0;
+    for (index, &byte) in path.iter().enumerate() {
+        if byte == b'/' or byte == b'\\' {
+            start = index + 1;
+        }
+    }
+    !string::String::fromUtf8(allocator, &path[start..]).?
+}
+
+// Creates or truncates the file at the path in argument `index`.
+fun createFile(
+    allocator: &mut mem::Allocator,
+    args: process::Args,
+    index: usize,
+) GenerateError!fs::File {
+    let mut path = argument(allocator, args, index).?;
+    defer path.deinit(allocator).?;
+    !fs::File::create(path.view(), fs::CreateOptions::init()).?
+}
+
+// Appends the contents of the file at the path in argument `index` to
+// `output`.
+fun readFile(
+    allocator: &mut mem::Allocator,
+    args: process::Args,
+    index: usize,
+    output: &mut std::ArrayList[u8],
+) GenerateError!() {
+    let mut path = argument(allocator, args, index).?;
+    defer path.deinit(allocator).?;
+    let mut file = fs::File::open(path.view(), fs::OpenOptions::readOnly()).?;
+    defer file.close().?;
+    let mut buffer: [u8; 512] = [0; 512];
+    let mut reader = file.reader(&mut buffer[..]).?;
+    io::readToEnd(&mut reader, allocator, usize::MAX, output).mapError(\error -> match error {
+        .Read(cause) => GenerateError::Fs(cause),
+        .Memory(cause) => GenerateError::Memory(cause),
+        .LimitExceeded => GenerateError::Usage,
+    }).?;
+    !()
+}

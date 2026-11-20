@@ -201,7 +201,8 @@ jobs:
           unpacked="$(mktemp -d)"
           tar -xzf "${archive}" -C "${unpacked}"
           server="${unpacked}/nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}/bin/nia-lsp"
-          python3 nia-source/tools/lsp-smoke.py "$server"
+          (cd nia-source && NIA_LSP_SMOKE_SERVER="$server" \
+            cargo test --locked --release -p nia-lsp --test smoke --no-default-features --features llvm-static)
           echo "server=$server" >> "$GITHUB_OUTPUT"
       - name: Verify Windows archive layout
         if: runner.os == 'Windows'
@@ -216,8 +217,12 @@ jobs:
           $unpacked = Join-Path $env:RUNNER_TEMP ("nia-relocated-" + [guid]::NewGuid().ToString("N"))
           Expand-Archive -LiteralPath $archive -DestinationPath $unpacked
           $server = Join-Path $unpacked "nia-${{ needs.validate.outputs.version }}-${{ matrix.platform }}\bin\nia-lsp.exe"
-          python .\nia-source\tools\lsp-smoke.py $server
-          if ($LASTEXITCODE -ne 0) { throw 'packaged Windows language server failed protocol checks' }
+          $env:NIA_LSP_SMOKE_SERVER = $server
+          Push-Location nia-source
+          cargo test --locked --release -p nia-lsp --test smoke --no-default-features --features llvm-static --target x86_64-pc-windows-msvc
+          $status = $LASTEXITCODE
+          Pop-Location
+          if ($status -ne 0) { throw 'packaged Windows language server failed protocol checks' }
           "server=$server" >> $env:GITHUB_OUTPUT
       - name: Verify the unpacked Unix toolchain with Neovim
         if: runner.os != 'Windows'
@@ -282,8 +287,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'VS Code desktop download failed' }
           Expand-Archive -LiteralPath $zip -DestinationPath $desktop
           $vsix = "nia-source/target/release-package/nia-${{ needs.validate.outputs.version }}.vsix"
-          python nia-source/tools/lsp-vscode-smoke.py --code "$desktop/Code.exe" --cli "$desktop/bin/code.cmd" $env:NIA_SMOKE_SERVER $vsix
-          if ($LASTEXITCODE -ne 0) { throw 'VS Code client smoke test failed' }
+          & nia-source/tools/lsp-vscode-smoke/smoke.ps1 -Code "$desktop/Code.exe" -Cli "$desktop/bin/code.cmd" -Server $env:NIA_SMOKE_SERVER -Vsix $vsix
       - name: Upload platform release assets
         uses: actions/upload-artifact@v7
         with:

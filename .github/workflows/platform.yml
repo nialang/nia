@@ -138,7 +138,8 @@ jobs:
             unpacked="$(mktemp -d)"
             tar -xzf "${archive[0]}" -C "${unpacked}"
             server=("${unpacked}"/nia-*-${NIA_RELEASE_PLATFORM}/bin/nia-lsp)
-            python3 tools/lsp-smoke.py "${server[0]}"
+            NIA_LSP_SMOKE_SERVER="${server[0]}" cargo test --locked -p nia-lsp --test smoke \
+              --no-default-features --features llvm-static -- --nocapture
           } 2>&1 | tee target/platform-evidence/lsp.log
 
       - name: Run Darwin package, executable and standard-library suites

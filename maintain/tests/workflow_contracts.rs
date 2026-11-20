@@ -302,21 +302,45 @@ fn workflows_have_no_parallel_python_or_node_toolchain() {
         "release.yml",
     ] {
         let workflow = workflow(name);
-        for forbidden in [
-            "setup-python",
-            "setup-node",
-            "python3",
-            "npm",
-            ".python-version",
-            ".node-version",
-            "package-lock.json",
-        ] {
+        for forbidden in ["setup-python", "python", ".python-version"] {
             assert!(
                 !workflow.contains(forbidden),
                 "{name} still contains {forbidden}"
             );
         }
+        // Packaging the VS Code extension needs Node and npm (`vsce`). That is
+        // the only Node use: the release workflow sets it up for the VSIX job
+        // steps, and the extension's own lockfile pins its dependencies.
+        let node_allowed = name == "release.yml";
+        for forbidden in ["setup-node", "npm", ".node-version", "package-lock.json"] {
+            assert!(
+                node_allowed || !workflow.contains(forbidden),
+                "{name} still contains {forbidden}"
+            );
+        }
     }
+    let release = workflow("release.yml");
+    let node_lines = release
+        .lines()
+        .filter(|line| {
+            ["setup-node", "npm", "node-version", "package-lock.json"]
+                .iter()
+                .any(|word| line.contains(word))
+        })
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        node_lines,
+        [
+            "uses: actions/setup-node@v6",
+            "node-version: '24'",
+            "cache: npm",
+            "cache-dependency-path: nia-source/editors/vscode/package-lock.json",
+            "npm.cmd ci",
+            "npm.cmd exec --yes --package=@vscode/vsce@4.1.1 -- vsce package --out ../../target/release-package/nia-${{ needs.validate.outputs.version }}.vsix",
+        ],
+        "Node is used only to package the VS Code extension"
+    );
 }
 
 #[test]

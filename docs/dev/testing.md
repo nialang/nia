@@ -129,42 +129,46 @@ the harness bounds resources but does not change production semantics.
 
 ## Language Server
 
-`cargo test -p nia-lsp` runs the server's unit tests, which drive analysis
-sessions and the protocol loop in process. The Python tools in `tools/` speak
-to a built server over stdio; they need Python 3.9 or later. The user-facing
-feature set they check is described in
-[`editors/README.md`](../../editors/README.md).
+`cargo test -p nia-lsp` runs the server's tests. The unit tests drive analysis
+sessions and the protocol loop in process; the integration suites start the
+server binary and speak to it over stdio. The user-facing feature set they
+check is described in [`editors/README.md`](../../editors/README.md).
 
-- `tools/lsp-smoke.py <server>` exercises a packaged server end to end:
-  editing and navigation, module and package moves, build-plan entries,
-  source-mapped generated code, and long expressions. Pass the `bin/nia-lsp`
-  of an unpacked release archive, which finds its own `lib`. The release
-  workflow runs it for every platform archive, and `platform.yml` runs it on
-  Darwin.
-- `tools/lsp-incremental-audit.py <server> --resource-root lib` checks that
-  incremental analysis equals clean analysis: after each edit it compares the
-  server's results with a fresh session on the same snapshot. `--workload`
-  selects `workspace`, `array-list`, or `dependencies`; `--semantic-tokens`
-  also compares published semantic tokens; `--cancel-retry` cancels a
-  definition request after each edit and checks the retry; `--sample-rss`
-  records memory after each snapshot.
-- `tools/lsp-latency.py` measures request round trips, versioned diagnostic
-  arrival, and a semantic-token fetch after diagnostics, plus rename,
-  cancellation, and peak resident memory. Use a release server. Benchmark
-  edits stay in the editor session and are never written to disk:
+- `tests/smoke.rs` exercises the server end to end: editing and navigation,
+  module and package moves, build-plan entries, source-mapped generated code,
+  and long expressions.
+- `tests/incremental.rs` checks that incremental analysis equals clean
+  analysis. For each edit of the `workspace`, `array-list`, and `dependencies`
+  workloads, one session goes from the original snapshot to the edited one and
+  back, and its diagnostics, navigation results, and published semantic tokens
+  are compared with fresh sessions on each snapshot. A definition request is
+  canceled after each edit, and its retry must succeed.
 
-  ```sh
-  python tools/lsp-latency.py --server target/release/nia-lsp --resource-root lib \
-    --workspace lib/std --source lib/std/collections/array_list/list.nia --symbol ArrayList
-  ```
+Both suites use the `nia-lsp` and `nia` built in the workspace's test profile,
+with the checkout's `lib`; build `nia-cli` first when running them alone
+(`cargo test -p nia-cli --no-run`). Set `NIA_LSP_SMOKE_SERVER` to the
+`bin/nia-lsp` of an unpacked release archive to test that server and the `nia`
+beside it instead; the release workflow does so for every platform archive,
+and `platform.yml` on Darwin.
 
-  To measure member completion and the diagnostics that follow each edit,
-  replace `--symbol ArrayList` with `--member "self.len() == 0" self isEmpty`.
-  Each repetition types the member one character at a time and checks that
-  the server offers it at every prefix; the report separates the first `.`
-  request of the session from later ones and lists each prefix and diagnostic
-  latency. `--repeat 3` gives a short run. `--revision` and `--configuration`
-  only label the report with the commit and build settings of the server.
+`tools/lsp-latency.py` is a local benchmark, not part of any gate; it needs
+Python 3.9 or later. It measures request round trips, versioned diagnostic
+arrival, and a semantic-token fetch after diagnostics, plus rename,
+cancellation, and peak resident memory. Use a release server. Benchmark edits
+stay in the editor session and are never written to disk:
+
+```sh
+python tools/lsp-latency.py --server target/release/nia-lsp --resource-root lib \
+  --workspace lib/std --source lib/std/collections/array_list/list.nia --symbol ArrayList
+```
+
+To measure member completion and the diagnostics that follow each edit,
+replace `--symbol ArrayList` with `--member "self.len() == 0" self isEmpty`.
+Each repetition types the member one character at a time and checks that the
+server offers it at every prefix; the report separates the first `.` request
+of the session from later ones and lists each prefix and diagnostic latency.
+`--repeat 3` gives a short run. `--revision` and `--configuration` only label
+the report with the commit and build settings of the server.
 
 Set `NIA_LSP_TIMINGS=summary` to make the server print a JSON timing report
 on stderr at shutdown; `NIA_LSP_TIMINGS=detail` adds individual compiler query
@@ -173,15 +177,15 @@ timings.
 The editor clients have their own smoke tests, which the release workflow runs
 against the packaged server and VSIX:
 
-- `tools/lsp-vscode-smoke.py` installs the VSIX in a temporary VS Code
+- `tools/lsp-vscode-smoke/smoke.ps1` installs the VSIX in a temporary VS Code
   profile and checks language detection, the file icon, semantic tokens,
   folding, and a module move with its child directory. Pass the VS Code
-  desktop executable, the server from an unpacked release, and the VSIX; add
-  `--cli` when the VS Code CLI is not `code` on `PATH`. Run it in a desktop
-  session:
+  desktop executable and CLI, the server from an unpacked release, and the
+  VSIX. Run it in a desktop session:
 
-  ```sh
-  python tools/lsp-vscode-smoke.py --code /path/to/Code /path/to/bin/nia-lsp /path/to/nia.vsix
+  ```powershell
+  tools/lsp-vscode-smoke/smoke.ps1 -Code <Code.exe> -Cli <bin/code.cmd> `
+    -Server <bin/nia-lsp.exe> -Vsix <nia.vsix>
   ```
 
 - `tools/lsp-neovim-smoke.lua` runs Neovim's built-in LSP client headless

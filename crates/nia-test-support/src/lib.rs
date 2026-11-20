@@ -424,6 +424,93 @@ impl CommandStatusExt for Command {
     }
 }
 
+/// A long-running child that a test drives over its standard streams, such as
+/// a language server.
+///
+/// The child does compiler work for as long as it lives, so it runs inside the
+/// test's compiler/build session rather than charging a permit of its own.
+/// Standard input and output are piped for the test; standard error is
+/// collected in the background so failures can show its tail. Dropping the
+/// handle ends the child's process tree if it is still running, including
+/// during unwinding.
+pub struct InteractiveChild {
+    child: std::process::Child,
+    stderr: std::sync::Arc<Mutex<Vec<u8>>>,
+    context: String,
+}
+
+impl InteractiveChild {
+    /// Starts `command` with piped standard streams within the active
+    /// compiler/build session.
+    pub fn spawn_in_session(command: &mut Command, context: &str) -> Self {
+        assert!(
+            ACTIVE_TEST_RESOURCE_SESSIONS.with(Cell::get) != 0,
+            "{context}: command requires an active test resource session"
+        );
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        prepare_command(command);
+        let mut child = command
+            .spawn()
+            .unwrap_or_else(|error| panic!("{context}: failed to spawn command: {error}"));
+        let mut pipe = child
+            .stderr
+            .take()
+            .expect("stderr pipe was configured before spawn");
+        let stderr = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let collected = std::sync::Arc::clone(&stderr);
+        thread::spawn(move || {
+            let mut chunk = [0; 4096];
+            while let Ok(count @ 1..) = pipe.read(&mut chunk) {
+                lock_unpoisoned(&collected).extend_from_slice(&chunk[..count]);
+            }
+        });
+        Self {
+            child,
+            stderr,
+            context: context.to_owned(),
+        }
+    }
+
+    /// The child's standard input; `None` once taken.
+    pub fn take_stdin(&mut self) -> Option<std::process::ChildStdin> {
+        self.child.stdin.take()
+    }
+
+    /// The child's standard output; `None` once taken.
+    pub fn take_stdout(&mut self) -> Option<std::process::ChildStdout> {
+        self.child.stdout.take()
+    }
+
+    /// The last few kilobytes the child wrote to standard error so far.
+    pub fn stderr_tail(&self) -> String {
+        output_tail(&lock_unpoisoned(&self.stderr))
+    }
+
+    /// Waits for the child to exit, ending its process tree and panicking
+    /// when it is still running after `timeout`.
+    pub fn wait_timeout(&mut self, timeout: Duration) -> ExitStatus {
+        wait_child_timeout(&mut self.child, timeout, &self.context).unwrap_or_else(|()| {
+            panic!(
+                "{}: command timed out after {timeout:?}\nstderr tail:\n{}",
+                self.context,
+                self.stderr_tail(),
+            )
+        })
+    }
+}
+
+impl Drop for InteractiveChild {
+    fn drop(&mut self) {
+        if matches!(self.child.try_wait(), Ok(None)) {
+            terminate_child(&mut self.child);
+            let _ = self.child.wait();
+        }
+    }
+}
+
 fn acquire_runtime_resources() -> Option<TestResourceSession<'static>> {
     let compiler_memory_reserved = ACTIVE_COMPILER_SLOTS.with(Cell::get) != 0;
     Some(acquire_resources(
