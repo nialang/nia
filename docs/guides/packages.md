@@ -73,11 +73,10 @@ path = "tests/unit.nia"
 
 - `[package]` identifies the package. `version` is a SemVer version.
   `protocol-epoch` names the compiler release line the package was written
-  for; a compiler from another line rejects the package with a clear error
-  instead of failing in less obvious ways.
+  for. A compiler from another line rejects the package before compiling it.
 - `[library]` names the file that roots the library's module tree.
-- Each `[[executable]]` and `[[test]]` names an artifact and the file that roots
-  it.
+- Each `[[executable]]` and `[[test]]` names an artifact and the file that
+  roots it.
 
 The generated `.gitignore` excludes `/build/`, the directory where Nia keeps
 everything it produces. Commit everything else, including `nia.lock` once it
@@ -109,10 +108,10 @@ library loads `lib/util.nia`. A source file can belong to only one tree, so if
 the library and the executable share a directory, declare the child module in
 the library and reach it from the executable with `using hello::util;`.
 
-The library entry is the package's public face. Anything users need is
-reachable from it, either declared there or re-exported with `pub using`. A
-type's methods count too: if they live in a separate file, re-export that
-file's module as described under
+The library's root file is the package's public face. Everything users need
+must be reachable from it, either declared there or re-exported with
+`pub using`. This includes a type's methods: if they live in a separate file,
+re-export that file's module as described under
 [Re-Exports](../reference/language.md#re-exports).
 
 ## Building, Running, And Testing
@@ -125,19 +124,19 @@ nia build --list
 ```
 
 ```text
-all           aggregate (default)
-hello         compiler-emit
-library       compiler-check
-run-hello     run-executable
-test          aggregate
-unit          test-executable
+all        aggregate (default)
+hello      compiler-emit
+library    compiler-check
+run-hello  run-executable
+test       aggregate
+unit       test-executable
 ```
 
 | Command | What it does |
 | --- | --- |
 | `nia build` | runs the default step, `all`: checks the library, builds every executable, and runs every test suite |
 | `nia build library` | checks every function of the library, whether or not anything calls it |
-| `nia build hello` | builds the `hello` executable into `build/out/hello` |
+| `nia build hello` | builds the `hello` executable into `build/out/hello` (`hello.exe` on Windows) |
 | `nia build run-hello` | builds `hello`, then runs it |
 | `nia build test` | builds and runs every test suite |
 | `nia build unit` | builds and runs the `unit` suite only |
@@ -156,8 +155,9 @@ run directly from `build/out/`.
 
 Names in `[[executable]]` and `[[test]]` must be unique across both tables, and
 cannot be `all`, `library`, `test`, or start with `run-`, because those names
-belong to the derived steps. An artifact may set `runtime = "bare"` to build without the
-standard process entry; see [Targets And Runtimes](targets.md).
+belong to the derived steps. An artifact may set `runtime = "bare"` to build
+without the standard process entry; see
+[Runtimes](targets.md#runtimes) in Targets And Runtimes.
 
 ## Adding Dependencies
 
@@ -194,21 +194,18 @@ Git and registry sources are fetched by the next build.
 
 ### Who Can Use A Dependency
 
-The table a dependency appears in is its scope. `nia add --scope` selects it:
+The table a dependency appears in is its scope, and `nia add --scope` chooses
+the table. Most dependencies go in `[dependencies]`, the default, which the
+library, the executables, and the tests can all import. Test-only packages go
+in `[dev-dependencies]` (`--scope dev`), and packages that only `build.nia`
+imports in `[build-dependencies]` (`--scope build`). The
+[manifest reference](../reference/manifest.md#dependency-tables) lists every
+table and what can import from it.
 
-| Table | `--scope` | Available to |
-| --- | --- | --- |
-| `[dependencies]` | `runtime` (default) | the library, executables, and tests |
-| `[dev-dependencies]` | `dev` | test suites only |
-| `[build-dependencies]` | `build` | `build.nia` only |
-| `[optional-dependencies]` | `optional` | only modules that a build script explicitly imports it into |
-| `[lazy-dependencies]` | `lazy` | the same as `[dependencies]` |
-
-A name must be unique across all of a package's dependency tables. Every
-declared dependency, whichever table it is in, is resolved and locked before a
-build starts, but its modules are read only when code being compiled imports
-it. An optional dependency is reached through
-`ModuleImport::fromPackage` in a build script; see
+Every declared dependency, whichever table it is in, is resolved and locked
+before a build starts, but its modules are read only when code being compiled
+imports it. An optional dependency is imported only where a build script maps
+it in with `ModuleImport::fromPackage`; see
 [Dependencies In A Script](build-scripts.md#dependencies-in-a-script).
 
 ### Git Dependencies
@@ -218,12 +215,13 @@ hash), `tag`, or `branch`. Without one, it follows the remote `HEAD`. The
 lockfile records the commit it resolved to, so a branch or `HEAD` dependency
 moves only when you run `nia update`.
 
-Nia fetches Git sources itself, without running `git`, from `https://`,
-`ssh://`, SCP-style `git@host:path`, `git://`, `http://`, and `file:///` URLs.
-Private repositories use the setup Git already has: over HTTPS, the configured
-Git credential helper supplies a username and password; over SSH, the keys in
-the running SSH agent are offered, and the server is checked against
-`known_hosts`. URLs cannot embed credentials. The
+Nia fetches Git sources itself from `https://`, `ssh://`, SCP-style
+`git@host:path`, `git://`, `http://`, and `file:///` URLs; the `git` program
+is needed only to look up HTTPS credentials. Private repositories use the
+setup Git already has: over HTTPS, the configured Git credential helper
+supplies a username and password; over SSH, the keys in the running SSH agent
+are offered, and the server is checked against `known_hosts`. URLs cannot
+embed credentials. The
 [manifest reference](../reference/manifest.md#git-sources) describes
 authentication, proxies, and the supported key types in detail.
 
@@ -342,10 +340,11 @@ builds at the root; without it, the root builds every member. `exclude` lists
 directories under the root that hold independent packages rather than members.
 A package under the workspace directory that is neither a member nor excluded
 cannot be built: `nia build` inside it fails with
-`package ... is not a member of workspace`. A nested workspace cannot be a
-member of its parent. The root manifest may also declare a `[package]` of its
-own; one without it is a virtual workspace. The
-[manifest reference](../reference/manifest.md#workspace) lists every key.
+``package `<path>` is under a workspace but is not listed in `workspace.members` ``.
+A nested workspace cannot be a member of its parent. The root manifest may
+also declare a `[package]` of its own; a root without one is a virtual
+workspace. The [manifest reference](../reference/manifest.md#workspace) lists
+every key.
 
 `nia build` inside a member builds that member. At the root it builds
 `default-members`; `--workspace` selects every member, and

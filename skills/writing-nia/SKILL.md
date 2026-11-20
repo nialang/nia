@@ -11,11 +11,12 @@ Nia is not Rust. Most mistakes come from writing Rust with Nia keywords: a
 Nia's documentation; this skill says what to read and how to work. Do not
 answer questions about Nia from what Rust or C would do.
 
-## Where the sources are
+## Where The Sources Are
 
 - **Documentation.** In a checkout of the Nia repository, read `docs/`.
-  Otherwise read it at <https://github.com/nialang/nia/tree/main/docs>,
-  preferably at the tag that matches `nia --version`.
+  Otherwise read it at <https://github.com/nialang/nia/tree/main/docs>: at
+  the tag `v<version>` for a released `nia --version`, on `main` for a
+  `-dev` version.
 - **Standard library source.** `lib/std/` in the repository, or `lib/std/`
   next to `bin/` in an unpacked toolchain.
 - **The json library**, an official package written as an example of
@@ -23,7 +24,7 @@ answer questions about Nia from what Rust or C would do.
 
 Read the files themselves, not this summary, when a detail matters.
 
-## Read first
+## Read First
 
 1. `docs/guides/writing-nia.md`: how idiomatic Nia is written (imports,
    errors, optionals, iteration, closures, ownership, abstractions, layout,
@@ -35,7 +36,9 @@ Read the files themselves, not this summary, when a detail matters.
    method, in "Extension Methods"), `closures.md`, `memory.md`,
    `generics-and-traits.md`, `pointers-and-slices.md`, `testing.md`.
 3. `docs/reference/language.md` when a rule must be exact (precedence,
-   literal typing, patterns); `docs/reference/builtins.md` for `@` builtins.
+   literal typing, patterns); `docs/reference/builtins.md` for `@` builtins;
+   `docs/guides/build-scripts.md` and `docs/reference/manifest.md` for
+   `build.nia` and `nia.toml`.
 4. The standard library source for the API itself. Before writing something
    non-trivial, find where std or json does the same thing and follow it.
    Files worth reading for style:
@@ -63,9 +66,14 @@ Read the files themselves, not this summary, when a detail matters.
 3. Add a `using` for the module of every extension method called.
 4. Run `nia check` on the file or package. It checks every body of the tree
    and reports every import that nothing uses: remove those imports.
-5. Run every program whose output is stated in documentation, a test, or an
-   answer, and compare. `io::debugPrint` writes to standard error.
-6. When the compiler rejects code the documentation says is valid, reduce it
+5. Lay the code out as the guide's "Layout" section says. `nia fmt <file>`
+   prints a normalized copy to stdout, but it does not indent continuation
+   lines as std does, so do not replace a file with its output unchecked.
+6. Run every program whose output is stated in documentation, a test, or an
+   answer, and compare: `nia build` for a package (`nia build run-<name>`,
+   `nia build test`), `nia emit --exe file.nia -o out` for a single file.
+   `io::debugPrint` writes to standard error.
+7. When the compiler rejects code the documentation says is valid, reduce it
    to a small program: it may be a compiler bug, to report rather than work
    around silently.
 
@@ -73,7 +81,7 @@ Read the files themselves, not this summary, when a detail matters.
 
 Check what was written against each item; each is a habit that fails to
 compile or means something else in Nia. The guide's table "Habits From Other
-Languages" has the full list.
+Languages" has the full list, and the sections above it explain each item.
 
 - [ ] Error unions are `E!T`, error first; optionals are `?T`. Propagate
       with `.?`; build a failure with `error!` and a success with `!value`.
@@ -86,8 +94,8 @@ Languages" has the full list.
       `==` on pointers compares addresses.
 - [ ] Closures list their captures: `\[min] x -> x > min`, `[&mut sum]`.
 - [ ] The module of every extension method is imported (`std::iter`,
-      `std::option`, `std::slice`, `std::result`, ...). Trait methods such as
-      `len`, `iter`, and `next` need no import.
+      `std::option`, `std::slice`, `std::result`, and others). Trait methods
+      such as `len`, `iter`, and `next` need no import.
 - [ ] Unused results are discarded explicitly: `_ = f();`. A cleanup result
       is kept with `defer x.deinit(allocator).?;`, and discarded with
       `defer _ = x.deinit(allocator);` only where it cannot matter.

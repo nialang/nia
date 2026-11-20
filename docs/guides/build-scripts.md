@@ -2,7 +2,7 @@
 
 Most packages build from their manifest alone: `nia.toml` declares the
 library, executables, and test suites, and `nia build` derives the steps; see
-[Packages and dependencies](packages.md). A package that needs more adds a
+[Packages And Dependencies](packages.md). A package that needs more adds a
 `build.nia` file at its root. Typical reasons are:
 
 - a step that runs a program with fixed arguments, or after the tests pass;
@@ -75,20 +75,22 @@ declared. Line by line:
 - `b.step("test")` finds the manifest's `test` step, and `dependOn` makes
   `greet-all` run after it.
 
-Every call returns an error union, and `.?` passes a failure back to `nia build`,
-which reports it. The new step appears beside the derived ones:
+Every call that can fail returns an error union, and `.?` passes a failure
+back to `nia build`, which reports it. The new step appears beside the derived
+ones:
 
 ```sh
 nia build --list
 ```
 
 ```text
-all           aggregate (default)
-greet         compiler-emit
-greet-all     run-executable
-run-greet     run-executable
-test          aggregate
-unit          test-executable
+all        aggregate (default)
+greet      compiler-emit
+greet-all  run-executable
+library    compiler-check
+run-greet  run-executable
+test       aggregate
+unit       test-executable
 ```
 
 ```sh
@@ -137,10 +139,10 @@ optimization level, runs the script again.
 
 ## Declaring Artifacts In The Script
 
-A script can also declare artifacts that the manifest does not, which is
-needed when an artifact imports a generated file or another package's file by
-a custom name. A script that declares its own executable from scratch looks
-like this:
+A script can also declare artifacts that the manifest does not. This is
+needed when an artifact imports a generated file, or another package's file
+under a name of its own. A script that declares its own executable from
+scratch looks like this:
 
 ```nia
 using std::build;
@@ -150,7 +152,9 @@ pub fun build(b: &mut build::Build) build::Error!() {
     let planner = b.addModule(
         build::ModuleOptions::init("planner", fs::PathView::init("src/main.nia")),
     ).?;
-    let exe = b.addExecutable(build::ExecutableOptions::init("planner", planner)).?;
+    let exe = b.addExecutable(
+        build::ExecutableOptions::init("planner", planner),
+    ).?;
     let emit = b.addEmitExecutableStep("planner", exe).?;
     b.setDefaultStep(emit).?;
     !()
@@ -161,9 +165,11 @@ The three calls build on each other: a module is a root source file, an
 executable links a module, and a step is what `nia build <step>` runs. Every
 `add*` call returns a handle (`ModuleHandle`, `ExecutableHandle`,
 `StepHandle`, and so on). Paths given as `fs::PathView` are relative to the
-package root. Names are plain identifiers such as `planner` or `run-tests`;
-they cannot contain path separators. `setDefaultStep` replaces `all` as the
-step that a plain `nia build` runs.
+package root. Module, artifact, and step names consist of ASCII letters,
+digits, `-`, `_`, and `.`, following the
+[step-name rule](../reference/cli.md#nia-build), so they cannot contain path
+separators. `setDefaultStep` chooses the step that a plain `nia build` runs,
+in place of the manifest's `all`.
 
 Options take further `with*` methods in a chain:
 
@@ -188,7 +194,8 @@ for one module (`O0`, `O1`, `O2`, `O3`, `Os`, `Oz`). Other modules use the
 level selected on the command line (`-O2`, `--release`, and so on).
 
 `withImports` lists the extra names that the module's source can open with
-`using`. Each `ModuleImport` maps an import name to a root file:
+`using`. Each `ModuleImport` maps an import name, made of ASCII letters,
+digits, `-`, and `_`, to a root file:
 
 | Constructor | Imported file |
 | --- | --- |
@@ -197,7 +204,8 @@ level selected on the command line (`-O2`, `--release`, and so on).
 | `ModuleImport::fromBuild(name, buildPath)` | a generated file under `build/out/` |
 
 The same import list can be passed to several modules, for example an
-application and its tests. Each module still declares its own imports.
+application and its tests. A list passed to one module adds nothing to
+another, so each module that needs the names is given the list.
 
 ## Dependencies In A Script
 
@@ -209,7 +217,7 @@ one of its files to a command, or importing an optional dependency at all.
 
 `b.addDependency(name)` returns that handle. It accepts any name from
 `[dependencies]`, `[dev-dependencies]`, `[optional-dependencies]`, or
-`[lazy-dependencies]`, whatever the source, path, Git, or registry. A
+`[lazy-dependencies]`, whatever its source: path, Git, or registry. A
 development dependency's sources can still be compiled only into test suites.
 Names from `[build-dependencies]` are rejected, because `build.nia` imports
 those directly. `b.rootPackage()` is the handle of the package that contains
@@ -289,11 +297,11 @@ let app = b.addExecutable(
 A pinned CPU level must fit the artifact's target: an `X86_64` level on an
 artifact built for another architecture fails configuration. A script that
 builds for several targets pins a level only after checking the artifact's
-target. Linkage, LTO, and system libraries change how the artifact is linked; linkage
-applies to Linux executables. Debug information, the panic strategy, and
-defines are recorded in the plan and its cache identity, but the compiler does
-not act on them. Changing any configured field invalidates the affected check,
-emit, and link actions, and `--print-plan` shows the frozen values.
+target. Linkage, LTO, and system libraries change how the artifact is linked;
+linkage applies to Linux executables. Debug information, the panic strategy,
+and defines are recorded in the plan and its cache identity, but the compiler
+does not act on them. Changing any configured field invalidates the affected
+check, emit, and link actions, and `--print-plan` shows the frozen values.
 
 ### Targets
 
@@ -307,9 +315,9 @@ the host, or the target given with `nia build --target <name>`.
 | `b.target(name)` | a [supported target](../reference/platform-support.md#targets) by name, or an error |
 
 A `TargetView` exposes `name()`, `arch()`, `vendor()`, `os()`, `env()`,
-`endian()`, `pointerWidth()`, `executableExtension()` (`exe` for Windows, empty
-elsewhere), and `equals(other)`. The script can branch on
-them, for example `if b.hostTarget().os().equals("windows") { ... }`.
+`endian()`, `pointerWidth()`, `executableExtension()` (`exe` for Windows,
+empty elsewhere), and `equals(other)`. A script can branch on them, for
+example `if b.hostTarget().os().equals("windows") { ... }`.
 
 ## Steps
 
@@ -357,10 +365,11 @@ using std::fs;
 
 pub fun build(b: &mut build::Build) build::Error!() {
     let mathlib = b.addDependency("mathlib").?;
+    let versionPath = build::BuildPathView::init("gen/version.nia");
     let imports = [
         build::ModuleImport::init("greeting", fs::PathView::init("src/greeting.nia")),
         build::ModuleImport::fromPackage("mathlib", mathlib, fs::PathView::init("root.nia")),
-        build::ModuleImport::fromBuild("version", build::BuildPathView::init("gen/version.nia")),
+        build::ModuleImport::fromBuild("version", versionPath),
     ];
     let app = b.addModule(
         build::ModuleOptions::init("app", fs::PathView::init("src/main.nia"))
@@ -370,14 +379,18 @@ pub fun build(b: &mut build::Build) build::Error!() {
 
     _ = b.addGeneratedFileStep(
         "generate-version",
-        build::BuildPathView::init("gen/version.nia"),
+        versionPath,
         b"pub const text: [char; 3] = \"1.0\";\n",
     ).?;
     let emit = b.addEmitExecutableStep("app", exe).?;
     _ = b.addCheckExecutableStep("check", exe).?;
     let runArgs: [&[char]; 1] = ["world"];
     _ = b.addRunExecutableStep("run", build::RunOptions::init(exe).withArguments(runArgs)).?;
-    let install = b.addInstallExecutableStep("install", exe, build::BuildPathView::init("dist/app")).?;
+    let install = b.addInstallExecutableStep(
+        "install",
+        exe,
+        build::BuildPathView::init("dist/app"),
+    ).?;
 
     let all = b.addAggregateStep("all").?;
     b.dependOn(all, emit).?;
@@ -393,7 +406,11 @@ pub fun build(b: &mut build::Build) build::Error!() {
 }
 ```
 
-`src/greeting.nia` and `vendor/mathlib/root.nia` are ordinary modules:
+`nia.toml` declares only the package and the `mathlib` dependency shown in
+[Dependencies In A Script](#dependencies-in-a-script), whose own manifest has
+`[library] path = "root.nia"`. `tests/main.nia` is a test program that uses
+the same imports. `src/greeting.nia` and `vendor/mathlib/root.nia` are
+ordinary modules:
 
 ```nia
 // src/greeting.nia
@@ -439,10 +456,10 @@ install path is used as written).
 of the command's environment, falling back to the host's when the command
 does not declare one. A name containing a separator is relative to the
 working directory instead. On Windows a name without an extension also tries
-each `PATHEXT` extension, so `search("cmd")` finds `cmd.exe`; probes and
-`std::process::Command` follow the same rules. The
-command runs in the package root unless `withPackageWorkingDirectory(path)`
-names a package-relative directory, and its standard input is closed.
+each `PATHEXT` extension, so `search("cmd")` finds `cmd.exe`. Probes and
+`std::process::Command` resolve programs the same way. The command runs in
+the package root unless `withPackageWorkingDirectory(path)` names a
+package-relative directory, and its standard input is closed.
 
 Arguments are typed so that the build knows which files a command reads and
 writes:
@@ -477,19 +494,25 @@ A command reruns on every build unless it selects a cache policy:
 
 Every cache policy also compares the contents of the program itself. A cache
 policy is a promise that the typed arguments describe every file the command
-reads and writes. A cacheable command runs from a temporary working
-directory containing only its declared inputs, so a relative read of an
-undeclared file fails. Links and input trees beyond the depth, entry, or byte
-limits are rejected. Only the typed input arguments (`packageInput`,
-`buildInput`, `artifactInput`, `objectInput`, `staticArchiveInput`) and declared
-stdin are mapped into that view; literal arguments keep their exact text.
-Declared outputs still go to staged build paths, and a cacheable command that
-creates, changes, or deletes any other file in the view fails. Every external
-command is stopped after seven minutes. This is
-not an OS-level sandbox: absolute paths and paths outside that working view are
-not intercepted, so commands requiring them must remain uncacheable. This step
-upper-cases a package file into the build directory and reruns only when
-`input.txt` changes. It needs a POSIX `sh` and `tr` on the `PATH`:
+reads and writes, and the build holds a cacheable command to it:
+
+- The command runs from a temporary working directory that contains only its
+  declared inputs, so a relative read of an undeclared file fails. Symbolic
+  links among the inputs, and input trees beyond the depth, entry, or byte
+  limits, are rejected.
+- Only the typed input arguments (`packageInput`, `buildInput`,
+  `artifactInput`, `objectInput`, `staticArchiveInput`) and a declared stdin
+  are mapped into that directory; literal arguments keep their exact text.
+- Declared outputs go to staged build paths. Creating, changing, or deleting
+  any other file in the working directory fails the command.
+
+This is not an operating-system sandbox: absolute paths and paths outside the
+working directory are not intercepted, so a command that needs them must stay
+uncacheable. Every external command, cacheable or not, is stopped after seven
+minutes.
+
+This step upper-cases a package file into the build directory and reruns only
+when `input.txt` changes. It needs a POSIX `sh` and `tr` on the `PATH`:
 
 ```nia
 using std::build;
@@ -518,32 +541,22 @@ pub fun build(b: &mut build::Build) build::Error!() {
 
 ## Generated Source Maps
 
-A command that generates a Nia source file can declare a companion output
-with `.map` appended to the filename, such as `generated.nia.map`. The
-editor uses the map to follow a generated location back to the producer's
-input. Declare both outputs on the same command.
+A command that generates a Nia source file can also write a source map, a
+JSON file named after the generated file with `.map` appended, such as
+`generated.nia.map`. The language server uses the map to lead from generated
+code back to the command's input, and to apply a rename to that input.
+Declare both files as `buildOutput` arguments of the same command, and the
+mapped inputs as its input arguments.
 
-The JSON map has `version` set to `1`, a `generatedDigest` with the hex
-BLAKE3 digest of the generated file, and a `mappings` array. Each entry
-contains `generated` and `source` ranges as pairs of UTF-8 byte offsets
-with exclusive ends, a `sourcePath` relative to the input root, and a
-`sourceDigest` with the hex BLAKE3 digest of the input file.
+A generated file can itself be the input of another generating command. Each
+generated file in such a chain needs its own map, and the language server
+follows the chain only while every map matches the current files and names a
+declared input; a rename goes through only if every mapping along the chain
+is marked editable. After applying a rename, run the build to regenerate the
+outputs and their maps.
 
-The input root defaults to `"package"`, relative to the package root. Set
-`sourceRoot` to `"build"` for a declared build input relative to the
-invocation's output directory. Each intermediate generated file in this
-chain needs its own map. The editor follows the chain only when each map
-matches the current source snapshots and names a declared input.
-
-Set `editable` to `true` only for verbatim byte copies whose identifier
-edits propagate to the output. A transformed range still provides
-navigation to its source range.
-
-For a rename, each mapping along the chain must be editable. The editor
-checks other mapped copies of every edited range, then verifies the
-projected source and generated text with the compiler. It returns edits
-to the original inputs and handwritten references. Run the build after
-applying the edits to regenerate the outputs and their maps.
+[Generated Sources](../../editors/README.md#generated-sources) in the
+language server documentation describes the map format.
 
 ## Tests
 
@@ -564,11 +577,11 @@ is covered in [Testing](../learn/testing.md).
 ## Reading The Environment
 
 A script that depends on the outside world reads it through a *configuration
-probe*. Each probe
-records what it observed, and returns what the table shows; the next `nia build` compares the recorded
-facts with the current ones and runs the script again when any of them
-differs, including a value that was missing and now exists. Reads that bypass
-probes, such as opening files directly, are not tracked.
+probe*. Each probe records what it observed and returns what the table
+shows. The next `nia build` compares the recorded facts with the current ones
+and runs the script again when any of them differs, including a value that
+was missing and now exists. Reads that bypass probes, such as opening files
+directly, are not tracked.
 
 | Call | Records |
 | --- | --- |
@@ -582,7 +595,8 @@ probes, such as opening files directly, are not tracked.
 
 Buffers are caller-owned byte arrays, and a result larger than its buffer is an
 error. Commands run by probes get no standard input, their standard error is
-discarded, and they cannot write build outputs.
+discarded, they cannot write build outputs, and they are stopped after five
+seconds.
 
 ```nia
 using std::build;
@@ -608,8 +622,10 @@ pub fun build(b: &mut build::Build) build::Error!() {
 }
 ```
 
-Setting `APP_RELEASE` or editing `VERSION` makes the next build configure
-again; otherwise the recorded graph is reused.
+Setting `APP_RELEASE` or editing `VERSION` makes the next build run the script
+again; otherwise the recorded graph is reused. `nia build version` writes the
+probed contents to `build/out/version.txt`, and
+`nia build --print-observations` lists the recorded facts.
 
 `b.packageRoot()`, `b.buildDir()`, `b.cacheDir()`, and `b.requestedStep()` (the
 step named on the command line, or `null`) are also available. Errors from
@@ -630,5 +646,6 @@ other `std` APIs inside the script convert to `build::Error` with
   when a recorded fact changes.
 
 The full API is documented in the source of
-[`std::build`](../../lib/std/build.nia).
+[`std::build`](../../lib/std/build.nia), whose modules are in
+[`lib/std/build/`](../../lib/std/build).
 

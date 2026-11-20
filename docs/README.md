@@ -19,7 +19,7 @@ program in them builds and runs.
 | [Modules And Visibility](learn/modules.md) | Modules, `using`, visibility, extension methods, facades |
 | [Testing](learn/testing.md) | Test suites, assertions, reporting failures, test-only code |
 
-The [examples](../examples/README.md) are complete programs to read alongside
+[Nia Examples](../examples/README.md) are complete programs to read alongside
 the chapters.
 
 ## Guides
@@ -30,12 +30,9 @@ Guides cover a task from start to finish.
 | --- | --- |
 | [Packages And Dependencies](guides/packages.md) | Creating packages, building and testing them, dependencies, the lockfile, workspaces |
 | [Custom Builds](guides/build-scripts.md) | `build.nia`: extra steps, generated files, external commands, artifacts declared in code, reading the environment |
-| [Targets And Runtimes](guides/targets.md) | Cross-compiling, platform-specific code, build profiles, programs without an operating system |
+| [Targets And Runtimes](guides/targets.md) | Cross-compiling, platform- and CPU-specific code, build profiles, programs without an operating system |
 | [C Interop](guides/c-interop.md) | Calling C, linking native libraries, and exporting Nia functions |
 | [Writing Idiomatic Nia](guides/writing-nia.md) | Organizing code, handling errors, iteration, layout, comments, and tests the way std does; habits from other languages that do not carry over |
-
-An AI coding assistant can be given the same guidance as a
-[skill](../skills/README.md).
 
 ## Reference
 
@@ -49,26 +46,36 @@ References state the exact rules.
 | [Manifest Reference](reference/manifest.md) | Every `nia.toml` table and key |
 | [Command-Line Reference](reference/cli.md) | `nia` commands, options, exit statuses, and build output formats |
 | [ABI Reference](reference/abi.md) | Data representation, layout, and C boundary rules |
-| [Platform Support](reference/platform-support.md) | Targets, target facts, runtime model, and current limits |
+| [Platform Support](reference/platform-support.md) | Targets, target facts, CPU levels, the runtime model, and tested configurations |
 
 `nia help <command>` lists every option of a command.
+
+## Editors And Assistants
+
+| Document | Covers |
+| --- | --- |
+| [Nia Language Server](../editors/README.md) | What `nia-lsp` does, and setting it up in VS Code, Neovim, and Vim |
+| [Skills](../skills/README.md) | The [writing-nia](../skills/writing-nia/SKILL.md) skill, which gives an AI coding assistant the guidance of Writing Idiomatic Nia |
 
 ## Developing Nia
 
 | Document | Covers |
 | --- | --- |
-| [Contributing](dev/contributing.md) | Project policy, change routing, code standards, and review |
-| [Development setup](dev/setup.md) | Rust, LLVM, and LLD setup on Linux and Windows |
+| [Contributing To Nia](dev/contributing.md) | Project policy, change routing, code standards, and review |
+| [Development Setup](dev/setup.md) | Rust, LLVM, and LLD setup on Linux and Windows |
 | [Testing](dev/testing.md) | Validation gates, test layout, and harness rules |
-| [Compiler architecture](dev/architecture.md) | Pipeline, query model, crate layers, and data flows |
-| [ABI internals](dev/abi-internals.md) | How the compiler implements the ABI |
-| [Closure inference](../crates/nia-body-check/README.md) | How the checker infers closures passed to generic calls |
-| [Build system internals](../crates/nia-build/README.md) | Build plans, caching, execution, progress observation, and publication |
-| [Package metadata](../crates/nia-package-metadata/README.md) | Version selection, registry index and archive formats, `nia.lock`, and source identity |
-| [Native Git client](../crates/nia-git/README.md) | Security model, enforced limits, and known gaps of `nia-git` |
-| [Formal models](../formal/README.md) | Lean models of compiler contracts and how they are tied to compiler tests |
-| [Repository maintenance](../maintain/README.md) | Audits, reports, and [performance baselines](../maintain/performance.md) |
-| [Release build](../tools/release/README.md) | Building and packaging release archives |
+| [Compiler Architecture](dev/architecture.md) | Pipeline, query model, crate layers, and data flows |
+| [ABI Internals](dev/abi-internals.md) | How the compiler implements the ABI |
+| [nia-body-check: Closure Inference](../crates/nia-body-check/README.md) | How the checker infers closures passed to generic calls |
+| [nia-build](../crates/nia-build/README.md) | Build plans, caching, execution, progress observation, and publication |
+| [nia-package-metadata](../crates/nia-package-metadata/README.md) | Version selection, registry index and archive formats, `nia.lock`, and source identity |
+| [nia-git](../crates/nia-git/README.md) | The native Git client: security model, enforced limits, and known gaps |
+| [Formal Models](../formal/README.md) | Lean models of compiler contracts and how they are tied to compiler tests |
+| [Repository Maintenance](../maintain/README.md) | The `nia-maintain` tool: reports, repository audits, and performance commands |
+| [Compiler Performance Baselines](../maintain/performance.md) | The fixed workload suite, competitive and build baselines, and comparing results |
+| [Project Planner](../benchmarks/apps/project-planner/README.md) | A sample application and medium-size workload of the performance baseline |
+| [LLVM Toolchain](../tools/llvm/README.md) | Building the static LLVM prefix that releases link |
+| [Release Build](../tools/release/README.md) | Building and packaging release archives |
 
 Each crate documents its own responsibilities in its `//!` crate docs
 (`cargo doc --workspace --no-deps`).

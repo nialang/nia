@@ -10,9 +10,9 @@ whose `SKILL.md` starts with a name and a description of when it applies.
 
 ## Installing
 
-Copy a skill's directory to where your assistant looks for skills. For
-Claude Code that is `~/.claude/skills/` for every project, or `.claude/skills/`
-inside one project:
+Copy a skill's directory to where your assistant looks for skills, either
+for every project or inside one project. For Claude Code, for example, that
+is `~/.claude/skills/` or a project's `.claude/skills/`:
 
 ```sh
 cp -r skills/writing-nia ~/.claude/skills/
@@ -27,7 +27,7 @@ documentation.
 
 A skill holds no rules of its own. The rules of the language and the style
 belong to the [documentation](../docs/README.md), above all the guide
-[Writing Idiomatic Nia](../docs/guides/writing-nia.md); a skill says what to
-read, how to work, and which mistakes to look for, and links to the section
+[Writing Idiomatic Nia](../docs/guides/writing-nia.md). A skill says what to
+read, how to work, and which mistakes to look for, and names the document
 that owns each rule. Change the documentation first, then the skill's
 checklist when a habit it lists changes.

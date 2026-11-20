@@ -2,9 +2,11 @@
 
 Nia calls C and C calls Nia through `extern` items, which use the C ABI of the
 target. This guide walks through the common patterns with one small C library.
-The exact rules are in the [ABI reference](../reference/abi.md#the-c-abi-boundary)
-and the declaration syntax is in the
-[language reference](../reference/language.md#declarations).
+The exact rules are in
+[The C ABI Boundary](../reference/abi.md#the-c-abi-boundary) in the ABI
+reference, and the declaration syntax is in
+[External Functions And Statics](../reference/language.md#external-functions-and-statics)
+in the language reference.
 
 The toolchain does not link a C runtime or libc. A C library is a native
 dependency that you link explicitly, like any other.
@@ -52,7 +54,7 @@ int32_t call_back_into_nia(int32_t x) { return nia_square(x); }
 
 A bodyless `extern fun` declares a C function. Its symbol is the source name;
 use `@[linkName("...")]` when the Nia name should differ. An omitted return
-type means `()` (C `void`).
+type means `()`, C's `void`.
 
 ```nia
 extern fun byte_length(s: &u8) usize;
@@ -61,8 +63,8 @@ extern fun byte_length(s: &u8) usize;
 extern fun cStringLength(s: &u8) usize;
 ```
 
-Calls look like any other call. Visibility comes first and `extern` second:
-`pub extern fun`, never `extern pub fun`.
+Calls to it look like any other call. A public declaration puts the
+visibility first: `pub extern fun`, never `extern pub fun`.
 
 ## C Strings
 
@@ -75,12 +77,14 @@ fun example() {
 }
 ```
 
-`.ptr()` automatically addresses the byte array and gives the `&u8` C expects.
-The array lives only as long as the enclosing expression or frame, so a C
-function must not keep the pointer. Put the bytes in a `static` when C needs
-a stable address. `std::cstring` provides `CString` and `CStringView` for building and
-reading NUL-terminated strings that Nia owns. A `CStringView` over bytes that
-C returns is made from a slice that includes the terminator: measure the
+`.ptr()` takes the byte array's address automatically and returns the `&u8`
+that C expects. The array lives only as long as the enclosing expression or
+frame, so a C function must not keep the pointer. Put the bytes in a `static`
+when C needs a stable address.
+
+`std::cstring` provides `CString` and `CStringView` for building and reading
+NUL-terminated strings that Nia owns. A `CStringView` over bytes that C
+returns is made from a slice that includes the terminator: measure the
 length, take `&p[0..length + 1]`, and pass it to `CStringView::fromBytes`.
 
 ## Structs By Value And By Pointer
@@ -107,14 +111,16 @@ fun example() {
 }
 ```
 
-By-value structs follow the target's C calling convention, including register
-passing and hidden return pointers. Use `&T` for a C `const T *` and `&mut T`
-for a `T *` the callee writes. An ordinary Nia `struct` cannot be passed by
-value; its fields may be reordered.
+`point_translate(p, 4, 5)` passes `p` by address automatically, because the
+parameter is a pointer. By-value structs follow the target's C calling
+convention, including register passing and hidden return pointers. Use `&T`
+for a C `const T *` and `&mut T` for a `T *` the callee writes. An ordinary
+Nia `struct` cannot be passed by value, because its fields may be reordered.
 
 ## Out-Parameters
 
-Pass `&mut` to a local:
+Declare the parameter `&mut T` and pass a mutable local, whose address is
+taken automatically:
 
 ```nia
 extern fun divide(a: i32, b: i32, quotient: &mut i32, remainder: &mut i32) i32;
@@ -164,9 +170,9 @@ fun example() {
 ```
 
 Arrays and slices both provide `ptr()`, `ptrMut()` for a writable array or
-slice, and `len()`. A C pointer and length
-become a slice by range-indexing the pointer: `&ptr[0..len]`. Nia does not
-check that the range is valid.
+slice, and `len()`. In the other direction, a C pointer and length become a
+slice by range-indexing the pointer: `&ptr[0..len]`. Nia does not check that
+the range is valid.
 
 ## Callbacks
 
@@ -179,7 +185,12 @@ Pass state through C's `void *` as `&mut opaque` (or `&opaque` for
 `const void *`). Erasure and recovery are explicit casts:
 
 ```nia
-extern fun for_each(values: &i32, len: usize, visit: &extern fun(i32, &mut opaque), context: &mut opaque);
+extern fun for_each(
+    values: &i32,
+    len: usize,
+    visit: &extern fun(i32, &mut opaque),
+    context: &mut opaque,
+);
 
 extern fun add_to_total(value: i32, context: &mut opaque) {
     let total = context as &mut i64;
@@ -209,8 +220,8 @@ fun example() {
 
 Nia cannot define a variadic function, and a variadic function pointer type
 cannot appear in an `extern` parameter, return type, or field. The extra
-arguments follow the same boundary rules as fixed ones. Calling `printf` works the same way once the C library
-that provides it is linked.
+arguments follow the same boundary rules as fixed ones. Calling `printf` works
+the same way once the C library that provides it is linked.
 
 ## Globals
 
@@ -238,19 +249,24 @@ Native link inputs are options of `nia emit --exe`:
 | `--link-arg <arg>` | pass one argument to the linker, such as an object file |
 | `--executable dynamic`, `--interpreter <path>`, `--rpath <path>` | link a dynamic ELF executable against shared libraries (Linux) |
 
-With `geom.c` compiled to an object or archive, and the Nia program from
-[the complete example](#complete-example) in `main.nia`:
+With the program from [the complete example](#complete-example) in
+`main.nia`, compile `geom.c` and link its object file:
 
-```text
+```sh
 clang -ffreestanding -c geom.c -o geom.o
 nia emit --exe main.nia --link-arg geom.o -o main
+```
 
-# or, from a static library in ./libs
+Or put the object in a static library and link that by name:
+
+```sh
+mkdir -p libs
+llvm-ar rcs libs/libgeom.a geom.o
 nia emit --exe main.nia -L libs -l geom -o main
 ```
 
-On Windows, compile with `clang --target=x86_64-pc-windows-msvc` and use the
-`.obj` or `.lib` file the same way.
+On Windows, compile with `clang --target=x86_64-pc-windows-msvc`, and use
+`geom.obj` and `libs/geom.lib` the same way.
 
 Build scripts link Nia static archives through
 `ExecutableOptions::withStaticArchives` and system libraries through
@@ -267,8 +283,9 @@ native dependency: declare it and link its import library explicitly.
 extern fun GetCurrentProcessId() u32;
 ```
 
-```text
-nia emit --exe main.nia -L "C:/Program Files (x86)/Windows Kits/10/Lib/<version>/um/x64" -l kernel32 -o main.exe
+```sh
+nia emit --exe main.nia -o main.exe -l kernel32 \
+    -L "C:/Program Files (x86)/Windows Kits/10/Lib/<version>/um/x64"
 ```
 
 Without the import library the link fails with
@@ -302,7 +319,7 @@ pub extern fun clampExport(value: i32, low: i32, high: i32) i32 {
 Emit the library's objects without Nia startup and link them from C with the
 C toolchain:
 
-```text
+```sh
 nia emit --obj mathlib.nia --out-dir objs
 cc main.c objs/*.o -o main
 ```
@@ -319,8 +336,8 @@ int32_t nia_clamp(int32_t value, int32_t low, int32_t high);
 ```
 
 `nia emit --obj` defaults to `--runtime bare`, so the objects contain no
-process entry. Only `extern` definitions are visible outside the linked image;
-ordinary Nia functions such as `clamp` stay internal.
+process entry. Only `extern` definitions are visible to the C code; ordinary
+Nia functions such as `clamp` stay internal.
 
 A Nia executable exports its `pub extern fun` definitions even when Nia never
 calls them, so linked C code can call back into the program (`nia_square` in
@@ -362,9 +379,9 @@ Nia has no packed or over-aligned struct form, and no C bit-fields.
 
 ## Common Errors
 
-`nia check`, `nia emit`, and builds report boundary errors on the offending
-declaration, whether or not anything calls it. The type rules are reported as
-`E0501`:
+`nia check`, `nia emit`, and `nia build` report boundary errors on the
+offending declaration, whether or not anything calls it. Violations of the
+type rules are reported as `E0501`:
 
 | Message | Fix |
 | --- | --- |
@@ -398,7 +415,7 @@ Type mismatches at call sites are ordinary type errors:
 | Message | Fix |
 | --- | --- |
 | `expected &extern fun(i32, &mut opaque), got &fun(i32, &mut opaque)` | define the callback as `extern fun` |
-| `expected &u8, got &[u8; 6]` | use `bytes.ptr()` to project the first element |
+| `expected &u8, got [u8; 6]`, or `&[u8; 6]` | use `bytes.ptr()` to pass a pointer to the first element |
 | `expected &mut opaque, got &mut i64` | cast: `&mut value as &mut opaque` |
 
 ## Complete Example
@@ -419,7 +436,12 @@ extern fun point_translate(p: &mut Point, dx: i32, dy: i32);
 extern fun divide(a: i32, b: i32, quotient: &mut i32, remainder: &mut i32) i32;
 extern fun byte_length(s: &u8) usize;
 extern fun sum_bytes(data: &u8, len: usize) u32;
-extern fun for_each(values: &i32, len: usize, visit: &extern fun(i32, &mut opaque), context: &mut opaque);
+extern fun for_each(
+    values: &i32,
+    len: usize,
+    visit: &extern fun(i32, &mut opaque),
+    context: &mut opaque,
+);
 extern fun lookup(id: i32) &u8;
 extern fun sum_ints(count: i32, ...) i64;
 extern static mut counter: i32;

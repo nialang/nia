@@ -5,14 +5,15 @@
   </picture>
 </h1>
 
-Nia is a small systems programming language with an LLVM-backed compiler and a
-compact standard library. The language is statically typed, expression-oriented,
-and explicit about data representation, resource ownership, modules, and
-runtime entry points.
+Nia is a small systems programming language with an LLVM-based compiler and a
+compact standard library. It is statically typed and expression-oriented, and
+it is explicit about data representation, resource ownership, modules, and how
+a program starts. Instead of a dedicated feature for each task, Nia provides
+a few general building blocks, such as traits, generics, and error unions,
+that compose.
 
-This repository contains the compiler, the standard library, the package build
-system, documentation, and examples. Nia is pre-1.0: the language and toolchain
-evolve together, and breaking changes land without compatibility shims.
+This repository contains the compiler, the standard library, the package
+build system, the language server, documentation, and examples.
 
 ## Example
 
@@ -55,94 +56,115 @@ pub fun main(init: Init) ExitCode!() {
 }
 ```
 
-This small program demonstrates nominal structs, extension methods, slices,
-arrays, loops, fallible calls, and the standard freestanding entry contract.
-The [Learning Nia](docs/learn/README.md) chapters and the [examples](examples/README.md)
-develop these features through complete programs.
+The program declares a struct with a method, passes an array to a function
+that takes a slice, and returns an error union from `main`: `!()` is success,
+`ExitCode(1)!` a failure, and `.?` passes the failure of a fallible call on to
+the caller. The [Learning Nia](docs/learn/README.md) chapters and the
+[examples](examples/README.md) develop these features through complete
+programs.
 
-## Language At A Glance
+## Features
 
-Nia provides:
+The language:
 
-- integers, booleans, arrays, pointers, slices, structs, unions, enums, and
-  function pointers;
-- generic functions, structs, methods, and traits;
-- `extend` blocks for methods and trait implementations;
-- expression-oriented blocks, `if`, `match`, loops, and `defer`;
-- optional and error-union values with pattern matching and propagation;
-- explicit modules, visibility, and package roots;
-- compile-time values, C ABI declarations, and LLVM code generation.
+- signed and unsigned integers from 8 to 128 bits, floating-point numbers,
+  `char`, `bool`, tuples, arrays, slices, SIMD vectors, pointers, structs,
+  unions, and enums with payloads;
+- optionals `?T` and error unions `E!T`, with `.?` propagation, combinators,
+  and typed errors that convert between modules;
+- generic functions and types over types and constants, traits with
+  associated types and default methods, operator traits, and trait objects;
+- methods and trait implementations in `extend` blocks, and extension methods
+  that each module imports explicitly;
+- closures with explicit captures, callable views, and function pointers;
+- explicit allocation: allocators are values passed to every call that
+  allocates, and `defer` releases resources on every exit;
+- compile-time constants, and conditional compilation on target facts and CPU
+  features;
+- C interop through `extern` declarations that follow the target's C ABI.
 
-Allocation and resource lifetime are ordinary library operations. The toolchain
-owns startup, linking, package builds, and runtime selection.
+The toolchain:
+
+- `nia build`, which builds packages with path, Git, and registry
+  dependencies, a lockfile, workspaces, and optional build scripts written in
+  Nia;
+- cross-compilation from any host to Linux (x86_64, i686, AArch64), Windows
+  x64, and macOS (Intel, Apple silicon), with a bundled LLD linker and no
+  platform SDK or C runtime;
+- `nia check`, `nia fmt`, and `nia-lsp`, a language server for VS Code,
+  Neovim, and Vim.
 
 ## Get Started
 
-Release archives for Linux x86_64 and AArch64, Windows x86_64, macOS Intel, and
-macOS Apple silicon are published on the
-[GitHub Releases](https://github.com/nialang/nia/releases) page. Unpack an
-archive as a complete prefix and keep its `bin`, `lib`, and `libexec`
-directories together; it bundles the standard library and LLD, so no system
-LLVM installation is needed. The archive name identifies the compiler host,
-while `--target` selects any supported artifact target.
+Release archives for Linux x86_64 and AArch64, Windows x86_64, and macOS on
+Intel and Apple silicon are published on the
+[GitHub Releases](https://github.com/nialang/nia/releases) page. Each archive
+contains the compiler, the language server, the standard library, and LLD.
+Unpack it and keep its directories together:
 
 ```sh
 tar -xzf nia-<version>-linux-x86_64.tar.gz
 ./nia-<version>-linux-x86_64/bin/nia --version
 ```
 
-The published archive is the normal installation path. A compiler can also be
-built from source; [Development setup](docs/dev/setup.md) covers the required
-Rust, LLVM, and LLD inputs:
+[Getting Started](docs/learn/getting-started.md) covers installation,
+including building the compiler from source, and walks through a first
+program and a first package. `nia help <command>` lists a command's options,
+and `nia help emit --exe` those of one output kind.
 
-```sh
-cargo build --release -p nia-cli
-target/release/nia --resource-root "$PWD/lib" check examples/hello.nia --runtime freestanding
-```
-
-[Getting started](docs/learn/getting-started.md) walks through a first package
-and the `nia build`, `nia check`, and `nia emit` commands. Run
-`nia help <command>` for a command's options, or `nia help emit --exe` for one
-emit kind.
-
-[Editor setup](editors/README.md) explains how to try the Rust language server
-in VS Code, Neovim, and Vim.
+[Nia Language Server](editors/README.md) describes what `nia-lsp` does and
+how to set it up in VS Code, Neovim, and Vim.
 
 ## Documentation
 
-The [documentation index](docs/README.md) lists everything by reader. The main
+The [documentation index](docs/README.md) lists every document. The main
 entry points are:
 
-- [Learning Nia](docs/learn/README.md), a chapter-by-chapter introduction, and the [language reference](docs/reference/language.md)
-- [Packages and dependencies](docs/guides/packages.md), [custom builds](docs/guides/build-scripts.md), and [C interop](docs/guides/c-interop.md)
-- [Writing idiomatic Nia](docs/guides/writing-nia.md), and the [writing-nia skill](skills/README.md) that gives it to an AI coding assistant
-- [Standard library](lib/README.md) and [ABI reference](docs/reference/abi.md)
-- [Platform support](docs/reference/platform-support.md)
-- [Contributing](docs/dev/contributing.md) and [compiler architecture](docs/dev/architecture.md)
+- [Learning Nia](docs/learn/README.md), the chapters that teach the language
+  in order, and the [Language Reference](docs/reference/language.md);
+- the guides [Packages And Dependencies](docs/guides/packages.md),
+  [Custom Builds](docs/guides/build-scripts.md),
+  [Targets And Runtimes](docs/guides/targets.md), and
+  [C Interop](docs/guides/c-interop.md);
+- [Writing Idiomatic Nia](docs/guides/writing-nia.md), and the
+  [writing-nia skill](skills/README.md) that gives the same guidance to an AI
+  coding assistant;
+- the [Standard Library](lib/README.md), the
+  [ABI Reference](docs/reference/abi.md), and
+  [Platform Support](docs/reference/platform-support.md);
+- for contributors, [Contributing](docs/dev/contributing.md) and the
+  [compiler architecture](docs/dev/architecture.md).
+
+## Status
+
+Nia is pre-1.0. The `main` branch is the 0.3.0 development line, and
+`nia --version` prints `0.3.0-dev` for a build of it. The language and the
+toolchain evolve together, and breaking changes land without compatibility
+shims.
+
+Nia is maintainer-tested and has no formal support tiers.
+[Platform Support](docs/reference/platform-support.md) lists the supported
+targets and the configurations that are built and tested.
 
 ## Repository Layout
 
 - `crates/nia-cli/`: the `nia` command-line frontend.
-- `crates/nia-*/`: compiler, query, build-system, backend, and support libraries.
+- `crates/nia-*/`: the compiler, query, build-system, backend, language
+  server, and support libraries.
 - `lib/`: the standard library and runtime resources.
-- `docs/`: user guide, reference, and contributor documentation.
+- `docs/`: chapters, guides, references, and contributor documentation.
 - `examples/`: complete Nia programs to read in order.
+- `editors/`: the VS Code, Neovim, and Vim clients of the language server.
+- `skills/`: instructions for AI coding assistants that write Nia.
 - `benchmarks/`: performance workloads.
 - `maintain/`: repository audits, fixtures, and performance infrastructure.
 - `formal/`: Lean models of compiler contracts.
 - `tools/`: the development launcher, LLVM toolchain, and release scripts.
-- `skills/`: instructions for AI coding assistants that write Nia.
-
-## Support And Status
-
-Nia is maintainer-tested. Release archives cover Linux x86_64 and AArch64,
-Windows x86_64, macOS Intel, and macOS Apple silicon. The compiler also
-generates executables for the Linux, Windows, and macOS targets listed in the
-platform reference.
-[Platform support](docs/reference/platform-support.md) describes the exact
-boundary.
+- `assets/brand/`: the logo and icons.
 
 ## License
 
-The compiler implementation is licensed under `GPL-3.0-or-later`. Repository
-documentation has the separate scope described in [LICENSE.md](LICENSE.md).
+The compiler implementation is licensed under `GPL-3.0-or-later`. Programs
+compiled with `nia` are not covered by that license merely because `nia`
+compiled them. The documentation has a separate scope;
+[LICENSE.md](LICENSE.md) describes what each license covers.

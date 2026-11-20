@@ -4,7 +4,7 @@ A Nia compiler can build programs for any supported platform, not only the one
 it runs on. This guide covers choosing a target, writing code that differs
 between platforms, build profiles, and programs that run without an operating
 system. The list of targets and their facts is in
-[Platform support](../reference/platform-support.md).
+[Platform Support](../reference/platform-support.md).
 
 ## Host And Target
 
@@ -23,16 +23,16 @@ nia check src/main.nia --runtime freestanding --target x86-unknown-linux
 
 The names cover Linux on x86_64, i686, and AArch64, Windows x64, and macOS on
 Intel and Apple silicon;
-[Platform support](../reference/platform-support.md#targets) lists each one
-with its facts.
+[Targets](../reference/platform-support.md#targets) in Platform Support lists
+each one.
 
 Without `--target`, Nia builds for the host. Generated code uses the target's
 baseline CPU, so an executable runs on every machine of its target.
 
 With `nia build --target`, the package's artifacts are built for that target.
-Steps that run programs during the build, such as test suites and the
-programs that build steps invoke, are built for the host so they can run. A
-program built for another platform cannot run on the host, so the manifest's
+Programs that run during the build, such as test suites and the tools that
+build steps invoke, are built for the host so that they can run. A program
+built for another platform cannot run on the host, so the manifest's
 `run-<name>` steps exist only when the target is the host; `nia build --list`
 shows which steps a target has. A build script can also pick a target for
 each artifact with `forTarget`; see [Targets](build-scripts.md#targets) in
@@ -76,13 +76,13 @@ separator=\ pointerWidth=64
 ```
 
 Each target sees exactly one `separator`. The same facts are available to
-ordinary code as constants in `std::builtin::target`, which suits differences
+ordinary code as constants in `std::builtin::target`, which suit differences
 that are only values: an `if target::pointerWidth == 64` branch is still
 checked on every target, while `@[if ...]` removes code before checking.
 
-Inactive code must still parse, but it is not type-checked for that target.
-A mistake in Windows-only code therefore goes unnoticed in a Linux build; check
-a program that has platform-specific code once per target:
+Inactive code must still parse, but it is not type-checked for that target, so
+a mistake in Windows-only code goes unnoticed in a Linux build. Check a
+program that has platform-specific code once per target:
 
 ```sh
 nia check src/main.nia --runtime freestanding --target x86_64-pc-windows-msvc
@@ -98,8 +98,8 @@ work the same on every target.
 
 Newer processors of one target add instructions, and the
 [CPU level](../reference/platform-support.md#cpu-levels) of a build says which
-the code may use. `hasFeature("name")` in a condition tests the level, so one
-source can carry a path for a wider vector unit next to a portable one:
+of them the code may use. `hasFeature("name")` in a condition tests the level,
+so one source can carry a path for a wider vector unit next to a portable one:
 
 ```nia
 using std::builtin::target;
@@ -132,9 +132,9 @@ nia build --cpu x86_64-v3
 cpu = "x86_64-v3"
 ```
 
-A build for a level fails with an illegal instruction on an older processor, so
-choose one only when every machine that runs the program has it. As with
-platform-specific code, check each level a program supports:
+A program built for a level fails with an illegal instruction on an older
+processor, so choose a level only when every machine that runs the program
+has it. As with platform-specific code, check each level a program supports:
 `nia check src/main.nia --cpu x86_64-v3`.
 
 ### Runtime CPU Queries
@@ -149,12 +149,12 @@ pub fun canUseAvx2() bool {
 }
 ```
 
-It takes the same `CpuFeature` enum as `target::hasFeature`. When the build
+It takes the same `CpuFeature` enum as `target::hasFeature`. When the build's
 level already guarantees a feature, the answer is `true` and optimized calls
-fold away. Otherwise, x86 detection checks CPUID and, for AVX, FMA, F16C, and
-AVX-512, the operating system's register-state support. The result is cached
-without allocation. Features of another architecture are `false`. AArch64's
-current feature, `Neon`, is guaranteed by its baseline.
+fold away. Otherwise, on x86 it checks CPUID and, for AVX, FMA, F16C, and
+AVX-512, whether the operating system saves the wider registers. The result is
+cached without allocation. Features of another architecture are `false`.
+AArch64's only feature, `Neon`, is guaranteed by its baseline.
 
 A positive runtime query does not change how the surrounding function is
 compiled. Use `target::hasFeature` for choices fixed by the build and
@@ -183,12 +183,13 @@ pub fun doubled(value: u8x32) u8x32 {
 }
 ```
 
-`cpu::supports` also checks the operating system's vector-state support. The
-attribute changes code generation for `doubleAvx2`; it does not change
-`@[if hasFeature(...)]` inside that function. The
-[language reference](../reference/language.md#function-cpu-features) defines
-closure inheritance and inlining. Calls are not checked in any profile: the
-explicit branch is what keeps an unsupported processor out of `doubleAvx2`.
+The attribute changes code generation for `doubleAvx2`; it does not change
+`@[if hasFeature(...)]` inside that function. Calls to such a function are
+not checked in any profile: the explicit `cpu::supports` branch is what keeps
+an unsupported processor out of `doubleAvx2`.
+[Function CPU Features](../reference/language.md#function-cpu-features) in the
+language reference defines how closures inherit the features and when such a
+function may be inlined.
 
 ## Build Profiles
 
@@ -212,10 +213,11 @@ The call names `std::io::debugPrint` in full instead of importing `std::io`.
 A release build drops the statement, and an import used only by it would then
 be reported as unused.
 
-Integer overflow and the other [traps](../reference/language.md#unchecked-operations-and-traps)
-behave the same in both profiles; the profile changes optimization, not
-meaning. `@[test]` similarly keeps code only in test builds; see
-[Testing](../learn/testing.md#testing-the-library).
+Integer overflow and the other
+[traps](../reference/language.md#unchecked-operations-and-traps) behave the
+same in both profiles: the profile changes optimization, not meaning.
+`@[test]` similarly keeps code only in test builds; see
+[Testing The Library](../learn/testing.md#testing-the-library).
 
 ## Runtimes
 
@@ -224,7 +226,7 @@ The runtime decides who starts the program:
 - `freestanding`, the default for executables, links Nia's startup code. It
   receives control from the operating system, builds `process::Init`, and
   calls `pub fun main(init: process::Init) process::ExitCode!()`. It uses only
-  the operating system's stable interface, with no C library.
+  the operating system's stable interface and adds no C runtime.
 - `bare` links no startup code and assumes no operating system. The program,
   or its link configuration, defines the entry point. This is for kernels,
   firmware, and other images that start themselves.
@@ -238,8 +240,8 @@ The runtime decides who starts the program:
 
 In a bare program `main` is an ordinary function, and nothing builds
 `process::Init`. The standard library's modules that call the operating
-system, such as `std::fs` and `std::process`, still compile but only work when
-the program actually runs under that system. Allocators that need no
+system, such as `std::fs` and `std::process`, still compile, but they work
+only when the program runs under that system. Allocators that need no
 operating system, such as `mem::FixedBufferAllocator`, work anywhere. The
 per-platform details of each runtime are in the
-[runtime model](../reference/platform-support.md#runtime-model).
+[Runtime Model](../reference/platform-support.md#runtime-model).

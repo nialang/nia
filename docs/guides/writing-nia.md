@@ -3,7 +3,7 @@
 This guide is about writing Nia well: how to organize code, report and pass
 on errors, iterate, lay out a file, and comment it, so that it reads the way
 the standard library reads. It assumes the [Learning Nia](../learn/README.md)
-chapters; each section links to the chapter or reference section that owns
+chapters. Each section links to the chapter or reference section that owns
 the rules it relies on, and states only how to use them.
 
 The standard library is written to be read. When this guide does not cover a
@@ -13,9 +13,10 @@ library does the same thing and write it that way.
 ## Imports Follow What You Call
 
 A trait method needs no import: `xs.len()`, `xs.iter()`, `it.next()`,
-`a.checkedAdd(b)`, and every operator work wherever the value does. Every other method from
-another module is an *extension method*, visible only where its module is
-imported. Most of std's everyday operations are extension methods:
+`a.checkedAdd(b)`, and every operator work wherever the value does. Every
+other method from another module is an *extension method*, visible only where
+its module is imported. Most of std's everyday operations are extension
+methods:
 
 ```nia
 using std::iter;    // filter, count, map, fold, ...
@@ -28,9 +29,9 @@ fun countLong(words: &[&[char]], min: usize) usize {
     words.iter().filter(\[min] word -> word.len() >= min).count()
 }
 
-// The first letter of `answer`, or `?` when it is empty.
-fun initial(answer: &[char]) char {
-    if answer.get(0) is ?letter { letter.* } else { '?' }
+// The first letter of `answer`; `null` when it is empty.
+fun initial(answer: &[char]) ?char {
+    answer.get(0).map(\letter -> letter.*)
 }
 
 fun isAffirmative(answer: &[char]) bool {
@@ -38,17 +39,16 @@ fun isAffirmative(answer: &[char]) bool {
 }
 ```
 
-Import the module of every extension method a file calls, even when the call
-happens to compile without it: what another module imports never reaches this
-one. A method whose module is not imported is an unknown method to the
-compiler, which suggests a `using`;
+Import the module of every extension method a file calls: what another module
+imports never reaches this one. Without the import the method is unknown, and
+the compiler suggests a `using` for the module that declares it;
 [Extension Methods](../learn/modules.md#extension-methods) lists the modules
 of std's common ones.
 
-`nia check` reports every import that nothing needs, including one that only
-made extension methods visible that no call uses: remove it.
+`nia check` reports every import that nothing needs, including one whose
+extension methods no call uses: remove it.
 
-## Errors Are a System, Not a `match`
+## Errors Are A System, Not A `match`
 
 Nia's error handling is built from a few parts that compose: a typed error per
 module, conversion between error types, combinators that reshape a result,
@@ -84,7 +84,7 @@ fun parsePort(text: &[char]) PortError!u16 {
 
 `mapError(.Syntax)` wraps the parser's error in this module's variant, and
 `.?` passes it on. An enum variant is a function from its payload, so it needs
-no closure, and the expected type lets it be written without its enum.
+no closure, and the expected type lets it be written without its enum's name.
 
 **Convert where the conversion is always the same.** When every error of one
 type becomes the same variant of another, implement `IntoError` once and let
@@ -101,13 +101,14 @@ extend PortError : std::builtin::IntoError[process::ExitCode] {
 ```
 
 Use `mapError` where the variant depends on the call, and `IntoError` where
-it does not. A package can use `IntoError` to convert a dependency's error to
-its own error type. See [Where Implementations Live](../reference/language.md#where-implementations-live)
-for the full rule.
+it does not. A package can implement `IntoError` to convert a dependency's
+error to its own error type;
+[Where Implementations Live](../reference/language.md#where-implementations-live)
+states where such an implementation may be written.
 
 **Examine failures at the boundary.** Functions in the middle pass errors on
-with `.?`. The place that decides what a failure means, usually `main` or a
-request handler, is where a `match` on the error belongs:
+with `.?`. A `match` on the error belongs where the program decides what a
+failure means, usually in `main` or a request handler:
 
 ```nia continued
 pub fun main(init: process::Init) process::ExitCode!() {
@@ -129,9 +130,9 @@ port 8080
 ```
 
 A function that matches every result only to return its error again is
-`.?` written by hand. `okOr`, `mapError`, `orElse`, and `andThen` turn
-most of the remaining matches into one call each; the
-[table](../learn/errors.md#transforming-results) lists them.
+`.?` written by hand. `okOr`, `mapError`, `orElse`, and `andThen` turn most
+of the remaining matches into one call each; the table in
+[Transforming Results](../learn/errors.md#transforming-results) lists them.
 
 **Clean up with `defer`, and keep cleanup failures.** Release a resource right
 after acquiring it, with `defer`, so that every exit releases it. Cleanup can
@@ -142,7 +143,7 @@ defer list.deinit(allocator).?;
 ```
 
 Discard a cleanup result with `defer _ = list.deinit(allocator);` only where
-it truly cannot matter, such as an allocator that a test tears down. An owner
+it cannot matter, such as an allocator that a test tears down. An owner
 that releases several resources attempts all of them with
 `error::CleanupAccumulator`; see
 [Cleaning Up](../learn/errors.md#cleaning-up).
@@ -155,7 +156,6 @@ turned into an error with `okOr`:
 ```nia
 using std::iter;
 using std::option;
-using std::slice;
 
 // The first even value, doubled; `null` when there is none.
 fun firstEvenDoubled(values: &[i32]) ?i32 {
@@ -186,9 +186,6 @@ Optionals compare with `==` when their values do, so `age == ?30` and
 slice yields pointers to its elements, which a `&x` pattern reads:
 
 ```nia
-using std::iter;
-using std::slice;
-
 fun total(values: &[i32]) i32 {
     let mut sum = 0;
     for &value in values {
@@ -198,15 +195,14 @@ fun total(values: &[i32]) i32 {
 }
 ```
 
-**Chain adapters for a computation over a sequence.** `std::iter` has lazy
-adapters, `map`, `filter`, `filterMap`, `take`, `skip`, `stepBy`,
+**Chain adapters for a computation over a sequence.** `std::iter` has the
+lazy adapters `map`, `filter`, `filterMap`, `take`, `skip`, `stepBy`,
 `takeWhile`, `skipWhile`, `enumerate`, `zip`, `chain`, `copied`, and `rev`,
-and consumers such as `fold`, `count`, `find`, `any`, `all`, `min`, and
-`max`:
+and consumers such as `fold`, `count`, `find`, `position`, `any`, `all`,
+`min`, and `max`:
 
 ```nia
 using std::iter;
-using std::slice;
 
 // The sum of the squares of the values above `floor`.
 fun squaresAbove(values: &[i32], floor: i32) i32 {
@@ -224,8 +220,8 @@ fun firstNegative(values: &[i32]) ?usize {
 }
 ```
 
-`copied` reads a slice iterator's `&T` items out as `T`. A loop is still the
-clearer choice when the body updates several values at once or stops on a
+`copied` turns a slice iterator's `&T` items into `T` values. A loop is the
+clearer choice when the body updates several values at once, or stops on a
 condition that the adapters would have to thread through.
 
 **Make your own sequences iterable.** A type that yields values implements
@@ -275,7 +271,7 @@ fun launchSum(launch: Launch) u32 {
 
 Every iterator then has the adapters of `std::iter` as well.
 
-## Closures and Callables
+## Closures And Callables
 
 Write closures without types: they come from where the closure is used.
 Captures are explicit, by copy as `[x]` or by pointer as `[&x]` and
@@ -284,7 +280,8 @@ Captures are explicit, by copy as `[x]` or by pointer as `[&x]` and
 **Borrow a callback the call does not keep; own one that is stored.** A
 parameter `&Fun(A) R` borrows the callback for the call, and the caller passes
 a closure directly, as `\x -> ...`. A type that keeps a callback, as a lazy
-adapter does, takes it by value through a generic bound:
+adapter does, owns it: the callback is a generic parameter bounded by a `Fun`
+type, taken by value:
 
 ```nia
 // Calls `visit` for every value; the callback is borrowed for the call.
@@ -317,11 +314,11 @@ where F: Fun() bool
 }
 ```
 
-**Pass a function or a constructor itself.** A function, a method, and an
-enum variant are callables: `mapError(.Syntax)` and `map(square)` need no
-closure that only forwards its argument.
+**Pass a function or a constructor itself.** Functions, methods, and enum
+variants are callables: `mapError(.Syntax)` and `map(square)` need no closure
+that only forwards its argument.
 
-## Owners, Views, and Allocators
+## Owners, Views, And Allocators
 
 Nia never allocates or frees behind your back, so ownership is part of how
 code reads. [Memory And Allocators](../learn/memory.md) explains it; the
@@ -338,8 +335,8 @@ habits that follow from it are:
   another view and leaves ownership with the caller; a function that returns
   an owner leaves the caller to release it.
 - **Keep a literal that outlives the call in a `static`.** A string literal is
-  an array that lives in its function's frame; a `&[char]` that must outlive
-  the call points into a `static`.
+  an array that lives in its function's frame, so a `&[char]` that must
+  outlive the call points into a `static`.
 
 ```nia
 using std::io;
@@ -371,11 +368,11 @@ pub fun main(init: process::Init) process::ExitCode!() {
 hello 1
 ```
 
-## Abstractions Instead of Repetition
+## Abstractions Instead Of Repetition
 
-Nia gives a few general building blocks rather than a feature per task, and
-expects code to be built from them. When two functions differ only in a type,
-a step, or a policy, write the shared part once:
+Nia provides a few general building blocks rather than a feature per task,
+and code is meant to be built from them. When two functions differ only in a
+type, a step, or a policy, write the shared part once:
 
 - **Write against a trait, not a type.** json writes its output once, to any
   `io::Writer`, and the same code then writes to a buffer, a file, or a
@@ -436,7 +433,12 @@ fun narrowReport() ReportOptions {
 
 ## Layout
 
-Nia has no formatter yet; std's layout is the style.
+std's layout is the style, and this section describes it.
+[`nia fmt`](../reference/cli.md#nia-fmt) prints a file with normalized
+indentation, operator spacing, and trailing whitespace, and keeps line breaks
+as written. It indents a continuation line, such as a line of a broken
+chain, condition, or literal, at the level of the line it continues rather
+than one level deeper as std does, so lay out those lines as shown here.
 
 - **Lines stay within 100 columns.**
 - **One statement per line.** An `if` whose branches are single expressions,
@@ -534,8 +536,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
 ## Habits From Other Languages
 
 Nia looks like Rust in places and like C in others, and is neither. These
-habits from them either fail to compile or compile to something else; the
-[overview](../learn/README.md) lists the larger differences.
+habits from those languages either fail to compile or mean something else in
+Nia; [Nia At A Glance](../learn/README.md#nia-at-a-glance) lists the larger
+differences.
 
 | Habit | In Nia |
 | --- | --- |
