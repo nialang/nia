@@ -2863,6 +2863,15 @@ mod tests {
     use nia_test_support::{TestWorkload, acquire_test_resources, test_dir, workspace_root};
     use nia_toolchain::ToolchainLayoutRequest;
 
+    #[cfg(windows)]
+    #[test]
+    fn unc_document_uris_keep_their_authority() {
+        let document: Uri = "file://wsl.localhost/Ubuntu/src/root.nia".parse().unwrap();
+        let source = path(&document).unwrap();
+        assert_eq!(normalized(&source), "//wsl.localhost/Ubuntu/src/root.nia");
+        assert_eq!(uri(&source), Some(document));
+    }
+
     pub(super) fn test_session() -> Session {
         let toolchain = ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
             std::env::current_exe().unwrap(),

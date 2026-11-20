@@ -522,9 +522,21 @@ impl EmbeddedResource {
 /// Lexically normalizes `/`, `.`, and `..` path components.
 pub fn normalize_path(path: &str) -> String {
     let path = path.replace('\\', "/");
-    let path = path.strip_prefix("//?/").unwrap_or(&path);
-    let drive = path.as_bytes().get(1) == Some(&b':');
-    let absolute = path.starts_with('/') || drive;
+    let verbatim = path.strip_prefix("//?/");
+    let unc = match verbatim {
+        Some(path) => path
+            .get(..4)
+            .filter(|p| p.eq_ignore_ascii_case("UNC/"))
+            .map(|_| &path[4..]),
+        None => path
+            .strip_prefix("//")
+            .filter(|tail| !tail.starts_with('/')),
+    };
+    let path = unc.or(verbatim).unwrap_or(&path);
+    let drive = unc.is_none() && path.as_bytes().get(1) == Some(&b':');
+    let absolute = unc.is_some() || path.starts_with('/') || drive;
+    // A UNC parent traversal stops at the share, even on a non-Windows host.
+    let root_components = if unc.is_some() { 2 } else { 0 };
     let mut parts = Vec::new();
     let mut components = path.split('/');
     let prefix = if drive {
@@ -536,7 +548,7 @@ pub fn normalize_path(path: &str) -> String {
         match part {
             "" | "." => {}
             ".." => {
-                if parts.last().is_some_and(|part| *part != "..") {
+                if parts.len() > root_components && parts.last().is_some_and(|part| *part != "..") {
                     parts.pop();
                 } else if !absolute {
                     parts.push(part);
@@ -554,7 +566,9 @@ pub fn normalize_path(path: &str) -> String {
     } else {
         parts.join("/")
     };
-    if absolute && !drive {
+    if unc.is_some() {
+        format!("//{normalized}")
+    } else if absolute && !drive {
         format!("/{normalized}")
     } else {
         normalized
@@ -943,6 +957,20 @@ mod tests {
         assert_eq!(
             normalize_path(r"C:\work\..\lib\root.nia"),
             "C:/lib/root.nia"
+        );
+    }
+
+    #[test]
+    fn unc_paths_keep_the_server_and_share_as_their_root() {
+        for path in [
+            r"\\wsl.localhost\Ubuntu\src\..\root.nia",
+            r"\\?\UNC\wsl.localhost\Ubuntu\..\root.nia",
+        ] {
+            assert_eq!(normalize_path(path), "//wsl.localhost/Ubuntu/root.nia");
+        }
+        assert_ne!(
+            normalize_path("//host/share/src"),
+            normalize_path("/host/share/src")
         );
     }
 
