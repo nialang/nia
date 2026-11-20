@@ -188,9 +188,11 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
     let workspace_worker =
         thread::spawn(move || analyze(toolchain, Lane::Workspace, workspace_rx, reply_tx));
     let mut server = Server {
-        hierarchical_symbols,
-        fold_limit: folding.range_limit.map(|limit| limit as usize),
-        line_folding_only: folding.line_folding_only.unwrap_or_default(),
+        structure: StructureOptions {
+            hierarchical_symbols,
+            fold_limit: folding.range_limit.map(|limit| limit as usize),
+            line_folding_only: folding.line_folding_only.unwrap_or_default(),
+        },
         semantic_refresh,
         semantic_delta,
         folders,
@@ -218,7 +220,83 @@ enum WorkerMessage {
     ReleaseAnalysis,
 }
 
+#[derive(Clone, Copy, Default)]
+struct StructureOptions {
+    hierarchical_symbols: bool,
+    fold_limit: Option<usize>,
+    line_folding_only: bool,
+}
+
+fn syntax_request(method: &str) -> bool {
+    matches!(
+        method,
+        FORMATTING
+            | RANGE_FORMATTING
+            | SELECTION_RANGE
+            | "textDocument/documentSymbol"
+            | "textDocument/foldingRange"
+    )
+}
+
+fn workspace_retry(method: &str) -> bool {
+    matches!(method, REFERENCES | RENAME)
+}
+
+impl StructureOptions {
+    fn query(&self, open: &OpenDocument, request: Request) -> Response {
+        if matches!(request.method.as_str(), FORMATTING | RANGE_FORMATTING) {
+            let params = if request.method == FORMATTING {
+                decode::<lsp_types::DocumentFormattingParams>(request.params)
+                    .map(|params| (params.options, None))
+            } else {
+                decode::<lsp_types::DocumentRangeFormattingParams>(request.params)
+                    .map(|params| (params.options, Some(params.range)))
+            };
+            return match params {
+                Ok((options, range)) => match open.document.format(options, range) {
+                    Ok(edits) => Response::new_ok(request.id, edits),
+                    Err(error) => {
+                        Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
+                    }
+                },
+                Err(error) => Response::new_err(
+                    request.id,
+                    ErrorCode::InvalidParams as i32,
+                    error.to_string(),
+                ),
+            };
+        }
+        if request.method == SELECTION_RANGE {
+            let selection = decode::<SelectionRangeParams>(request.params)
+                .map_err(|error| error.to_string())
+                .and_then(|params| {
+                    open.document
+                        .selection_ranges(&params.positions)
+                        .ok_or_else(|| "Selection position is outside the document".to_owned())
+                });
+            return match selection {
+                Ok(ranges) => Response::new_ok(request.id, ranges),
+                Err(error) => Response::new_err(request.id, ErrorCode::InvalidParams as i32, error),
+            };
+        }
+        let value = match request.method.as_str() {
+            "textDocument/documentSymbol" => {
+                json!(open.document.symbols(&open.uri, self.hierarchical_symbols))
+            }
+            "textDocument/foldingRange" => {
+                json!(
+                    open.document
+                        .folding_ranges(self.line_folding_only, self.fold_limit)
+                )
+            }
+            _ => unreachable!("document syntax request"),
+        };
+        Response::new_ok(request.id, value)
+    }
+}
+
 struct Work {
+    structure: StructureOptions,
     dispatched_at: Option<Instant>,
     revision: u64,
     disk_changes: DiskChanges,
@@ -440,6 +518,21 @@ impl AnalysisWorker {
                 path: work.path,
                 publication: None,
                 response: response.map(QueryResponse::Value),
+                reference_coverage: None,
+                configuration_changed: false,
+            };
+        }
+        if let Some(request) = work
+            .request
+            .take_if(|request| syntax_request(&request.method))
+        {
+            let response = work.structure.query(&work.documents[&work.path], request);
+            return Reply {
+                lane,
+                revision: work.revision,
+                path: work.path,
+                publication: None,
+                response: Some(QueryResponse::Value(response)),
                 reference_coverage: None,
                 configuration_changed: false,
             };
@@ -990,9 +1083,7 @@ struct Server {
     folders: Vec<PathBuf>,
     versioned_edits: bool,
     resource_rename: bool,
-    hierarchical_symbols: bool,
-    fold_limit: Option<usize>,
-    line_folding_only: bool,
+    structure: StructureOptions,
     semantic_refresh: bool,
     semantic_delta: bool,
     token_results: HashMap<PathBuf, SemanticTokens>,
@@ -1020,6 +1111,12 @@ struct Server {
 
 struct Active {
     request: Option<RequestId>,
+    // Only positional workspace requests may need their parameters again.
+    retry: Option<Request>,
+    syntax_only: bool,
+    path: PathBuf,
+    valid_through: u64,
+    client_canceled: bool,
     cancel: Cancellation,
 }
 
@@ -1196,9 +1293,7 @@ impl Server {
             .and_then(Value::as_str)
             .and_then(|text| text.parse::<Uri>().ok())
             .and_then(|uri| analysis::path(&uri));
-        let Some((path, open)) =
-            path.and_then(|path| self.documents.get(&path).map(|open| (path, open)))
-        else {
+        let Some(path) = path.filter(|path| self.documents.contains_key(path)) else {
             connection.sender.send(
                 Response::new_err(
                     request.id,
@@ -1228,63 +1323,7 @@ impl Server {
             }
             return Ok(());
         }
-        if matches!(request.method.as_str(), FORMATTING | RANGE_FORMATTING) {
-            let params = if request.method == FORMATTING {
-                decode::<lsp_types::DocumentFormattingParams>(request.params)
-                    .map(|params| (params.options, None))
-            } else {
-                decode::<lsp_types::DocumentRangeFormattingParams>(request.params)
-                    .map(|params| (params.options, Some(params.range)))
-            };
-            let response = match params {
-                Ok((options, range)) => match open.document.format(options, range) {
-                    Ok(edits) => Response::new_ok(request.id, edits),
-                    Err(error) => {
-                        Response::new_err(request.id, ErrorCode::RequestFailed as i32, error)
-                    }
-                },
-                Err(error) => Response::new_err(
-                    request.id,
-                    ErrorCode::InvalidParams as i32,
-                    error.to_string(),
-                ),
-            };
-            connection.sender.send(response.into())?;
-            return Ok(());
-        }
-        if request.method == SELECTION_RANGE {
-            let selection = decode::<SelectionRangeParams>(request.params)
-                .map_err(|error| error.to_string())
-                .and_then(|params| {
-                    open.document
-                        .selection_ranges(&params.positions)
-                        .ok_or_else(|| "Selection position is outside the document".to_owned())
-                });
-            let response = match selection {
-                Ok(ranges) => Response::new_ok(request.id, ranges),
-                Err(error) => Response::new_err(request.id, ErrorCode::InvalidParams as i32, error),
-            };
-            connection.sender.send(response.into())?;
-            return Ok(());
-        }
-        let value = match request.method.as_str() {
-            "textDocument/documentSymbol" => {
-                json!(open.document.symbols(&open.uri, self.hierarchical_symbols))
-            }
-            "textDocument/foldingRange" => {
-                json!(
-                    open.document
-                        .folding_ranges(self.line_folding_only, self.fold_limit)
-                )
-            }
-            _ => {
-                self.pending.push_back((path, self.revision, request));
-                return Ok(());
-            }
-        };
-        connection
-            .sender
-            .send(Response::new_ok(request.id, value).into())?;
+        self.pending.push_back((path, self.revision, request));
         Ok(())
     }
 
@@ -1410,6 +1449,7 @@ impl Server {
                         .flatten()
                     {
                         if active.request.as_ref() == Some(&params.id) {
+                            active.client_canceled = true;
                             active.cancel.cancel();
                         }
                     }
@@ -1506,8 +1546,31 @@ impl Server {
     }
 
     fn invalidate_edit(&mut self, path: &std::path::Path) {
-        self.cancel_active();
+        let previous = self.revision;
         self.revision += 1;
+        for (origin, revision, request) in &mut self.pending {
+            if *revision == previous
+                && origin != path
+                && (syntax_request(&request.method) || workspace_retry(&request.method))
+            {
+                *revision = self.revision;
+            }
+        }
+        for active in [&mut self.editor, &mut self.workspace]
+            .into_iter()
+            .flatten()
+        {
+            if active.valid_through == previous
+                && active.path != path
+                && (active.syntax_only || active.retry.is_some())
+            {
+                active.valid_through = self.revision;
+                if active.syntax_only {
+                    continue;
+                }
+            }
+            active.cancel.cancel();
+        }
         if !self.missing_text.is_empty() {
             return;
         }
@@ -1675,9 +1738,20 @@ impl Server {
             let cancel = Cancellation::default();
             *active = Some(Active {
                 request: request.as_ref().map(|request| request.id.clone()),
+                retry: request
+                    .as_ref()
+                    .filter(|request| workspace_retry(&request.method))
+                    .cloned(),
+                syntax_only: request
+                    .as_ref()
+                    .is_some_and(|request| syntax_request(&request.method)),
+                path: path.clone(),
+                valid_through: self.revision,
+                client_canceled: false,
                 cancel: cancel.clone(),
             });
             worker.send(WorkerMessage::Analyze(Work {
+                structure: self.structure,
                 dispatched_at,
                 revision: self.revision,
                 disk_changes: std::mem::take(disk_changes),
@@ -1704,7 +1778,9 @@ impl Server {
         if reply.lane == Lane::Editor
             && canceled
             && reply.revision == self.revision
-            && active.is_some_and(|active| active.request.is_none())
+            && active
+                .as_ref()
+                .is_some_and(|active| active.request.is_none())
             && self.documents.contains_key(&reply.path)
         {
             self.dirty.insert(reply.path.clone());
@@ -1751,7 +1827,25 @@ impl Server {
             )?;
         }
         if let Some(response) = reply.response {
-            let code = if reply.revision != self.revision {
+            let current_origin = active
+                .as_ref()
+                .filter(|active| active.valid_through == self.revision);
+            let client_canceled = active.as_ref().is_some_and(|active| active.client_canceled);
+            // A reference list or workspace edit may include the changed file.
+            // Recompute it before replying while the original cursor is valid.
+            if reply.revision != self.revision
+                && !client_canceled
+                && let Some(request) = current_origin.and_then(|active| active.retry.as_ref())
+                && !reply.configuration_changed
+            {
+                self.pending
+                    .push_front((reply.path, self.revision, request.clone()));
+                return Ok(());
+            }
+            let current_syntax = current_origin.is_some_and(|active| active.syntax_only);
+            let code = if client_canceled {
+                Some((ErrorCode::RequestCanceled, "Request canceled"))
+            } else if reply.revision != self.revision && !current_syntax {
                 Some((
                     ErrorCode::ContentModified,
                     "Document changed during analysis",
@@ -1897,6 +1991,7 @@ mod tests {
             // Omit the required document from the first internal task.
             queue
                 .send(WorkerMessage::Analyze(Work {
+                    structure: StructureOptions::default(),
                     dispatched_at: None,
                     revision,
                     disk_changes: DiskChanges::None,
@@ -1956,6 +2051,7 @@ mod tests {
         let path = test_dir("lsp-release-projection").join("root.nia");
         let uri = analysis::uri(&path).unwrap();
         let mut work = Work {
+            structure: StructureOptions::default(),
             dispatched_at: None,
             revision: 1,
             disk_changes: DiskChanges::None,
@@ -2228,6 +2324,7 @@ mod tests {
         let (output, replies) = unbounded();
         queue
             .send(WorkerMessage::Analyze(Work {
+                structure: StructureOptions::default(),
                 dispatched_at: None,
                 revision: 1,
                 disk_changes: DiskChanges::None,
@@ -2349,6 +2446,153 @@ mod tests {
         assert_eq!(retry.path, completing.path);
         assert_eq!(retry.revision, completing.revision);
         assert!(retry.cancel.check().is_ok());
+    }
+
+    fn finished_request(mut work: Work, lane: Lane) -> Reply {
+        let request = work.request.take().unwrap();
+        Reply {
+            lane,
+            revision: work.revision,
+            path: work.path,
+            publication: None,
+            response: Some(QueryResponse::Value(Response::new_ok(
+                request.id,
+                work.revision,
+            ))),
+            reference_coverage: None,
+            configuration_changed: false,
+        }
+    }
+
+    #[test]
+    fn workspace_edits_recheck_changed_inputs_while_the_cursor_is_current() {
+        let origin = PathBuf::from("origin.nia");
+        let other = PathBuf::from("consumer.nia");
+        for method in [REFERENCES, RENAME] {
+            for outcome in [
+                "success",
+                "cursor edited",
+                "canceled",
+                "configuration changed",
+            ] {
+                let (connection, client) = Connection::memory();
+                let (editor, _) = unbounded();
+                let (workspace, jobs) = unbounded();
+                let mut server = Server::default();
+                server.pending.push_back((
+                    origin.clone(),
+                    0,
+                    Request::new(1.into(), method.into(), ()),
+                ));
+                server.invalidate_edit(&other);
+                server
+                    .schedule(&connection, &editor, &workspace, false)
+                    .unwrap();
+                let WorkerMessage::Analyze(first) = jobs.try_recv().unwrap() else {
+                    panic!("expected request")
+                };
+                assert_eq!(first.revision, 1);
+                server.invalidate_edit(&other);
+                server.invalidate_edit(&other);
+                assert!(first.cancel.check().is_err());
+                match outcome {
+                    "cursor edited" => server.invalidate_edit(&origin),
+                    "configuration changed" => server.invalidate(),
+                    "canceled" => server
+                        .notification(
+                            &connection,
+                            Notification::new("$/cancelRequest".into(), json!({"id": 1})),
+                        )
+                        .unwrap(),
+                    _ => {}
+                }
+                server
+                    .reply(&connection, finished_request(first, Lane::Workspace))
+                    .unwrap();
+                if outcome == "success" {
+                    assert!(client.receiver.is_empty());
+                    server
+                        .schedule(&connection, &editor, &workspace, false)
+                        .unwrap();
+                    let WorkerMessage::Analyze(retry) = jobs.try_recv().unwrap() else {
+                        panic!("expected retry")
+                    };
+                    assert_eq!(retry.revision, 3);
+                    assert!(retry.cancel.check().is_ok());
+                    server
+                        .reply(&connection, finished_request(retry, Lane::Workspace))
+                        .unwrap();
+                }
+                let Message::Response(response) = client.receiver.try_recv().unwrap() else {
+                    panic!("expected response")
+                };
+                assert_eq!(response.id, 1.into());
+                match outcome {
+                    "success" => assert_eq!(response.response_result.unwrap(), json!(3)),
+                    "canceled" => assert_eq!(
+                        response.response_result.unwrap_err().code,
+                        ErrorCode::RequestCanceled as i32
+                    ),
+                    _ => assert_eq!(
+                        response.response_result.unwrap_err().code,
+                        ErrorCode::ContentModified as i32
+                    ),
+                }
+                assert!(client.receiver.is_empty());
+                assert!(server.pending.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn syntax_requests_use_the_worker_snapshot_of_their_document() {
+        let path = std::env::current_dir().unwrap().join("sample.nia");
+        let uri = analysis::uri(&path).unwrap();
+        let path = analysis::path(&uri).unwrap();
+        let other = path.with_file_name("other.nia");
+        let (connection, client) = Connection::memory();
+        let (editor, jobs) = unbounded();
+        let (workspace, _) = unbounded();
+        let mut server = Server::default();
+        server.documents.insert(
+            path.clone(),
+            OpenDocument {
+                uri: uri.clone(),
+                document: Document::new(1, "fun f() i32 { 1 }".into()),
+            },
+        );
+        for method in [
+            FORMATTING,
+            RANGE_FORMATTING,
+            SELECTION_RANGE,
+            "textDocument/documentSymbol",
+            "textDocument/foldingRange",
+        ] {
+            server
+                .request(
+                    &connection,
+                    Request::new(1.into(), method.into(), json!({"textDocument":{"uri":uri}})),
+                )
+                .unwrap();
+            assert!(client.receiver.is_empty());
+            server.invalidate_edit(&other);
+            server
+                .schedule(&connection, &editor, &workspace, false)
+                .unwrap();
+            let WorkerMessage::Analyze(work) = jobs.try_recv().unwrap() else {
+                panic!("expected document request")
+            };
+            server.invalidate_edit(&other);
+            assert!(work.cancel.check().is_ok());
+            let revision = work.revision;
+            server
+                .reply(&connection, finished_request(work, Lane::Editor))
+                .unwrap();
+            let Message::Response(response) = client.receiver.try_recv().unwrap() else {
+                panic!("expected response")
+            };
+            assert_eq!(response.response_result.unwrap(), json!(revision));
+        }
     }
 
     #[test]

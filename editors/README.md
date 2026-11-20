@@ -70,9 +70,11 @@ files trigger reanalysis when Nia sources, manifests, lockfiles, or the build
 plan change on disk. In clients without watched-file support, the server
 rereads manifests and the build plan only when a Nia buffer is saved.
 
-Workspace references and rename share one index per document revision. They
-run separately from interactive analysis, and an edit cancels them at their
-next cancellation point. References include resolved uses in entries that
+Workspace references and rename share one index per document revision and
+run separately from interactive analysis. Editing the request's document
+invalidates the cursor position. Edits to other open buffers make the
+server retry the search or rename against their latest text before replying.
+References include resolved uses in entries that
 have diagnostics. In a folder with no Nia manifest, the server searches
 subdirectories for package roots. Open a common parent folder or add both
 packages as workspace folders to include unopened callers of a path dependency.
