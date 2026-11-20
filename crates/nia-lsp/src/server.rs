@@ -895,21 +895,33 @@ fn query(
     let result = match method.as_str() {
         DEFINITION | TYPE_DEFINITION => decode::<lsp_types::TextDocumentPositionParams>(params)
             .map(|params| {
-                let location = nia_query::with_cancellation(Some(work.cancel.token()), || {
+                let locations = nia_query::with_cancellation(Some(work.cancel.token()), || {
                     Ok(if method == DEFINITION {
-                        analysis.definition(path, params.position)
+                        analysis
+                            .definition(path, params.position)
+                            .map(|location| vec![location])
                     } else {
                         analysis.type_definition(path, params.position)
                     })
                 })
                 .ok()
                 .flatten();
-                json!(location.map(|location| {
-                    session.generated_location(
-                        |source| analysis.source_text(source),
-                        &work.documents,
-                        location,
-                    )
+                json!(locations.map(|locations| {
+                    let mut projected: Vec<_> = locations
+                        .into_iter()
+                        .map(|location| {
+                            session.generated_location(
+                                |source| analysis.source_text(source),
+                                &work.documents,
+                                location,
+                            )
+                        })
+                        .collect();
+                    if projected.len() == 1 {
+                        lsp_types::GotoDefinitionResponse::Scalar(projected.pop().unwrap())
+                    } else {
+                        lsp_types::GotoDefinitionResponse::Array(projected)
+                    }
                 }))
             }),
         "textDocument/hover" => decode::<lsp_types::TextDocumentPositionParams>(params)

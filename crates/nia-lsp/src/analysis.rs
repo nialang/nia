@@ -2462,7 +2462,7 @@ impl Analysis {
         self.symbol_location(self.symbol_at(path, position)?)
     }
 
-    pub(crate) fn type_definition(&self, path: &Path, position: Position) -> Option<Location> {
+    pub(crate) fn type_definition(&self, path: &Path, position: Position) -> Option<Vec<Location>> {
         let file = self.file(path)?;
         let offset = file.lines.offset(&file.text, position)?;
         let target = self.symbol_at_cursor(file, offset);
@@ -2483,7 +2483,7 @@ impl Analysis {
                     )
                 })
         {
-            return self.symbol_location(Symbol::Global(id));
+            return Some(vec![self.symbol_location(Symbol::Global(id))?]);
         }
 
         let offset = target.map_or(offset, |(_, position)| position);
@@ -2492,10 +2492,15 @@ impl Analysis {
             .iter()
             .filter(|(span, _)| span.start <= offset && offset < span.end)
             .min_by_key(|(span, _)| (span.len(), span.start))?;
-        let mut ty = inferred;
-        let id = loop {
-            match self.types.get(ty)? {
-                TyKind::Nominal { def_id, .. } => break *def_id,
+        let mut pending = vec![inferred];
+        let mut visited = BTreeSet::new();
+        let mut locations = Vec::new();
+        while let Some(ty) = pending.pop() {
+            if !visited.insert(ty) {
+                continue;
+            }
+            let definition = match self.types.get(ty)? {
+                TyKind::Nominal { def_id, .. } => Some(*def_id),
                 TyKind::TraitObject {
                     trait_id: nia_ty::TraitId::Source(id),
                     ..
@@ -2503,22 +2508,41 @@ impl Analysis {
                 | TyKind::TraitObjectPointee {
                     trait_id: nia_ty::TraitId::Source(id),
                     ..
-                } => break *id,
+                } => Some(*id),
                 TyKind::Projection {
                     trait_id: nia_ty::TraitId::Source(id),
                     name,
                     ..
-                } => {
-                    break self.associated_member(*id, *name, DefKind::TraitAssociatedType)?;
+                } => self.associated_member(*id, *name, DefKind::TraitAssociatedType),
+                kind => {
+                    match kind {
+                        TyKind::Pointer { elem, .. }
+                        | TyKind::VolatilePointer { elem, .. }
+                        | TyKind::Optional { elem }
+                        | TyKind::Slice { elem, .. }
+                        | TyKind::SlicePointee { elem }
+                        | TyKind::Array { elem, .. } => pending.push(*elem),
+                        TyKind::Range { bound, .. } => pending.extend(bound),
+                        TyKind::FunctionItem { return_type, .. }
+                        | TyKind::FunctionPointer { return_type, .. }
+                        | TyKind::Callable { return_type, .. }
+                        | TyKind::CallablePointee { return_type, .. }
+                        | TyKind::ClosureState { return_type, .. } => pending.push(*return_type),
+                        TyKind::ErrorUnion { error, value } => pending.extend([*value, *error]),
+                        TyKind::Tuple(elements) => pending.extend(elements.iter().rev()),
+                        _ => {}
+                    }
+                    None
                 }
-                TyKind::Pointer { elem, .. }
-                | TyKind::VolatilePointer { elem, .. }
-                | TyKind::Optional { elem } => ty = *elem,
-                TyKind::FunctionItem { return_type, .. } => ty = *return_type,
-                _ => return None,
+            };
+            if let Some(location) =
+                definition.and_then(|id| self.symbol_location(Symbol::Global(id)))
+                && !locations.contains(&location)
+            {
+                locations.push(location);
             }
-        };
-        self.symbol_location(Symbol::Global(id))
+        }
+        (!locations.is_empty()).then_some(locations)
     }
 
     fn symbol_location(&self, symbol: Symbol) -> Option<Location> {
@@ -4138,7 +4162,7 @@ mod tests {
                     .lines
                     .position(&source, source.find("reading.value").unwrap());
                 assert_eq!(
-                    publication.type_definition(&active, receiver).unwrap().uri,
+                    publication.type_definition(&active, receiver).unwrap()[0].uri,
                     uri(&measurements).unwrap()
                 );
             } else {
@@ -4272,6 +4296,26 @@ mod tests {
     }
 
     #[test]
+    fn type_definition_visits_each_named_component_once() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-composite-type");
+        let entry = root.join("root.nia");
+        let source = "enum Err { Bad }\nstruct Point {}\nfun read(value: Err!(&[Point], Point)) () { _ = value; }\n";
+        std::fs::write(&entry, source).unwrap();
+        let checked = test_session().analyze(&Documents::new(), &entry).unwrap();
+        assert_eq!(checked.first_error(), None);
+        let at = Lines::new(source).position(source, source.rfind("value").unwrap());
+        let targets = checked.type_definition(&entry, at).unwrap();
+        assert_eq!(
+            targets
+                .iter()
+                .map(|location| location.range.start)
+                .collect::<Vec<_>>(),
+            vec![Position::new(0, 5), Position::new(1, 7)]
+        );
+    }
+
+    #[test]
     fn receiver_fields_complete_in_unsaved_buffers_and_link_to_the_right_declaration() {
         let _resources = acquire_test_resources(TestWorkload::Compiler);
         let root = test_dir("lsp-fields");
@@ -4311,7 +4355,7 @@ mod tests {
         assert_eq!(target.uri, uri(&types).unwrap());
         assert_eq!(target.range.start, Position::new(0, 19));
         for position in [Position::new(1, 12), Position::new(3, 4)] {
-            let target = checked.type_definition(&main, position).unwrap();
+            let target = &checked.type_definition(&main, position).unwrap()[0];
             assert_eq!(target.uri, uri(&types).unwrap());
             assert_eq!(target.range.start, Position::new(0, 11));
         }
