@@ -55,11 +55,19 @@ const WORKSPACE_SYMBOL: &str = "workspace/symbol";
 const IMPLEMENTATION: &str = "textDocument/implementation";
 const WILL_RENAME_FILES: &str = "workspace/willRenameFiles";
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Initialize {
+    capabilities: lsp_types::ClientCapabilities,
+    workspace_folders: Option<Vec<lsp_types::WorkspaceFolder>>,
+    // Clients predating workspace folders supply their project through rootUri.
+    root_uri: Option<Uri>,
+}
+
 pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error> {
     let (connection, io) = Connection::stdio();
     let (id, params) = connection.initialize_start()?;
-    let params = decode::<lsp_types::InitializeParams>(params)?;
-    #[allow(deprecated)]
+    let params = decode::<Initialize>(params)?;
     let folders: Vec<_> = params.workspace_folders.map_or_else(
         || {
             params

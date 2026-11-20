@@ -2,14 +2,42 @@
 //! Document outline, folding, and selection from the current lossless syntax tree.
 
 use lsp_types::{
-    DocumentSymbol, DocumentSymbolResponse, FoldingRange, FoldingRangeKind, Location, Position,
-    SelectionRange, SymbolInformation, SymbolKind, Uri,
+    FoldingRange, FoldingRangeKind, Location, Position, Range, SelectionRange, SymbolKind, Uri,
 };
 use nia_lexer::TokenKind;
 use nia_span::Span;
 use nia_syntax::{GreenElement, GreenNode, SyntaxKind};
 
 use crate::document::Document;
+
+#[derive(serde::Serialize)]
+#[serde(untagged)]
+pub(crate) enum DocumentSymbolResponse {
+    Nested(Vec<DocumentSymbol>),
+    Flat(Vec<FlatSymbol>),
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DocumentSymbol {
+    name: String,
+    kind: SymbolKind,
+    range: Range,
+    selection_range: Range,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    children: Option<Vec<DocumentSymbol>>,
+}
+
+/// The location-bearing response shared by workspace search and flat outlines.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FlatSymbol {
+    pub(crate) name: String,
+    pub(crate) kind: SymbolKind,
+    pub(crate) location: Location,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) container_name: Option<String>,
+}
 
 impl Document {
     pub(crate) fn selection_ranges(&self, positions: &[Position]) -> Option<Vec<SelectionRange>> {
@@ -87,7 +115,6 @@ impl Document {
         }
     }
 
-    #[allow(deprecated)]
     fn outline(
         &self,
         node: &GreenNode,
@@ -116,10 +143,7 @@ impl Document {
                 .split_whitespace()
                 .collect::<Vec<_>>()
                 .join(" "),
-            detail: None,
             kind,
-            tags: None,
-            deprecated: None,
             range: self.lines.range(&self.text, span),
             selection_range: self.lines.range(&self.text, selection.1),
             children: (!children.is_empty()).then_some(children),
@@ -201,20 +225,17 @@ fn outline_kind(node: &GreenNode) -> Option<SymbolKind> {
     })
 }
 
-#[allow(deprecated)]
 fn flatten(
     symbols: Vec<DocumentSymbol>,
     uri: &Uri,
     parent: Option<&str>,
-    output: &mut Vec<SymbolInformation>,
+    output: &mut Vec<FlatSymbol>,
 ) {
     for symbol in symbols {
         let index = output.len();
-        output.push(SymbolInformation {
+        output.push(FlatSymbol {
             name: symbol.name,
             kind: symbol.kind,
-            tags: symbol.tags,
-            deprecated: None,
             location: Location::new(uri.clone(), symbol.selection_range),
             container_name: parent.map(str::to_owned),
         });

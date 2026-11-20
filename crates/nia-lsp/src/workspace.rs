@@ -8,7 +8,8 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use lsp_types::{CallHierarchyItem, Location, Position, Range, SymbolInformation, SymbolKind, Uri};
+use crate::structure::FlatSymbol;
+use lsp_types::{CallHierarchyItem, Location, Position, Range, SymbolKind, Uri};
 use nia_compiler_query::ProgramDiagnostic;
 use nia_span::Span;
 
@@ -830,12 +831,11 @@ impl WorkspaceIndex {
         Ok(locations)
     }
 
-    #[allow(deprecated)]
     pub(crate) fn symbols(
         &self,
         query: &str,
         cancel: &Cancellation,
-    ) -> Result<Vec<SymbolInformation>, String> {
+    ) -> Result<Vec<FlatSymbol>, String> {
         let query = query.trim().to_lowercase();
         let qualified = query.contains("::");
         let packages = self.symbol_packages(cancel)?;
@@ -887,11 +887,9 @@ impl WorkspaceIndex {
                 let (uri, text) = &self.files[source];
                 let lines = lines.entry(source).or_insert_with(|| Lines::new(text));
                 let container = declaration.container_name(package.as_deref());
-                Ok(SymbolInformation {
+                Ok(FlatSymbol {
                     name: declaration.name.clone(),
                     kind: declaration.kind,
-                    tags: None,
-                    deprecated: None,
                     location: Location::new(uri.clone(), lines.range(text, site.span)),
                     container_name: (!container.is_empty()).then(|| container.into_owned()),
                 })
