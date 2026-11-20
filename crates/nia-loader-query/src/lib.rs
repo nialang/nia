@@ -333,7 +333,7 @@ impl LoaderDatabase {
                 }
             });
         let provider_facts = ProviderFactStore::new()?;
-        let db = QueryDb::new_registered_in_session(
+        let db = QueryDb::new_registered_with_timings_in_session(
             LoaderContext {
                 entry_path,
                 module_map,
@@ -357,6 +357,7 @@ impl LoaderDatabase {
                 provider_demand_plan_key,
                 provider_demand_plan_candidate: Mutex::new(cached_provider_demands),
             },
+            request.timings,
             loader_query_registry()?,
             session,
         )?;
@@ -894,6 +895,8 @@ pub struct LoadRequest {
     pub verify_frontend_cache: bool,
     /// Optional resolved toolchain supplying std modules and identity.
     pub toolchain: Option<Arc<ToolchainLayout>>,
+    /// Timing instrumentation for the loader query database.
+    pub timings: nia_timing::TimingMode,
 }
 
 impl LoadRequest {
@@ -918,12 +921,19 @@ impl LoadRequest {
             frontend_cache_dir: None,
             verify_frontend_cache: false,
             toolchain: None,
+            timings: nia_timing::TimingMode::Off,
         }
     }
 
     /// Replaces explicit module/package mappings.
     pub fn with_module_map(mut self, module_map: ModuleMap) -> Self {
         self.module_map = module_map;
+        self
+    }
+
+    /// Configures timing instrumentation for loader queries.
+    pub fn with_timings(mut self, timings: nia_timing::TimingMode) -> Self {
+        self.timings = timings;
         self
     }
 

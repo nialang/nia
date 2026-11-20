@@ -1648,6 +1648,7 @@ dependencies = [
  "nia-syntax",
  "nia-target",
  "nia-target-config",
+ "nia-timing",
  "nia-toolchain",
  "parking_lot",
  "windows-sys 0.61.2",

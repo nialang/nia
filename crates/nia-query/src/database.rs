@@ -633,6 +633,9 @@ impl<C> QueryDb<C> {
                         }
                     };
                     slot.stats.record_validation();
+                    if detail_timing {
+                        nia_timing::emit_counter(format!("query.validation.{}", K::name()), 1);
+                    }
                     let validation_failure =
                         match self.dependency_validation_failure(&dependency_fingerprints) {
                             Ok(validation_failure) => validation_failure,
@@ -659,6 +662,17 @@ impl<C> QueryDb<C> {
                             }
                         };
                     if let Some((dependency, reason)) = validation_failure {
+                        if detail_timing && let Ok(frame) = self.frame(dependency) {
+                            nia_timing::emit_counter(
+                                format!(
+                                    "query.validation_failure.{}.{}.{}",
+                                    K::name(),
+                                    frame.name,
+                                    reason.as_str()
+                                ),
+                                1,
+                            );
+                        }
                         self.inner
                             .session
                             .inner
@@ -683,6 +697,12 @@ impl<C> QueryDb<C> {
                         };
                         slot.stats.record_green_validation();
                         slot.stats.record_cache_hit();
+                        if detail_timing {
+                            nia_timing::emit_counter(
+                                format!("query.green_validation.{}", K::name()),
+                                1,
+                            );
+                        }
                         slot.ready.notify_all();
                         record_dependency_fingerprint_on_current_stack(
                             self.inner.session.inner.id,
@@ -1325,6 +1345,22 @@ impl<C> QueryDb<C> {
             .iter()
             .map(|node_id| self.inner.session.frame(*node_id))
             .collect::<QueryResult<Vec<_>>>()?;
+        if self.inner.timings.detail() {
+            let root_name = frames[0].name;
+            let mut cleared = cleared.iter().peekable();
+            let mut counts = FastHashMap::<&str, u64>::default();
+            for (node, frame) in invalidated.iter().zip(&frames) {
+                if cleared.next_if_eq(&node).is_some() {
+                    *counts.entry(frame.name).or_default() += 1;
+                }
+            }
+            for (name, count) in counts {
+                nia_timing::emit_counter(
+                    format!("query.invalidation_clear.{root_name}.{name}"),
+                    count,
+                );
+            }
+        }
         // Traversal order has no semantic effect. Keep the changed root first and make the
         // diagnostic portion deterministic without formatting keys for every dependency edge.
         frames[1..].sort_by(|left, right| {

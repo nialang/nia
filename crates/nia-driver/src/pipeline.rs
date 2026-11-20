@@ -221,6 +221,7 @@ impl Driver {
             compilation_mode: request.compilation_mode,
             runtime: request.runtime.clone(),
             recover_declarations,
+            timings: request.timings,
         };
         let mut loader_guard = self
             .loader
@@ -238,6 +239,7 @@ impl Driver {
                     .with_compilation_mode(key.compilation_mode)
                     .with_runtime(key.runtime.clone())
                     .with_declaration_recovery(key.recover_declarations)
+                    .with_timings(key.timings)
                     .with_toolchain_layout(std::sync::Arc::clone(&self.config.toolchain))
                     .with_frontend_cache_dir(self.config.artifact_cache_dir.clone())
                     .with_frontend_cache_verification(self.config.verify_frontend_cache);

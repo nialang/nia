@@ -21,6 +21,7 @@ pub(super) struct LoaderKey {
     pub(super) compilation_mode: CompilationMode,
     pub(super) runtime: RuntimeSpec,
     pub(super) recover_declarations: bool,
+    pub(super) timings: nia_timing::TimingMode,
 }
 
 #[derive(Clone)]

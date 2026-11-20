@@ -142,11 +142,19 @@ def count_delta(before, after):
     timings = {entry["name"]: entry["count"] - stage_counts.get(entry["name"], 0)
                for entry in after["timings"]}
     body_prefix = "body_check.profile.function.check_block["
+
+    def query_counts(values, prefix):
+        return {name.removeprefix(prefix): count for name, count in values.items()
+                if name.startswith(prefix) and count}
+
     return {
         "body_checks_by_module": {name.removeprefix(body_prefix).removesuffix("]"): count
                                   for name, count in timings.items() if name.startswith(body_prefix) and count},
-        "query_providers": {name.removeprefix("query.provider."): count for name, count in timings.items()
-                            if name.startswith("query.provider.") and count},
+        "query_providers": query_counts(timings, "query.provider."),
+        "query_validations": query_counts(counters, "query.validation."),
+        "green_query_validations": query_counts(counters, "query.green_validation."),
+        "query_validation_failures": query_counts(counters, "query.validation_failure."),
+        "query_invalidation_clears": query_counts(counters, "query.invalidation_clear."),
         "direct_query_cache_hits": timings.get("query.record_cache_hit", 0),
         "provider_graph_changes": sum(count for name, count in counters.items()
                                       if name.startswith("compiler.executable_provider_demands.")
