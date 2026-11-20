@@ -624,34 +624,33 @@ impl CompilerDatabase {
         demands: Vec<crate::ProviderDemand>,
     ) -> QueryResult<crate::ProviderGraphUpdate> {
         let timings = self.db.context().timings();
-        if !timings.enabled() {
-            return self
-                .db
-                .context()
-                .loader_facts()
-                .update_provider_demands(demands);
+        let context = self.db.context();
+        let loader = context.loader_facts();
+        let before = if timings.enabled() {
+            let facts = loader.provider_facts()?;
+            let unique = demands.iter().collect::<HashSet<_>>();
+            let known = unique
+                .iter()
+                .filter(|d| facts.demands().contains(**d))
+                .count();
+            Some((facts, unique.len(), known))
+        } else {
+            None
+        };
+        let update = loader.update_provider_demands(demands)?;
+        if matches!(update, crate::ProviderGraphUpdate::Changed { .. }) {
+            // The next edit may remove a module first loaded during this round.
+            let graph = loader.module_graph()?;
+            *context.observed_graph.lock() = graph;
         }
-        let before = self.db.context().loader_facts().provider_facts()?;
-        let unique_demands = demands.iter().cloned().collect::<HashSet<_>>();
-        let known = unique_demands.intersection(before.demands()).count() as u64;
-        let update = self
-            .db
-            .context()
-            .loader_facts()
-            .update_provider_demands(demands)?;
-        let after = self.db.context().loader_facts().provider_facts()?;
-        let added = after
-            .demands()
-            .difference(before.demands())
-            .collect::<Vec<_>>();
-        emit_provider_demand_update(
-            timings,
-            round,
-            phase,
-            unique_demands.len() as u64,
-            known,
-            &added,
-        );
+        if let Some((before, unique, known)) = before {
+            let after = loader.provider_facts()?;
+            let added = after
+                .demands()
+                .difference(before.demands())
+                .collect::<Vec<_>>();
+            emit_provider_demand_update(timings, round, phase, unique as u64, known as u64, &added);
+        }
         Ok(update)
     }
 

@@ -1518,7 +1518,15 @@ impl<C> QueryDb<C> {
             // Ensuring first recursively validates the dependency. Its stored fingerprint is only
             // meaningful after that state transition, so comparing the pre-ensure value would let
             // an outdated dependency incorrectly keep this query green.
-            self.ensure_node(*node_id)?;
+            match self.ensure_node(*node_id) {
+                Ok(()) => {}
+                // An old branch can name an input that left the graph. Only
+                // executing the parent tells us whether it still needs it.
+                Err(QueryError::InvalidInput { .. }) => {
+                    return Ok(Some((*node_id, QueryValidationFailureReason::InvalidInput)));
+                }
+                Err(error) => return Err(error),
+            }
             if self.node_fingerprint(*node_id)? != Some(*expected_fingerprint) {
                 return Ok(Some((*node_id, QueryValidationFailureReason::Changed)));
             }

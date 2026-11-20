@@ -943,6 +943,8 @@ pub struct QueryTrace {
 /// Why a direct dependency prevented one cached query from validating green.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum QueryValidationFailureReason {
+    /// A dependency from the previous execution no longer accepts its input.
+    InvalidInput,
     /// The dependency did not publish a fingerprint that could be compared.
     Unfingerprinted,
     /// The dependency's validated fingerprint differs from the recorded value.
@@ -953,6 +955,7 @@ impl QueryValidationFailureReason {
     /// Stable counter label for timing and maintenance reports.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::InvalidInput => "invalid_input",
             Self::Unfingerprinted => "unfingerprinted",
             Self::Changed => "changed",
         }

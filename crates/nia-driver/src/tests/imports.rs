@@ -4728,6 +4728,52 @@ fn creating_a_missing_child_module_matches_a_clean_check() {
 }
 
 #[test]
+fn changing_a_facade_import_matches_a_clean_check() {
+    let install = |driver: &crate::Driver| {
+        for (path, text) in [
+            (
+                "root.nia",
+                "module geometry; module text; pub module api; module consumer;",
+            ),
+            ("geometry.nia", "pub struct Point { x: i32, y: i32 }"),
+            (
+                "text.nia",
+                "extend [char] { pub fun countOf(&self, target: char) usize { let mut n: usize = 0; for &ch in self { if ch == target { n += 1; } } n } }",
+            ),
+            (
+                "api.nia",
+                "using root::geometry; using root::text; pub using geometry::Point; pub using text;",
+            ),
+        ] {
+            driver.set_source(path, text).expect("module source");
+        }
+    };
+    let driver = test_driver();
+    install(&driver);
+    for import in ["root::api", "root::api::Point", "root::api"] {
+        let source = format!("using {import};\nfun letters() usize {{ \"banana\".countOf('a') }}");
+        let check = |driver: &crate::Driver| {
+            driver
+                .set_source("consumer.nia", source.clone())
+                .expect("consumer source");
+            driver
+                .analyze_all_modules(crate::CheckRequest::new("root.nia"))
+                .diagnostics
+        };
+        let clean = test_driver();
+        install(&clean);
+        let expected = check(&clean);
+        assert!(
+            expected
+                .iter()
+                .all(|d| d.diagnostic.category() == nia_diagnostic::DiagnosticCategory::User),
+            "{expected:?}"
+        );
+        assert_eq!(check(&driver), expected, "{import}");
+    }
+}
+
+#[test]
 fn slice_access_keeps_ordering_provider_out_of_compiler_work() {
     let root = temp_dir("slice_import_spelling_keeps_unneeded_ordering_out_of_compiler_work");
     let broad_path = root.join("broad.nia");
