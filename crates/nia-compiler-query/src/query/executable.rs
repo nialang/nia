@@ -116,6 +116,7 @@ pub(super) struct ProviderFactInvalidationStats {
     pub(super) discarded_modules: usize,
     pub(super) invalidated_functions: usize,
     pub(super) reset_reachability: bool,
+    pub(super) reset_session: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -289,6 +290,7 @@ impl ExecutableFactSession {
                 .filter(|demand| provider_change_invalidates_facts(demand))
                 .count(),
             reset_reachability: reset,
+            reset_session: reset,
             ..ProviderFactInvalidationStats::default()
         };
         if !pending_changes.is_empty() {

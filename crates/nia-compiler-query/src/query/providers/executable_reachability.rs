@@ -584,6 +584,13 @@ fn executable_check_in_session(
         Ok(inputs) => inputs,
         Err(error) => return (Err(error), session),
     };
+    if session
+        .epoch
+        .as_ref()
+        .is_some_and(|previous| previous != executable_fact_epoch.as_ref())
+    {
+        emit_executable_check_counter(db, product, "epoch_session_resets", 1);
+    }
     session.enter_epoch(&executable_fact_epoch);
     let precise_provider_growth = session.can_preserve_diagnostic_facts_for_provider_growth(
         &provider_fact_worklist,
@@ -1441,6 +1448,12 @@ fn emit_provider_fact_invalidation_counters(
     product: ExecutableCheckProduct,
     stats: ProviderFactInvalidationStats,
 ) {
+    emit_executable_check_counter(
+        db,
+        product,
+        "provider_session_resets",
+        u64::from(stats.reset_session),
+    );
     emit_executable_check_counter(db, product, "provider_changes", stats.changes as u64);
     emit_executable_check_counter(
         db,

@@ -351,6 +351,9 @@ impl Driver {
             )?;
             compiler.database.clone()
         } else {
+            if request.timings.enabled() {
+                nia_timing::emit_counter("driver.compiler_session.created", 1);
+            }
             let database = CompilerDatabase::new(
                 CompileRequest::new(loader.clone())
                     .with_optimization(request.optimization)

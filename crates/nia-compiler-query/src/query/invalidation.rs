@@ -83,6 +83,12 @@ impl CompilerDatabase {
                     .invalidated,
             );
             if handle_generation_changed {
+                if self.db.context().timings().enabled() {
+                    nia_timing::emit_counter(
+                        "compiler.executable_fact_session.module_handle_reset",
+                        1,
+                    );
+                }
                 *self.db.context().executable_fact_session.lock() =
                     ExecutableFactSession::default();
             }

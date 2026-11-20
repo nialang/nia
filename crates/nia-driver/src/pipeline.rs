@@ -230,6 +230,9 @@ impl Driver {
         let database = match &*loader_guard {
             Some(loader) if loader.key == key => loader.database.clone(),
             _ => {
+                if key.timings.enabled() {
+                    nia_timing::emit_counter("driver.loader_session.created", 1);
+                }
                 let load_request = LoadRequest::from_source_path(key.entry_path.clone())
                     .with_module_map(key.module_map.clone())
                     .with_sources(self.sources.clone())
