@@ -4513,7 +4513,7 @@ mod tests {
         let main = root.join("main.nia");
         let alpha = root.join("alpha.nia");
         let beta = root.join("beta.nia");
-        let source = "// SPDX-License-Identifier: GPL-3.0-or-later\r\n\r\n// Alpha module\r\nmodule alpha;\r\nmodule beta;\r\nfun example() i32 { weig() }\r\n";
+        let source = "// SPDX-License-Identifier: GPL-3.0-or-later\r\n\r\n// Alpha module\r\nmodule alpha;\r\nmodule beta;\r\nfun example() i32 { weig }\r\n";
         let visible = "pub fun weight() i32 { 1 }\n";
         let hidden = "fun weight() i32 { 2 }\n";
         std::fs::write(&main, source).unwrap();

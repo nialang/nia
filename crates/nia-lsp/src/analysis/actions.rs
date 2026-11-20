@@ -127,9 +127,14 @@ impl Session {
                 continue;
             };
             for candidate in candidates {
-                let Some(import) =
-                    self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)
-                else {
+                let Some(import) = self.verified_import_edit(
+                    analysis,
+                    documents,
+                    path,
+                    ImportUse::Existing(span),
+                    &candidate,
+                    cancel,
+                ) else {
                     continue;
                 };
                 let edit = TextDocumentEdit {
@@ -185,9 +190,14 @@ impl Session {
         let mut items = Vec::new();
         for candidate in candidates {
             cancel.check().ok()?;
-            let Some(import) =
-                self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)
-            else {
+            let Some(import) = self.verified_import_edit(
+                analysis,
+                documents,
+                path,
+                ImportUse::Completion(span),
+                &candidate,
+                cancel,
+            ) else {
                 continue;
             };
             items.push(candidate.completion(range, import));
@@ -262,7 +272,14 @@ impl Session {
         )? {
             cancel.check().ok()?;
             let import = if has_call {
-                self.verified_import_edit(analysis, documents, path, span, &candidate, cancel)
+                self.verified_import_edit(
+                    analysis,
+                    documents,
+                    path,
+                    ImportUse::Existing(span),
+                    &candidate,
+                    cancel,
+                )
             } else {
                 self.verified_member_import(analysis, documents, path, member, &candidate, cancel)
             };
@@ -327,7 +344,7 @@ impl Session {
         let after = self
             .analyze_snapshot(&updated, &analysis.request, cancel, AnalysisMode::Full)
             .ok()?;
-        verified_import_context(analysis, &after, &offsets, cancel)?;
+        verified_import_context(analysis, &after, &offsets, None, cancel)?;
         Some(TextEdit::new(file.lines.range(&file.text, at), import))
     }
 
@@ -336,10 +353,11 @@ impl Session {
         analysis: &Analysis,
         documents: &Documents,
         path: &Path,
-        span: Span,
+        usage: ImportUse,
         candidate: &ImportCandidate,
         cancel: &Cancellation,
     ) -> Option<TextEdit> {
+        let (ImportUse::Completion(span) | ImportUse::Existing(span)) = usage;
         let open = documents.get(path)?;
         let file = analysis
             .file(path)
@@ -359,17 +377,25 @@ impl Session {
         let after = self
             .analyze_snapshot(&updated, &analysis.request, cancel, AnalysisMode::Full)
             .ok()?;
-        verified_import(
-            analysis,
-            &after,
-            &source,
-            span,
-            &candidate.target,
-            &edits,
-            cancel,
-        )
-        .then(|| TextEdit::new(file.lines.range(&file.text, at), text))
+        let offsets = EditOffsets::new(&edits);
+        let name = offsets.binding_span(&source, span);
+        let unfinished = (matches!(usage, ImportUse::Completion(_))
+            && candidate.kind == Some(nia_defs::DefKind::Function)
+            && !file.text[span.end..].trim_start().starts_with('('))
+        .then_some((source.as_str(), name));
+        let current = verified_import_context(analysis, &after, &offsets, unfinished, cancel)?;
+        let target = Site {
+            source: candidate.target.source.clone(),
+            span: offsets.binding_span(&candidate.target.source, candidate.target.span),
+        };
+        matches_import_target(&source, span, &target, &offsets, &current)
+            .then(|| TextEdit::new(file.lines.range(&file.text, at), text))
     }
+}
+
+enum ImportUse {
+    Existing(Span),
+    Completion(Span),
 }
 
 pub(super) struct ImportCandidate {
@@ -763,35 +789,27 @@ fn requests_quick_fixes(params: &CodeActionParams) -> bool {
     })
 }
 
-fn verified_import(
-    before: &Analysis,
-    after: &Analysis,
-    source: &str,
-    use_span: Span,
-    target: &Site,
-    edits: &Edits,
-    cancel: &Cancellation,
-) -> bool {
-    let offsets = EditOffsets::new(edits);
-    let shift = |site: &Site| Site {
-        span: offsets.binding_span(&site.source, site.span),
-        source: site.source.clone(),
-    };
-    verified_import_context(before, after, &offsets, cancel).is_some_and(|current| {
-        matches_import_target(source, use_span, &shift(target), &offsets, &current)
-    })
-}
-
 fn verified_import_context(
     before: &Analysis,
     after: &Analysis,
     offsets: &EditOffsets<'_>,
+    unfinished: Option<(&str, Span)>,
     cancel: &Cancellation,
 ) -> Option<Bindings> {
-    if offsets
-        .new_error(before.errors(), after.errors(), &[])
-        .is_some()
-    {
+    // While typing a callee, the bare function value can have the wrong type
+    // for its surrounding expression. Verify its identity and other bindings
+    // even before the user writes the arguments.
+    let errors = after.errors().filter(|item| {
+        !unfinished.is_some_and(|(path, name)| {
+            item.path.as_str() == path
+                && item.diagnostic.code.as_str() == codes::TYPE_CHECK.code
+                && item
+                    .diagnostic
+                    .primary_span()
+                    .is_some_and(|span| span.start <= name.start && name.end <= span.end)
+        })
+    });
+    if offsets.new_error(before.errors(), errors, &[]).is_some() {
         return None;
     }
     let mut previous = bindings(before, cancel).ok()?;
