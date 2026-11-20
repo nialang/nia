@@ -128,6 +128,9 @@ fun unsigned(value: &usize) usize { value.* }
 fun signed(value: &isize) isize { value.* }
 fun flag(value: &bool) bool { value.* }
 fun formatted(value: &fmt::Format) bool { _ = value; true }
+trait Measure { fun measure(&self) i32; }
+extend i32 : Measure { fun measure(&self) i32 { self.* } }
+fun measure(value: &Measure) i32 { value.measure() }
 
 pub fun main(init: process::Init) process::ExitCode!() {
     _ = init;
@@ -143,6 +146,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
     if not formatted(x + 1) or not formatted(-(x as isize)) or not formatted(x == 3) {
         return process::ExitCode(3)!;
+    }
+    if measure(42i32) != 42 or not formatted(true) {
+        return process::ExitCode(4)!;
     }
     !()
 }
