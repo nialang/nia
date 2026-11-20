@@ -390,28 +390,37 @@ impl Session {
             ),
         };
         configured.sort_by_key(|request| request.check.entry_path.as_str() != entry_path);
+        let mut failure = None;
         for request in configured {
-            if let Ok(analysis) = analyze(request, None)
-                && analysis.files.contains_key(&entry_path)
-            {
-                return Ok(analysis);
+            match analyze(request, None) {
+                Ok(analysis) if analysis.files.contains_key(&entry_path) => return Ok(analysis),
+                Ok(_) => {}
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
             }
         }
-        let entries = package.entries(entry);
-        let mut entries = entries.into_iter().peekable();
-        while let Some((path, context)) = entries.next() {
+        if let Some(error) = failure.take() {
+            return Err(error);
+        }
+        for (path, context) in package.candidate_entries(entry) {
             let analysis = package
                 .editor_request(&path, context, &self.toolchain)
                 .and_then(|request| analyze(request, configuration_warning.as_deref()));
-            if entries.peek().is_none()
-                || analysis
-                    .as_ref()
-                    .is_ok_and(|analysis| analysis.files.contains_key(&entry_path))
-            {
-                return analysis;
+            match analysis {
+                Ok(analysis) if analysis.files.contains_key(&entry_path) => return Ok(analysis),
+                Ok(_) => {}
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
             }
         }
-        unreachable!("editor requests always include the current source")
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        let request =
+            package.editor_request(entry, package.fallback_context(entry), &self.toolchain)?;
+        analyze(request, configuration_warning.as_deref())
     }
 
     pub(crate) fn install_documents(&mut self, documents: &Documents) -> Result<(), String> {

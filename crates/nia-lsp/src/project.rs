@@ -401,7 +401,7 @@ impl Package {
         source.is_file().then_some(source)
     }
 
-    fn fallback_context(&self, path: &Path) -> Context {
+    pub(crate) fn fallback_context(&self, path: &Path) -> Context {
         if normalized(path) == normalized(&build_script_path(self.layout.package_root())) {
             Context::Build
         } else {
@@ -488,47 +488,18 @@ impl Package {
         self.configuration.message()
     }
 
-    pub(crate) fn entries(&self, entry: &Path) -> Vec<(PathBuf, Context)> {
-        let root = self.layout.package_root();
+    pub(crate) fn candidate_entries(&self, entry: &Path) -> Vec<(PathBuf, Context)> {
         let entry_path = normalized(entry);
-        let library = self
-            .manifest
-            .library_path
-            .as_deref()
-            .map(|path| root.join(path));
-        let artifacts: Vec<_> = self
-            .manifest
-            .artifacts
+        let mut entries = self.declared_entries();
+        if let Some((_, context)) = entries
             .iter()
-            .map(|artifact| {
-                let context = match artifact.kind {
-                    ArtifactKind::Executable => Context::Executable,
-                    ArtifactKind::Test => Context::Test,
-                };
-                (root.join(&artifact.path), context)
-            })
-            .collect();
-        let mut entries = Vec::new();
-        if let Some((_, context)) = artifacts
-            .iter()
-            .find(|(path, _)| normalized(path) == entry_path)
+            .filter(|(path, _)| normalized(path) == entry_path)
+            .min_by_key(|(_, context)| *context == Context::Library)
         {
-            entries.push((entry.to_path_buf(), *context));
-        } else {
-            if let Some(library) = library {
-                if normalized(&library) == entry_path {
-                    return vec![(library, Context::Library)];
-                }
-                entries.push((library, Context::Library));
-            }
-            entries.extend(artifacts);
-            let fallback = self.fallback_context(entry);
-            if fallback != Context::Build
-                && let Some(build) = self.build_candidate()
-            {
-                entries.push((build, Context::Build));
-            }
-            entries.push((entry.to_path_buf(), fallback));
+            return vec![(entry.to_path_buf(), *context)];
+        }
+        if let Some(build) = self.build_candidate() {
+            entries.push((build, Context::Build));
         }
         entries
     }
