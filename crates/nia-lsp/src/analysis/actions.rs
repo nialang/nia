@@ -303,8 +303,7 @@ impl Session {
         let span = member.replacement();
         let prefix = member.prefix(&file.text);
         let has_call = is_method_callee(file.syntax().tree.green_root(), span);
-        let mut items = Vec::new();
-        for candidate in self.find_import_candidates(
+        let candidates = self.find_import_candidates(
             analysis,
             documents,
             path,
@@ -312,45 +311,62 @@ impl Session {
             |view, file, aliases| {
                 view.extension_imports(file, |name| name.starts_with(prefix), aliases, cancel)
             },
-        )? {
-            cancel.check().ok()?;
-            let import = if has_call {
-                self.verified_import_edit(
+        )?;
+        let range = file.lines.range(&file.text, span);
+        let mut items = Vec::new();
+        if has_call {
+            for candidate in candidates {
+                cancel.check().ok()?;
+                if let Some(import) = self.verified_import_edit(
                     analysis,
                     documents,
                     path,
                     ImportUse::Existing(span),
                     &candidate,
                     cancel,
-                )
-            } else {
-                self.verified_member_import(analysis, documents, path, member, &candidate, cancel)
-            };
-            if let Some(import) = import {
-                items.push(candidate.completion(file.lines.range(&file.text, span), import));
+                ) {
+                    items.push(candidate.completion(range, import));
+                }
+            }
+        } else {
+            // Every method from the same module proposes the same source edit.
+            // Check that edit once, asking the receiver checker for all its names.
+            let mut imports = BTreeMap::<String, Vec<ImportCandidate>>::new();
+            for candidate in candidates {
+                imports
+                    .entry(candidate.path.clone())
+                    .or_default()
+                    .push(candidate);
+            }
+            for candidates in imports.into_values() {
+                cancel.check().ok()?;
+                if let Some(verified) = self
+                    .verified_member_imports(analysis, documents, path, member, candidates, cancel)
+                {
+                    items.extend(verified);
+                }
             }
         }
         Some(items)
     }
 
-    fn verified_member_import(
+    fn verified_member_imports(
         &mut self,
         analysis: &Analysis,
         documents: &Documents,
         path: &Path,
         member: &MemberCompletion,
-        candidate: &ImportCandidate,
+        candidates: Vec<ImportCandidate>,
         cancel: &Cancellation,
-    ) -> Option<TextEdit> {
+    ) -> Option<Vec<CompletionItem>> {
         let open = documents.get(path)?;
         let file = analysis
             .file(path)
             .filter(|file| file.text == open.document.text)?;
-        let (at, import) = import_insertion(&file.text, &candidate.path);
+        let (at, import) = import_insertion(&file.text, &candidates.first()?.path);
         let source = normalized(path);
         let edits = Edits::from([(source, BTreeMap::from([(at, import.clone())]))]);
         let offsets = EditOffsets::new(&edits);
-        let target = offsets.binding_span(&candidate.target.source, candidate.target.span);
         let mut updated = documents.clone();
         let mut probe = member.probe(&file.text);
         probe.insert_str(at.start, &import);
@@ -366,18 +382,36 @@ impl Session {
         let probed = analyzed.file(path)?;
         let cursor = import.len() + member.replacement().start;
         let receiver = MemberCompletion::at(&probed.text, cursor)?.receiver(probed)?;
-        let name = nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash(&candidate.name));
+        let names: Vec<_> = candidates
+            .iter()
+            .map(|candidate| {
+                nia_symbol::SymbolId::from_stable_hash(nia_symbol::stable_hash(&candidate.name))
+            })
+            .collect();
         let checked = analyzed
             .db
-            .source_receiver_members(probed.module, receiver, &[name], Some(cancel.token()))
+            .source_receiver_members(probed.module, receiver, &names, Some(cancel.token()))
             .ok()??;
-        if !checked.methods.iter().any(|method| {
-            method.declaration.as_ref().is_some_and(|(path, span)| {
-                path.as_str() == candidate.target.source.as_ref()
-                    && span.start <= target.start
-                    && target.end <= span.end
+        let applicable: Vec<_> = candidates
+            .into_iter()
+            .zip(names)
+            .filter_map(|(candidate, name)| {
+                let target = offsets.binding_span(&candidate.target.source, candidate.target.span);
+                checked
+                    .methods
+                    .iter()
+                    .any(|method| {
+                        method.name == name
+                            && method.declaration.as_ref().is_some_and(|(source, span)| {
+                                source.as_str() == candidate.target.source.as_ref()
+                                    && span.start <= target.start
+                                    && target.end <= span.end
+                            })
+                    })
+                    .then_some(candidate)
             })
-        }) {
+            .collect();
+        if applicable.is_empty() {
             return None;
         }
 
@@ -388,7 +422,14 @@ impl Session {
             .analyze_snapshot(&updated, &analysis.request, cancel, AnalysisMode::Full)
             .ok()?;
         verified_import_context(analysis, &after, &offsets, None, cancel)?;
-        Some(TextEdit::new(file.lines.range(&file.text, at), import))
+        let edit = TextEdit::new(file.lines.range(&file.text, at), import);
+        let range = file.lines.range(&file.text, member.replacement());
+        Some(
+            applicable
+                .into_iter()
+                .map(|candidate| candidate.completion(range, edit.clone()))
+                .collect(),
+        )
     }
 
     fn verified_import_edit(

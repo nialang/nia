@@ -5365,7 +5365,10 @@ mod tests {
         .unwrap();
         std::fs::write(
             dep.join("extensions.nia"),
-            "extend i32 { pub fun lengthUnits(&self) i32 { self.* } }\n",
+            concat!(
+                "extend i32 { pub fun lengthUnits(&self) i32 { self.* } pub fun lengthBase(&self) i32 { self.* } }\n",
+                "extend bool { pub fun lengthOther(&self) bool { self.* } }\n",
+            ),
         )
         .unwrap();
         let main = root.join("root.nia");
@@ -5450,6 +5453,21 @@ mod tests {
             item.additional_text_edits.as_ref().unwrap()[0].new_text,
             "using measure::extensions;\n\n"
         );
+
+        let source = "fun run(value: i32) i32 { value.length }\n";
+        unloaded.get_mut(&main).unwrap().document = Document::new(4, source.into());
+        let full = session.analyze(&unloaded, &main).unwrap();
+        let cursor = Lines::new(source).position(source, source.find("length").unwrap() + 6);
+        let items = probe
+            .complete(&full, &unloaded, &main, cursor, &cancel)
+            .unwrap();
+        let mut names: Vec<_> = items.iter().map(|item| item.label.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["lengthBase", "lengthUnits"]);
+        assert!(items.iter().all(
+            |item| item.additional_text_edits.as_ref().unwrap()[0].new_text
+                == "using measure::extensions;\n\n"
+        ));
     }
 
     #[test]
