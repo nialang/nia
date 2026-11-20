@@ -477,6 +477,49 @@ fn workspace_signature() {
 }
 
 #[test]
+fn narrowing_a_facade_import_rechecks_extension_methods() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let workspace = Workspace::new("nia-lsp-facade-import");
+    for (path, text) in [
+        (
+            "nia.toml",
+            "[package]\nname='sample'\nversion='1.0.0'\n[library]\npath='root.nia'\n",
+        ),
+        (
+            "root.nia",
+            "module geometry; module text; pub module api; module consumer; pub fun amount() usize { 1 }",
+        ),
+        ("geometry.nia", "pub struct Point { x: i32, y: i32 }"),
+        (
+            "text.nia",
+            "extend [char] { pub fun countOf(&self, target: char) usize { let mut n: usize = 0; for &ch in self { if ch == target { n += 1; } } n } }",
+        ),
+        (
+            "api.nia",
+            "using root::geometry; using root::text; pub using geometry::Point; pub using text;",
+        ),
+    ] {
+        write_text(&workspace.root.join(path), text);
+    }
+    let source = workspace.root.join("consumer.nia");
+    let original =
+        "using root::api;\nfun letters() usize { root::amount() + \"banana\".countOf('a') }";
+    write_text(&source, original);
+    let workload = Workload {
+        root: workspace.root.clone(),
+        source: source.clone(),
+        original: vec![(source.clone(), original.into())],
+        edit: (
+            source,
+            replace_once(original, "root::api;", "root::api::Point;"),
+        ),
+        probes: vec![("root::amount()", "amount"), (".countOf(", "countOf")],
+        _workspace: Some(workspace),
+    };
+    audit("workspace", "facade import", workload);
+}
+
+#[test]
 fn array_list_comment() {
     audit_array_list("comment");
 }
