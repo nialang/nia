@@ -77,10 +77,21 @@ pub fn outputs_reading_input(
         .collect()
 }
 
+/// Appended to a generated source's file name to name its source map.
+const MAP_SUFFIX: &str = ".map";
+
+/// The path of the source map that may accompany the generated source at
+/// `generated`.
+pub fn map_path(generated: &Path) -> PathBuf {
+    let mut name = generated.as_os_str().to_owned();
+    name.push(MAP_SUFFIX);
+    PathBuf::from(name)
+}
+
 fn map_output(source: &LogicalPath) -> Result<LogicalPath, nia_build_plan::LogicalPathError> {
     LogicalPath::new(
         source.root().clone(),
-        &format!("{}.map", source.protocol_path()),
+        &format!("{}{MAP_SUFFIX}", source.protocol_path()),
     )
 }
 
@@ -411,6 +422,17 @@ mod tests {
             selected_step: None,
         })
         .unwrap()
+    }
+
+    #[test]
+    fn map_paths_agree_for_files_and_logical_outputs() {
+        let generated = LogicalPath::new(LogicalPathRoot::Build, "gen/parser.nia").unwrap();
+        let logical = map_output(&generated).unwrap();
+        assert_eq!(logical.protocol_path(), "gen/parser.nia.map");
+        assert_eq!(
+            map_path(Path::new("out/gen/parser.nia")),
+            Path::new("out").join(logical.protocol_path()),
+        );
     }
 
     #[test]

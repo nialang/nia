@@ -545,7 +545,7 @@ impl Session {
     ) -> Location {
         let projected = (|| {
             let mut generated = path(&location.uri)?;
-            if !generated.with_extension("nia.map").is_file() {
+            if !nia_build::source_map::map_path(&generated).is_file() {
                 return None;
             }
             let text = source(&generated)?;
