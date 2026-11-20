@@ -52,9 +52,18 @@ pub struct TypeResolution {
     /// be a const argument. A later semantic context can require the type reading.
     pub unresolved_type_candidates: nia_hash::FastHashSet<NodeSite>,
     /// Const-generic parameter names keyed by versioned node identity.
-    pub node_const_generic_names: NodeMap<SymbolId>,
+    pub node_const_generic_names: NodeMap<ConstGenericUse>,
     /// Diagnostics emitted while resolving the module.
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// A const parameter selected in the enclosing generic scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConstGenericUse {
+    /// Interned name consumed by const lowering.
+    pub name: SymbolId,
+    /// Name of the declaration in this source revision.
+    pub declaration: Span,
 }
 
 /// Semantic category recorded for a source type name.
@@ -69,7 +78,7 @@ pub enum TypeNameResolution {
     /// A definition owned by another module.
     External(GlobalDefId),
     /// A generic type parameter.
-    GenericParam,
+    GenericParam(Span),
     /// An associated type projection.
     AssociatedType,
     /// An unresolved or invalid type name.

@@ -735,7 +735,7 @@ pub(super) fn semantic_use_table(
         type_resolution
             .node_const_generic_names
             .iter()
-            .map(|(key, name)| (key.clone(), *name)),
+            .map(|(key, usage)| (key.clone(), usage.name)),
     );
     builder.finish()
 }

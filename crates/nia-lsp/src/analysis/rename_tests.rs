@@ -619,6 +619,41 @@ fn rename_accepts_source_modules_under_target() {
 }
 
 #[test]
+fn generic_parameter_references_stay_in_their_declaring_scope() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-generic-definition");
+    let entry = root.join("root.nia");
+    let source = concat!(
+        "fun first[T, N: usize](xs: &[T; N]) usize { N }\n",
+        "fun other[T, N: usize](xs: &[T; N]) usize { let N = 2usize; N }\n",
+    );
+    std::fs::write(&entry, source).unwrap();
+    let analysis = test_session().analyze(&Documents::new(), &entry).unwrap();
+    assert_eq!(analysis.first_error(), None);
+    let lines = Lines::new(source);
+    for (needle, declaration) in [("T; N", "T, N"), ("N])", "N: usize"), ("N }", "N: usize")] {
+        let position = lines.position(source, source.find(needle).unwrap());
+        let target = analysis.definition(&entry, position).expect(needle);
+        assert_eq!(
+            target.range.start,
+            lines.position(source, source.find(declaration).unwrap())
+        );
+    }
+    let shadow = lines.position(source, source.rfind("N }").unwrap());
+    assert_eq!(
+        analysis.definition(&entry, shadow).unwrap().range.start,
+        lines.position(source, source.find("N = 2").unwrap())
+    );
+    for (needle, replacement, count) in [("T, N", "Element", 2), ("N: usize", "Count", 3)] {
+        let edit = rename_at(&entry, needle, replacement).unwrap();
+        let Some(lsp_types::DocumentChanges::Edits(files)) = edit.document_changes else {
+            panic!("expected versioned edits")
+        };
+        assert_eq!(files[0].edits.len(), count);
+    }
+}
+
+#[test]
 fn rename_indexes_associated_function_calls() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-associated-function-uses");

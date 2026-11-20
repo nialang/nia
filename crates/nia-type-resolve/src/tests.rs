@@ -46,7 +46,7 @@ Box[i32] { value }
         resolved
             .node_type_names
             .values()
-            .any(|resolution| matches!(resolution, TypeNameResolution::GenericParam))
+            .any(|resolution| matches!(resolution, TypeNameResolution::GenericParam(_)))
     );
     assert!(
         resolved
@@ -80,7 +80,7 @@ fun repeat[T, N: usize](value: T) [T; N] {
         resolved
             .node_const_generic_names
             .values()
-            .any(|name| *name == sym("N"))
+            .any(|name| name.name == sym("N"))
     );
 }
 

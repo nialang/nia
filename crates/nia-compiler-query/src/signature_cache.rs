@@ -39,7 +39,7 @@ use nia_ty::{
     LayoutBuiltin, PrimitiveTy, PrimitiveTypeSpelling, RangeTyKind, TraitId, TyKind, TypeStore,
 };
 use nia_type_lower::TypeLowering;
-use nia_type_resolve::{TypeNameResolution, TypeResolution};
+use nia_type_resolve::{ConstGenericUse, TypeNameResolution, TypeResolution};
 
 use crate::{
     FrontendCacheNamespace, FrontendCheckCertificateCacheKey, FrontendCheckInputFingerprint,
@@ -415,8 +415,9 @@ fn encode_type_resolution(
             }),
         VersionedNodeKey::site,
         source_version.id,
-        |encoded, symbol| {
-            let text = symbols.resolve(symbol).ok_or_else(|| {
+        |encoded, usage| {
+            write_span(encoded, usage.declaration);
+            let text = symbols.resolve(usage.name).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "unresolved cached symbol")
             })?;
             write_string(encoded, &text);
@@ -439,7 +440,7 @@ fn decode_type_resolution(
     for entry in read_entries(&mut cursor, encoded.len())? {
         let mut entry = Cursor::new(entry);
         let site = read_node_site(&mut entry, source_version.id, source_len)?;
-        let value = read_type_name_resolution(&mut entry, modules)?;
+        let value = read_type_name_resolution(&mut entry, modules, source_len)?;
         if usize::try_from(entry.position()).ok()? != entry.get_ref().len()
             || node_type_names.insert(site, value).is_some()
         {
@@ -472,6 +473,7 @@ fn decode_type_resolution(
     for entry in read_entries(&mut cursor, encoded.len())? {
         let mut entry = Cursor::new(entry);
         let site = read_node_site(&mut entry, source_version.id, source_len)?;
+        let declaration = read_span(&mut entry, source_len)?;
         let text = read_string(&mut entry, encoded.len())?;
         let symbol = symbols.intern(&text).ok()?;
         if usize::try_from(entry.position()).ok()? != entry.get_ref().len()
@@ -484,7 +486,10 @@ fn decode_type_resolution(
                 site,
                 revision: source_version.revision,
             },
-            symbol,
+            ConstGenericUse {
+                name: symbol,
+                declaration,
+            },
         );
     }
     if usize::try_from(cursor.position()).ok()? != encoded.len() {

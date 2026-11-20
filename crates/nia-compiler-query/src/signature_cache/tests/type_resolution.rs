@@ -102,7 +102,10 @@ fn type_resolution_encoding_rejects_foreign_source_and_revision() {
             },
             revision: SourceRevision(5),
         },
-        symbol,
+        ConstGenericUse {
+            name: symbol,
+            declaration: nia_span::Span::new(1, 2),
+        },
     );
     let foreign_revision = TypeResolution {
         node_type_names: nia_hash::FastHashMap::default(),
@@ -176,7 +179,10 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
             site: const_site.clone(),
             revision: old_version.revision,
         },
-        generic,
+        ConstGenericUse {
+            name: generic,
+            declaration: nia_span::Span::new(1, 2),
+        },
     );
     let resolution = TypeResolution {
         node_type_names: nia_hash::FastHashMap::from_iter([
@@ -293,8 +299,9 @@ fn type_resolution_rehydrates_current_source_module_and_symbol_owners() {
         .get(&new_const_key)
         .copied()
         .expect("rehydrated const generic");
+    assert_eq!(loaded_generic.declaration, nia_span::Span::new(1, 2));
     assert_eq!(
-        new_symbols.resolve(loaded_generic).as_deref(),
+        new_symbols.resolve(loaded_generic.name).as_deref(),
         Some("Length")
     );
     assert_eq!(loaded.node_const_generic_names.store_id(), new_store.id());

@@ -874,6 +874,7 @@ pub(crate) enum Symbol {
     Global(GlobalDefId),
     Module(ModuleId),
     Local(ModuleId, LocalId),
+    Generic(ModuleId, Span),
     ModuleAlias(ModuleId, Span),
     ItemAlias(ModuleId, Span),
 }
@@ -1099,7 +1100,7 @@ impl Analysis {
                 continue;
             }
             let syntax = loader.source_syntax(file.version())?;
-            let tokens = lexical_tokens(syntax.tree.green_root());
+            let (tokens, generic_parameters) = lexical_tokens(syntax.tree.green_root());
             let names: Vec<_> = tokens
                 .iter()
                 .filter(|token| {
@@ -1173,6 +1174,9 @@ impl Analysis {
                 }
             }
             if let Some(module) = module {
+                for span in generic_parameters {
+                    declare(Symbol::Generic(module.id, span), span);
+                }
                 let local_types: HashMap<_, _> = module
                     .semantic_facts
                     .function_facts
@@ -1305,8 +1309,12 @@ impl Analysis {
                                 def_id: *def_id,
                             }),
                             TypeNameResolution::External(id) => Some(*id),
-                            TypeNameResolution::GenericParam => {
-                                type_highlights.insert(name, Class::new(Kind::TypeParameter));
+                            TypeNameResolution::GenericParam(declaration) => {
+                                occurrences.push(Occurrence {
+                                    span: name,
+                                    symbol: Symbol::Generic(module.id, *declaration),
+                                    declaration: false,
+                                });
                                 None
                             }
                             TypeNameResolution::BuiltinTrait(_) => {
@@ -1330,6 +1338,13 @@ impl Analysis {
                         Some(SemanticValueUse::Global(id)) => tokens_in(span)
                             .last()
                             .map(|&name| (name, Symbol::Global(id))),
+                        None if let Some(usage) =
+                            module.type_resolution.node_const_generic_names.get(&key) =>
+                        {
+                            tokens_in(span)
+                                .last()
+                                .map(|&name| (name, Symbol::Generic(module.id, usage.declaration)))
+                        }
                         None => omitted
                             .get(&key)
                             .and_then(|id| {
@@ -1533,6 +1548,7 @@ impl Analysis {
             Symbol::Global(id) => id.module_id,
             Symbol::Module(module)
             | Symbol::Local(module, _)
+            | Symbol::Generic(module, _)
             | Symbol::ModuleAlias(module, _)
             | Symbol::ItemAlias(module, _) => module,
         };
@@ -1546,7 +1562,7 @@ impl Analysis {
             return false;
         }
         match symbol {
-            Symbol::Local(..) => true,
+            Symbol::Local(..) | Symbol::Generic(..) => true,
             Symbol::Global(id) => self
                 .defs
                 .get(&id.module_id)
@@ -1686,7 +1702,7 @@ impl Analysis {
             let item = node.span();
             item.start <= span.start && span.end <= item.end
         })?;
-        if matches!(symbol, Symbol::Local(..)) {
+        if matches!(symbol, Symbol::Local(..) | Symbol::Generic(..)) {
             return Some(item.span());
         }
         let mut enclosing = item;
@@ -1706,7 +1722,7 @@ impl Analysis {
     pub(crate) fn rename_workspace_symbol(&self, symbol: Symbol) -> bool {
         match symbol {
             Symbol::Global(_) | Symbol::Module(_) => true,
-            Symbol::Local(..) => false,
+            Symbol::Local(..) | Symbol::Generic(..) => false,
             Symbol::ModuleAlias(module, span) | Symbol::ItemAlias(module, span) => {
                 self.defs.get(&module).is_some_and(|defs| {
                     defs.module_usings.iter().any(|directive| {
@@ -2213,6 +2229,7 @@ impl Analysis {
                 Symbol::Module(_) | Symbol::ModuleAlias(..) => Some((Kind::Namespace, false)),
                 Symbol::ItemAlias(..) => None,
                 Symbol::Local(_, id) => file.locals.get(&id).copied(),
+                Symbol::Generic(..) => Some((Kind::TypeParameter, false)),
                 Symbol::Global(id) => self
                     .defs
                     .get(&id.module_id)
@@ -2820,17 +2837,25 @@ fn editor_diagnostic(
     }
 }
 
-fn lexical_tokens(root: &GreenNode) -> Vec<&GreenToken> {
+fn lexical_tokens(root: &GreenNode) -> (Vec<&GreenToken>, Vec<Span>) {
     let mut tokens = Vec::new();
+    let mut generics = Vec::new();
     let mut pending: Vec<_> = root.children().iter().rev().collect();
     while let Some(element) = pending.pop() {
         match element {
-            GreenElement::Node(node) => pending.extend(node.children().iter().rev()),
+            GreenElement::Node(node) => {
+                if node.kind() == &SyntaxKind::GenericParam
+                    && let Some(name) = node.token(&TokenKind::Ident)
+                {
+                    generics.push(name.span());
+                }
+                pending.extend(node.children().iter().rev());
+            }
             GreenElement::Token(token) if token.kind().token_kind().is_some() => tokens.push(token),
             GreenElement::Token(_) => {}
         }
     }
-    tokens
+    (tokens, generics)
 }
 
 fn declaration_name_in_tree(root: &GreenNode, span: Span, name: SymbolId) -> Option<Span> {

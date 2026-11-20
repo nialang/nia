@@ -211,7 +211,7 @@ impl TypeLowerer<'_, '_> {
                             trait_id,
                             context,
                         ),
-                    Some(TypeNameResolution::GenericParam) => {
+                    Some(TypeNameResolution::GenericParam(_)) => {
                         let Some(name) = type_path_segment_name(first) else {
                             return self.intern(TyKind::Error);
                         };
@@ -583,13 +583,13 @@ fn non_generic_path_args_message(
         Some(TypeNameResolution::Primitive(_)) if context == TypeContext::TraitBound => {
             Some("trait bound must name a trait, not a primitive type")
         }
-        Some(TypeNameResolution::GenericParam) if context == TypeContext::TraitBound => {
+        Some(TypeNameResolution::GenericParam(_)) if context == TypeContext::TraitBound => {
             Some("trait bound must name a trait, not a generic parameter")
         }
         Some(TypeNameResolution::Primitive(_)) if has_args => {
             Some("primitive types do not take generic arguments")
         }
-        Some(TypeNameResolution::GenericParam) if has_args => {
+        Some(TypeNameResolution::GenericParam(_)) if has_args => {
             Some("generic parameters do not take generic arguments")
         }
         _ => None,

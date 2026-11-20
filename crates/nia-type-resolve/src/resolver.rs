@@ -99,7 +99,7 @@ struct TypeResolver<'a> {
     node_type_names: FastHashMap<NodeSite, TypeNameResolution>,
     node_qualified_type_names: FastHashMap<NodeSite, GlobalDefId>,
     unresolved_type_candidates: FastHashSet<NodeSite>,
-    node_const_generic_names: HashMap<VersionedNodeKey, SymbolId>,
+    node_const_generic_names: HashMap<VersionedNodeKey, ConstGenericUse>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<GenericParam>>,
     self_type_stack: Vec<Span>,
@@ -425,9 +425,15 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
     fn visit_expr(&mut self, expr: &'ast nia_ast::Expr) {
         match &expr.kind {
             nia_ast::ExprKind::Ident(name) => {
-                if self.is_const_generic_param(name) {
+                if let Some(param) = self.generic_param(name)
+                    && matches!(param.kind, GenericParamKind::Const { .. })
+                {
+                    let usage = ConstGenericUse {
+                        name: *name,
+                        declaration: param.name_span,
+                    };
                     self.node_const_generic_names
-                        .insert(expr.node_key.clone(), *name);
+                        .insert(expr.node_key.clone(), usage);
                 }
             }
             nia_ast::ExprKind::BracketSuffix { callee, args } => {
@@ -473,7 +479,7 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
             }
             TypeKind::Array { len, elem } => {
                 if let ArrayLen::Expr(expr) = len {
-                    nia_ast_walk::walk_expr(self, expr);
+                    self.visit_expr(expr);
                 }
                 self.visit_type(elem);
             }
@@ -984,8 +990,8 @@ impl<'a> TypeResolver<'a> {
         segment: &TypePathSegment,
         ty: &TypeRef,
     ) -> Option<TypeNameResolution> {
-        if self.is_generic_param(type_segment_name(segment)?) {
-            return Some(TypeNameResolution::GenericParam);
+        if let Some(param) = self.generic_param(type_segment_name(segment)?) {
+            return Some(TypeNameResolution::GenericParam(param.name_span));
         }
         if self.is_associated_type(type_segment_name(segment)?) {
             return Some(TypeNameResolution::AssociatedType);
@@ -1510,8 +1516,8 @@ impl<'a> TypeResolver<'a> {
             ));
             return TypeNameResolution::Error;
         };
-        if self.is_generic_param(&name) {
-            return TypeNameResolution::GenericParam;
+        if let Some(param) = self.generic_param(&name) {
+            return TypeNameResolution::GenericParam(param.name_span);
         }
         if self.is_associated_type(&name) {
             return TypeNameResolution::AssociatedType;
@@ -1644,19 +1650,12 @@ impl<'a> TypeResolver<'a> {
         self.associated_type_stack.pop();
     }
 
-    fn is_generic_param(&self, name: &SymbolId) -> bool {
+    fn generic_param(&self, name: &SymbolId) -> Option<&GenericParam> {
         self.generic_stack
             .iter()
             .rev()
-            .any(|generics| generics.iter().any(|generic| &generic.name == name))
-    }
-
-    fn is_const_generic_param(&self, name: &SymbolId) -> bool {
-        self.generic_stack.iter().rev().any(|generics| {
-            generics.iter().any(|generic| {
-                &generic.name == name && matches!(generic.kind, GenericParamKind::Const { .. })
-            })
-        })
+            .flatten()
+            .find(|param| &param.name == name)
     }
 
     fn is_associated_type(&self, name: &SymbolId) -> bool {

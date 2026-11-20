@@ -504,7 +504,7 @@ pub mod formats {
 
     /// Persisted type-name resolution for signatures.
     pub const SIGNATURE_TYPE_RESOLUTION: PersistedFormat =
-        PersistedFormat::new("signature-type-resolution", b"NIASR\0\0\0");
+        PersistedFormat::new("signature-type-resolution", b"NIASR\0\0\x01");
     /// Persisted lowered signature types.
     pub const SIGNATURE_TYPE_LOWERING: PersistedFormat =
         PersistedFormat::new("signature-type-lowering", b"NIASL\0\0\0");

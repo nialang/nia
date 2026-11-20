@@ -211,7 +211,10 @@ pub(crate) fn write_type_name_resolution(
             encoded.push(3);
             write_global_def(encoded, value, module_paths)?;
         }
-        TypeNameResolution::GenericParam => encoded.push(4),
+        TypeNameResolution::GenericParam(span) => {
+            encoded.push(4);
+            write_span(encoded, span);
+        }
         TypeNameResolution::AssociatedType => encoded.push(5),
         TypeNameResolution::Error => encoded.push(6),
     }
@@ -221,13 +224,14 @@ pub(crate) fn write_type_name_resolution(
 pub(crate) fn read_type_name_resolution(
     cursor: &mut Cursor<&[u8]>,
     modules: &HashMap<String, ModuleId>,
+    source_len: usize,
 ) -> Option<TypeNameResolution> {
     Some(match read_u8(cursor)? {
         0 => TypeNameResolution::Primitive(read_primitive_spelling(cursor)?),
         1 => TypeNameResolution::BuiltinTrait(read_builtin_trait(cursor)?),
         2 => TypeNameResolution::Def(DefId(read_u64(cursor)?)),
         3 => TypeNameResolution::External(read_global_def(cursor, modules)?),
-        4 => TypeNameResolution::GenericParam,
+        4 => TypeNameResolution::GenericParam(read_span(cursor, source_len)?),
         5 => TypeNameResolution::AssociatedType,
         6 => TypeNameResolution::Error,
         _ => return None,

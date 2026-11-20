@@ -395,7 +395,7 @@ pub(super) fn semantic_use_table_from_resolution_inputs_with_const_expr_values(
         type_resolution
             .node_const_generic_names
             .iter()
-            .map(|(key, name)| (key.clone(), *name)),
+            .map(|(key, usage)| (key.clone(), usage.name)),
     );
     if let Some(const_expr_value_resolution) = const_expr_value_resolution {
         let const_expr_nodes =
