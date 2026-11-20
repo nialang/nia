@@ -666,7 +666,7 @@ fn visible_provider_modules_for_module(
     )
 }
 
-fn visible_trait_impl_modules_for_module(
+pub(in crate::query) fn visible_trait_impl_modules_for_module(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<Vec<ModuleId>> {
@@ -727,7 +727,7 @@ pub(super) fn provide_visible_extensions(
         )
     };
     let visible_modules = visible_provider_modules_for_module(db, module_id)?;
-    let trait_witness_modules = visible_trait_impl_modules_for_module(db, module_id)?;
+    let trait_witness_modules = db.get(VisibleTraitImplModulesQuery(module_id))?;
     let mut fact_modules = visible_modules.clone();
     fact_modules.extend(trait_witness_modules.iter().copied());
     fact_modules.sort();
@@ -786,7 +786,7 @@ pub(super) fn provide_visible_trait_impls(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
 ) -> QueryResult<VisibleTraitImplsValue> {
-    let witness_modules = visible_trait_impl_modules_for_module(db, module_id)?;
+    let witness_modules = db.get(VisibleTraitImplModulesQuery(module_id))?;
     let mut trait_impls = Vec::new();
     for provider_module in witness_modules.iter().copied() {
         let facts = db.get(ExtensionTraitSolvingModuleFactsQuery(provider_module))?;

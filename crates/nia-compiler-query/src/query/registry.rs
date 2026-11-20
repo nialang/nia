@@ -155,6 +155,7 @@ pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry>
         UsingScopeValueQuery,
         ValueResolutionQuery,
         VisibleExtensionsQuery,
+        VisibleTraitImplModulesQuery,
         VisibleTraitImplsQuery,
     );
     Ok(registry)

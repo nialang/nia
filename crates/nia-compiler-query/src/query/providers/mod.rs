@@ -62,6 +62,7 @@ use self::const_eval::*;
 pub(in crate::query) use self::executable_reachability::{
     provide_executable_checked_module_facts, provide_executable_provider_demands,
 };
+pub(super) use self::extension_providers::visible_trait_impl_modules_for_module;
 use self::extension_providers::*;
 pub(in crate::query) use self::frontend::*;
 use self::layout_roots::*;

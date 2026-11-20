@@ -342,10 +342,37 @@ impl QueryKey<CompilerContext> for ExtensionTraitSignatureIndexQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct VisibleTraitImplModulesQuery(pub(super) ModuleId);
+
+impl QueryKey<CompilerContext> for VisibleTraitImplModulesQuery {
+    type Value = Vec<ModuleId>;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "visible_trait_impl_modules"
+    }
+
+    fn description(&self) -> String {
+        format!("visible_trait_impl_modules({:?})", self.0)
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        visible_trait_impl_modules_for_module(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct VisibleExtensionsQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for VisibleExtensionsQuery {
     type Value = VisibleExtensionsValue;
+
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "visible_extensions"
@@ -353,6 +380,10 @@ impl QueryKey<CompilerContext> for VisibleExtensionsQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.visible_extensions)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -362,11 +393,17 @@ pub(super) struct VisibleTraitImplsQuery(pub(super) ModuleId);
 impl QueryKey<CompilerContext> for VisibleTraitImplsQuery {
     type Value = VisibleTraitImplsValue;
 
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
     fn name() -> &'static str {
         "visible_trait_impls"
     }
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.visible_trait_impls)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
