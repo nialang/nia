@@ -42,10 +42,12 @@ your project, and how to set it up in VS Code, Neovim, and Vim.
 - **Code actions.** Quick fixes apply compiler suggestions and add missing
   imports. **Organize imports** sorts each run of `using` directives on
   consecutive lines, at module level and inside blocks, and the names inside
-  each `using` group. It leaves `pub using` directives, directives with
+  each `using` group. In files with no inactive code, it also removes
+  standalone private module-level imports that the compiler reports as unused.
+  Grouped imports keep their selectors. It leaves `pub using` directives, directives with
   attributes, directives that share a line with other code, and directives
   directly below a comment in place. It is offered only when the file parses
-  and the reordered file has no new errors and binds every name to the same
+  and the edited file has no new errors and binds each remaining name to the same
   declaration.
 - **Rename** and **formatting**, described below.
 

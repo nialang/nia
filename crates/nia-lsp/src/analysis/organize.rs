@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Organizes import directives and named selectors with binding verification.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use lsp_types::{
     CodeAction, CodeActionKind, OneOf, OptionalVersionedTextDocumentIdentifier, TextDocumentEdit,
@@ -40,7 +43,8 @@ impl Session {
         let mut text = source.to_string();
         selectors.apply(&mut text);
         let directives = ImportOrder::directives(&text, root);
-        if selectors.edits.is_empty() && directives.edits.is_empty() {
+        let removed = unused_directives(analysis, path, root, source);
+        if selectors.edits.is_empty() && directives.edits.is_empty() && removed.is_empty() {
             return None;
         }
         directives.apply(&mut text);
@@ -56,26 +60,52 @@ impl Session {
                 .then_some(edit.span)
         }));
         ranges.sort_unstable();
-        let replacements: BTreeMap<_, _> = ranges
+        let mut replacements: BTreeMap<_, _> = ranges
             .into_iter()
             .map(|span| (span, text[span.start..span.end].to_owned()))
             .collect();
+        let source_path = normalized(path);
+        let mut deletions = BTreeMap::new();
+        for &span in &removed {
+            let moved = directives.translate(span);
+            let start = text[..moved.start].rfind('\n').map_or(0, |at| at + 1);
+            let end = text[moved.end..]
+                .find('\n')
+                .map_or(text.len(), |at| moved.end + at + 1);
+            deletions.insert(Span::new(start, end), String::new());
+        }
+        for span in deletions.keys().rev() {
+            text.replace_range(span.start..span.end, "");
+        }
+        if !deletions.is_empty() {
+            let edit = TextEdit::between(source, &text);
+            replacements = BTreeMap::from([(edit.span, edit.replacement)]);
+        }
+        let deletions = Edits::from([(source_path.clone(), deletions)]);
+        let shifts = EditOffsets::new(&deletions);
+        let mut before = bindings(analysis, cancel).ok()?;
+        if let Some(entries) = before.get_mut(&source_path) {
+            entries.retain(|span, _| {
+                !removed
+                    .iter()
+                    .any(|item| item.start <= span.start && span.end <= item.end)
+            });
+        }
         let mut documents = documents.clone();
         documents.get_mut(path)?.document = Document::new(open.document.version, text);
         let after = self
             .analyze_snapshot(&documents, &analysis.request, cancel, AnalysisMode::Full)
             .ok()?;
-        let source_path = normalized(path);
         let changes = Edits::from([(source_path.clone(), replacements)]);
         if EditOffsets::new(&changes)
             .new_error(analysis.errors(), after.errors(), &[])
             .is_some()
             || !preserves_bindings(
-                bindings(analysis, cancel).ok()?,
+                before,
                 &bindings(&after, cancel).ok()?,
                 |file, span| {
                     if file == source_path {
-                        directives.translate(selectors.translate(span))
+                        shifts.binding_span(file, directives.translate(selectors.translate(span)))
                     } else {
                         span
                     }
@@ -111,6 +141,47 @@ impl Session {
             ..CodeAction::default()
         })
     }
+}
+
+fn unused_directives(
+    analysis: &Analysis,
+    path: &Path,
+    root: &GreenNode,
+    source: &str,
+) -> Vec<Span> {
+    let unused: BTreeSet<_> = analysis
+        .source_diagnostics(path)
+        .filter(|item| item.diagnostic.code.as_str() == nia_diagnostic::codes::UNUSED_IMPORT.code)
+        .filter_map(|item| item.diagnostic.primary_span())
+        .collect();
+    if unused.is_empty() {
+        return Vec::new();
+    }
+    // A warning only covers the active configuration. A disabled body can
+    // need a module for its extension methods without spelling the module name.
+    if analysis.file(path).is_none_or(|file| {
+        analysis
+            .db
+            .source_inactive_spans(file.module)
+            .map_or(true, |spans| !spans.is_empty())
+    }) {
+        return Vec::new();
+    }
+    root.child_nodes()
+        .filter_map(|item| {
+            let span = standalone_import(source, item)?;
+            let directive = &source[span.start..span.end];
+            // A group or wildcard can introduce several names at one site.
+            if directive.contains(['{', '*', '\n', '\r']) || directive.contains("//") {
+                return None;
+            }
+            unused
+                .range(Span::new(span.start, span.start)..)
+                .next()
+                .filter(|name| name.end <= span.end)
+                .map(|_| span)
+        })
+        .collect()
 }
 
 #[derive(Default)]
@@ -238,4 +309,63 @@ fn standalone_import(source: &str, item: &GreenNode) -> Option<Span> {
 fn adjacent_directives(source: &str, left: Span, right: Span) -> bool {
     let between = &source[left.end..right.start];
     between.trim().is_empty() && between.bytes().filter(|&byte| byte == b'\n').count() == 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analysis::{OpenDocument, tests::test_session, uri};
+
+    #[test]
+    fn organize_removes_unused_imports_and_keeps_extension_providers() {
+        let _resources =
+            nia_test_support::acquire_test_resources(nia_test_support::TestWorkload::Compiler);
+        let root = nia_test_support::test_dir("lsp-prune-imports");
+        let entry = root.join("root.nia");
+        let source = "using std::slice;\nusing std::iter;\nusing std::mem;\n\nfun run(values: &[i32]) usize { values.iter().count() }\n";
+        std::fs::write(&entry, source).unwrap();
+        let documents = Documents::from([(
+            entry.clone(),
+            OpenDocument {
+                uri: uri(&entry).unwrap(),
+                document: Document::new(1, source.to_owned()),
+            },
+        )]);
+        let checked = test_session().analyze(&documents, &entry).unwrap();
+        let action = test_session()
+            .organize_imports(
+                &checked,
+                &documents,
+                &entry,
+                false,
+                &Cancellation::default(),
+            )
+            .unwrap();
+        let edits = &action.edit.unwrap().changes.unwrap()[&uri(&entry).unwrap()];
+        let lines = &documents[&entry].document.lines;
+        let mut edited = source.to_owned();
+        for edit in edits.iter().rev() {
+            let start = lines.offset(source, edit.range.start).unwrap();
+            let end = lines.offset(source, edit.range.end).unwrap();
+            edited.replace_range(start..end, &edit.new_text);
+        }
+        assert!(!edited.contains("using std::mem;"), "{edited}");
+        assert!(edited.contains("using std::iter;"), "{edited}");
+        assert!(edited.contains("using std::slice;"), "{edited}");
+
+        let conditional = format!("{source}\n@[release] fun release_only() {{}}\n");
+        let mut documents = documents;
+        documents.get_mut(&entry).unwrap().document = Document::new(2, conditional.clone());
+        let mut session = test_session();
+        let checked = session.analyze(&documents, &entry).unwrap();
+        assert!(
+            unused_directives(
+                &checked,
+                &entry,
+                checked.file(&entry).unwrap().syntax().tree.green_root(),
+                &conditional,
+            )
+            .is_empty()
+        );
+    }
 }
