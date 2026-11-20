@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossbeam_channel::{Receiver, Sender, select, tick, unbounded};
+use crossbeam_channel::{Receiver, Sender, at, never, select, unbounded};
 use lsp_server::{Connection, ErrorCode, Message, Notification, Request, RequestId, Response};
 use lsp_types::{
     CallHierarchyIncomingCall, CallHierarchyIncomingCallsParams, CallHierarchyItem,
@@ -30,6 +30,8 @@ use crate::{
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
+
+const DIAGNOSTIC_DEBOUNCE: Duration = Duration::from_millis(20);
 const SEMANTIC_FULL: &str = "textDocument/semanticTokens/full";
 const SEMANTIC_DELTA: &str = "textDocument/semanticTokens/full/delta";
 const SEMANTIC_RANGE: &str = "textDocument/semanticTokens/range";
@@ -869,6 +871,7 @@ struct Server {
     refresh_sequence: u64,
     documents: Documents,
     dirty: BTreeSet<PathBuf>,
+    diagnostics_after: Option<Instant>,
     pending: VecDeque<(PathBuf, u64, Request)>,
     editor: Option<Active>,
     workspace: Option<Active>,
@@ -959,8 +962,11 @@ impl Server {
         workspace: &Sender<WorkerMessage>,
         replies: &Receiver<Reply>,
     ) -> Result<(), Error> {
-        let idle = tick(Duration::from_millis(90));
         loop {
+            let diagnostics_ready = self
+                .diagnostics_after
+                .filter(|_| self.editor.is_none() && !self.dirty.is_empty())
+                .map_or_else(never, at);
             select! {
                 recv(connection.receiver) -> message => match message? {
                     Message::Request(request) => {
@@ -970,7 +976,6 @@ impl Server {
                             break;
                         }
                         self.request(connection, request)?;
-                        self.schedule(connection, work, workspace, false)?;
                     }
                     Message::Notification(notification) => {
                         if notification.method == "exit" {
@@ -986,13 +991,14 @@ impl Server {
                 },
                 recv(replies) -> reply => {
                     self.reply(connection, reply?)?;
-                    self.schedule(connection, work, workspace, false)?;
                 },
-                recv(idle) -> _ => {
-                    self.schedule(connection, work, workspace, true)?;
-                    self.refresh_highlights(connection)?;
-                },
+                recv(diagnostics_ready) -> _ => {},
             }
+            let diagnostics = self
+                .diagnostics_after
+                .is_some_and(|deadline| deadline <= Instant::now());
+            self.schedule(connection, work, workspace, diagnostics)?;
+            self.refresh_highlights(connection)?;
         }
         Ok(())
     }
@@ -1285,6 +1291,8 @@ impl Server {
         self.cancel_active();
         self.revision += 1;
         self.dirty = self.documents.keys().cloned().collect();
+        self.diagnostics_after =
+            (!self.dirty.is_empty()).then(|| Instant::now() + DIAGNOSTIC_DEBOUNCE);
         self.highlights.clear();
         self.syntax_sent.clear();
         self.refresh_needed = false;
