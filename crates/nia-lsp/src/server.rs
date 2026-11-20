@@ -277,6 +277,27 @@ struct CurrentAnalysis {
     highlights: Arc<Resolved>,
 }
 
+fn install_analysis_sources(
+    session: &mut Session,
+    work: &Work,
+    cached: &mut Option<Arc<CurrentAnalysis>>,
+) -> Result<(), String> {
+    if cached.as_ref().is_some_and(|current| {
+        current.revision == work.revision && current.source_revision == session.source_revision()
+    }) {
+        return Ok(());
+    }
+    let installed = session.install_analysis_sources(&work.documents, Some(&work.cancel));
+    if cached
+        .take_if(|current| current.source_revision != session.source_revision())
+        .is_some()
+        && crate::timing_mode().enabled()
+    {
+        nia_timing::emit_counter("lsp.retired_editor_projections", 1);
+    }
+    installed
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Lane {
     Editor,
@@ -383,6 +404,7 @@ fn analyze(
             }
             continue;
         }
+        let installed = install_analysis_sources(&mut session, &work, &mut cached);
         let cached_for_path = cached.as_ref().filter(|cached| {
             cached.revision == work.revision
                 && cached.source_revision == session.source_revision()
@@ -401,8 +423,9 @@ fn analyze(
                 )
             });
         let current_analysis = cached_for_path.and_then(|current| current.analysis.as_deref().ok());
-        if (cached_for_path.is_none()
-            || current_analysis.is_some_and(|analysis| !analysis.supports_navigation()))
+        if installed.is_ok()
+            && (cached_for_path.is_none()
+                || current_analysis.is_some_and(|analysis| !analysis.supports_navigation()))
             && let Some(response) = complete_declarations(
                 &mut session,
                 &mut completion_probe,
@@ -436,11 +459,9 @@ fn analyze(
                 .as_ref()
                 .filter(|_| lane == Lane::Editor)
                 .and_then(|cached| Some((cached.source_revision, cached.analysis.as_ref().ok()?)));
-            let analysis = if local_analysis {
-                session.analyze_publication(&work.documents, &work.path, &work.cancel, previous)
-            } else {
-                session.analyze_editor_snapshot(&work.documents, &work.path, &work.cancel, previous)
-            };
+            let analysis = installed.and_then(|()| {
+                session.project_editor(&work.path, &work.cancel, local_analysis, previous)
+            });
             let highlights = Arc::new(analysis.as_ref().map_or_else(
                 |_| Resolved::new(),
                 |analysis| {
@@ -704,7 +725,7 @@ fn complete_declarations(
         })
     } else {
         let items = session
-            .complete_names(&work.documents, &work.path, position, &work.cancel)
+            .complete_installed_names(&work.path, position, &work.cancel)
             .ok()
             .flatten()?;
         lsp_types::CompletionResponse::Array(items)
@@ -1603,6 +1624,70 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changed_sources_release_the_cached_projection_before_reanalysis() {
+        use nia_test_support::{TestWorkload, acquire_test_resources, test_dir, workspace_root};
+        use nia_toolchain::{ToolchainLayout, ToolchainLayoutRequest};
+
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let toolchain = ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
+            std::env::current_exe().unwrap(),
+            workspace_root().join("lib"),
+        ))
+        .unwrap();
+        let path = test_dir("lsp-release-projection").join("root.nia");
+        let uri = analysis::uri(&path).unwrap();
+        let mut work = Work {
+            revision: 1,
+            disk_changes: DiskChanges::None,
+            documents: Documents::new(),
+            path: path.clone(),
+            request: None,
+            folders: Vec::new(),
+            versioned_edits: false,
+            resource_rename: false,
+            cancel: Cancellation::default(),
+        };
+        let mut session = Session::new(Arc::new(toolchain));
+        let original = "fun sample() i32 { 1 }\n";
+        work.documents.insert(
+            path.clone(),
+            OpenDocument {
+                uri,
+                document: Document::new(1, original.into()),
+            },
+        );
+        let mut cached = None;
+        install_analysis_sources(&mut session, &work, &mut cached).unwrap();
+        let snapshot = session
+            .project_editor(&path, &work.cancel, true, None)
+            .unwrap();
+        let old_projection = Arc::downgrade(&snapshot);
+        cached = Some(Arc::new(CurrentAnalysis {
+            revision: work.revision,
+            source_revision: session.source_revision(),
+            path: path.clone(),
+            analysis: Ok(snapshot),
+            highlights: Arc::default(),
+        }));
+
+        work.revision += 1;
+        work.documents.get_mut(&path).unwrap().document = Document::new(2, original.into());
+        install_analysis_sources(&mut session, &work, &mut cached).unwrap();
+        assert!(old_projection.upgrade().is_some());
+
+        work.revision += 1;
+        let edited = "fun sample() i32 { 2 }\n";
+        work.documents.get_mut(&path).unwrap().document = Document::new(3, edited.into());
+        install_analysis_sources(&mut session, &work, &mut cached).unwrap();
+        assert!(cached.is_none());
+        assert!(old_projection.upgrade().is_none());
+        let current = session
+            .project_editor(&path, &work.cancel, true, None)
+            .unwrap();
+        assert_eq!(current.source_text(&path).as_deref(), Some(edited));
+    }
 
     #[test]
     fn shutdown_waits_for_exit_after_an_outstanding_refresh_response() {

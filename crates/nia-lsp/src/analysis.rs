@@ -148,7 +148,8 @@ impl Session {
         self.analyze_mode(documents, entry, cancel, AnalysisMode::Full, None)
     }
 
-    pub(crate) fn analyze_editor_snapshot(
+    #[cfg(test)]
+    fn analyze_editor_snapshot(
         &mut self,
         documents: &Documents,
         entry: &Path,
@@ -158,7 +159,8 @@ impl Session {
         self.analyze_mode(documents, entry, Some(cancel), AnalysisMode::Full, previous)
     }
 
-    pub(crate) fn analyze_publication(
+    #[cfg(test)]
+    fn analyze_publication(
         &mut self,
         documents: &Documents,
         entry: &Path,
@@ -178,6 +180,23 @@ impl Session {
         self.source_revision
     }
 
+    pub(crate) fn project_editor(
+        &mut self,
+        entry: &Path,
+        cancel: &Cancellation,
+        focused: bool,
+        previous: Option<(u64, &Arc<Analysis>)>,
+    ) -> Result<Arc<Analysis>, String> {
+        let path = normalized(entry);
+        let mode = if focused {
+            AnalysisMode::Publication(&path)
+        } else {
+            AnalysisMode::Full
+        };
+        self.analyze_installed(entry, Some(cancel), mode, previous)
+    }
+
+    #[cfg(test)]
     pub(crate) fn complete_names(
         &mut self,
         documents: &Documents,
@@ -185,13 +204,18 @@ impl Session {
         position: Position,
         cancel: &Cancellation,
     ) -> Result<Option<Vec<lsp_types::CompletionItem>>, String> {
-        let analysis = self.analyze_mode(
-            documents,
-            path,
-            Some(cancel),
-            AnalysisMode::Declarations,
-            None,
-        )?;
+        self.install_analysis_sources(documents, Some(cancel))?;
+        self.complete_installed_names(path, position, cancel)
+    }
+
+    pub(crate) fn complete_installed_names(
+        &mut self,
+        path: &Path,
+        position: Position,
+        cancel: &Cancellation,
+    ) -> Result<Option<Vec<lsp_types::CompletionItem>>, String> {
+        let analysis =
+            self.analyze_installed(path, Some(cancel), AnalysisMode::Declarations, None)?;
         nia_query::with_cancellation(Some(cancel.token()), || {
             let items = analysis.complete(path, position);
             if items.as_ref().is_some_and(Vec::is_empty)
@@ -279,6 +303,15 @@ impl Session {
         mode: AnalysisMode<'_>,
         previous: Option<(u64, &Arc<Analysis>)>,
     ) -> Result<Arc<Analysis>, String> {
+        self.install_analysis_sources(documents, cancel)?;
+        self.analyze_installed(entry, cancel, mode, previous)
+    }
+
+    pub(crate) fn install_analysis_sources(
+        &mut self,
+        documents: &Documents,
+        cancel: Option<&Cancellation>,
+    ) -> Result<(), String> {
         if let Some(cancel) = cancel {
             cancel.check()?;
         }
@@ -287,7 +320,16 @@ impl Session {
             nia_timing::TimingLevel::Summary,
             "lsp.install_sources",
             || self.install_documents(documents),
-        )?;
+        )
+    }
+
+    fn analyze_installed(
+        &mut self,
+        entry: &Path,
+        cancel: Option<&Cancellation>,
+        mode: AnalysisMode<'_>,
+        previous: Option<(u64, &Arc<Analysis>)>,
+    ) -> Result<Arc<Analysis>, String> {
         let mut previous = previous
             .filter(|(revision, _)| *revision == self.source_revision)
             .map(|(_, analysis)| analysis);
