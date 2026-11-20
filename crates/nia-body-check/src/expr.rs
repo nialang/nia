@@ -1999,15 +1999,16 @@ impl<'a> BodyChecker<'a> {
     fn finish_builtin_operator_expr(&mut self, finish: BuiltinOperatorFinish<'_>) -> InternedTyId {
         let lhs_ty = self.expr_ty(finish.lhs).unwrap_or(finish.lhs_actual);
         let rhs_ty = self.expr_ty(finish.rhs).unwrap_or(finish.rhs_actual);
+        if self.is_error_recovery_ty(lhs_ty) || self.is_error_recovery_ty(rhs_ty) {
+            return self.error();
+        }
 
         let trait_args = vec![rhs_ty];
         if !self.current_context_proves_trait_obligation(
             lhs_ty,
             TraitId::Builtin(finish.trait_id),
             trait_args.clone(),
-        ) && !self.is_error_recovery_ty(lhs_ty)
-            && !self.is_error_recovery_ty(rhs_ty)
-        {
+        ) {
             self.report_trait_bound_not_satisfied(
                 finish.span,
                 lhs_ty,
