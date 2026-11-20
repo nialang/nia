@@ -286,13 +286,14 @@ impl Session {
         let file = analysis
             .file(path)
             .filter(|file| file.text == open.document.text)?;
-        let import = import_text(&file.text, &candidate.path);
+        let (at, import) = import_insertion(&file.text, &candidate.path);
         let source = normalized(path);
-        let edits = Edits::from([(source, BTreeMap::from([(Span::default(), import.clone())]))]);
+        let edits = Edits::from([(source, BTreeMap::from([(at, import.clone())]))]);
         let offsets = EditOffsets::new(&edits);
         let target = offsets.binding_span(&candidate.target.source, candidate.target.span);
         let mut updated = documents.clone();
-        let probe = format!("{import}{}", member.probe(&file.text));
+        let mut probe = member.probe(&file.text);
+        probe.insert_str(at.start, &import);
         updated.get_mut(path)?.document = Document::new(open.document.version, probe);
         let analyzed = self
             .analyze_snapshot(
@@ -320,13 +321,14 @@ impl Session {
             return None;
         }
 
-        updated.get_mut(path)?.document =
-            Document::new(open.document.version, format!("{import}{}", file.text));
+        let mut edited = file.text.to_string();
+        edited.insert_str(at.start, &import);
+        updated.get_mut(path)?.document = Document::new(open.document.version, edited);
         let after = self
             .analyze_snapshot(&updated, &analysis.request, cancel, AnalysisMode::Full)
             .ok()?;
         verified_import_context(analysis, &after, &offsets, cancel)?;
-        Some(TextEdit::new(Default::default(), import))
+        Some(TextEdit::new(file.lines.range(&file.text, at), import))
     }
 
     fn verified_import_edit(
@@ -342,15 +344,15 @@ impl Session {
         let file = analysis
             .file(path)
             .filter(|file| file.text == open.document.text)?;
-        let text = import_text(&file.text, &candidate.path);
+        let (at, text) = import_insertion(&file.text, &candidate.path);
         let source = normalized(path);
-        let mut changes = BTreeMap::from([(Span::default(), text.clone())]);
+        let mut changes = BTreeMap::from([(at, text.clone())]);
         let mut edited = file.text.to_string();
         if file.text[span.start..span.end] != *candidate.name {
             changes.insert(span, candidate.name.to_string());
             edited.replace_range(span.start..span.end, &candidate.name);
         }
-        edited.insert_str(0, &text);
+        edited.insert_str(at.start, &text);
         let edits = Edits::from([(source.clone(), changes)]);
         let mut updated = documents.clone();
         updated.get_mut(path)?.document = Document::new(open.document.version, edited);
@@ -366,7 +368,7 @@ impl Session {
             &edits,
             cancel,
         )
-        .then(|| TextEdit::new(Default::default(), text))
+        .then(|| TextEdit::new(file.lines.range(&file.text, at), text))
     }
 }
 
@@ -708,13 +710,30 @@ fn is_method_callee(node: &nia_syntax::GreenNode, member: Span) -> bool {
         .is_some_and(|child| is_method_callee(child, member))
 }
 
-fn import_text(source: &str, path: &str) -> String {
+fn import_insertion(source: &str, path: &str) -> (Span, String) {
+    // A blank line separates a file header from comments on the first item.
+    // An SPDX identifier also belongs to the file without a separating line.
+    let mut offset = 0;
+    let mut insertion = 0;
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && !trimmed.starts_with("//") {
+            break;
+        }
+        offset += line.len();
+        if trimmed.is_empty() || trimmed.starts_with("// SPDX-License-Identifier:") {
+            insertion = offset;
+        }
+    }
     let newline = if source.contains("\r\n") {
         "\r\n"
     } else {
         "\n"
     };
-    format!("using {path};{newline}{newline}")
+    (
+        Span::new(insertion, insertion),
+        format!("using {path};{newline}{newline}"),
+    )
 }
 
 fn completion_matches_import(item: &VisibleName, prefix: &str, type_only: bool) -> bool {

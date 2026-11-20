@@ -4468,7 +4468,7 @@ mod tests {
         let main = root.join("main.nia");
         let alpha = root.join("alpha.nia");
         let beta = root.join("beta.nia");
-        let source = "module alpha;\nmodule beta;\nfun example() i32 { weig() }\n";
+        let source = "// SPDX-License-Identifier: GPL-3.0-or-later\r\n\r\n// Alpha module\r\nmodule alpha;\r\nmodule beta;\r\nfun example() i32 { weig() }\r\n";
         let visible = "pub fun weight() i32 { 1 }\n";
         let hidden = "fun weight() i32 { 2 }\n";
         std::fs::write(&main, source).unwrap();
@@ -4484,7 +4484,7 @@ mod tests {
         let mut session = test_session();
         let mut probe = test_session();
         let cancel = Cancellation::default();
-        let cursor = Position::new(2, 24);
+        let cursor = Position::new(5, 24);
         assert_eq!(
             session
                 .complete_names(&documents, &main, cursor, &cancel)
@@ -4499,10 +4499,10 @@ mod tests {
             panic!("expected one verified import completion, got {items:?}");
         };
         assert_eq!(item.label, "weight");
-        assert_eq!(
-            item.additional_text_edits.as_ref().unwrap()[0].new_text,
-            "using root::alpha::weight;\n\n"
-        );
+        let edit = &item.additional_text_edits.as_ref().unwrap()[0];
+        let insertion = Position::new(2, 0);
+        assert_eq!(edit.range, lsp_types::Range::new(insertion, insertion));
+        assert_eq!(edit.new_text, "using root::alpha::weight;\r\n\r\n");
 
         documents.insert(
             beta.clone(),
