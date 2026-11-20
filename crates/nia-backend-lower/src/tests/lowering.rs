@@ -229,6 +229,7 @@ pub fun main() i32 {
         values: const_eval.array_lengths.clone(),
         failed: const_eval.failed_const_exprs.clone(),
         symbolic: const_eval.symbolic_const_exprs.clone(),
+        embedded_resources: const_eval.embedded_resources.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Default::default(),
     };
@@ -237,11 +238,13 @@ pub fun main() i32 {
         symbolic_locals: const_eval.symbolic_locals.clone(),
         failed: const_eval.failed.clone(),
         typed_values: const_eval.typed_values.clone(),
+        embedded_resources: const_eval.embedded_resources.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Default::default(),
     };
     let const_typed_facts = nia_const_check::ConstTypedFacts {
         typed_values: const_eval.typed_values.clone(),
+        embedded_resources: const_eval.embedded_resources.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Default::default(),
     };
@@ -487,6 +490,7 @@ fn const_enum_values_from_check(
     nia_const_check::ConstEnumValues {
         values: const_eval.enum_values.clone(),
         typed_values: const_eval.typed_enum_values.clone(),
+        embedded_resources: const_eval.embedded_resources.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Default::default(),
     }

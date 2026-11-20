@@ -172,13 +172,12 @@ impl ConstCommonEnv for Analyzer<'_> {
                 message: "builtin `embed` path cannot be empty".to_string(),
             });
         }
-        let Some(source_path) = self.current_execution_source_path() else {
+        let Some(resolved) = self.embedded_path(path) else {
             return Err(ConstError {
                 span,
                 message: "builtin `embed` cannot resolve the current source path".to_string(),
             });
         };
-        let resolved = resolve_embed_path(source_path.as_str(), path);
         let bytes = std::fs::read(&resolved).map_err(|error| ConstError {
             span,
             message: format!("failed to embed `{}`: {error}", resolved.display()),
@@ -661,15 +660,16 @@ impl Analyzer<'_> {
     }
 }
 
-pub(super) fn resolve_embed_path(source_path: &str, path: &str) -> PathBuf {
-    let path = Path::new(path);
-    if path.is_absolute() {
-        return path.to_path_buf();
+impl Analyzer<'_> {
+    pub(super) fn embedded_path(&mut self, path: &str) -> Option<PathBuf> {
+        let resource = nia_source::EmbeddedResource {
+            source: self.current_execution_source_path()?,
+            path: path.to_owned(),
+        };
+        let resolved = resource.resolve_at(Path::new(resource.source.as_str()));
+        self.embedded_resources.insert(resource);
+        Some(resolved)
     }
-    Path::new(source_path)
-        .parent()
-        .unwrap_or_else(|| Path::new(""))
-        .join(path)
 }
 
 impl ResolvedConstEnv for Analyzer<'_> {

@@ -130,6 +130,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         values: const_eval.array_lengths.clone(),
         failed: const_eval.failed_const_exprs.clone(),
         symbolic: const_eval.symbolic_const_exprs.clone(),
+        embedded_resources: const_eval.embedded_resources.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Default::default(),
     };
@@ -138,11 +139,13 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         symbolic_locals: const_eval.symbolic_locals.clone(),
         failed: const_eval.failed.clone(),
         typed_values: const_eval.typed_values.clone(),
+        embedded_resources: const_eval.embedded_resources.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Default::default(),
     };
     let const_typed_facts = nia_const_check::ConstTypedFacts {
         typed_values: const_eval.typed_values.clone(),
+        embedded_resources: const_eval.embedded_resources.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Default::default(),
     };
@@ -258,6 +261,7 @@ pub(super) fn lower_source_with_body_check_mutation_and_optimization(
         values: const_eval.array_lengths.clone(),
         failed: const_eval.failed_const_exprs.clone(),
         symbolic: const_eval.symbolic_const_exprs.clone(),
+        embedded_resources: const_eval.embedded_resources.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Default::default(),
     };

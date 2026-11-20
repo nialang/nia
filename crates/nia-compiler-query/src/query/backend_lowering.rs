@@ -157,6 +157,7 @@ impl BackendAssociatedConstEvaluator {
                             symbolic_locals: Arc::clone(&checked.const_eval.symbolic_locals),
                             failed: Arc::clone(&checked.const_eval.failed),
                             typed_values: Arc::clone(&checked.const_eval.typed_values),
+                            embedded_resources: Arc::clone(&checked.const_eval.embedded_resources),
                             provider_demands: Arc::clone(&checked.const_eval.provider_demands),
                             diagnostics: Default::default(),
                         }),

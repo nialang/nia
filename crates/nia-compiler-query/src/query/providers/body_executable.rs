@@ -181,6 +181,7 @@ impl BodyCheckConstInputs {
             array_lengths: self.array_lengths.values,
             failed_const_exprs: self.array_lengths.failed,
             symbolic_const_exprs: self.array_lengths.symbolic,
+            embedded_resources: self.typed_facts.embedded_resources,
             provider_demands: self.typed_facts.provider_demands,
             diagnostics: self.typed_facts.diagnostics,
         }
@@ -2583,6 +2584,7 @@ pub(super) fn executable_signature_checked_module(
         array_lengths: array_lengths.values,
         failed_const_exprs: array_lengths.failed,
         symbolic_const_exprs: array_lengths.symbolic,
+        embedded_resources: enum_values.embedded_resources,
         provider_demands: enum_values.provider_demands,
         // The enum phase continues from the array-length phase's diagnostics.
         diagnostics: enum_values.diagnostics,

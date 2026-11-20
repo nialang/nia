@@ -382,6 +382,27 @@ impl Session {
             return Err("A module move would relocate a declared build entry".to_owned());
         }
         let generated = self.project_generated_rename(workspace, documents, &mut edits, cancel)?;
+        if !moves.is_empty() {
+            for resource in workspace
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.embedded_resources)
+            {
+                cancel.check()?;
+                let source = Path::new(resource.source.as_str());
+                let original = resource.resolve_at(source);
+                let new_source = relocated(resource.source.as_str(), &moves);
+                let expected = relocated(&normalized(&original), &moves).unwrap_or(original);
+                let actual = resource.resolve_at(new_source.as_deref().unwrap_or(source));
+                if normalized(&actual) != normalized(&expected) {
+                    return Err(format!(
+                        "Moving {} would change the embedded file `{}`",
+                        source.display(),
+                        resource.path
+                    ));
+                }
+            }
+        }
         let files = &workspace.files;
         let mut updated = documents.clone();
         let manifest_edits = manifests.prepare(documents, cancel)?;

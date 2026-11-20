@@ -317,6 +317,7 @@ pub fn compute_module_const_array_lengths(
         values: Arc::new(analyzer.array_lengths),
         failed: Arc::new(analyzer.failed_const_exprs),
         symbolic: Arc::new(analyzer.symbolic_const_exprs),
+        embedded_resources: Arc::new(analyzer.embedded_resources),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
     })
@@ -339,6 +340,7 @@ pub fn compute_module_const_enum_values(
     let mut analyzer = Analyzer::new(input);
     analyzer.array_lengths = Arc::unwrap_or_clone(array_lengths.values);
     analyzer.failed_const_exprs = Arc::unwrap_or_clone(array_lengths.failed);
+    analyzer.embedded_resources = Arc::unwrap_or_clone(array_lengths.embedded_resources);
     analyzer.provider_demands = Arc::unwrap_or_clone(array_lengths.provider_demands);
     analyzer.diagnostics = array_lengths.diagnostics;
     analyzer.analyze_enum_values();
@@ -346,6 +348,7 @@ pub fn compute_module_const_enum_values(
     Ok(ConstEnumValues {
         values: Arc::new(analyzer.enum_values),
         typed_values: Arc::new(analyzer.typed_enum_values),
+        embedded_resources: Arc::new(analyzer.embedded_resources),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
     })
@@ -383,6 +386,7 @@ pub fn compute_module_const_values(
     analyzer.failed_const_exprs = Arc::unwrap_or_clone(array_lengths.failed);
     analyzer.enum_values = Arc::unwrap_or_clone(enum_values.values);
     analyzer.typed_enum_values = Arc::unwrap_or_clone(enum_values.typed_values);
+    analyzer.embedded_resources = Arc::unwrap_or_clone(enum_values.embedded_resources);
     analyzer.provider_demands = Arc::unwrap_or_clone(enum_values.provider_demands);
     analyzer.diagnostics = enum_values.diagnostics;
     analyzer.analyze_values();
@@ -392,6 +396,7 @@ pub fn compute_module_const_values(
         symbolic_locals: Arc::new(analyzer.symbolic_locals),
         failed: Arc::new(analyzer.failed),
         typed_values: Arc::new(analyzer.typed_values),
+        embedded_resources: Arc::new(analyzer.embedded_resources),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
     })
@@ -414,6 +419,7 @@ pub fn check_module_const_with_all_phases(
         array_lengths: array_lengths.values,
         failed_const_exprs: array_lengths.failed,
         symbolic_const_exprs: array_lengths.symbolic,
+        embedded_resources: typed_facts.embedded_resources,
         provider_demands: typed_facts.provider_demands,
         diagnostics: typed_facts.diagnostics,
     }
@@ -434,11 +440,13 @@ pub fn compute_module_const_typed_facts(
     analyzer.values = Arc::unwrap_or_clone(values.values);
     analyzer.failed = Arc::unwrap_or_clone(values.failed);
     analyzer.typed_values = Arc::unwrap_or_clone(values.typed_values);
+    analyzer.embedded_resources = Arc::unwrap_or_clone(values.embedded_resources);
     analyzer.provider_demands = Arc::unwrap_or_clone(values.provider_demands);
     analyzer.diagnostics = values.diagnostics;
     analyzer.finish(())?;
     Ok(ConstTypedFacts {
         typed_values: Arc::new(analyzer.typed_values),
+        embedded_resources: Arc::new(analyzer.embedded_resources),
         provider_demands: Arc::new(analyzer.provider_demands),
         diagnostics: analyzer.diagnostics,
     })
@@ -569,6 +577,7 @@ pub(crate) struct Analyzer<'a> {
     /// Const expressions written in types whose evaluation failed.
     failed_const_exprs: HashSet<GlobalConstExprId>,
     diagnostics: ConstDiagnostics,
+    embedded_resources: HashSet<nia_source::EmbeddedResource>,
     provider_demands: HashSet<ProviderDemand>,
     active: HashSet<ConstKey>,
     /// Keys whose evaluation failed; their root error was reported.
@@ -714,6 +723,7 @@ impl Analyzer<'_> {
             array_lengths: HashMap::new(),
             failed_const_exprs: HashSet::new(),
             diagnostics: ConstDiagnostics::default(),
+            embedded_resources: HashSet::new(),
             provider_demands: HashSet::new(),
             active: HashSet::new(),
             failed: failed_lowering_keys(input.module),
@@ -774,6 +784,7 @@ impl Analyzer<'_> {
             array_lengths: input.array_lengths.clone(),
             failed_const_exprs: HashSet::new(),
             diagnostics: ConstDiagnostics::default(),
+            embedded_resources: HashSet::new(),
             provider_demands: HashSet::new(),
             active: HashSet::new(),
             failed: failed_lowering_keys(input.module),

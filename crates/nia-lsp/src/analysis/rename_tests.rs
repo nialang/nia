@@ -805,6 +805,45 @@ fn files_can_move_between_declaring_modules() {
 }
 
 #[test]
+fn moving_a_module_preserves_its_embedded_resource() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-move-embedded-input");
+    std::fs::create_dir(root.join("net")).unwrap();
+    for (name, text) in [
+        (
+            "nia.toml",
+            "[package]\nname='fixture'\nversion='1.0.0'\n[library]\npath='root.nia'\n",
+        ),
+        (
+            "root.nia",
+            "pub module util; pub module net; pub fun run() u8 { util::first() }",
+        ),
+        (
+            "util.nia",
+            "using std::builtin; const data: [u8; 3] = builtin::embed(\"x.bin\"); pub fun first() u8 { data[0] }",
+        ),
+        ("net.nia", "pub fun send() i32 { 0 }"),
+        ("x.bin", "abc"),
+        ("net/x.bin", "abc"),
+    ] {
+        std::fs::write(root.join(name), text).unwrap();
+    }
+    let error = test_session()
+        .will_rename_files(
+            vec![lsp_types::FileRename {
+                old_uri: uri(&root.join("util.nia")).unwrap().to_string(),
+                new_uri: uri(&root.join("net/util.nia")).unwrap().to_string(),
+            }],
+            &Documents::new(),
+            &[root.to_path_buf()],
+            true,
+            &Cancellation::default(),
+        )
+        .unwrap_err();
+    assert!(error.contains("embedded file `x.bin`"), "{error}");
+}
+
+#[test]
 fn files_can_move_to_an_existing_package_dependency() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-move-to-dependency");

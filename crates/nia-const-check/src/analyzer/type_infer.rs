@@ -841,10 +841,7 @@ impl Analyzer<'_> {
             ),
             ResolvedConstExprKind::Embed { path } => {
                 let path = nia_const_eval::eval_string_literal(path)?;
-                let resolved = super::env_impl::resolve_embed_path(
-                    self.current_execution_source_path()?.as_str(),
-                    &path,
-                );
+                let resolved = self.embedded_path(&path)?;
                 let len = std::fs::metadata(resolved).ok()?.len();
                 self.const_byte_string_literal_type(len)
             }

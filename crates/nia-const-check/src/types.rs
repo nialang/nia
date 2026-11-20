@@ -49,6 +49,8 @@ pub struct ConstCheck {
     /// Terms of the generic const expressions written in types, for
     /// check-time type normalization.
     pub symbolic_const_exprs: Arc<HashMap<GlobalConstExprId, nia_ty::ConstGenericArg>>,
+    /// Source-relative resource reads observed through this phase.
+    pub embedded_resources: Arc<HashSet<nia_source::EmbeddedResource>>,
     /// Cross-module semantic facts required to complete const analysis.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics accumulated by all phases.
@@ -74,6 +76,8 @@ pub struct ConstArrayLengths {
     /// array lengths and nominal const arguments alike, as the terms each
     /// instance evaluates.
     pub symbolic: Arc<HashMap<GlobalConstExprId, nia_ty::ConstGenericArg>>,
+    /// Source-relative resource reads observed through this phase.
+    pub embedded_resources: Arc<HashSet<nia_source::EmbeddedResource>>,
     /// Cross-module semantic facts required by this phase.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted while computing lengths.
@@ -132,6 +136,8 @@ pub struct ConstEnumValues {
     pub values: Arc<HashMap<DefId, ConstValue>>,
     /// Discriminants paired with inferred runtime types.
     pub typed_values: Arc<HashMap<DefId, TypedConstValue>>,
+    /// Source-relative resource reads observed through this phase.
+    pub embedded_resources: Arc<HashSet<nia_source::EmbeddedResource>>,
     /// Cross-module semantic facts required through this phase.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted by this and earlier phases.
@@ -149,6 +155,8 @@ pub struct ConstValues {
     pub failed: Arc<HashSet<ConstKey>>,
     /// Initializer values paired with inferred runtime types.
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
+    /// Source-relative resource reads observed through this phase.
+    pub embedded_resources: Arc<HashSet<nia_source::EmbeddedResource>>,
     /// Cross-module semantic facts required through this phase.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted by this and earlier phases.
@@ -160,6 +168,8 @@ pub struct ConstValues {
 pub struct ConstTypedFacts {
     /// Runtime type facts keyed by initializer identity.
     pub typed_values: Arc<HashMap<ConstKey, TypedConstValue>>,
+    /// Source-relative resource reads observed through this phase.
+    pub embedded_resources: Arc<HashSet<nia_source::EmbeddedResource>>,
     /// Cross-module semantic facts required through this phase.
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Diagnostics emitted by this and earlier phases.

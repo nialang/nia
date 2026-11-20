@@ -7,6 +7,7 @@ pub(super) fn const_enum_values_from_check(
     nia_const_check::ConstEnumValues {
         values: const_eval.enum_values.clone(),
         typed_values: const_eval.typed_enum_values.clone(),
+        embedded_resources: const_eval.embedded_resources.clone(),
         provider_demands: const_eval.provider_demands.clone(),
         diagnostics: Default::default(),
     }

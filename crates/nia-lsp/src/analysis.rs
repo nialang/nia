@@ -903,6 +903,7 @@ pub(crate) struct Analysis {
     pub(crate) files: BTreeMap<String, File>,
     pub(crate) definitions: HashMap<Symbol, (String, Span)>,
     pub(crate) consulted_sources: Arc<BTreeSet<String>>,
+    pub(crate) embedded_resources: std::collections::HashSet<nia_source::EmbeddedResource>,
     diagnostics: Arc<[ProgramDiagnostic]>,
     configuration_warning: Option<String>,
     trait_implementations: Vec<(GlobalDefId, String, Span)>,
@@ -1035,6 +1036,15 @@ impl Analysis {
             files: BTreeMap::new(),
             definitions: HashMap::new(),
             consulted_sources: program.consulted_sources,
+            embedded_resources: if program.mode == AnalysisMode::Workspace {
+                program
+                    .modules
+                    .iter()
+                    .flat_map(|m| m.const_eval.embedded_resources.iter().cloned())
+                    .collect()
+            } else {
+                Default::default()
+            },
             diagnostics: program.diagnostics,
             configuration_warning: None,
             trait_implementations: Vec::new(),

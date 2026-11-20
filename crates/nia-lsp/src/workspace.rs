@@ -75,6 +75,7 @@ pub(crate) struct Entry {
     pub(crate) bindings: Bindings,
     references: OnceLock<HashMap<Site, Vec<Site>>>,
     pub(crate) coverage: Coverage,
+    pub(crate) embedded_resources: std::collections::HashSet<nia_source::EmbeddedResource>,
     inactive: BTreeMap<String, Arc<[Span]>>,
     consulted_sources: Option<Arc<BTreeSet<String>>>,
     files: BTreeMap<String, (Uri, Arc<str>)>,
@@ -439,6 +440,7 @@ impl Entry {
                 return Ok(Self {
                     request,
                     coverage: Coverage::Unavailable(error),
+                    embedded_resources: Default::default(),
                     inactive: BTreeMap::new(),
                     bindings: Bindings::new(),
                     references: OnceLock::new(),
@@ -528,6 +530,7 @@ impl Entry {
                 .filter_map(|(source, file)| Some((source.clone(), file.inactive.clone()?)))
                 .collect(),
             consulted_sources: Some(analysis.consulted_sources),
+            embedded_resources: analysis.embedded_resources,
             symbols,
             implementations,
             module_declarations,

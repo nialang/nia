@@ -500,6 +500,25 @@ fn derived_child_path_text(parent_path: &str, child: &str, sibling: bool) -> Str
     path
 }
 
+/// A resource referenced by a compile-time read in a particular source file.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EmbeddedResource {
+    /// The source containing the read, including reads in imported const functions.
+    pub source: SourcePath,
+    /// The decoded path supplied by the program.
+    pub path: String,
+}
+
+impl EmbeddedResource {
+    /// Resolves the resource relative to the file containing the read.
+    pub fn resolve_at(&self, source: &Path) -> std::path::PathBuf {
+        source
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join(&self.path)
+    }
+}
+
 /// Lexically normalizes `/`, `.`, and `..` path components.
 pub fn normalize_path(path: &str) -> String {
     let path = path.replace('\\', "/");
