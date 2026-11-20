@@ -776,6 +776,7 @@ fn rename_preserves_earlier_diagnostics_and_rejects_new_ones() {
         "pub fun amount() i32 { 1 }\n",
         "pub fun taken() i32 { 2 }\n",
         "fun use_it() i32 { _ = amount(); missing() }\n",
+        "fun wrong_type() bool { amount() }\n",
     );
     std::fs::write(&entry, source).unwrap();
     let documents = Documents::new();
@@ -803,7 +804,7 @@ fn rename_preserves_earlier_diagnostics_and_rejects_new_ones() {
         )
     };
     let edit = rename("available_quantity").unwrap();
-    assert_eq!(edit.changes.unwrap()[&uri(&entry).unwrap()].len(), 2);
+    assert_eq!(edit.changes.unwrap()[&uri(&entry).unwrap()].len(), 3);
     assert!(rename("taken").unwrap_err().contains("Rename would break"),);
 }
 

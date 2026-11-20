@@ -112,22 +112,28 @@ impl<'a> EditOffsets<'a> {
         Span::new(start, start + length)
     }
 
-    fn unchanged_span(&self, source: &str, span: Span) -> Option<Span> {
+    fn diagnostic_span(&self, source: &str, span: Span) -> Option<Span> {
         let Some(edits) = self.0.get(source) else {
             return Some(span);
         };
         let index = edits.partition_point(|edit| edit.span.end <= span.start);
-        // An intact span is evidence that the diagnostic still concerns the same text.
-        if edits
-            .get(index)
-            .is_some_and(|edit| edit.span.start < span.end)
+        let end = edits[index..].partition_point(|edit| edit.span.start < span.end) + index;
+        // A label can describe a whole call or function containing the renamed
+        // identifier. Both ends must still identify the same source region.
+        if edits[index..end]
+            .first()
+            .is_some_and(|edit| edit.span.start < span.start)
+            || edits[index..end]
+                .last()
+                .is_some_and(|edit| edit.span.end > span.end)
         {
             return None;
         }
         let delta = index.checked_sub(1).map_or(0, |index| edits[index].after());
         Some(Span::new(
             span.start.checked_add_signed(delta)?,
-            span.end.checked_add_signed(delta)?,
+            span.end
+                .checked_add_signed(end.checked_sub(1).map_or(0, |i| edits[i].after()))?,
         ))
     }
 
@@ -143,11 +149,11 @@ impl<'a> EditOffsets<'a> {
         let mut diagnostic = item.diagnostic.clone();
         for label in diagnostic.labels.iter_mut() {
             if label.span_source == SpanSource::Source {
-                label.span = self.unchanged_span(source, label.span)?;
+                label.span = self.diagnostic_span(source, label.span)?;
             }
         }
         for related in diagnostic.related.iter_mut() {
-            related.span = self.unchanged_span(
+            related.span = self.diagnostic_span(
                 related.source_path.as_deref().unwrap_or(source),
                 related.span,
             )?;
@@ -157,11 +163,11 @@ impl<'a> EditOffsets<'a> {
         }
         for suggestion in diagnostic.suggestions.iter_mut() {
             for edit in suggestion.edits.iter_mut() {
-                edit.span = self.unchanged_span(source, edit.span)?;
+                edit.span = self.diagnostic_span(source, edit.span)?;
             }
         }
         if let Some(cause) = &mut diagnostic.cause {
-            cause.span = self.unchanged_span(&cause.source_path, cause.span)?;
+            cause.span = self.diagnostic_span(&cause.source_path, cause.span)?;
             cause.source_path = relocate(&cause.source_path);
         }
         if let Some(path) = &mut diagnostic.source_path {
