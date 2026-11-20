@@ -32,8 +32,8 @@ pub(crate) fn preserves_bindings(
                     .into_iter()
                     .filter(|binding| binding.declaration.is_some() || binding.alias.is_some())
                     .map(|binding| Binding {
-                        declaration: binding.declaration.map(&shift),
-                        alias: binding.alias.map(&shift),
+                        declaration: binding.declaration.map(shift),
+                        alias: binding.alias.map(shift),
                     })
                     .collect();
                 expected.is_empty()
