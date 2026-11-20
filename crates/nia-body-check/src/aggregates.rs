@@ -14,7 +14,6 @@ use nia_item_signatures::{
     UnionSignature,
 };
 use nia_local_resolve::LocalKind;
-use nia_node_id::NodeMap;
 use nia_sema::{NamedField, check_required_field_set};
 
 struct EnumInstance<'a> {
@@ -1630,15 +1629,9 @@ impl<'a> BodyChecker<'a> {
                 SemanticValueUse::Global(_) => Some(*value_use),
                 SemanticValueUse::Local(_) => None,
             });
-        let node_store = self.semantic_uses.node_store();
         SemanticUseTable {
             node_value_uses,
-            node_const_generic_uses: self.semantic_uses.node_const_generic_uses.clone(),
-            node_builtin_associated_values: NodeMap::with_store(node_store),
-            node_associated_const_projections: NodeMap::with_store(node_store),
-            node_local_defs: self.semantic_uses.node_local_defs.clone(),
-            node_type_uses: self.semantic_uses.node_type_uses.clone(),
-            node_type_prefixes: self.semantic_uses.node_type_prefixes.clone(),
+            ..self.semantic_uses.clone()
         }
     }
 

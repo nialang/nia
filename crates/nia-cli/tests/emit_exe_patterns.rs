@@ -190,6 +190,14 @@ fun read_optional(value: ?i32) i32 {
     }
 }
 
+fun boundary(value: i32) i32 {
+    match value {
+        i32::MAX => 1,
+        i32::MIN..=-1 => 2,
+        _ => 0,
+    }
+}
+
 fun read_error(value: i32!i32) i32 {
     match value {
         !payload => payload,
@@ -210,6 +218,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
     }
     if read_error(5!) != 5 {
         return process::ExitCode(4)!;
+    }
+    if boundary(i32::MAX) != 1 or boundary(i32::MIN) != 2 or boundary(0) != 0 {
+        return process::ExitCode(5)!;
     }
     !()
 }
