@@ -18,17 +18,20 @@ path = "tests/unit.nia"
 ```
 
 A test is a function that returns `test::Error!()`. Assertions return the same
-type, so `.?` stops the test at the first failed check:
+type, so `.?` stops the test at the first failed check. A comment above each
+test states the property it checks, so a failure says what broke:
 
 ```nia
 using std::process;
 using std::test;
 
+// Integer addition gives the expected sum.
 fun addsNumbers() test::Error!() {
     test::expectEqual(2 + 2, 4).?;
     !()
 }
 
+// A literal's length counts characters, and indexing reads one of them.
 fun measuresText() test::Error!() {
     let text = "nia";
     test::expect(text.len() == 3).?;
@@ -62,13 +65,17 @@ pub fun main(init: process::Init) process::ExitCode!() {
 Any error converts to `test::Error`, so `.?` on a call under test fails the
 test when the call returns an error and reports where the error propagated.
 A `std::mem::Error` keeps its cause; any other error records only the
-location. `expectError` accepts a result of any error type, and to check
-which error a call returned, compare the one it gives back:
+location, because its meaning belongs to the code that returned it.
+`expectError` accepts a result of any error type, and to check which error a
+call returned, compare the one it gives back:
 
 ```nia
 using std::test;
 
-enum ParseError { Empty, TooLong }
+enum ParseError {
+    Empty,
+    TooLong,
+}
 
 fun parseLength(text: &[u8]) ParseError!usize {
     if text.len() == 0 {
@@ -80,6 +87,7 @@ fun parseLength(text: &[u8]) ParseError!usize {
     !text.len()
 }
 
+// A short input parses, and an empty one fails with `Empty`.
 fun rejectsEmptyInput() test::Error!() {
     test::expectEqual(parseLength(b"ab").?, 2).?;
     test::expectEqual(test::expectError(parseLength(b"")).?, .Empty).?;
@@ -88,9 +96,9 @@ fun rejectsEmptyInput() test::Error!() {
 ```
 
 A `Case` pairs a name with a test function, and a `Runner` runs a table of
-cases and returns a `RunSummary` with `total()`, `passed()`, `failed()`, and
-`isSuccessful()`. `.withFailFast()` makes the runner skip the remaining cases
-after the first failure.
+cases and returns a `RunSummary` with `total()`, `passed()`, `failed()`,
+`skipped()`, and `isSuccessful()`. `.withFailFast()` makes the runner skip the
+remaining cases after the first failure.
 
 ## Running Tests
 
@@ -103,7 +111,9 @@ after the first failure.
 
 A suite that passed is not run again until its code or inputs change, so
 `nia build test` stays fast on a large package. A suite runs with the package
-root as its working directory.
+root as its working directory. The
+[packages guide](../guides/packages.md#building-running-and-testing) lists
+every build step.
 
 ## Reporting Failures
 
@@ -131,11 +141,13 @@ fun countWords(text: &[char]) usize {
     count
 }
 
+// Words separated by single spaces are counted.
 fun countsWords() test::Error!() {
     test::expectEqual(countWords("one two three"), 3).?;
     !()
 }
 
+// Leading, repeated, and trailing spaces start no word.
 fun ignoresExtraSpaces() test::Error!() {
     test::expectEqual(countWords("  a  b "), 2).?;
     !()
@@ -171,7 +183,7 @@ When a case fails, its line names the test and the assertion. If
 `ignoresExtraSpaces` expected `3`, running the suite in a package prints:
 
 ```text
-FAIL ignores extra spaces: tests/unit.nia:25:5: values are not equal
+FAIL ignores extra spaces: tests/unit.nia:27:5: values are not equal
 1 passed, 1 failed
 ```
 
@@ -203,7 +215,7 @@ using std::process;
 using std::result;
 using std::test;
 
-// Appends every value or none of them.
+// Appends every value or none of them: a failure restores the list's length.
 fun appendAll(
     list: &mut std::ArrayList[i32],
     allocator: &mut mem::Allocator,
@@ -221,6 +233,8 @@ fun appendAll(
     !()
 }
 
+// A growth failure partway through leaves the list as it was and leaks
+// nothing.
 fun rollsBackWhenGrowthFails() test::Error!() {
     let mut page: mem::PageAllocator = .init();
     let mut allocator = test::FailingAllocator::init(page);
@@ -308,6 +322,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 using hello;
 using std::test;
 
+// Words separated by single spaces are counted.
 pub fun countsWords() test::Error!() {
     test::expectEqual(hello::wordCount("one two three"), 3).?;
     !()

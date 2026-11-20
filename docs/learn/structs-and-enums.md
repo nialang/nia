@@ -25,9 +25,9 @@ fun moved(p: Point, dx: i32) Point {
 ```
 
 A struct literal names its type and sets every field; leaving one out is an
-error (`missing struct field 'y'`). Fields are read and written with `.`, and
-writing needs a `let mut` binding. Fields carry no visibility of their own:
-wherever the struct is visible, so are its fields.
+error (``missing struct field `y` ``). Fields are read and written with `.`,
+and writing needs a `let mut` binding. Fields carry no visibility of their
+own: wherever the struct is visible, so are its fields.
 
 When the type is already known from context, the literal can leave the name
 out with `.{ ... }`:
@@ -39,8 +39,9 @@ fun corner() Point {
 }
 ```
 
-A tuple struct has positional fields, read as `.0`, `.1`, and so on. It is
-useful for giving an existing type a distinct meaning:
+A tuple struct has positional fields, read as `.0`, `.1`, and so on. It gives
+an existing type a distinct meaning, so that a `Meters` cannot be passed where
+a plain `f64` or another unit is expected:
 
 ```nia
 struct Meters(f64)
@@ -110,7 +111,8 @@ The receiver form says how the method sees its value:
 
 Calling `p.translate(1, 1)` passes `p`'s address automatically; the caller
 never writes `&p`. Calling it on a `let` binding fails with
-`receiver is not assignable: local is let`. Inside `extend`, `Self` names the
+`receiver is not assignable: local is let`, because the method could change a
+value that `let` promises stays the same. Inside `extend`, `Self` names the
 extended type. A method can also be called through a pointer to the value:
 `ptr.lengthSquared()` works when `ptr` is a `&Point`.
 
@@ -143,8 +145,9 @@ Variants are named through the enum, `Shape::Circle(2)`. Where the expected
 type is already an enum, the enum name can be left out: `.Empty`. This is the
 same omission as `.{ ... }` for structs.
 
-An enum whose variants carry no data can choose an integer *backing type* and
-explicit values, and converts to an integer with `as`:
+Each variant has an integer value. An enum can choose the integer *backing
+type* that holds it and give variants explicit values, and `as` converts an
+enum value to an integer:
 
 ```nia
 enum Level: u8 {
@@ -158,10 +161,13 @@ fun code(level: Level) u8 {
 }
 ```
 
-Without a backing type, variants are numbered from 0 in a `u8`. Integers do
-not convert back to an ordinary enum, because most integers are not valid
+Without a backing type, the values are a `u8`. A variant without an explicit
+value takes the previous variant's value plus one, starting from 0. Integers
+do not convert back to an ordinary enum, because most integers are not valid
 variants. An *open* enum, whose body ends with `_`, accepts every value of its
-backing type; it is useful for numbers defined by a file format or protocol.
+backing type, so integers convert to it with `as`, and every `match` on it
+needs a `_` arm for the values without a variant. It suits numbers defined by
+a file format or protocol, which may grow values the program does not know.
 
 ## Matching
 
@@ -241,6 +247,7 @@ arms that leave with `return`, `break`, or `continue`.
 | `Point { x: 0, y }`, `Point { x, .. }` | a struct by its fields; `..` skips the rest |
 | `(a, _)` | a tuple element by element |
 | `&p` | a pointer, matching what it points to against `p`; `for &x in slice` uses this to copy each element |
+| `?p`, `null`, `!p`, `e!` | the cases of optionals and error unions, which [Optionals And Errors](errors.md) introduces |
 
 A bare name in a pattern always introduces a new binding. To compare against
 a constant, wrap it in parentheses or name it through a path:
@@ -282,7 +289,8 @@ fun rectArea(shape: Shape) i32 {
 
 Conditions chain with `and`, and each clause sees the bindings of the clauses
 before it. A chain with `is` cannot use `or` or `not`; use `match` for
-alternatives.
+alternatives. `is` works only in an `if` condition. It is not an expression of
+type `bool`, so a flag is written `if shape is .Empty { true } else { false }`.
 
 ### Destructuring In `let`
 

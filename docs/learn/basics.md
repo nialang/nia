@@ -5,15 +5,16 @@ numbers and other simple values, functions, blocks, and loops. Nia is
 statically typed and expression-oriented: every value has a type known at
 compile time, and most constructs, including blocks and `if`, produce values.
 
-Programs that define `main` are complete: save one as a file and run it with
-`nia emit --exe file.nia -o program` followed by `./program`; the expected
+Programs that define `main` are complete: save one as a file, build it with
+`nia emit --exe file.nia -o program`, and run `./program`; the expected
 output is shown after it. The shorter examples define functions to read, and
-compile on their own with `nia check file.nia`.
+each checks on its own with `nia check file.nia`.
 
 ## Bindings
 
 `let` gives a name to a value. A `let` binding cannot be assigned again; a
-`let mut` binding can:
+`let mut` binding can. Making mutation opt-in means that a reader who sees a
+plain `let` knows the value never changes:
 
 ```nia fragment
 let answer = 42;
@@ -29,8 +30,8 @@ error[E0301]: assignment target is not assignable: local is let
 ```
 
 A later `let` with the same name *shadows* the earlier binding. The new
-binding may even have a different type, and the old one is still visible in
-its own initializer:
+binding may have a different type, and the old one is still visible in the
+new one's initializer:
 
 ```nia fragment
 let text = "42";
@@ -83,8 +84,9 @@ A literal must fit its type: `let x: u8 = 300;` is a compile error. Every
 integer type has constants for its range, such as `i32::MIN` and `u8::MAX`.
 
 Nia never converts between numeric types implicitly, not even from a smaller
-integer to a larger one. Arithmetic needs both operands to have the same type,
-and `as` converts explicitly:
+integer to a larger one, so every change of numeric type is visible where it
+happens. Arithmetic needs both operands to have the same type, and `as`
+converts explicitly:
 
 ```nia fragment
 let small: i32 = 1;
@@ -106,11 +108,23 @@ calls `Add`, and the standard library implements `i32: Add[i32]` but never
 explains the mechanism. For numbers, the fix is always an `as` conversion on
 one side.
 
-Integer overflow, division by zero, and shifting by too many bits are not
-silent. They *trap*: the program stops immediately, in debug and release
-builds alike, and in constant expressions they are compile errors. Use the
-checked operations in `std::math`, such as `a.checkedAdd(b)`, which return an
-optional result instead, when overflow is an expected case.
+Integer overflow, division by zero, and bad shifts are not silent. They
+*trap*: the program stops immediately, in debug and release builds alike, and
+in constant expressions they are compile errors. A shift is bad when its count
+is negative or at least the bit width, or when `<<` shifts set bits out of the
+type. A debug build first prints what failed and where, here for `byte << 1`
+with `byte` equal to `0x80u8`:
+
+```text
+nia: main.nia:6:5: integer overflow: 128 << 1 does not fit in u8
+```
+
+When overflow is an expected case, use the checked operations of `std::math`,
+such as `a.checkedAdd(b)`, which return an
+[optional](errors.md#optional-values) result instead. Arithmetic that is meant
+to keep only the low bits, as a hash does, uses
+[`std::builtin::wrappingAdd`](../reference/builtins.md#wrapping-arithmetic) and
+its relatives.
 
 > **Coming from C:** there are no implicit integer promotions or conversions,
 > and signed overflow is a trap, not undefined behavior.
@@ -131,8 +145,8 @@ _ = go;
 `char` is a Unicode scalar value, written `'a'`, `'中'`, or with an escape such
 as `'\n'`. `as` converts a `char` to `u32`, but integers never convert to
 `char`, because most integers are not valid characters; use
-`std::builtin::charFromU32`, which returns an optional value. `b'a'` is a byte,
-a `u8`.
+`std::builtin::charFromU32`, which returns an optional value that is absent
+for an invalid one. `b'a'` is a byte, a `u8`.
 
 `()` is the unit type, with the single value `()`. A function that returns
 nothing returns `()`.
@@ -177,8 +191,8 @@ fun log(code: i32) {
 
 The body is a block, and the block's last expression, written *without* a
 semicolon, is the result. `return` leaves early. A function without a return
-type, like `log`, returns `()`; the standard library writes `()` explicitly
-instead, as in `fun reset(&mut self) ()`, and both mean the same.
+type, like `log`, returns `()`. The standard library writes the `()`
+explicitly, as in `fun reset(&mut self) ()`; both forms mean the same.
 
 The semicolon matters. `x * x;` with a semicolon is a statement, so its value
 is thrown away and the function falls off its end without a result. The
@@ -196,8 +210,8 @@ Functions are private to their module unless marked `pub`; modules come in
 
 ## Blocks Are Expressions
 
-Any `{ ... }` block is an expression whose value is its last expression. This
-lets a computation keep its temporary names to itself:
+Any `{ ... }` block is an expression whose value is its last expression. A
+computation can therefore keep its intermediate names to itself:
 
 ```nia fragment
 let area = {
@@ -218,8 +232,9 @@ _ = parity;
 ```
 
 An `if` without `else` has type `()`, so it cannot be used where another type
-is expected. The condition must be a `bool`; there is no truthiness for
-numbers or pointers.
+is expected. The condition must be a `bool`: there is no truthiness for
+numbers or pointers, so `if count` is an error and `if count != 0` says what
+is meant.
 
 ## Loops
 
@@ -317,7 +332,8 @@ assignments run then, the later one first.
 `defer` is how Nia programs release resources: write the release right after
 acquiring the resource, and it happens on every path out of the block. The
 [memory chapter](memory.md) relies on this throughout. A deferred expression
-has type `()`; it may itself use `.?`.
+must have type `()`, so discard any other result with `_ =`; it may itself use
+`.?`, which [Cleaning Up](errors.md#cleaning-up) explains.
 
 ## Constants And Statics
 
@@ -337,7 +353,8 @@ fun grid() [i32; area] {
 `static` declares storage that exists for the whole run of the program, with
 a fixed address. `static mut` storage can be written. Use a `static` for data
 that must outlive any function call, such as text that a function returns a
-pointer to, as the first chapter's library did.
+pointer to, as the library in
+[Your First Package](getting-started.md#your-first-package) does.
 
 ## Putting It Together
 

@@ -9,7 +9,8 @@ Nia does not have a borrow checker, lifetimes, or a garbage collector. A
 pointer is a plain value, like an address in C. The type system tracks whether
 a pointer is read-only or writable and what it points to; it does not track
 how long the memory lives. That part is the program's job, apart from the
-plainest mistake, which the compiler rejects.
+direct mistakes that [Keeping Pointers Valid](#keeping-pointers-valid)
+describes, which the compiler rejects.
 
 ## Pointers
 
@@ -31,16 +32,17 @@ _ = reader.*;
 
 Writing through a read-only pointer is an error
 (`assignment target is not assignable: pointer is read-only`), and so is
-taking `&mut` of a `let` binding. A `&mut T` can be passed where a `&T` is
-expected; every other pointer conversion is an explicit cast.
+taking `&mut` of a `let` binding
+(`reference target is not assignable: local is let`). A `&mut T` can be
+passed where a `&T` is expected, because a writable pointer can do everything
+a read-only one can; every other pointer conversion is an explicit cast.
 
 Field access and method calls look through a pointer by themselves: if `p` is
 a `&Point`, then `p.x` and `p.lengthSquared()` work without `p.*`.
 
 There is no null pointer. A pointer that may be absent is an optional,
 `?&T`, which the [next chapter](errors.md) covers. There is no pointer
-arithmetic either; cast to `usize`, compute, and cast back when you really
-need it.
+arithmetic either; when you need it, cast to `usize`, compute, and cast back.
 
 ## Automatic Addresses
 
@@ -71,10 +73,10 @@ fun demo() i32 {
 The rules are the same for arguments, initializers, return values, and method
 receivers:
 
-- Where `&T` is expected, a value of type `T` works, including a temporary
-  such as `lengthSquared(Point { x: 1, y: 2 })`, a literal, or a call's result.
-  A temporary lives until the end of the enclosing block. The result of an
-  operator such as `a + b` is not addressed this way; bind it to a name first.
+- Where `&T` is expected, any value of type `T` works: a variable, a field,
+  or a temporary such as `lengthSquared(Point { x: 1, y: 2 })`, a literal, an
+  operator's result, or a call's result. A temporary lives until the end of
+  the enclosing block.
 - Where `&mut T` is expected, the value must be a writable place: a `let mut`
   variable, one of its fields or elements, or something reached through a
   writable pointer. Passing a `let` binding or a temporary is an error,
@@ -106,18 +108,23 @@ An array is a value, like a struct. Assigning it or passing it by value copies
 every element. `primes[i]` indexes it, and indexes are `usize`.
 
 Indexing checks bounds: `primes[i]` with `i` past the end stops the program
-with a trap, and a debug build first prints which index failed and where.
+with a trap, in every build, and a debug build first prints which index failed
+and where:
+
+```text
+nia: main.nia:7:29: index 3 is out of bounds for length 3
+```
+
 When an index might be out of range, use `get`, which returns an optional
-pointer instead (it comes from `std::slice`, introduced below):
+pointer instead. The pattern `?value` matches a present pointer and binds it;
+the [next chapter](errors.md#optional-values) covers optionals. `get` comes
+from `std::slice`, introduced below:
 
 ```nia
 using std::slice;
 
 fun third(values: [i32; 4]) i32 {
-    match values.get(2) {
-        ?value => value.*,
-        null => 0,
-    }
+    if values.get(2) is ?value { value.* } else { 0 }
 }
 ```
 
@@ -196,8 +203,8 @@ owns its memory through an allocator; [Memory](memory.md) shows how.
 ## Keeping Pointers Valid
 
 A pointer is valid while the memory it points to exists. Nia checks the type
-of every pointer but in general not this, so it is worth knowing where memory
-ends:
+of every pointer, but apart from the direct cases below it does not check
+this, so you need to know where memory ends:
 
 | Memory | Lives until |
 | --- | --- |
@@ -244,7 +251,10 @@ The compiler follows such an address through locals, structs, optionals, and
 branches, and also rejects storing it in a `static` or in memory the caller
 passed in. It does not follow an address into a call, so a pointer handed to
 code that keeps it is still the program's responsibility. Closures get a wider
-check, which the [closures chapter](closures.md) explains.
+check, which
+[Closures Do Not Outlive Their Frame](closures.md#closures-do-not-outlive-their-frame)
+explains. The reference states the exact rule under
+[Addresses Of A Call's Storage](../reference/language.md#addresses-of-a-calls-storage).
 
 > **Coming from Rust:** there is nothing like a borrow checker. Read-only and
 > writable pointers can point to the same value at the same time. The design
@@ -304,7 +314,8 @@ vowels=1 reversed=smetsys matches=true
   writable pointer needs a writable place.
 - Arrays are values with a compile-time length; slices are pointer-and-length
   views; string literals are `char` arrays.
-- Indexing is unchecked; `get` is the checked alternative.
+- Indexing traps when the index is out of bounds; `get` returns an optional
+  instead.
 - Nia does not track how long memory lives. Returning or storing the address
   of a local or a temporary directly is rejected; keeping one through a call
   is a bug the compiler does not see.

@@ -6,7 +6,7 @@ library, and tests. It is the first chapter of [Learning Nia](README.md).
 
 ## Install
 
-### Release archive
+### Release Archive
 
 Archives for the supported compiler hosts are published on the
 [GitHub Releases](https://github.com/nialang/nia/releases) page:
@@ -30,20 +30,22 @@ tar -xzf nia-<version>-linux-x86_64.tar.gz
 ```text
 nia-<version>-linux-x86_64/
 ├── bin/nia
+├── bin/nia-lsp
 ├── lib/toolchain.meta
 ├── lib/std/
 └── libexec/ld.lld
 ```
 
-Each archive contains the compiler, standard library, and host LLD linker. No
-system LLVM installation is needed. Add `bin` to `PATH` to run `nia` directly.
+Each archive contains the compiler, the language server `nia-lsp`, the
+standard library, and the host's LLD linker. No system LLVM installation is
+needed. Add `bin` to `PATH` to run `nia` directly.
 
-Windows archives contain `bin/nia.exe` and `libexec/ld.lld.exe`; Unix archives
-contain `bin/nia` and `libexec/ld.lld`. The bundled linker selects the target
+Windows archives contain `bin/nia.exe`, `bin/nia-lsp.exe`, and
+`libexec/ld.lld.exe` instead. The bundled linker selects the target
 flavor automatically, so a host archive can generate any supported target
 listed in [Platform support](../reference/platform-support.md#targets).
 
-### Build from source
+### Build From Source
 
 Source builds are useful for development. With Rust stable, LLVM 23.1
 (`llvm-config` on `PATH` or `LLVM_SYS_231_PREFIX` set), and `ld.lld` available
@@ -55,10 +57,10 @@ target/release/nia --resource-root "$PWD/lib" --version
 ```
 
 A compiler built from source finds its standard library through
-`--resource-root`; point it at the checkout's `lib` directory. The examples
-below omit the option for brevity. The `tools/nia-dev` launcher in the checkout
-runs `target/release/nia` with the checkout's `lib` resources already
-selected.
+`--resource-root`; point it at the checkout's `lib` directory. The
+`tools/nia-dev` launcher in the checkout runs `target/release/nia` with that
+option already set. The commands in these chapters omit it; with a source
+build, run them through `tools/nia-dev` or add `--resource-root lib`.
 
 The full toolchain setup, including Windows MSVC builds and troubleshooting, is
 in [Development setup](../dev/setup.md).
@@ -96,9 +98,10 @@ Every line of this program says something about how Nia works:
 - `pub fun main(...)` declares the program's entry point. It must be public,
   because the toolchain's startup code calls it from outside this module.
 - `init: process::Init` is the process context: command-line arguments and
-  environment variables. This program does not need it; `_ = init;` says so
-  explicitly. The compiler does not require it, but the standard library and
-  these chapters write it to show the parameter is unused on purpose.
+  environment variables. This program does not use it, and `_ = init;` says
+  so. The compiler accepts an unused parameter without that line; the
+  standard library and these chapters write it so that the reader sees the
+  parameter is unused on purpose.
 - The return type `process::ExitCode!()` is an *error union*: the function
   either succeeds with the unit value `()` or fails with an `ExitCode`. Nia has
   no exceptions; failure is part of the return type.
@@ -116,7 +119,7 @@ Every line of this program says something about how Nia works:
 ## Printing Values
 
 `debugPrint`'s `{}` placeholders take values from the array that follows, in
-order. A placeholder can carry a format specification directly inside its braces:
+order. A placeholder can carry a format specification inside its braces:
 
 ```nia
 using std::io;
@@ -155,19 +158,19 @@ and which types accept it.
 
 The compiler does not check templates, by design: `std::fmt` is an ordinary
 library with no special support from the compiler, and to the compiler a
-template is just an array of `char` like any other text. Mistakes therefore
+template is an array of `char` like any other text. Mistakes therefore
 surface when the program runs. A malformed placeholder, or a value count that
 does not match the placeholders, makes `debugPrint` fail without printing
-anything, and `.?` then ends the program with exit status 22. A program that
-unexpectedly prints nothing and exits with 22 has a template mistake.
+anything, and `.?` then ends the program with exit status 22. When a program
+unexpectedly prints nothing and exits with 22, look for a template mistake.
 
 Integers, floating-point numbers, `bool`, `char`, and text can be printed. A
 float prints in the shortest form that reads back as the same value, so `0.1`
 prints as `0.1`. An infinity or NaN cannot be printed: passing one makes
-`debugPrint` fail with `fmt::Error::NonFinite` (exit status 33). The values
-in the array are named variables or fields. An expression such as `answer + 1`
-or a literal such as `42` cannot be written there directly; bind it to a name
-first.
+`debugPrint` fail with `fmt::Error::NonFinite` (exit status 33). An entry of
+the array can be a variable, a field, a call, or an expression such as
+`answer + 1`, but not a literal: `42` or `"nia"` written there is rejected,
+so bind a literal to a name first.
 
 `debugPrint` writes to standard error, which suits diagnostics and these
 chapters' examples. A program's real output goes to standard output through a
@@ -194,9 +197,10 @@ count=3
 ```
 
 The writer collects output in `buffer` and writes it out when the buffer fills
-or `flush` is called; always flush before the program ends. `print` takes the
-same templates as `debugPrint`, and comes from `std::fmt::template`, which the
-program imports.
+or `flush` is called, so flush before the program ends or the last output is
+lost. `print` takes the same templates as `debugPrint`. It is an extension
+method declared in `std::fmt::template`, which is why the program imports that
+module; [Extension Methods](modules.md#extension-methods) explains the rule.
 
 ## Command-Line Arguments
 
@@ -275,10 +279,11 @@ error[E0301]: type mismatch in binding initializer: expected i32, got [char; 5]
 6 |     let count: i32 = "three";
   |                      ^^^^^^^
 note: this context requires `i32`, but the expression produces `[char; 5]`
+help: change the expression to the expected type, add an explicit conversion, or adjust the surrounding type annotation
 ```
 
 A string literal is an array of characters, not a pointer, so its type shows
-its length. Later chapters return to this.
+its length. [Text](pointers-and-slices.md#text) returns to this.
 
 `--runtime freestanding` tells `nia check` to check `main` against the standard
 entry contract. In Nia, *freestanding* means the program starts through Nia's
@@ -317,7 +322,8 @@ The library holds the code worth sharing:
 // A public API shared by the executable and the test suite.
 
 // The text lives in static storage, so the slice that `greeting` returns
-// stays valid after the call.
+// stays valid after the call. Returning the literal itself would point at a
+// temporary that ends with the function.
 static greetingText: [char; 14] = "hello from nia";
 
 pub fun greeting() &[char] {
@@ -327,10 +333,10 @@ pub fun greeting() &[char] {
 
 `greeting` returns `&[char]`, a *slice*: a pointer to some characters plus
 their count. The characters must outlive the call, so they are kept in a
-`static`, which exists for the whole run of the program; returning the
-literal itself is rejected, because it is a temporary of the call. Beyond such
-direct cases Nia does not track how long memory lives; making sure a pointer
-stays valid is part of writing the program, and
+`static`, which exists for the whole run of the program. The compiler rejects
+a function that returns the literal itself, as the comment says. Beyond such
+direct cases Nia does not track how long memory lives: keeping a pointer
+valid is part of writing the program, and
 [Pointers, Arrays, And Slices](pointers-and-slices.md) explains what to watch
 for.
 
@@ -364,20 +370,19 @@ longer; later builds reuse everything that has not changed.
 
 | Command | What it does |
 | --- | --- |
-| `nia build` | builds the executable and runs the tests |
+| `nia build` | checks the library, builds the executable, and runs the tests |
 | `nia build run-hello` | builds the executable, then runs it |
 | `nia build test` | builds and runs the tests |
 | `nia build --release` | builds with optimizations |
 | `nia build --list` | lists the available steps |
 
+[Packages And Dependencies](../guides/packages.md#building-running-and-testing)
+describes every step a package has.
+
 The test suite is an ordinary program that checks the library and reports a
 failure through its exit status; [Testing](testing.md) explains how to write
 tests. Change `greetingText` to `"hello, world!!"` and run `nia build test` to
 see a failing test.
-
-Most `nia` commands in these chapters work the same from a checkout of the
-compiler: run `tools/nia-dev`, or pass `--resource-root lib` to a compiler
-built with Cargo.
 
 ## Where Next
 

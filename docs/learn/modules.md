@@ -19,6 +19,7 @@ text.nia
 `main.nia` is the root. It declares its children, which sit next to it:
 
 ```nia ignore
+// main.nia
 module geometry;
 module text;
 
@@ -42,6 +43,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
 it, `geometry/shapes.nia`:
 
 ```nia ignore
+// geometry.nia
 pub module shapes;
 
 pub struct Point {
@@ -106,7 +108,8 @@ where a child's file lives:
   to `nia emit`, or a package's `src/main.nia`, `lib/root.nia`, or test file.
 - Children of any other module live in a directory named after that module:
   `geometry.nia`'s child `shapes` is `geometry/shapes.nia`.
-- Every module is loaded explicitly; `using` never discovers files.
+- Every module is loaded explicitly; `using` never discovers files, so the
+  module declarations alone say which files make up the program.
 
 `pub module shapes;` makes the child part of `geometry`'s public surface, so
 other modules can name `geometry::shapes`. A plain `module` declaration keeps
@@ -138,7 +141,8 @@ using palette::Color::*;                // every variant of an enum
 Importing a module and naming items through it, `process::Init`, keeps it
 clear where a name comes from; the standard library and these chapters mostly
 do that. A `using` inside a block applies only within that block, and imports
-names only; extension methods need a `using` at the top of the file.
+names only: extension methods, introduced below, need a `using` at the top of
+the file.
 
 ## Visibility
 
@@ -222,8 +226,8 @@ executables and other packages reach it.
 - `using` imports modules and items from `std`, dependencies, children, `root`,
   `self`, and `super`; nothing is imported implicitly.
 - Items are private unless marked `pub`, `pub(super)`, or `pub(root)`.
-- Trait methods are visible with their trait; extension methods need a `using`
-  of their module or of a module that re-exports it.
+- Trait methods need no import; extension methods need a `using` of their
+  module or of a module that re-exports it.
 - `pub using` builds facades, including for extension methods.
 
 The reference covers [modules](../reference/language.md#modules-and-visibility)

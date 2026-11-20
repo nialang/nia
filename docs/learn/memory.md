@@ -1,11 +1,13 @@
 # Memory And Allocators
 
-Nia never allocates behind the program's back. There is no garbage collector,
-no destructor, and no hidden allocator: memory comes from an allocator value
-that the program creates, passes to every operation that needs it, and tears
-down when it is done. This chapter shows how the standard library's allocators,
-containers, and owning types fit together. The library conventions are
-summarized in the [standard library overview](../../lib/README.md#conventions).
+Nia never allocates behind your back. There is no garbage collector, no
+destructor, and no hidden allocator: memory comes from an allocator value that
+the program creates, passes to every operation that needs it, and tears down
+when it is done. Every allocation is therefore visible in the code, and the
+program decides where its memory comes from. This chapter shows how the
+standard library's allocators, containers, and owning types fit together. The
+library conventions are summarized in the
+[standard library overview](../../lib/README.md#conventions).
 
 Every program here is complete; build one with `nia emit --exe` and run it to
 see the output shown after it.
@@ -48,20 +50,20 @@ pub fun main(init: process::Init) process::ExitCode!() {
     let mut squares = collectSquares(allocator, 4).?;
     defer squares.deinit(allocator).?;
 
-    let mut names: std::HashMap[i32, i32] = .init();
-    defer names.deinit(allocator).?;
+    let mut tenfold: std::HashMap[i32, i32] = .init();
+    defer tenfold.deinit(allocator).?;
     for &square in squares {
-        _ = names.insert(allocator, square, square * 10).?;
+        _ = tenfold.insert(allocator, square, square * 10).?;
     }
 
     let live = not allocator.isEmpty();
-    io::debugPrint("squares={} names={} live={}\n", [squares.len(), names.len(), live]).?;
+    io::debugPrint("squares={} tenfold={} live={}\n", [squares.len(), tenfold.len(), live]).?;
     !()
 }
 ```
 
 ```text
-squares=4 names=4 live=true
+squares=4 tenfold=4 live=true
 ```
 
 `collectSquares` returns the list it filled. The list now belongs to `main`,
@@ -117,7 +119,7 @@ pub fun main(init: process::Init) process::ExitCode!() {
     _ = counts.remove(1);
 
     // Building text.
-    let mut text = std::String::init();
+    let mut text: std::String = .init();
     defer text.deinit(allocator).?;
     text.append(allocator, "nia").?;
     text.push(allocator, '!').?;
@@ -144,7 +146,8 @@ A few patterns repeat across all containers:
   changes; see [Views Do Not Own](#views-do-not-own).
 - `pop` and `remove` return the removed value, as an optional, because the
   container may have been empty or missing the key.
-- `for item in container` iterates in place; `TreeMap` iterates in key order.
+- `for item in container` iterates a list, map, or set in place; `TreeMap`
+  iterates in key order.
 
 `isPresent` and the other optional helpers come from `std::option`, which the
 program imports; methods like these are available only where their module is
@@ -333,10 +336,11 @@ write owners with the same behavior.
 ## Views Do Not Own
 
 A slice, or a view type such as `fs::PathView` for file paths, borrows storage
-that someone else owns. A view never extends that storage's life, and nothing checks it: a view
-into a list becomes invalid when the list grows and moves its elements, and a
-view into a released owner points at freed memory. Take views for the duration
-of an operation, and take them again after anything that may reallocate:
+that someone else owns. A view never extends that storage's life, and nothing
+checks it: a view into a list becomes invalid when the list grows and moves
+its elements, and a view into a released owner points at freed memory. Take
+views for the duration of an operation, and take them again after anything
+that may reallocate:
 
 ```nia
 using std::io;

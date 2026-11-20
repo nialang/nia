@@ -46,6 +46,7 @@ error[E0301]: closure uses have conflicting types
   |
 5 |     _ = a(id);
   |         ----- the closure was first used here
+help: use the closure consistently with one monomorphic signature
 ```
 
 ## Captures
@@ -87,19 +88,18 @@ pub fun main(init: process::Init) process::ExitCode!() {
 a=11 b=10 c=12 calls=2
 ```
 
-Using a local without capturing it is an error. The first message only says
-the name is unknown inside the closure; the second explains why:
+Using a local without capturing it is an error that names the local:
 
 ```text
-error[E0201]: unknown value `k`
 error[E0302]: local `k` is not captured by this closure; add it to the closure capture list
 ```
 
 Nothing is captured implicitly, including `self` inside a method: bind it to a
-local and capture that. A copied capture is read-only inside the closure;
-capture a pointer to change the original. An inner closure that needs an outer
-closure's parameter captures it explicitly, as in
-`\x -> \[x] y -> x + y`.
+local and capture that. The capture list is the whole of a closure's state, so
+you see at the closure what it copies and what it points to. A copied capture
+is read-only inside the closure; capture a pointer to change the original. An
+inner closure that needs an outer closure's parameter captures it explicitly,
+as in `\x -> \[x] y -> x + y`.
 
 > **Coming from Rust:** captures are spelled out rather than inferred, and a
 > pointer capture is an ordinary `&T` or `&mut T` that the body dereferences.
@@ -171,8 +171,8 @@ error[E0301]: capturing closures cannot be converted to thin function pointers
 ```
 
 Methods and enum constructors are callables too: `Point::lengthSquared` can be
-passed where a `&Fun(&Point) i32` is expected, and `Event::Data` where a
-`&Fun(i32) Event` is.
+passed where a `&Fun(&Point) i32` is expected, and, for an enum `Event` with a
+variant `Data(i32)`, `Event::Data` where a `&Fun(i32) Event` is.
 
 ## Closures Do Not Outlive Their Frame
 

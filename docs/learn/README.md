@@ -69,7 +69,7 @@ or Rust, these are the differences to expect:
 
 | Topic | Nia |
 | --- | --- |
-| Memory safety | No borrow checker, lifetimes, or garbage collector. Pointers are plain values; keeping them valid is the program's job. Only closures are checked, so they cannot outlive their frame. |
+| Memory safety | No borrow checker, lifetimes, or garbage collector. Pointers are plain values; keeping them valid is the program's job. The compiler rejects only direct escapes: returning or storing an address of a call's own storage, and letting a closure outlive its frame. |
 | Addresses | Passing a value where `&T` is expected takes its address automatically, so `&` is rarely written. `&mut T` needs a writable place. |
 | Allocation | Never implicit. Containers take an allocator on every call that allocates, and are released with `deinit`, usually through `defer`. |
 | Destruction | No destructors or move semantics. Values are copied; owners are released explicitly. |

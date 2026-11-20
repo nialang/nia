@@ -13,6 +13,9 @@ run it to see the output shown after it. The later sections use closures and
 allocators, which [Closures](closures.md) and [Memory](memory.md) explain
 fully; the examples here use them only in simple forms.
 
+`.?`, the operator that passes a failure on, already appeared after every
+`debugPrint` call. This chapter explains what it does.
+
 ## Optional Values
 
 `?T` holds either a `T` or nothing. `?value` builds the present case and `null`
@@ -52,12 +55,8 @@ pointer to the element if the index is in range:
 ```nia
 using std::slice;
 
-fun first(values: &[i32]) ?i32 {
-    if values.get(0) is ?element {
-        ?element.*
-    } else {
-        null
-    }
+fun firstOrZero(values: &[i32]) i32 {
+    if values.get(0) is ?element { element.* } else { 0 }
 }
 ```
 
@@ -76,8 +75,9 @@ as in a lookup. Use an error union when the caller needs to know why an
 operation failed.
 
 `E` can be any type. Most modules declare one enum with a variant per cause,
-and a variant may carry details. An operation with nothing to return on
-success returns `E!()` and succeeds with `!()`.
+and a variant may carry details, so the caller can decide what each failure
+means. An operation with nothing to return on success returns `E!()` and
+succeeds with `!()`.
 
 ```nia
 using std::io;
@@ -129,8 +129,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
 ```
 
 A `match` on an error union must cover the success case and every error it
-can hold. `if result is !value { ... }` and `if result is error! { ... }` test
-one case.
+can hold, so adding a variant to `ParseError` points out every caller that
+has to handle it. `if result is !value { ... }` and
+`if result is error! { ... }` test one case.
 
 ## Propagating With `.?`
 
@@ -221,11 +222,11 @@ port=8080 failed=a digit=7 none=true
 ```
 
 `main` returns `process::ExitCode!()`, so `.?` in `main` needs the error to
-convert to an exit status. The standard library's input, output, file, and
-process errors already do, but not every library error: a number-parsing
-error, for example, must be handled or converted first. The second
-`IntoError` implementation above gives `ConfigError` the ability, choosing a
-status for each cause.
+convert to an exit status. The standard library's input and output, file,
+process, memory, and formatting errors already do, but not every library
+error: a number-parsing error, for example, must be handled or converted
+first. The second `IntoError` implementation above gives `ConfigError` the
+ability, choosing a status for each cause.
 
 `extend ParseError : std::builtin::IntoError[ConfigError]` implements a
 *trait*, a set of methods the compiler knows to call; here `.?` calls
@@ -234,10 +235,11 @@ now, this is the pattern to copy.
 
 ## Optional Values As Errors
 
-An operation that returns `?T` often means "failed" in a particular caller.
-`okOr` turns an optional into an error union with the error you choose, and
-`okOrElse` computes the error only when it is needed. The standard library
-uses this for checked arithmetic, whose operations return `null` on overflow:
+An absent value from an operation that returns `?T` often means "failed" to a
+particular caller. `okOr` turns an optional into an error union with the
+error you choose, and `okOrElse` computes the error only when it is needed.
+The standard library uses this for checked arithmetic, whose operations return
+`null` on overflow:
 
 ```nia
 using std::io;
@@ -269,12 +271,16 @@ small=12 overflow=true
 
 ## Transforming Results
 
-The helpers on optionals and error unions change one side of a result and
-pass the other side through. Several take a closure, an inline function
-written `\value -> value * 2`:
+The *combinators* on optionals and error unions change one side of a result
+and pass the other side through, so a conversion that would otherwise be a
+`match` is one call. Several take a closure, an inline function written
+`\value -> value * 2`. The combinators on `?T` come from `std::option` and
+those on `E!T` from `std::result`; import the module whose combinator you
+call:
 
-| Helper | On | Effect |
+| Combinator | On | Effect |
 | --- | --- | --- |
+| `okOr(error)`, `okOrElse(f)` | `?T` | turns `null` into a failure with `error`, or with the result of `f` |
 | `map(f)` | `?T`, `E!T` | applies `f` to the value |
 | `andThen(f)` | `?T`, `E!T` | applies `f`, which itself returns a result |
 | `mapError(f)` | `E!T` | converts the error with `f` |
@@ -284,8 +290,10 @@ written `\value -> value * 2`:
 | `a == b`, `a != b` | `?T` | compares two optionals of a comparable `T`; `null` equals only `null` |
 | `isSuccess()`, `isError()` | `E!T` | tests the case |
 
-`mapError` accepts an enum variant constructor directly, which keeps a
-wrapping conversion to one word:
+A function, a method, or an enum variant can be passed where a closure is
+expected. `mapError` therefore takes a variant of the caller's error type
+directly, and the expected type lets it be written without its enum, as
+`.Read`:
 
 ```nia
 using std::io;
@@ -305,7 +313,7 @@ fun readSetting(present: bool) ReadError!i32 {
 }
 
 fun loadSetting(present: bool) LoadError!i32 {
-    let value = readSetting(present).mapError(LoadError::Read).?;
+    let value = readSetting(present).mapError(.Read).?;
     !(value + 2)
 }
 
@@ -314,10 +322,7 @@ fun doubledSetting() ReadError!i32 {
 }
 
 fun settingOrZero(present: bool) ReadError!i32 {
-    readSetting(present).orElse(\cause -> {
-        _ = cause;
-        !0
-    })
+    readSetting(present).orElse(\_ -> !0)
 }
 
 fun valueOr(result: ReadError!i32, fallback: i32) i32 {
@@ -350,10 +355,10 @@ operations return errors, and `defer resource.deinit(allocator).?;`
 reports such a failure from the function.
 
 When one owner releases several resources, every release must be attempted
-even after one fails. `std::error::CleanupAccumulator` collects the first
-failure without stopping, and `cleanupAfter` combines an operation's result
-with the result of its cleanup, keeping the operation's failure as the one
-reported:
+even after one fails; otherwise one failure would leak everything released
+after it. `std::error::CleanupAccumulator` records the first failure without
+stopping, and `cleanupAfter` combines an operation's result with the result of
+its cleanup, keeping the operation's failure as the one reported:
 
 ```nia
 using std::error;
@@ -485,11 +490,11 @@ example short; a real API would declare its own error type.
 ## Summary
 
 - `?T` is a value that may be absent; `E!T` is a success or an error. Both are
-  taken apart with patterns: `?x`, `null`, `!x`, `err!`.
+  taken apart with patterns: `?x`, `null`, `!x`, `error!`.
 - `.?` unwraps a success or returns the failure from the current function,
   converting the error through `IntoError` when the types differ.
-- `okOr`, `map`, `mapError`, and the other helpers in `std::option` and
-  `std::result` reshape results; import the module whose helper you call.
+- `okOr`, `map`, `mapError`, and the other combinators in `std::option` and
+  `std::result` reshape results; import the module whose combinator you call.
 - `defer` runs cleanup on every exit path, `CleanupAccumulator` attempts every
   release, and an update that can fail midway should restore what it changed.
 

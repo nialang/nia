@@ -71,9 +71,10 @@ error[E0301]: trait bound not satisfied: Point: Ord[Point]
 
 ## Generic Types
 
-Structs, unions, type aliases, and traits take type parameters the same way;
-enums do not.
-Methods for a generic type declare the parameters after `extend`:
+Structs, enums, unions, type aliases, and traits take type parameters the same
+way. A generic type always takes all of its arguments, as in `Pair[i32]`; only
+calls infer them. Methods for a generic type declare the parameters after
+`extend`:
 
 ```nia
 struct Pair[T] {
@@ -166,8 +167,8 @@ plain `extend Type` block.
 Trait methods need no import: `square.area()` works in any module that can
 name the value, without importing `Shape`. To keep this unambiguous, an
 implementation must live in the package that defines the trait, or in one that
-defines a type in its header, such as the extended type or a trait argument:
-your package can implement `IntoError[YourError]` for another package's error,
+defines a type in its header, such as the extended type or a trait argument.
+Your package can implement `IntoError[YourError]` for another package's error,
 because it defines `YourError`. The reference states the exact
 [rule](../reference/language.md#where-implementations-live).
 
@@ -399,7 +400,11 @@ fun demo() i32 {
 
 A value converts to a trait object where one is expected, through the usual
 automatic address. A trait can be used this way only when every method takes
-`&self` or `&mut self` and has no type parameters of its own.
+`&self` or `&mut self` and has no type parameters of its own: a call through
+the pointer runs the one compiled method of the value's type, and a generic
+method has a copy per type argument instead of one.
+[Trait Object Coercion And Dispatch](../reference/language.md#trait-object-coercion-and-dispatch)
+lists the remaining conditions.
 
 | Use | When |
 | --- | --- |
