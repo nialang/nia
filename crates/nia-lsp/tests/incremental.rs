@@ -314,7 +314,6 @@ fn session(workload: &Workload, snapshots: &[Snapshot], cancel_retry: bool) -> V
                 );
             }
         }
-        previous = snapshot;
         let text = &snapshot
             .iter()
             .find(|(path, _)| path == source)
@@ -331,12 +330,20 @@ fn session(workload: &Workload, snapshots: &[Snapshot], cancel_retry: bool) -> V
         // caller version, which earlier snapshots may have published too.
         let mut diagnostics = Vec::new();
         for (path, version) in &versions {
+            if path != source
+                && previous
+                    .iter()
+                    .any(|old| &old.0 == path && snapshot.contains(old))
+            {
+                continue;
+            }
             let (_, published) =
                 client.wait_diagnostics(&uri(path), Some(*version), Some(started), |_| true);
             if path == source {
                 diagnostics = published;
             }
         }
+        previous = snapshot;
         // Published highlighting is captured before a navigation request
         // can rebuild it.
         let mut tokens = Map::new();

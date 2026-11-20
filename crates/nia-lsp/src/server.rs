@@ -268,11 +268,13 @@ impl QueryResponse {
 }
 
 struct Publication {
+    inputs: Option<Vec<Arc<BTreeSet<String>>>>,
     diagnostics: Result<Vec<Diagnostic>, String>,
     highlights: Arc<Resolved>,
 }
 
 struct CurrentAnalysis {
+    inputs: Option<Vec<Arc<BTreeSet<String>>>>,
     revision: u64,
     source_revision: u64,
     path: PathBuf,
@@ -355,6 +357,7 @@ fn analyze(
                         revision,
                         path,
                         publication: (lane == Lane::Editor).then(|| Publication {
+                            inputs: None,
                             diagnostics: Err(error.into()),
                             highlights: Arc::new(Resolved::new()),
                         }),
@@ -496,8 +499,22 @@ impl AnalysisWorker {
                 .as_ref()
                 .filter(|_| lane == Lane::Editor)
                 .and_then(|cached| Some((cached.source_revision, cached.analysis.as_ref().ok()?)));
+            let mut inputs = Some(Vec::new());
             let analysis = installed.and_then(|()| {
-                session.project_editor(&work.path, &work.cancel, local_analysis, previous)
+                session.project_editor(
+                    &work.path,
+                    &work.cancel,
+                    local_analysis,
+                    previous,
+                    |result| match result {
+                        Ok(analysis) => {
+                            if let Some(inputs) = &mut inputs {
+                                inputs.push(analysis.consulted_sources.clone());
+                            }
+                        }
+                        Err(_) => inputs = None,
+                    },
+                )
             });
             let highlights = Arc::new(analysis.as_ref().map_or_else(
                 |_| Resolved::new(),
@@ -510,6 +527,7 @@ impl AnalysisWorker {
                 },
             ));
             let current = Arc::new(CurrentAnalysis {
+                inputs: analysis.is_ok().then_some(inputs).flatten(),
                 revision: work.revision,
                 source_revision: session.source_revision(),
                 path: work.path.clone(),
@@ -536,6 +554,7 @@ impl AnalysisWorker {
                 nia_timing::TimingLevel::Summary,
                 "lsp.diagnostics.prepare",
                 || Publication {
+                    inputs: current.inputs.clone(),
                     diagnostics: analysis
                         .as_ref()
                         .map(|analysis| analysis.diagnostics(&work.path, document))
@@ -965,6 +984,8 @@ struct Server {
     refresh_sequence: u64,
     documents: Documents,
     dirty: BTreeSet<PathBuf>,
+    diagnostic_inputs: HashMap<PathBuf, Vec<Arc<BTreeSet<String>>>>,
+    edited: Option<PathBuf>,
     // Latest client version for each buffer missing an applicable edit.
     missing_text: BTreeMap<PathBuf, i32>,
     diagnostics_after: Option<Instant>,
@@ -1427,7 +1448,11 @@ impl Server {
         {
             open.document = current;
             self.missing_text.remove(&path);
-            self.invalidate();
+            if missing.is_some() {
+                self.invalidate();
+            } else {
+                self.invalidate_edit(&path);
+            }
             return Ok(());
         }
         self.missing_text.insert(path.clone(), version);
@@ -1445,6 +1470,8 @@ impl Server {
     }
 
     fn invalidate(&mut self) {
+        self.edited = None;
+        self.diagnostic_inputs.clear();
         self.cancel_active();
         self.revision += 1;
         self.dirty.clear();
@@ -1456,6 +1483,29 @@ impl Server {
         self.highlights.clear();
         self.syntax_sent.clear();
         self.refresh_needed = false;
+    }
+
+    fn invalidate_edit(&mut self, path: &std::path::Path) {
+        self.cancel_active();
+        self.revision += 1;
+        if !self.missing_text.is_empty() {
+            return;
+        }
+        let source = analysis::normalized(path);
+        for open in self.documents.keys() {
+            if open == path
+                || self
+                    .diagnostic_inputs
+                    .get(open)
+                    .is_none_or(|graphs| graphs.iter().any(|inputs| inputs.contains(&source)))
+            {
+                self.dirty.insert(open.clone());
+                self.highlights.remove(open);
+                self.syntax_sent.remove(open);
+            }
+        }
+        self.edited = Some(path.to_owned());
+        self.diagnostics_after = Some(Instant::now() + DIAGNOSTIC_DEBOUNCE);
     }
 
     fn cancel_active(&self) {
@@ -1575,7 +1625,11 @@ impl Server {
                     )?;
                 } else if diagnostics
                     && lane == Lane::Editor
-                    && let Some(path) = self.dirty.pop_first()
+                    && let Some(path) = self
+                        .edited
+                        .take()
+                        .filter(|path| self.dirty.contains(path))
+                        .or_else(|| self.dirty.first().cloned())
                 {
                     break Some((path, None));
                 } else {
@@ -1642,6 +1696,11 @@ impl Server {
             && let Some(publication) = reply.publication
         {
             self.dirty.remove(&reply.path);
+            if let Some(inputs) = publication.inputs {
+                self.diagnostic_inputs.insert(reply.path.clone(), inputs);
+            } else {
+                self.diagnostic_inputs.remove(&reply.path);
+            }
             if self.syntax_sent.remove(&reply.path)
                 && open.document.has_refinements(&publication.highlights)
             {
@@ -1758,6 +1817,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn diagnostics_schedule_the_edited_file_before_its_callers() {
+        let mut server = Server::default();
+        let root = std::env::current_dir().unwrap();
+        let caller = root.join("a.nia");
+        let unrelated = root.join("b.nia");
+        let edited = root.join("z.nia");
+        for (path, sources) in [
+            (
+                &caller,
+                vec![analysis::normalized(&caller), analysis::normalized(&edited)],
+            ),
+            (&unrelated, vec![analysis::normalized(&unrelated)]),
+            (&edited, vec![analysis::normalized(&edited)]),
+        ] {
+            server.documents.insert(
+                path.clone(),
+                OpenDocument {
+                    uri: analysis::uri(path).unwrap(),
+                    document: Document::new(1, String::new()),
+                },
+            );
+            server
+                .diagnostic_inputs
+                .insert(path.clone(), vec![Arc::new(sources.into_iter().collect())]);
+        }
+        server.invalidate_edit(&edited);
+        assert_eq!(server.dirty, BTreeSet::from([caller, edited.clone()]));
+        let (connection, _client) = Connection::memory();
+        let (editor, jobs) = unbounded();
+        let (workspace, _) = unbounded();
+        server
+            .schedule(&connection, &editor, &workspace, true)
+            .unwrap();
+        let WorkerMessage::Analyze(work) = jobs.try_recv().unwrap() else {
+            panic!("expected analysis");
+        };
+        assert_eq!(work.path, edited);
+    }
+
+    #[test]
     fn a_worker_replies_after_unwinding_and_analyzes_the_next_document() {
         use nia_test_support::{TestWorkload, acquire_test_resources, test_dir, workspace_root};
         use nia_toolchain::{ToolchainLayout, ToolchainLayoutRequest};
@@ -1860,10 +1959,11 @@ mod tests {
         let mut cached = None;
         install_analysis_sources(&mut session, &work, &mut cached).unwrap();
         let snapshot = session
-            .project_editor(&path, &work.cancel, true, None)
+            .project_editor(&path, &work.cancel, true, None, |_| {})
             .unwrap();
         let old_projection = Arc::downgrade(&snapshot);
         cached = Some(Arc::new(CurrentAnalysis {
+            inputs: None,
             revision: work.revision,
             source_revision: session.source_revision(),
             path: path.clone(),
@@ -1883,7 +1983,7 @@ mod tests {
         assert!(cached.is_none());
         assert!(old_projection.upgrade().is_none());
         let current = session
-            .project_editor(&path, &work.cancel, true, None)
+            .project_editor(&path, &work.cancel, true, None, |_| {})
             .unwrap();
         assert_eq!(current.source_text(&path).as_deref(), Some(edited));
     }
@@ -2059,6 +2159,7 @@ mod tests {
                     revision: active.revision,
                     path,
                     publication: Some(Publication {
+                        inputs: None,
                         diagnostics: Ok(Vec::new()),
                         highlights: Arc::default(),
                     }),

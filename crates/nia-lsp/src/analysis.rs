@@ -186,6 +186,7 @@ impl Session {
         cancel: &Cancellation,
         focused: bool,
         previous: Option<(u64, &Arc<Analysis>)>,
+        observe: impl FnMut(&Result<Arc<Analysis>, String>),
     ) -> Result<Arc<Analysis>, String> {
         let path = normalized(entry);
         let mode = if focused {
@@ -193,7 +194,7 @@ impl Session {
         } else {
             AnalysisMode::Full
         };
-        self.analyze_installed(entry, Some(cancel), mode, previous)
+        self.analyze_installed(entry, Some(cancel), mode, previous, observe)
     }
 
     #[cfg(test)]
@@ -215,7 +216,7 @@ impl Session {
         cancel: &Cancellation,
     ) -> Result<Option<Vec<lsp_types::CompletionItem>>, String> {
         let analysis =
-            self.analyze_installed(path, Some(cancel), AnalysisMode::Declarations, None)?;
+            self.analyze_installed(path, Some(cancel), AnalysisMode::Declarations, None, |_| {})?;
         nia_query::with_cancellation(Some(cancel.token()), || {
             let items = analysis.complete(path, position);
             if items.as_ref().is_some_and(Vec::is_empty)
@@ -304,7 +305,7 @@ impl Session {
         previous: Option<(u64, &Arc<Analysis>)>,
     ) -> Result<Arc<Analysis>, String> {
         self.install_analysis_sources(documents, cancel)?;
-        self.analyze_installed(entry, cancel, mode, previous)
+        self.analyze_installed(entry, cancel, mode, previous, |_| {})
     }
 
     pub(crate) fn install_analysis_sources(
@@ -329,6 +330,7 @@ impl Session {
         cancel: Option<&Cancellation>,
         mode: AnalysisMode<'_>,
         previous: Option<(u64, &Arc<Analysis>)>,
+        mut observe: impl FnMut(&Result<Arc<Analysis>, String>),
     ) -> Result<Arc<Analysis>, String> {
         let mut previous = previous
             .filter(|(revision, _)| *revision == self.source_revision)
@@ -373,6 +375,11 @@ impl Session {
                 analysis.configuration_warning = warning.map(str::to_owned);
                 Arc::new(analysis)
             })
+        };
+        let mut analyze = |request, warning: Option<&str>| {
+            let result = analyze(request, warning);
+            observe(&result);
+            result
         };
         let Some(package) = self.projects.package(entry)? else {
             return analyze(EditorRequest::standalone(entry, &self.toolchain), None);
@@ -732,9 +739,7 @@ fn analyze_editor_request(
         for (path, text) in overlays {
             set_source(&driver, path, text.clone())?;
         }
-        if drivers.len() == RETAINED_COMPILATION_ENTRIES {
-            drivers.pop_back();
-        }
+        drivers.truncate(overlays.len().max(RETAINED_COMPILATION_ENTRIES) - 1);
         (request.clone(), driver)
     };
     drivers.push_front(entry);
