@@ -168,6 +168,32 @@ impl Session {
         cancel: &Cancellation,
     ) -> Option<Vec<CompletionItem>> {
         let file = analysis.file(path)?;
+        if let Some(end) = completion_semicolon(file, position) {
+            // The parser suppresses body facts until the statement terminates.
+            // Compare two valid snapshots so binding verification remains active.
+            // Both the completion range and the import precede this insertion.
+            let mut overlay = documents.clone();
+            let document = &mut overlay.get_mut(path)?.document;
+            let mut text = document.text.to_string();
+            text.insert(end, ';');
+            *document = Document::new(document.version, text);
+            let checked = self
+                .analyze_snapshot(&overlay, &analysis.request, cancel, AnalysisMode::Full)
+                .ok()?;
+            return self.complete_import_names(&checked, &overlay, path, position, cancel);
+        }
+        self.complete_import_names(analysis, documents, path, position, cancel)
+    }
+
+    fn complete_import_names(
+        &mut self,
+        analysis: &Analysis,
+        documents: &Documents,
+        path: &Path,
+        position: lsp_types::Position,
+        cancel: &Cancellation,
+    ) -> Option<Vec<CompletionItem>> {
+        let file = analysis.file(path)?;
         let (span, prefix, type_only) = crate::editing::unqualified_completion(file, position)?;
         if analysis.symbol_at_offset(file, span.start).is_some() {
             return None;
@@ -435,6 +461,9 @@ impl Analysis {
         let Some(file) = self.file(path) else {
             return false;
         };
+        if completion_semicolon(file, position).is_some() {
+            return true;
+        }
         let Some((_, prefix, type_only)) = crate::editing::unqualified_completion(file, position)
         else {
             return false;
@@ -760,6 +789,18 @@ fn import_insertion(source: &str, path: &str) -> (Span, String) {
         Span::new(insertion, insertion),
         format!("using {path};{newline}{newline}"),
     )
+}
+
+fn completion_semicolon(file: &File, position: lsp_types::Position) -> Option<usize> {
+    let offset = file.lines.offset(&file.text, position)?;
+    let end = crate::editing::name_span(&file.text, offset).end;
+    file.syntax()
+        .errors
+        .iter()
+        .any(|error| {
+            error.kind == nia_syntax::ParseErrorKind::MissingSemicolon && error.span.end == end
+        })
+        .then_some(end)
 }
 
 fn completion_matches_import(item: &VisibleName, prefix: &str, type_only: bool) -> bool {

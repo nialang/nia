@@ -305,6 +305,27 @@ impl CompilerDatabase {
                     .map(|value| (value.name, value.def_id)),
             );
         }
+        // The compiler also resolves inherent methods declared by the type's
+        // own module when only the type, or an alias for it, was imported.
+        if owner.module_id != module {
+            let owner_extensions = self.db.get(VisibleExtensionsQuery(owner.module_id))?;
+            let defs = self.source_definitions(owner.module_id)?;
+            let graph = self.current_graph()?;
+            for target in owner_extensions.methods.targets().iter().filter(|target| {
+                matches!(types.get(target.target_ty), Some(TyKind::Nominal { def_id, .. }) if *def_id == owner)
+            }) {
+                members.extend(target.methods.iter().filter_map(|method| {
+                    if method.trait_id.is_some() || method.def_id.module_id != owner.module_id {
+                        return None;
+                    }
+                    let def = defs.defs.get(method.def_id.def_id)?;
+                    nia_imports::visibility_allows(def.visibility, &graph, owner.module_id, module)
+                        .then_some((method.name, method.def_id))
+                }));
+            }
+            members.sort_unstable();
+            members.dedup();
+        }
         Ok(members)
     }
 
@@ -392,7 +413,14 @@ impl CompilerDatabase {
         let (receiver, _) = settlement::settle_provider_worklist(
             self,
             false,
-            |database| editor_receiver_methods(&database.db, module, receiver, names),
+            |database| {
+                editor_receiver_methods(
+                    &database.db,
+                    module,
+                    receiver,
+                    nia_body_check::EditorMemberLookup::Receiver(names),
+                )
+            },
             |(_, demands)| demands.clone(),
             cancel,
         )?;
@@ -427,6 +455,35 @@ impl CompilerDatabase {
             ty: receiver.ty,
             methods,
         }))
+    }
+
+    /// Returns the enum inferred at an omitted variant expression or pattern.
+    pub fn source_omitted_enum(
+        &self,
+        module: ModuleId,
+        member: Span,
+        cancel: Option<&CancellationToken>,
+    ) -> QueryResult<Option<GlobalDefId>> {
+        let (result, _) = settlement::settle_provider_worklist(
+            self,
+            false,
+            |database| {
+                editor_receiver_methods(
+                    &database.db,
+                    module,
+                    member,
+                    nia_body_check::EditorMemberLookup::OmittedVariant,
+                )
+            },
+            |(_, demands)| demands.clone(),
+            cancel,
+        )?;
+        Ok(
+            result.and_then(|result| match self.type_store().get(result.ty) {
+                Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
+                _ => None,
+            }),
+        )
     }
 
     /// Checks every loaded module after settling provider-demand fixed points.

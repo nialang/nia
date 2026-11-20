@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use crate::{BodyChecker, generic_inst_base};
+use crate::{BodyChecker, EditorMemberLookup, EditorReceiver, generic_inst_base};
 use nia_ast::{Expr, ExprKind};
 use nia_const_check::{ConstKey, ConstValueType};
 use nia_const_eval::{ConstError, ConstValue};
@@ -1572,6 +1572,15 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let enum_id = self.enum_global_def_id(expected)?;
+        if let Some(probe) = self.editor_methods
+            && matches!(probe.lookup, EditorMemberLookup::OmittedVariant)
+            && probe.receiver == expr.span
+        {
+            probe.result.replace(Some(EditorReceiver {
+                ty: self.normalize_aliases_in_type(expected),
+                methods: Vec::new(),
+            }));
+        }
         let variant_id = self
             .enum_variant_scope(enum_id)?
             .into_iter()

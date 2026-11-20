@@ -9,10 +9,19 @@ pub struct EditorMethodCandidate {
     pub declaration: Option<GlobalDefId>,
 }
 
-/// One editor-only receiver lookup in the lexical context of its expression.
+/// The compiler context requested at a completion site.
+#[derive(Clone, Copy)]
+pub enum EditorMemberLookup<'a> {
+    /// Check the receiver and the listed method candidates.
+    Receiver(&'a [SymbolId]),
+    /// Capture the expected enum at an omitted variant expression or pattern.
+    OmittedVariant,
+}
+
+/// One editor-only member lookup in the lexical context of its expression.
 pub struct EditorMethodProbe<'a> {
     pub(crate) receiver: Span,
-    pub(crate) names: &'a [SymbolId],
+    pub(crate) lookup: EditorMemberLookup<'a>,
     pub(crate) result: RefCell<Option<EditorReceiver>>,
 }
 
@@ -25,10 +34,10 @@ pub struct EditorReceiver {
 }
 
 impl<'a> EditorMethodProbe<'a> {
-    pub fn new(receiver: Span, names: &'a [SymbolId]) -> Self {
+    pub fn new(receiver: Span, lookup: EditorMemberLookup<'a>) -> Self {
         Self {
             receiver,
-            names,
+            lookup,
             result: RefCell::new(None),
         }
     }

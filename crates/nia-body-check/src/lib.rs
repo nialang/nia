@@ -125,8 +125,8 @@ use signature_scope::ProgramSignatureScope;
 
 pub use inputs::{
     BodyCheckFilter, BodyCheckInput, BodyCheckSeed, BodyCheckWithProgramSignaturesInput, BodyConst,
-    BodyLocalSignatures, BodyProgramContext, BodyVisibleExtensions, EditorMethodCandidate,
-    EditorMethodProbe, EditorReceiver, FunctionCheckScope, ProgramConstMaps,
+    BodyLocalSignatures, BodyProgramContext, BodyVisibleExtensions, EditorMemberLookup,
+    EditorMethodCandidate, EditorMethodProbe, EditorReceiver, FunctionCheckScope, ProgramConstMaps,
 };
 pub use orchestration::{
     check_editor_methods, check_module_bodies_with_layouts,

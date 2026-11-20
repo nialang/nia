@@ -220,7 +220,15 @@ impl Session {
         nia_query::with_cancellation(Some(cancel.token()), || {
             let items = analysis.complete(path, position);
             if items.as_ref().is_some_and(Vec::is_empty)
-                && analysis.may_complete_import(path, position, cancel)
+                && (analysis.may_complete_import(path, position, cancel)
+                    || analysis.file(path).is_some_and(|file| {
+                        file.lines
+                            .offset(&file.text, position)
+                            .and_then(|cursor| {
+                                crate::editing::incomplete_qualified_name(file, cursor)
+                            })
+                            .is_some()
+                    }))
             {
                 return Ok(None);
             }
@@ -253,6 +261,10 @@ impl Session {
             )
             .ok()?;
         let file = analysis.file(path)?;
+        if let Some(span) = member.omitted(file) {
+            let candidates = analysis.omitted_variants(file, span, cancel)?;
+            return Some(member.items(&document.text, &document.lines, candidates));
+        }
         let receiver = member.receiver(file)?;
         let names = analysis.method_names(member.prefix(&document.text));
         let previous = previous.filter(|probe| Arc::ptr_eq(&probe.analysis, &analysis));
@@ -675,11 +687,39 @@ impl Session {
         let file = analysis.file(path)?;
         let offset = file.lines.offset(&file.text, position)?;
         let Some(member) = MemberCompletion::at(&file.text, offset) else {
-            return nia_query::with_cancellation(Some(cancel.token()), || {
+            let items = nia_query::with_cancellation(Some(cancel.token()), || {
                 Ok(analysis.complete(path, position))
             })
             .ok()
-            .flatten();
+            .flatten()?;
+            let Some(name) = crate::editing::incomplete_qualified_name(file, offset)
+                .filter(|_| items.is_empty())
+            else {
+                return Some(items);
+            };
+            // A trailing separator or keyword prefix can hide the package use
+            // from the loader. Complete the token to expose its namespace.
+            let mut overlay = documents.clone();
+            let document = &mut overlay.get_mut(path)?.document;
+            let mut text = file.text.to_string();
+            text.insert_str(name.end, "__nia_lsp_name");
+            *document = Document::new(document.version, text);
+            let checked = self
+                .analyze_snapshot(
+                    &overlay,
+                    &analysis.request,
+                    cancel,
+                    AnalysisMode::Declarations,
+                )
+                .ok()?;
+            let mut items = checked.complete(path, position)?;
+            let range = file.lines.range(&file.text, name);
+            for item in &mut items {
+                if let Some(lsp_types::CompletionTextEdit::Edit(edit)) = &mut item.text_edit {
+                    edit.range = range;
+                }
+            }
+            return Some(items);
         };
         let names = analysis.method_names(member.prefix(&file.text));
         let fields = member
@@ -708,6 +748,9 @@ impl Session {
                     .ok()
                     .and_then(|checked| {
                         let source = checked.file(path)?;
+                        if let Some(span) = member.omitted(source) {
+                            return checked.omitted_variants(source, span, cancel);
+                        }
                         let receiver = member.receiver(source)?;
                         checked.receiver_members(source, receiver, &names, cancel)
                     })
@@ -721,7 +764,7 @@ impl Session {
 
 fn analyze_editor_request(
     toolchain: &Arc<ToolchainLayout>,
-    drivers: &RefCell<VecDeque<(EditorRequest, Driver)>>,
+    drivers: &RefCell<VecDeque<CompilationEntry>>,
     overlays: &BTreeMap<PathBuf, Arc<str>>,
     request: EditorRequest,
     cancel: Option<&Cancellation>,
@@ -2021,6 +2064,33 @@ impl Analysis {
             .get(&id.def_id)
             .or_else(|| defs.scopes.union_members.get(&id.def_id))?;
         Some(&scope.fields)
+    }
+
+    fn omitted_variants(
+        &self,
+        file: &File,
+        member: Span,
+        cancel: &Cancellation,
+    ) -> Option<Vec<lsp_types::CompletionItem>> {
+        let owner = self
+            .db
+            .source_omitted_enum(file.module, member, Some(cancel.token()))
+            .ok()??;
+        let defs = self.defs.get(&owner.module_id)?;
+        let scope = defs.scopes.enum_members.get(&owner.def_id)?;
+        Some(
+            scope
+                .variants
+                .entries()
+                .filter_map(|(&name, _)| {
+                    Some(lsp_types::CompletionItem {
+                        label: self.db.source_symbol_text(name)?.to_string(),
+                        kind: Some(CompletionItemKind::ENUM_MEMBER),
+                        ..Default::default()
+                    })
+                })
+                .collect(),
+        )
     }
 
     fn receiver_members(
@@ -4379,6 +4449,84 @@ mod tests {
         assert_eq!(pair[1], "Stored pair.");
         let local = serde_json::to_value(hover(source.rfind("answer").unwrap())).unwrap();
         assert_eq!(local["value"], "answer: i32");
+    }
+
+    #[test]
+    fn completion_uses_package_and_expected_type_while_typing() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-completion-while-typing");
+        let dep = root.join("lib");
+        std::fs::create_dir(&dep).unwrap();
+        let manifest = "[package]\nname=\"pkg\"\nversion=\"0.1.0\"\n[library]\npath=\"root.nia\"\n";
+        std::fs::write(dep.join("nia.toml"), manifest).unwrap();
+        std::fs::write(
+            root.join("nia.toml"),
+            format!(
+                "{}[dependencies]\nmeasure = {{ path = \"lib\" }}\n",
+                manifest.replace("pkg", "app")
+            ),
+        )
+        .unwrap();
+        std::fs::write(dep.join("root.nia"), "pub struct Pair {}\nextend Pair { pub fun init() Pair { .{} } fun internal() Pair { .{} } }\npub enum Mode { Fast, Slow }\npub enum Other { False }\npub fun twice(x:i32) i32 { x+x }\n").unwrap();
+        let entry = root.join("root.nia");
+        std::fs::write(&entry, "").unwrap();
+        let mut session = test_session();
+        let mut probe = test_session();
+        let cancel = Cancellation::default();
+        for (marked, expected) in [
+            ("fun f() () { _ = measure::Pair::|; }", vec!["init"]),
+            ("fun f() () { _ = measure::Pair::in|; }", vec!["init"]),
+            (
+                "using measure::Pair as P; fun f() () { _ = P::|; }",
+                vec!["init"],
+            ),
+            (
+                "using measure::Mode; fun f() Mode { .| }",
+                vec!["Fast", "Slow"],
+            ),
+            (
+                "using measure::Mode; fun f(x:Mode) i32 { match x { .F| => 1, _ => 0, } }",
+                vec!["Fast"],
+            ),
+            ("fun f[N:usize](x:[i32;N]) usize { N| }", vec!["N"]),
+            ("fun f() () { let x = twi| }", vec!["twice"]),
+        ] {
+            let cursor = marked.find('|').unwrap();
+            let source = marked.replace('|', "");
+            let document = Document::new(1, source.clone());
+            let position = document.lines.position(&source, cursor);
+            let documents = Documents::from([(
+                entry.clone(),
+                OpenDocument {
+                    uri: uri(&entry).unwrap(),
+                    document,
+                },
+            )]);
+            let full = session.analyze(&documents, &entry).unwrap();
+            let items = probe
+                .complete(&full, &documents, &entry, position, &cancel)
+                .unwrap();
+            assert_eq!(
+                items
+                    .iter()
+                    .map(|item| item.label.as_str())
+                    .collect::<Vec<_>>(),
+                expected,
+                "{marked}"
+            );
+            for item in items {
+                let Some(lsp_types::CompletionTextEdit::Edit(edit)) = item.text_edit else {
+                    panic!("missing edit for {marked}")
+                };
+                assert_eq!(edit.range.end, position, "{marked}");
+                if item.label == "twice" {
+                    assert_eq!(
+                        item.additional_text_edits.unwrap()[0].new_text,
+                        "using measure::twice;\n\n"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

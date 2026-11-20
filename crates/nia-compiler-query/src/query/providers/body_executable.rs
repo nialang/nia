@@ -1066,7 +1066,7 @@ pub(in crate::query) fn editor_receiver_methods(
     db: &QueryDb<CompilerContext>,
     module_id: ModuleId,
     receiver: nia_span::Span,
-    names: &[SymbolId],
+    lookup: nia_body_check::EditorMemberLookup<'_>,
 ) -> QueryResult<(
     Option<nia_body_check::EditorReceiver>,
     Vec<crate::ProviderDemand>,
@@ -1094,7 +1094,7 @@ pub(in crate::query) fn editor_receiver_methods(
     } else {
         nia_body_check::BodyCheckFilter::ReachableFunctions(&functions)
     };
-    let probe = nia_body_check::EditorMethodProbe::new(receiver, names);
+    let probe = nia_body_check::EditorMethodProbe::new(receiver, lookup);
     let checked = body_check_with_inputs(
         db,
         ExecutableBodyCheckInput {

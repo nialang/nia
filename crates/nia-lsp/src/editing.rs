@@ -49,8 +49,12 @@ impl MemberCompletion {
     }
 
     pub(crate) fn receiver(&self, file: &File) -> Option<Span> {
-        let root = file.syntax().tree.green_root();
-        receiver_at_dot(root, self.dot)
+        field_receiver(member_at_dot(file.syntax().tree.green_root(), self.dot)?)
+    }
+
+    pub(crate) fn omitted(&self, file: &File) -> Option<Span> {
+        let node = member_at_dot(file.syntax().tree.green_root(), self.dot)?;
+        (node.kind() == &SyntaxKind::OmittedMemberExpr).then(|| node.token_span())?
     }
 
     pub(crate) fn prefix<'a>(&self, source: &'a str) -> &'a str {
@@ -84,19 +88,19 @@ impl MemberCompletion {
     }
 }
 
-fn receiver_at_dot(node: &GreenNode, dot: usize) -> Option<Span> {
+fn member_at_dot(node: &GreenNode, dot: usize) -> Option<&GreenNode> {
     if matches!(
         node.kind(),
-        SyntaxKind::FieldExpr | SyntaxKind::TupleFieldExpr
+        SyntaxKind::FieldExpr | SyntaxKind::TupleFieldExpr | SyntaxKind::OmittedMemberExpr
     ) && node
         .token(&TokenKind::Dot)
         .is_some_and(|token| token.span().start == dot)
     {
-        return field_receiver(node);
+        return Some(node);
     }
     node.child_nodes()
         .find(|child| child.span().start <= dot && dot < child.span().end)
-        .and_then(|child| receiver_at_dot(child, dot))
+        .and_then(|child| member_at_dot(child, dot))
 }
 
 fn field_receiver(node: &GreenNode) -> Option<Span> {
@@ -285,14 +289,16 @@ impl Analysis {
                 false,
             ));
         }
-        if qualifier.is_empty() && context.type_only {
-            for name in context.type_parameters {
-                candidates.insert(
-                    name.to_owned(),
-                    (Some(CompletionItemKind::TYPE_PARAMETER), None, true),
-                );
+        if qualifier.is_empty() {
+            for (name, kind) in context.parameters {
+                if context.type_only == (kind == CompletionItemKind::TYPE_PARAMETER)
+                    || context.type_or_const
+                {
+                    candidates.insert(name.to_owned(), (Some(kind), None, true));
+                }
             }
-        } else if qualifier.is_empty() {
+        }
+        if qualifier.is_empty() && !context.type_only {
             for name in local_names(root, &file.text, start) {
                 candidates.insert(
                     name.to_owned(),
@@ -398,7 +404,8 @@ impl Analysis {
 #[derive(Default)]
 struct CompletionContext<'a> {
     type_only: bool,
-    type_parameters: Vec<&'a str>,
+    type_or_const: bool,
+    parameters: Vec<(&'a str, CompletionItemKind)>,
 }
 
 impl<'a> CompletionContext<'a> {
@@ -409,6 +416,7 @@ impl<'a> CompletionContext<'a> {
             if current.kind() == &SyntaxKind::TypeOrConstArg {
                 // A bare argument path can denote a const as well as a type.
                 context.type_only = false;
+                context.type_or_const = true;
                 break;
             }
             if current.kind().is_type() {
@@ -418,15 +426,18 @@ impl<'a> CompletionContext<'a> {
             }
             if let Some(generics) = current.child(&SyntaxKind::GenericParamList) {
                 context
-                    .type_parameters
+                    .parameters
                     .extend(generics.child_nodes().filter_map(|parameter| {
-                        if parameter.kind() != &SyntaxKind::GenericParam
-                            || parameter.token(&TokenKind::Colon).is_some()
-                        {
+                        if parameter.kind() != &SyntaxKind::GenericParam {
                             return None;
                         }
                         let name = parameter.token(&TokenKind::Ident)?;
-                        (name.span().end <= offset).then_some(name.text())
+                        let kind = if parameter.token(&TokenKind::Colon).is_some() {
+                            CompletionItemKind::CONSTANT
+                        } else {
+                            CompletionItemKind::TYPE_PARAMETER
+                        };
+                        (name.span().end <= offset).then_some((name.text(), kind))
                     }));
             }
             node = current.child_nodes().find(|child| {
@@ -471,6 +482,31 @@ pub(crate) fn completion_kind(kind: DefKind) -> CompletionItemKind {
 
 fn is_name_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+pub(crate) fn name_span(source: &str, cursor: usize) -> Span {
+    let end = cursor
+        + source[cursor..]
+            .bytes()
+            .take_while(|&b| is_name_byte(b))
+            .count();
+    Span::new(name_start(source, cursor), end)
+}
+
+pub(crate) fn incomplete_qualified_name(file: &File, cursor: usize) -> Option<Span> {
+    let name = name_span(&file.text, cursor);
+    if !file.text[..name.start].trim_end().ends_with("::") {
+        return None;
+    }
+    file.syntax()
+        .errors
+        .iter()
+        .any(|error| {
+            error.kind == nia_syntax::ParseErrorKind::ExpectedName
+                && error.span.start >= name.start
+                && file.text[name.start..error.span.start].trim().is_empty()
+        })
+        .then_some(name)
 }
 
 pub(crate) fn unqualified_completion(
