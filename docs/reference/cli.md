@@ -1,9 +1,10 @@
 # Command-Line Reference
 
-The `nia` command creates packages, builds them, and runs the compiler
-directly on source files. This page describes each command, the options they
-share, and the output formats of `nia build`. `nia help <command>` lists every
-option of a command, and `nia help emit --<kind>` those of one emit kind.
+The `nia` command creates packages, builds them, formats source files, and
+runs the compiler directly on source files. This page describes each command,
+the options they share, and the output formats of `nia build`.
+`nia help <command>` lists every option of a command, and
+`nia help emit --<kind>` those of one emit kind.
 
 ## Commands
 
@@ -16,6 +17,7 @@ option of a command, and `nia help emit --<kind>` those of one emit kind.
 | `nia update [name ...]` | Refreshes Git revisions and registry versions in `nia.lock`. |
 | `nia clean` | Removes build outputs and caches, keeping fetched dependencies. |
 | `nia check <path>` | Type-checks a source file or a library package without producing output. |
+| `nia fmt <path>` | Prints a source file with normalized layout. |
 | `nia emit --<kind> <path>` | Prints an intermediate form of a program, or writes object files or an executable. |
 | `nia help [command]` | Shows the options of a command. |
 
@@ -29,24 +31,27 @@ These options apply to every command and may appear before or after it:
 | Option | Effect |
 | --- | --- |
 | `-O0` … `-O3`, `-Os`, `-Oz`, `-O` | Optimization level; `-O` means `-O2`. |
-| `--debug`, `--release`, `--profile <debug\|release>` | Build profile; the default optimization is `-O0` for `debug` and `-O2` for `release`. |
+| `--debug`, `--release`, `--profile <debug\|release>` | Build profile, `debug` by default. The default optimization is `-O0` for `debug` and `-O2` for `release`. |
 | `--target <name>` | Generate code for a [supported target](platform-support.md#targets) instead of the host. |
 | `--diagnostics-format <text\|json>` | Human-readable or machine-readable diagnostics. |
 | `--timings[=summary\|detail]`, `--timings-format <text\|json>`, `--timing-trace <off\|events>` | Compiler timing reports. |
-| `--resource-root <path>` | Use the standard library and runtime from this toolchain directory. |
+| `--resource-root <path>` | Use the standard library and runtime from this resource directory, the one that holds `std/` and `runtime/`. |
+| `-h`, `--help` | Show the help of the command. |
 | `-V`, `--version` | Print the compiler version. |
 
-Every option that takes a value accepts both `--option value` and
-`--option=value`, and the next argument is always the value, even when it
-starts with `-`. When an option is repeated, the last value wins; `-M`, `-p`,
-`-L`, `-l`, `--link-arg`, and `--rpath` accumulate instead. `--` ends the
-options, so later arguments are taken literally; `nia build` passes them to a
-run step's program instead (see [`nia build`](#nia-build)).
+An option that takes a value accepts `--option value` and `--option=value`; a
+short option also accepts `-jvalue` and `-j=value`. The argument after an
+option that takes a value is always that value, even when it starts with `-`,
+and an empty value is an error. When an option is repeated, the last value
+wins. `-M`, `-p`, `-L`, `-l`, `--link-arg`, `--rpath`, and `--member`
+accumulate instead. `--` ends the options, so later arguments are taken
+literally. `nia build` passes them to a run step's program instead (see
+[`nia build`](#nia-build)).
 
 | Exit status | Meaning |
 | --- | --- |
 | `0` | success |
-| `1` | a failed check, build, or test |
+| `1` | a failed check, build, test, or format |
 | `2` | a malformed command line |
 
 ## `nia new` And `nia init`
@@ -58,17 +63,21 @@ nia init [path] [same options]
 ```
 
 `nia new` creates the directory and fails if it already exists. `nia init`
-fills an existing directory, the current one by default; it keeps an existing
-`.gitignore` and fails, without writing anything, when the directory already
+fills an existing directory, the current one by default. It keeps an existing
+`.gitignore`, and it fails without writing anything when the directory already
 has a `nia.toml` or any other file the template would create.
 
 | Option | Effect |
 | --- | --- |
 | `--lib` | a library and its tests, without an executable |
 | `--exe` | an executable and its tests, without a library |
-| `--name <name>` | the package name, instead of the directory name; for a workspace, the name of its first member |
+| `--name <name>` | the package name instead of the directory name; with `--workspace`, the name of the one member created, and not allowed together with `--member` |
 | `--workspace` | a workspace root with members under `packages/` |
 | `--member <name>` | a workspace member; repeat it for several. Without it, one member named after the workspace |
+
+Without `--lib` or `--exe`, or with both, the package has a library, an
+executable, and tests. A package name is a Nia identifier of at most 128
+bytes.
 
 Run inside a workspace, either command creates a member: it inherits the
 workspace's `[workspace.package]` fields, and its path is added to `members`
@@ -84,10 +93,11 @@ nia add <name> --registry <registry> --package <namespace/name> --version <requi
 
 Adds one dependency to the manifest of the package found from the current
 directory. `--scope <runtime|dev|build|optional|lazy>` picks the dependency
-table, `[dependencies]` by default. At a virtual workspace root, `--root <dir>`
-selects the member whose manifest is edited. A path dependency must already be
-a valid package. The [manifest reference](manifest.md#dependency-tables)
-describes each source.
+table, `[dependencies]` (`runtime`) by default. At a virtual workspace root,
+`--root <dir>` selects the member whose manifest is edited. The name must not
+be declared in any of the package's dependency tables yet, and a path
+dependency must already be a valid package. `--rev` takes a full commit hash.
+The [manifest reference](manifest.md#dependency-tables) describes each source.
 
 ## `nia update` And `nia clean`
 
@@ -95,11 +105,13 @@ describes each source.
 writes the results to `nia.lock`. With names, `nia update json regex`, only
 those dependencies are refreshed; each must be a locked Git or registry
 dependency. It reports Git revision changes and registry version changes
-separately.
+separately. A workspace shares one `nia.lock`, so running it in any member
+updates the dependencies of every member.
 
 `nia clean` removes `build/out/`, `build/cache/`, and `build/tmp/`, keeping
 fetched dependencies. Run inside a workspace member, it removes that member's
-outputs and the workspace's shared caches. It fails outside a package.
+outputs and the workspace's shared cache and temporary files. It fails outside
+a package.
 
 ## `nia check` And `nia emit`
 
@@ -125,11 +137,11 @@ nia emit --llvm src/main.nia
 nia emit --exe src/main.nia -o hello
 ```
 
-They do not read the dependencies in `nia.toml`. When the source file lies
-inside a package that declares a `[library]`, the package's own name opens
-that library, as it does under `nia build`; any other package name the code
-imports is mapped with `-M <name>=<path>`, where `<path>` is a source file or
-a package directory:
+These commands do not read the dependencies in `nia.toml`. When the source
+file lies inside a package that declares a `[library]`, the package's own name
+opens that library, as it does under `nia build`. Any other package name the
+code imports is mapped with `-M <name>=<path>`, where `<path>` is a source
+file or a package directory:
 
 ```sh
 nia check src/main.nia --runtime freestanding
@@ -139,31 +151,31 @@ nia check src/main.nia --runtime freestanding -M json=../json
 Inside a package, `nia build` is usually simpler: it checks and builds every
 artifact with its dependencies.
 
-| Option | Effect |
-| --- | --- |
-| `--runtime <bare\|freestanding>` | `bare` (the default) checks the tree with no entry point; `freestanding` also checks the standard `main` entry and the runtime that calls it. `--exe` always builds `freestanding`. |
-| `-M, --module <name=path>` | Map a package name for `using`; repeatable. |
-| `--cache-dir <path>` | Reuse compiler products from this directory. |
-| `--opt-report` | Print the optimization report to stderr. |
-
 `emit` takes one kind:
 
 | Kind | Output |
 | --- | --- |
-| `--tokens`, `--ast`, `--checked`, `--backend`, `--llvm` | prints that form of the program |
+| `--tokens`, `--ast` | prints the source tokens or the syntax tree |
+| `--checked`, `--backend`, `--llvm` | prints the checked program, the optimized backend IR, or the LLVM IR |
 | `--obj` | writes one native object file per codegen unit into `--out-dir <dir>`, including the [compiler support routines](abi.md#compiler-support-routines) |
 | `--exe` | writes a freestanding executable to `-o <file>`, or without `-o` next to the source file, as `main` (`main.exe` on Windows) for `main.nia` |
 
-`--backend`, `--llvm`, `--obj`, and `--exe` accept `--cpu <level>`, which
-selects the oldest processor the generated code may run on; see
-[CPU Levels](platform-support.md#cpu-levels).
+Each option below is accepted by `nia check` and by the emit kinds listed:
 
-`--exe` also accepts the linking options: `-L <dir>` and `-l <name>` for native
-libraries, `--link-arg <arg>`, `--lto <off|thin|full>`, `--linker <program>`
-and `--linker-flavor <flavor>` to replace LLD, and on Linux
-`--executable <static-pie|static|dynamic>`, `--interpreter <path>`, and
-`--rpath <path>`. [C interop](../guides/c-interop.md#linking-a-c-library)
-shows them in use.
+| Option | Emit kinds | Effect |
+| --- | --- | --- |
+| `-M, --module <name=path>` | all | Map a package name for `using`; repeatable. |
+| `--runtime <bare\|freestanding>` | all but `--tokens` and `--ast` | `bare` (the default) checks the tree with no entry point; `freestanding` also checks the standard `main` entry and the runtime that calls it. `--exe` accepts only `freestanding`, its default. |
+| `--cpu <level>` | all but `--tokens` and `--ast` | Select a [CPU level](platform-support.md#cpu-levels): it decides which [`hasFeature`](language.md#conditional-compilation) conditions hold and which instructions generated code uses. |
+| `--opt-report` | `--backend`, `--llvm`, `--obj`, `--exe` | Print the optimization report to stderr. |
+| `--cache-dir <path>` | `--obj`, `--exe` | Reuse compiler products from this directory. |
+
+`--exe` also accepts the linking options: `-L <dir>` (`--library-path`) and
+`-l <name>` (`--library`) for native libraries, `--link-arg <arg>`,
+`--lto <off|thin|full>`, `--linker <program>` and `--linker-flavor <flavor>`
+to replace LLD, and on Linux `--executable <static-pie|static|dynamic>`,
+`--interpreter <path>`, and `--rpath <path>`.
+[C interop](../guides/c-interop.md#linking-a-c-library) shows them in use.
 
 An executable is compiled as several codegen units, which build in parallel
 and are cached separately. Without `--lto`, an executable built at `-O1` or
@@ -173,6 +185,25 @@ without cross-unit optimization at any level, and `--lto full` merges them into
 one unit before optimizing, which takes longer to build and can produce smaller
 output. Build scripts choose the same way with `withLto`; an artifact that
 does not call it follows this rule.
+
+## `nia fmt`
+
+```text
+nia fmt <path>
+```
+
+`nia fmt` formats one source file and prints the result to stdout; the file
+itself is not changed. It indents each line by four spaces per level of
+nesting, writes one space on each side of an infix operator, `=`, and `=>`
+within a line, and removes trailing whitespace. Line breaks, comments, and
+literals stay as written: the formatter neither wraps nor joins lines. A
+continuation line, such as the next line of a broken condition or method
+chain, is indented at the level of the line it continues, not one level
+deeper.
+
+The file must parse. On a syntax error, `nia fmt` reports the diagnostic,
+prints nothing to stdout, and exits with status 1. The path must name a file,
+not a directory.
 
 ## `nia build`
 
@@ -197,23 +228,24 @@ after the arguments its build script configures:
 nia build run-greet -- --verbose "two words"
 ```
 
-The step must be named before `--` and must be a run step: `nia build -- run-greet`
-names no step, and `nia build unit -- x` names a test suite; both are errors.
+The step must be named before `--` and must be a run step:
+`nia build -- run-greet` names no step, and `nia build unit -- x` names a test
+suite; both are errors.
 The arguments are not part of the configuration. `build.nia` does not see
 them, and changing them reuses the configured plan and the compiled program.
 
 A step name consists of ASCII letters, digits, `-`, `_`, and `.`. A public
-step name, one that `nia build` can select, must also not start with `-` or be
-`.` or `..`, so that it cannot be read as an option or a path, and must not
-start with `nia-internal-test-compile.`, which names the steps that compile
-test suites. Manifest artifact names follow the same rule, because each one
-names a step.
+step name, one that `nia build` can select, also must not start with `-` or
+be `.` or `..`, so that it cannot be read as an option or a path. It must not
+start with `nia-internal-test-compile.` either, the prefix of the steps that
+compile test suites. Manifest artifact names follow the same rule, because
+each one names a step.
 
 | Option | Effect |
 | --- | --- |
 | `--root <dir>` | starts package discovery at `<dir>` |
 | `-p, --package <name>` | selects a workspace member; repeatable |
-| `--workspace` | selects every workspace member |
+| `--workspace` | selects every workspace member; not allowed together with `-p` |
 | `--locked` | fails instead of changing `nia.lock` |
 | `--offline` | uses cached Git checkouts, registry indexes, and registry archives only |
 | `-k, --keep-going` | after a failure, keeps running the actions that do not depend on it |
@@ -285,7 +317,8 @@ unless the build fails. `nia build run` therefore ends with the program's own
 output, as `cargo run` does. From `-v`, progress keeps reporting every action
 and closes with the full summary.
 
-Repeat `-v` for more detail. Each level includes the one before it:
+Repeat `-v` (`--verbose`) for more detail. Each level includes the one before
+it:
 
 | Level | Text output |
 | --- | --- |
@@ -338,18 +371,21 @@ numbers. Actions are written as `{"package": ..., "name": ...}`, and an action's
 | `action-cache-decision` | `-v` | `action`, `cache` |
 | `wave-started` | `-vv` | `wave` (0-based), `actions` |
 | `action-queued` | `-vv` | `action`, `resource_class`, `wave` |
-| `action-wait-started`, `action-wait-finished`, `phase-wait-started`, `phase-wait-finished` | `-vv` | `wait`, then `outcome` and `duration_ms` |
+| `action-wait-started`, `action-wait-finished` | `-vv` | `action`, `wait`; finish adds `outcome` and `duration_ms` |
+| `phase-wait-started`, `phase-wait-finished` | `-vv` | `phase`, `wait`; finish adds `outcome` and `duration_ms` |
 | `resource-usage-changed` | `-vv` | `capacity`, `used`, `generation` |
-| `action-described` | `-vvv` | `action_kind`, `inputs`, `outputs`, `total_inputs`, `total_outputs` |
-| `action-activity-started`, `action-activity-finished` | `-vvv` | `activity`: `checking`, `codegen`, `linking`, or `compiling and linking`; finish adds `duration_ms`, `success` |
+| `action-described` | `-vvv` | `action`, `action_kind`, `inputs`, `outputs`, `total_inputs`, `total_outputs` |
+| `action-activity-started`, `action-activity-finished` | `-vvv` | `action`, `activity`: `checking`, `codegen`, `linking`, or `compiling and linking`; finish adds `duration_ms`, `success` |
 
 `outcome` on `action-finished` is `cached`, `executed`, `nowork`, `failed`, or
-`cancelled`. `cache` is `{"status": "hit"}` or `{"status": "miss", "reason":
+`cancelled`. `cache` is `{"status": "hit"}`, `{"status": "miss", "reason":
 ...}` with `reason` `not_found`, `invalidated`, `uncacheable`, `corrupt`,
-`read_error`, or `write_error`. `wait` is `dependency`, `resource permit`, `output lock`, or
-`cache lock`, and a wait's `outcome` is `acquired`, `cancelled`, or `failed`.
-`resource_class` is `cpu`, `io`, or `conservative`. Paths in `inputs` and
-`outputs` are `{"root": {"kind": ...}, "path": ...}`, relative to a package,
-the build or cache directory, the toolchain, or an artifact. Progress never
-includes process arguments, environment values, or generated file contents.
-Later releases may add fields within schema version 1.
+`read_error`, or `write_error`, or `{"status": "unavailable", "reason":
+"identity_unavailable"}`. `wait` is `dependency`, `resource permit`,
+`output lock`, or `cache lock`, and a wait's `outcome` is `acquired`,
+`cancelled`, or `failed`. `resource_class` is `cpu`, `io`, or `conservative`.
+Paths in `inputs` and `outputs` are `{"root": {"kind": ...}, "path": ...}`,
+relative to a package, the build or cache directory, the toolchain, or an
+artifact. Progress never includes process arguments, environment values, or
+generated file contents. Later releases may add fields within schema
+version 1.

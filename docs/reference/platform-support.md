@@ -30,11 +30,12 @@ built into the LLVM that the compiler links.
 | `x86_64-apple-macos` | macOS Intel | yes |
 | `aarch64-apple-macos` | macOS Apple silicon | yes |
 
-By default every executable links with LLD for its target; `nia help emit --exe`
-lists the options that select another linker. Windows links import `kernel32`
-and `bcryptprimitives`, and macOS links `libSystem`, through import
-descriptions shipped with the toolchain, so neither needs a platform SDK. macOS
-executables require macOS 15 or later.
+By default every executable links with LLD for its target; the
+[linking options](cli.md#nia-check-and-nia-emit) of `nia emit --exe` select
+another linker. Windows links import `kernel32` and `bcryptprimitives`, and
+macOS links `libSystem`, through import descriptions shipped with the
+toolchain, so neither needs a platform SDK. macOS executables require macOS 15
+or later.
 
 ## Target Facts
 
@@ -84,9 +85,9 @@ pub fun main(init: process::Init) process::ExitCode!() {
 Within one target, newer processors add instructions. A CPU level names the
 oldest processor generated code may run on: the code uses every instruction the
 level guarantees, so on an older processor it stops with an illegal-instruction
-fault, and nothing diagnoses that ahead of time. `nia emit --backend`, `--llvm`,
-`--obj`, and `--exe` and `nia build` accept `--cpu <level>`. A package declares
-the level of its builds per profile in
+fault, and nothing diagnoses that ahead of time. `nia build`, `nia check`, and
+every `nia emit` kind except `--tokens` and `--ast` accept `--cpu <level>`. A
+package declares the level of its builds per profile in
 [`[profile.*]`](manifest.md#profiledebug-and-profilerelease), and a build
 script can pin one artifact's level with
 [`withCpu`](../guides/build-scripts.md#artifact-configuration):
@@ -102,12 +103,12 @@ script can pin one artifact's level with
 [`hasFeature`](language.md#conditional-compilation) tests these names, and
 they are the only feature names it accepts. A level guarantees every feature of
 the levels before it. The `x86_64-v*` levels are the x86-64 psABI
-microarchitecture levels. `native`
-is accepted only by `--cpu`, only when the target is the host, and its output
-may fail on any other machine, even one of the same target. The level changes
-the selected instructions, not the program's meaning; compiled objects and
-executables are cached separately per level, and for `native` per the detected
-processor.
+microarchitecture levels. `native` is accepted only by `--cpu`, only when the
+target is the host, and its output may fail on any other machine, even one of
+the same target. Apart from the source that `hasFeature` conditions select,
+the level changes only the instructions, not the program's meaning; compiled
+objects and executables are cached separately per level, and for `native` per
+the detected processor.
 
 In `nia build`, each artifact's level is the first of these that applies:
 

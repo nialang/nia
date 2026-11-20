@@ -1,13 +1,14 @@
-# Nia Standard Library
+# Standard Library
 
 This directory is the toolchain resource tree. `std/` is the standard library
 that every program can import as `std`. `runtime/` is a private package that
-provides process startup and is linked in only when a program uses Nia startup.
-Both are ordinary packages: each `nia.toml` names its root file through
-`[library].path` and carries the compiler version.
-`imports/` describes the system libraries the library itself calls, so no
-platform SDK is needed to link them. `toolchain.meta` records the compiler
-version and resource protocol this tree belongs to.
+provides process startup and the support routines of freestanding
+executables; it is linked in only when a program uses Nia startup. Both are
+ordinary packages: each `nia.toml` names its root file through
+`[library].path` and carries the compiler version. `imports/` describes the
+system libraries the library itself calls, so no platform SDK is needed to
+link them. `toolchain.meta` records the compiler version and resource protocol
+this tree belongs to.
 
 ## Modules
 
@@ -21,27 +22,27 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
 | --- | --- |
 | `std::atomic` | `Atomic[T]`, memory orderings, and fences |
 | `std::build` | Declarative build-script API: packages, modules, artifacts, steps, and test suites |
+| `std::builtin` | Compiler-backed intrinsics (layout, bits, memory, SIMD, atomics, `asm`); see [Built-in Operations](../docs/reference/builtins.md) |
 | `std::checksum` | `Adler32`, `Crc32`, and `Crc32C` checksums for detecting accidental corruption |
-| `std::builtin` | Compiler-backed intrinsics (layout, bits, memory, SIMD, atomics, `asm`); see [builtins reference](../docs/reference/builtins.md) |
 | `std::cmp` | `Ordering`, `min`, and `max` |
-| `std::cpu` | Runtime CPU feature detection, including operating-system vector-state support |
 | `std::collections` | Allocator-explicit `ArrayList`, `HashMap`, `HashSet`, ordered `TreeMap`, and `TreeSet` with borrowed iterators |
+| `std::cpu` | Runtime CPU feature detection, including operating-system vector-state support |
 | `std::crypto` | Cryptographic digests: `Sha256` |
 | `std::cstring` | NUL-terminated `CString` owners and `CStringView` borrows for C interop |
-| `std::error` | Cleanup combinators: `cleanupAfter` and `CleanupAccumulator` |
+| `std::error` | Cleanup combinators: the `cleanupAfter` method of error unions and `CleanupAccumulator` |
 | `std::fmt` | `Format` trait, `Formatter`, format specs, and checked template printing |
 | `std::fs` | `Path`/`PathView`, files, directories, metadata, and directory iteration |
 | `std::hash` | `Hash` and `Hasher` traits and the non-cryptographic hashers `Wyhash`, `SipHash13`, `SipHash24`, `XxHash64`, `Fnv1a32`, and `Fnv1a64` |
 | `std::io` | `Reader`/`Writer` traits, fixed and buffered adapters, file readers/writers, bounded `readToEnd`, `debugPrint` |
 | `std::iter` | `DoubleEndedIterator`, ranges, lazy adapters (`map`, `filter`, `filterMap`, `take`, `skip`, `stepBy`, `takeWhile`, `skipWhile`, `enumerate`, `zip`, `chain`, `copied`, `rev`), and consumers such as `fold`, `find`, `any`, `min`, and `forEach` |
-| `std::math` | Checked arithmetic traits (`CheckedAdd`, `CheckedMul`, ...); `BinaryFloat` for IEEE-754 bit access and classification |
+| `std::math` | Checked arithmetic traits (`CheckedAdd`, `CheckedMul`, ...); `BinaryFloat` for IEEE-754 bit access and classification; `isPowerOfTwo` and `alignForward` on `usize` |
 | `std::mem` | `Allocator` trait, `Block`/`Layout`, page, fixed-buffer, arena, general-purpose, and pool allocators, typed owners |
-| `std::os` | Low-level operating-system services, and the native interfaces `os::linux::syscall`, `os::windows::bindings`, and `os::macos::bindings` with their platform calling conventions and error results |
 | `std::option` | Operations on optional values (`?T`), and equality of optionals |
+| `std::os` | Low-level operating-system services, and the native interfaces `os::linux::syscall`, `os::windows::bindings`, and `os::macos::bindings` with their platform calling conventions and error results |
 | `std::parse` | `From` and `FromRadix` parsing traits and their `Error`; correctly rounded `f32`/`f64` parsing from text or bytes |
 | `std::process` | `process::Init`, arguments, environment, commands, child processes, exit codes |
 | `std::result` | Operations on error unions (`E!T`) |
-| `std::slice` | Borrowed slice operations, iterators, splitting, sorting, binary search, bounds, and partition points |
+| `std::slice` | Borrowed slice operations, iterators, copying, splitting, sorting, binary search, bounds, and partition points |
 | `std::source` | `SourceLocation` and `callerLocation` |
 | `std::string` | Owned Unicode text (`String`) and text utilities |
 | `std::test` | Assertions, an explicit in-process test runner, and `FailingAllocator` fault injection |
@@ -52,7 +53,8 @@ are also re-exported at the root, such as `std::String`, `std::ArrayList`,
 the running process can use a CPU feature. Build-guaranteed features fold to
 `true` in optimized code; other features use a cached runtime query. On x86,
 AVX-family features require operating-system register-state support as well as
-hardware support. See [Runtime CPU Queries](../docs/guides/targets.md#runtime-cpu-queries).
+hardware support. See
+[Runtime CPU Queries](../docs/guides/targets.md#runtime-cpu-queries).
 
 ## Conventions
 
@@ -120,35 +122,37 @@ placeholder keeps `{{` and `}}` unambiguous: they always mean literal braces.
 | integers | flags, width, and every presentation except `p` |
 | `f32`, `f64` | sign, alignment, fill, width, precision, and `#`; precision is fixed fractional digits, and `#` forces a decimal point |
 | text, `char`, `bool` | alignment, fill, width, and precision |
+| a slice of formattable values | `{}` only; prints `[a, b, c]` |
 | a pointer `ptr`, passed as `&ptr` | alignment, fill, width, and `p`; prints the address. Passing `ptr` itself formats the value it points to |
 | a type of your own | `{}` only, unless the type implements `formatSpec` to accept more |
 
-`Formatter::writeFloat` writes a finite value in its shortest
-round-trip form. `writeFloatSpec` takes a `FormatSpec`
-with the same float options as templates. These generic methods let custom formatters
-write float fields directly. Non-finite values return `NonFinite` (exit status
-33), while unsupported specifications return `InvalidTemplate`. Both fail before
-writing; a writer failure can leave partial output.
+`Formatter::writeFloat` writes a finite value in its shortest round-trip form.
+`writeFloatSpec` takes a `FormatSpec` with the same float options as
+templates. These generic methods let custom formatters write float fields
+directly. A non-finite value returns `NonFinite` (exit status 33), and an
+unsupported specification returns `InvalidTemplate`. Both fail before writing;
+a writer failure can leave partial output.
 
 Templates are checked while printing, not by the compiler: formatting is
 ordinary library code, and a template is an ordinary character array. A
 malformed template or an unsupported part fails with
 `fmt::Error::InvalidTemplate`, and too few or too many values with
 `MissingArgument` or `ExtraArgument`; all three convert to exit status 22 in
-`main`. Output written before the failure
-stays written, except that `debugPrint`, which buffers its line, writes
-nothing. Implementing `fmt::Format` for a type of your own is shown in
+`main`. Output written before the failure stays written. `debugPrint` buffers
+512 bytes before it writes, so a failure within its first 512 bytes of output
+writes nothing. Implementing `fmt::Format` for a type of your own is shown in
 [Printing Your Own Types](../docs/learn/generics-and-traits.md#printing-your-own-types).
 
-## Numeric parsing
+## Numeric Parsing
 
-Import `std::parse` to use `"1.5".parse[f64]()` or `b"1.5".parse[f32]()`,
-just as for integers. All numeric `From` implementations use `parse::Error`.
-Float syntax accepts `[-]digits[.digits][e[+-]digits]` and `[-].digits`.
-An empty input returns `Empty`, a leading `+` returns `InvalidSign`, malformed
-syntax (including whitespace, non-ASCII digits, NaN and infinity spellings)
-returns `InvalidDigit`, and overflow returns `Overflow`. Underflow rounds to a
-subnormal or signed zero. Both widths round to nearest, ties to even.
+Import `std::parse` to use `"1.5".parse[f64]()` or `b"1.5".parse[f32]()`, as
+for integers. All numeric `From` implementations use `parse::Error`. Float
+syntax accepts `[-]digits[.digits][e[+-]digits]` and `[-].digits`, where the
+exponent marker is `e` or `E`. An empty input returns `Empty`, a leading `+`
+returns `InvalidSign`, malformed syntax (including whitespace, non-ASCII
+digits, and NaN and infinity spellings) returns `InvalidDigit`, and overflow
+returns `Overflow`. Underflow rounds to a subnormal or signed zero. Both widths
+round to nearest, ties to even.
 
 `f32` and `f64` have `isNan()`, `isInfinite()`, `isFinite()`, `signBit()`,
 and `toBits()` without an import. Bits use the format's own width: `toBits`
@@ -161,14 +165,18 @@ itself.
 
 ## Testing
 
-`std::test` provides assertions (`expect`, `expectEqual`, `expectNotEqual`,
-`fail`) that return `test::Error`, and a runner. Memory operations returning
-`mem::Error` can propagate through `.?`; `test::Error::Memory` retains their
-cause. Errors that carry rollback resources must be handled before propagation.
-A `Case` pairs a name with a test function; `Runner` borrows a table of cases,
-runs each one, and returns a
-`RunSummary`. It continues after failures unless built with `withFailFast()`,
-and it does not allocate or discover files.
+`std::test` provides assertions that return `test::Error`: `expect`,
+`expectEqual`, `expectNotEqual`, `fail`, and `expectNull`, and `expectError`
+and `expectSome`, which also return the error or value they check for. Any
+other error propagated out of a test with `.?` fails it at that point, as
+`test::Error::Propagated` with the location; `mem::Error` is kept as
+`test::Error::Memory`, which retains the cause. Errors that carry rollback
+resources must be handled before propagation.
+
+A `Case` pairs a name with a test function. `Runner` borrows a table of cases,
+runs each one, and returns a `RunSummary`; `runWith` also passes each result
+to a reporter callback. The runner continues after failures unless built with
+`withFailFast()`, and it does not allocate or discover files.
 
 ```nia
 using std::process;
@@ -197,9 +205,10 @@ pub fun main(init: process::Init) process::ExitCode!() {
 }
 ```
 
-A build script registers each suite with `Build::addTestSuite`. A suite is an
-ordinary host executable whose root module may import any number of test
-modules, using the same module imports as an application. See
+A package declares each suite as a `[[test]]` in its manifest, or a build
+script registers it with `Build::addTestSuite`. A suite is an ordinary host
+executable whose root module may import any number of test modules, using the
+same module imports as an application. See
 [Testing](../docs/learn/testing.md), which also shows `FailingAllocator`
 testing an allocation failure.
 
@@ -210,7 +219,7 @@ Import descriptions are shipped only for the Win32 functions the toolchain's
 own sources use. A program that declares another Win32 function links that
 function's import library explicitly, like any native dependency
 (`-L <dir> -l <library>`). Process signals on Windows are described in
-[Platform support](../docs/reference/platform-support.md#current-limits).
+[Platform Support](../docs/reference/platform-support.md#current-limits).
 
 `process::Command` finds its program the same way on every platform: a path
 that contains a separator names that file, relative to the child's working
@@ -219,13 +228,13 @@ environment. On Windows a bare name without an extension also tries each
 `PATHEXT` extension, so `Command::init(fs::PathView::init("git"), env)` finds
 `git.exe`.
 
-## API reference
+## API Reference
 
 The source files are the API reference. Each facade under `std/` states its
 boundary in a header comment, and the owning module documents type-specific
 lifetime, error, and cleanup contracts.
 
-## Maintaining the library
+## Maintaining The Library
 
 The repository audits that guard these sources are described in
 [Repository maintenance](../maintain/README.md#repository-audits), and

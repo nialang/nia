@@ -4,9 +4,11 @@
 are ordinary declarations called with ordinary path, generic-argument, and call
 syntax, either fully qualified (`std::builtin::size[T]()`) or after
 `using std::builtin;` (`builtin::size[T]()`). The built-in traits that
-`std::builtin` also declares (operators, `Deref`, `Index`, `Len`, `Iterable`,
+`std::builtin` also declares (operators, `Deref`, `Index`, `Iterable`,
 `IntoError`, and others) are specified in the
-[language reference](language.md#built-in-traits).
+[language reference](language.md#built-in-traits). `Len`, which gives arrays
+and slices their `len` method, is an ordinary trait; see
+[Built-In Methods](#built-in-methods).
 
 A function marked `const fun` below can also run during
 [constant evaluation](language.md#constant-evaluation).
@@ -36,11 +38,11 @@ struct Header {
     length: u16,
 }
 
-const header_size: usize = builtin::size[Header]();
-const length_offset: usize = builtin::offset[Header]("length");
-static scratch: [u8; header_size] = [0; header_size];
+const headerSize: usize = builtin::size[Header]();
+const lengthOffset: usize = builtin::offset[Header]("length");
+static scratch: [u8; headerSize] = [0; headerSize];
 
-fun bytes_per[T]() usize
+fun bytesPer[T]() usize
 where T: Sized {
     builtin::size[T]() + builtin::align[T]()
 }
@@ -54,9 +56,11 @@ where T: Sized {
 | `const fun error(message: &[char]) never` | reports `message` as a compile-time error; const-only |
 | `const fun embed(path: &[char]) [u8; N]` | the bytes of a file; const-only |
 
-`trap` executes the target's trap instruction at runtime. `error` takes a
-string literal or another constant string. A `const fun` that contains `error`
-cannot be called from runtime code.
+`trap` executes the target's trap instruction at runtime; in a debug build of
+an executable it first writes the report described in
+[Unchecked Operations And Traps](language.md#unchecked-operations-and-traps).
+`error` takes a string literal or another constant string. A `const fun` that
+contains `error` cannot be called from runtime code.
 
 `embed` reads a file at compile time. The path is a string literal resolved
 relative to the source file that contains the call, not the working directory.
@@ -67,14 +71,14 @@ parsed.
 ```nia
 using std::builtin;
 
-const fun non_zero(value: u32) u32 {
+const fun nonZero(value: u32) u32 {
     if value == 0 {
         builtin::error("value must not be zero");
     }
     value
 }
 
-const divisor: u32 = non_zero(8);
+const divisor: u32 = nonZero(8);
 
 fun divide(value: u32, by: u32) u32 {
     if by == 0 {
@@ -99,20 +103,20 @@ representation. The source must be initialized and readable, the destination
 writable. `memcpy` copies forward and requires that no overlap changes a source
 element before it is read; `memmove` permits any overlap. The destination
 argument must be a slice expression such as `&mut buffer[..]`; an array pointer
-is not converted here. The element type must be `Sized`, as must `T` loaded by
-`loadUnaligned`; generic callers state that bound in their `where` clause.
+is not converted here. The element type of `memcpy` and `memmove`, and the `T`
+of `loadUnaligned` and `storeUnaligned`, must be `Sized`; generic callers state
+that bound in their `where` clause.
 
-`loadUnaligned` relaxes only alignment. At least `size[T]()` initialized bytes
-must be readable at `ptr`, and `T` must be `Sized`. `storeUnaligned` is its
-counterpart: at least `size[T]()` bytes must be writable at `ptr`. It is an
-ordinary `@[inlineAlways]` function that copies the value's bytes with
-`memcpy`; the fixed length compiles to one unaligned store at every
-optimization level.
+`loadUnaligned` relaxes only alignment: at least `size[T]()` initialized bytes
+must be readable at `ptr`. `storeUnaligned` is its counterpart: at least
+`size[T]()` bytes must be writable at `ptr`. It is an ordinary
+`@[inlineAlways]` function that copies the value's bytes with `memcpy`; the
+fixed length compiles to one unaligned store at every optimization level.
 
 ```nia
 using std::builtin;
 
-fun copy_header(source: &[u8]) u32 {
+fun copyHeader(source: &[u8]) u32 {
     let mut buffer: [u8; 8] = [0; 8];
     builtin::memset(&mut buffer[..], 0);
     builtin::memcpy[u8](&mut buffer[..], source);
@@ -120,8 +124,9 @@ fun copy_header(source: &[u8]) u32 {
 }
 ```
 
-These are low-level primitives; the standard library's slice operations
-([`std::slice`](../../lib/README.md)) provide checked copying.
+These are low-level primitives. For ordinary copies, `copyFrom` in
+[`std::slice`](../../lib/README.md#modules) copies the common prefix of two
+slices with any overlap and returns the number of elements copied.
 
 ## Bit Counting
 
@@ -131,8 +136,9 @@ These are low-level primitives; the standard library's slice operations
 | `const fun clz[T](value: T) T` | number of leading zero bits |
 | `const fun popcount[T](value: T) T` | number of one bits |
 
-`T` is an integer type and the result has the same type. `ctz` and `clz` of `0`
-return the bit width of `T`, at runtime and during constant evaluation.
+`T` is a scalar integer type, written as the type argument, and the result has
+the same type. `ctz` and `clz` of `0` return the bit width of `T`, at runtime
+and during constant evaluation.
 
 ```nia
 const trailing: u32 = std::builtin::ctz[u32](8);     // 3
@@ -185,7 +191,8 @@ const sum: u8 = std::builtin::wrappingAdd[u8](250, 10);     // 4
 const low: u8 = std::builtin::truncatingShl(0xf1u8, 4);     // 0x10
 ```
 
-Each compiles to the single machine instruction of its operation.
+Apart from the count of `truncatingShl`, these functions check nothing: each
+compiles to the plain machine operation.
 
 ## SIMD
 
@@ -259,7 +266,7 @@ computed lane by lane there.
 ```nia
 using std::builtin;
 
-fun count_matches(data: u8x16, needle: u8) usize {
+fun countMatches(data: u8x16, needle: u8) usize {
     let mask = data == builtin::splat[u8x16](needle);
     builtin::popcount[u16](builtin::bitmask(mask)) as usize
 }
@@ -325,7 +332,7 @@ fun bump(counter: &mut u32) u32 {
 ## Inline Assembly
 
 ```nia
-fun exit_linux(code: usize) isize {
+fun exitLinux(code: usize) isize {
     let mut result: isize = 0;
     std::builtin::asm(.{
         code:
@@ -403,7 +410,7 @@ are listed in [Target Facts](platform-support.md#target-facts).
 ```nia
 using std::builtin::target;
 
-const pointer_bytes: usize = target::pointerWidth / 8;
+const pointerBytes: usize = target::pointerWidth / 8;
 ```
 
 The module also answers what `hasFeature` answers in `@[if]` conditions:
@@ -421,7 +428,7 @@ values. The feature is an enum, so a misspelled name is a compile-time error.
 ```nia
 using std::builtin::target;
 
-const vector_bytes: usize = if target::hasFeature(.Avx2) { 32 } else { 16 };
+const vectorBytes: usize = if target::hasFeature(.Avx2) { 32 } else { 16 };
 ```
 
 ## Built-In Methods
@@ -447,7 +454,7 @@ array pointers remain accepted. An empty slice has a data pointer, but
 dereferencing it is invalid.
 
 ```nia
-fun first_bytes(data: &mut [u8]) usize {
+fun firstBytes(data: &mut [u8]) usize {
     let read: &u8 = data.ptr();
     let mut view = data;
     let write: &mut u8 = view.ptrMut();

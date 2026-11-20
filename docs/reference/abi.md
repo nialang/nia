@@ -57,16 +57,9 @@ Use `std::builtin::size[T]()`, `std::builtin::align[T]()`, and
 
 Optimization never changes layout, ABI classification, or symbol identity. Every
 optimization level produces the same sizes, alignments, field offsets,
-parameter and return passing, static data layout, and symbol names.
-
-Nia vector parameters and results also use a calling convention independent of
-the build CPU level. On x86_64 and AArch64, vectors occupying at most 16 bytes
-in registers are passed directly; wider vectors use the address of a
-caller-owned copy for parameters and a hidden result pointer for returns. A
-`boolxN` mask occupies one byte per lane in registers, although it is
-bit-packed in memory, so masks of more than 16 lanes use addresses. On `x86-unknown-linux`,
-all vectors use addresses because its baseline does not guarantee SIMD
-registers. Vector operations inside a function still operate on vector values.
+parameter and return passing, static data layout, and symbol names. Neither
+does the CPU level: vectors are passed the same way at every level (see
+[SIMD Vectors](#simd-vectors)).
 
 ## Target Data Model
 
@@ -291,6 +284,16 @@ rounded up to whole bytes; alignment is the next power of two of that width,
 and the size is the store width rounded up to the alignment. `u8x16` is 16
 bytes and `boolx16` is 2 bytes.
 
+Vector parameters and results of Nia functions are passed independently of the
+build CPU level. On x86_64 and AArch64, a vector that occupies at most 16 bytes
+in registers is passed directly; a wider vector is passed as the address of a
+caller-owned copy, and returned through a hidden result pointer. A `boolxN`
+mask occupies one byte per lane in registers, although it is bit-packed in
+memory, so a mask of more than 16 lanes uses an address. On
+`x86-unknown-linux`, every vector uses an address because its baseline does
+not guarantee SIMD registers. Inside a function, vector operations still work
+on vector values.
+
 Crosses the C boundary: not by value. Pass a pointer.
 
 ## The C ABI Boundary
@@ -352,10 +355,10 @@ with the extension of their own signedness, and `f32` widens to `f64`.
 ### Executable Exports
 
 An executable's C interface is every top-level `pub extern fun` definition in
-a module of its entry package. Those functions are always present in the
-executable, even when no Nia code calls them, so linked foreign code can call
-them by name. Other functions, including non-`pub` `extern` definitions, are
-present only when the program uses them.
+a module of the package that contains its root module. Those functions are
+always present in the executable, even when no Nia code calls them, so linked
+foreign code can call them by name. Other functions, including non-`pub`
+`extern` definitions, are present only when the program uses them.
 
 A freestanding executable links the toolchain runtime, which exports the
 platform entry symbol (`_start`, or `main` on macOS); defining the same
@@ -395,6 +398,10 @@ visibility: it links between the objects of one program but is never exported
 from a shared object or preempted. A program's external interface is therefore
 exactly its `extern` items.
 
+Objects use the platform's position-independent code model on Linux and macOS,
+so Nia objects link into position-independent executables and shared objects
+without text relocations.
+
 ### Compiler Support Routines
 
 Every native image also contains the compiler's support routines, in one
@@ -409,10 +416,10 @@ other objects but are never exported.
 
 Nia code may call a support routine through a bodyless `extern fun`
 declaration, as C code linked into the image may. Defining in Nia a routine
-that the image contains is an error. An object or static-library member in the same link that defines one
-is a duplicate definition, as with any other symbol; a C library linked as a
-shared library or import library defines nothing in the image and does not
-conflict.
+that the image contains is an error. An object or static-library member in the
+same link that defines one is a duplicate definition, as with any other
+symbol; a C library linked as a shared library or import library defines
+nothing in the image and does not conflict.
 
 ### Trap Reports
 
@@ -429,15 +436,12 @@ void __nia_trap(const SourceLocation *location, uint32_t info, uint32_t lane,
 `location` has the layout of `std::SourceLocation`. `info` holds the cause in
 bits 0-7, the lane type's width class in bits 8-11 (8, 16, 32, 64, 128 bits,
 pointer width, `bool`), whether the lane type is signed in bit 12, whether
-each operand is signed in bits 13 and 31, and the lane count of a vector
-operation in bits 16-30. `lane` is the first failing lane of a vector
-operation. Each operand is passed widened to 128 bits as two halves. The
-symbol belongs to the Nia runtime; release code, separately compiled objects
-and libraries, and bare programs do not reference it.
-
-Objects use the platform's position-independent code model on Linux and macOS,
-so Nia objects link into position-independent executables and shared objects
-without text relocations.
+the left and the right operand are signed in bits 13 and 31, and the lane
+count of a vector operation in bits 16-30 (0 for a scalar). `lane` is the
+first failing lane of a vector operation. Each operand is passed zero- or
+sign-extended to 128 bits, as low and high halves. The symbol belongs to the
+Nia runtime; release code, separately compiled objects and libraries, and
+bare programs do not reference it.
 
 ## Inline Assembly
 

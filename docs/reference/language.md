@@ -1,10 +1,10 @@
 # Language Reference
 
 This document defines the syntax and meaning of Nia source code. It is a
-reference, not a tutorial; the [language tour](../learn/README.md) introduces the
-same material in order. Data representation and the C boundary are specified in
-the [ABI reference](abi.md), and the operations in `std::builtin` are listed in
-the [builtins reference](builtins.md).
+reference, not a tutorial; the chapters of [Learning Nia](../learn/README.md)
+introduce the same material in order. Data representation and the C boundary
+are specified in the [ABI reference](abi.md), and the operations in
+`std::builtin` are listed in the [builtins reference](builtins.md).
 
 Nia is statically typed and has no garbage collector, exceptions, implicit
 allocation, ownership checker, or destructors. Allocation and resource
@@ -26,7 +26,6 @@ Contents:
 12. [Traits](#traits)
 13. [Modules And Visibility](#modules-and-visibility)
 14. [Unchecked Operations And Traps](#unchecked-operations-and-traps)
-15. [Pointers At The C Boundary](#pointers-at-the-c-boundary)
 
 ## Overview
 
@@ -157,9 +156,10 @@ no keyword spelling.
 1_000_000
 ```
 
-Prefixes are `0x` (hexadecimal), `0b` (binary), and `0o` (octal). An `_` may
-appear only between two digits valid for the radix. A literal may end with a
-type suffix:
+Prefixes are `0x` (hexadecimal), `0b` (binary), and `0o` (octal); the letter
+may also be upper case. Without a prefix the literal is decimal, and leading
+zeros do not make it octal. An `_` may appear only between two digits valid
+for the radix. A literal may end with a type suffix:
 
 ```text
 i8 i16 i32 i64 i128 isize
@@ -185,11 +185,13 @@ context applies.
 1.0e-3
 ```
 
-A floating-point literal has a fractional part, an exponent, or both, and may
-end with `f32` or `f64`. `1.5f32` and `1.0e-3f64` are valid; `1f32` is not,
-because `1` is an integer literal and `f32` is not an integer suffix. The value
-must be finite in its type. An unsuffixed floating-point literal takes its type
-from context and defaults to `f64`.
+A floating-point literal is decimal. It has a fractional part (`.` followed by
+at least one digit), an exponent (`e` or `E`, an optional sign, and digits), or
+both, and may end with `f32` or `f64`. `1.5f32` and `1.0e-3f64` are valid;
+`1.` and `.5` are not literals, and `1f32` is an error, because `1` is an
+integer literal and `f32` is not an integer suffix. The value must be finite in
+its type. An unsuffixed floating-point literal takes its type from context and
+defaults to `f64`.
 
 ### Numeric Literal Typing
 
@@ -200,17 +202,8 @@ with `n: u8`, `n + (1 + 2)` is `u8` arithmetic. An `if` or `match` whose every
 result is such a literal or arithmetic takes the type the same way, so
 `n - (if c { 1 } else { 0 })` is `u8` arithmetic too. A suffix is never
 overridden by the other operand. The count of a shift is typed independently
-and does not influence the type of the shifted value.
-
-The branches of an `if` and the arms of a `match` have one type: the type the
-context expects, or else the type of the first branch that has a type of its
-own. A branch whose type can only come from its context, such as an unsuffixed
-literal, takes that type wherever it is, so `if c { 1usize } else { 0 }` and
-`if c { 0 } else { 1usize }` are both `usize`. When no branch has a type of its
-own, such a literal gives its default. A branch with no type of its own at
-all, such as `null` or an omitted `.Variant`, never gives the type, so
-`if c { null } else { ?1 }` is `?i32`. A branch that does not return,
-such as one that ends in `return`, adds no type.
+and does not influence the type of the shifted value. How the branches of an
+`if` or `match` agree on one type is specified under [If](#if).
 
 An expected optional or error-union type passes its payload type to the
 constructed value: in a function returning `?usize`, `return ?0;` makes `0` a
@@ -271,10 +264,29 @@ let bytes: &[u8] = b"nia";
 let explicit: &[char] = &"nia";
 ```
 
+The literal is a temporary of the enclosing block, so such a slice must not
+outlive that block; data that must, or that foreign code keeps, goes in a
+[`static`](#statics). There is no conversion from an array or slice to a
+pointer to its first element. A C string is written with its terminating `\0`
+and passed as that pointer, which the built-in method
+[`ptr()`](builtins.md#built-in-methods) returns; `&bytes[0]` is equivalent for
+a non-empty array:
+
+```nia
+extern fun puts(text: &u8) i32;
+
+fun greet() {
+    _ = puts(b"hello\0".ptr());
+}
+```
+
+The [C interop guide](../guides/c-interop.md#c-strings) shows the patterns.
+
 ### Boolean And Null Literals
 
-`true` and `false` have type `bool`. `null` is the empty [optional](#optional-and-error-union-types)
-value and needs an expected optional type.
+`true` and `false` have type `bool`. `null` is the empty
+[optional](#optional-and-error-union-types) value and needs an expected
+optional type.
 
 ## Types
 
@@ -317,11 +329,11 @@ A vector type name is a lane type, `x`, and a decimal lane count of at least 1:
 - `boolxN` mask vectors support the bitwise operators but not arithmetic,
   negation, or shifts.
 
-Integer-vector arithmetic follows the scalar [trap rules](#unchecked-operations-and-traps)
-for every lane: if any lane traps, the whole operation traps. Vectors are
-created and inspected with `splat`, `extract`, `insert`, and `bitmask` from
-[`std::builtin`](builtins.md#simd). Layout is in the
-[ABI reference](abi.md#simd-vectors).
+Integer-vector arithmetic follows the scalar
+[trap rules](#unchecked-operations-and-traps) for every lane: if any lane traps,
+the whole operation traps. Vectors are created and inspected with `splat`,
+`extract`, `insert`, and `bitmask` from [`std::builtin`](builtins.md#simd).
+Layout is in the [ABI reference](abi.md#simd-vectors).
 
 ```nia
 using std::builtin;
@@ -361,55 +373,57 @@ let first = pair.0 + single.0;
 
 Pointers are plain values; Nia has no borrow checker and does not track
 lifetimes. It rejects only the direct cases in which an address of a call's own
-storage outlives the call; see [Addresses Of A Call's Storage](#addresses-of-a-calls-storage). Read-only and writable pointers are distinct types. `&mut T` is
-accepted where `&T` is expected; every other pointer conversion is an explicit
-[cast](#casts). There is no pointer arithmetic: cast to `usize`, compute, and
-cast back.
-
-When a value of type `T` is used where `&T` is expected, Nia takes its address
-implicitly, so `&` may be left out of arguments, initializers, returns, and
-method receivers. Any place or temporary value except a `never` expression can
-receive a read-only address this way; a temporary lives until the end of the
-enclosing block, as with an explicit `&`. Returning a string literal as
-`&[char]` therefore returns the address of a temporary, which is rejected. Where `&mut T` is expected, the
-address is taken implicitly only from a writable place, never from a temporary
-or a read-only value. At most one `&` is added: a `T` never becomes a `&&T`.
-Idiomatic code relies on this and writes `&` or `&mut` only where a pointer is
-wanted as a value of its own, or where no implicit address applies, such as a
-slice `&xs[a..b]`. A function item is automatically converted to a thin
-function pointer when the surrounding context explicitly expects
-`&fun(...)` or `&extern fun(...)`; without an expected pointer type, `&name`
-still requests the conversion and a bare `name` remains the zero-sized
-function item.
-
-Combined with the array-to-slice conversion described under [Slices](#slices),
-this lets an array value or a string literal be passed where a slice is
-expected. The array itself is still not a slice.
-
-A closure value is likewise accepted where a callable view `&Fun(...)` or
-`&mut Fun(...)` is expected, under the same writable-place rule for mutable
-views. A function item can be passed directly to a callable view; it decays to
-a thin function pointer before the view conversion. A non-capturing closure can
-also be passed directly where a thin `&fun(...)` pointer is expected. Neither
-conversion turns a capturing closure into a thin function pointer.
+storage outlives the call; see
+[Addresses Of A Call's Storage](#addresses-of-a-calls-storage). Read-only and
+writable pointers are distinct types. `&mut T` is accepted where `&T` is
+expected, and `^mut T` where `^T` is. Other changes of pointer type are
+explicit [casts](#casts), except the conversions to [slices](#slices),
+[trait objects](#trait-object-coercion-and-dispatch), and
+[callable views](#callable-views) described with those types. There is no
+pointer arithmetic: cast to `usize`, compute, and cast back.
 
 `&place` takes a read-only pointer and `&mut place` a writable one; `&mut`
 requires a writable place. `p.*` dereferences. Reads and writes through `^T`
 and `^mut T` are volatile accesses; `^T` cannot be written through.
 
 ```nia
-fun read_reg(reg: ^u32) u32 {
+fun readReg(reg: ^u32) u32 {
     reg.*
 }
 
-fun write_reg(reg: ^mut u32, value: u32) {
+fun writeReg(reg: ^mut u32, value: u32) {
     reg.* = value;
 }
 ```
 
 Taking the address of a value that is not a place, such as `&42i32` or
-`&make_point()`, creates a temporary that lives until the end of the enclosing
+`&makePoint()`, creates a temporary that lives until the end of the enclosing
 block and yields a pointer to it. A `never` expression cannot be addressed.
+
+When a value of type `T` is used where `&T` is expected, Nia takes its address
+implicitly, so `&` may be left out of arguments, initializers, returns, and
+method receivers. Any place or temporary value except a `never` expression can
+receive a read-only address this way, and a temporary lives until the end of
+the enclosing block, as with an explicit `&`. Returning a string literal as
+`&[char]` therefore returns the address of a temporary, which is rejected.
+Where `&mut T` is expected, the address is taken implicitly only from a
+writable place, never from a temporary or a read-only value. At most one `&` is
+added: a `T` never becomes a `&&T`. No address is taken implicitly for a
+volatile pointer `^T` or `^mut T`. Idiomatic code relies on the implicit
+address and writes `&` or `&mut` only where a pointer is wanted as a value of
+its own, or where no implicit address applies, such as a slice `&xs[a..b]`.
+
+Combined with the array-to-slice conversion described under [Slices](#slices),
+the implicit address lets an array value or a string literal be passed where a
+slice is expected. The array itself is still not a slice. Function items and
+closures are converted where a function pointer or callable view is expected;
+see
+[Function Items And Function Pointers](#function-items-and-function-pointers)
+and [Closures](#conversion-to-views-and-function-pointers).
+
+`opaque` is an incomplete type usable only as a pointer target: `&opaque`,
+`&mut opaque`, `^opaque`, `^mut opaque`. It has no values, fields, or
+dereference.
 
 #### Addresses Of A Call's Storage
 
@@ -453,10 +467,6 @@ Other ways of outliving the storage, such as passing an address to a function
 that keeps it, are not detected; see
 [Unchecked Operations And Traps](#unchecked-operations-and-traps).
 
-`opaque` is an incomplete type usable only as a pointer target: `&opaque`,
-`&mut opaque`, `^opaque`, `^mut opaque`. It has no values, fields, or
-dereference.
-
 ### Arrays
 
 `[T; N]` is an array of `N` elements; the length is a compile-time `usize`
@@ -476,23 +486,36 @@ error (`[1u8, 2u64]` does not widen). An empty literal needs an expected type.
 The repeat count must be a compile-time `usize`. `[T; _]` is valid only where
 an array or string literal supplies the length.
 
-In a generic body, a length or repeat count may also be a const parameter, or
-`std::builtin::size` or `align` of a generic type. Its value comes from each
-instance, and the body is checked once for all of them, so such lengths
-compare as written: `N` matches `N`, and a layout query matches the same
-query of the same type. Computations such as `N + 1` retain their operand
-types, operation order and resolved callees. They match the same computation;
-aliases expose their initializer's computation. A number never matches an open
-computation, even where some instance would make the two equal. The compiler
-does not reorder, cancel or invert arithmetic to prove equality or infer a
-parameter: `N + 1` and `1 + N` are different symbolic lengths.
+An array value is not a slice or a pointer. Where a pointer or slice is
+expected, its address is taken implicitly as described under
+[Pointers](#pointers). `arr[i]` indexes an array; it is a place when `arr` is
+a place.
+
+#### Lengths In Generic Code
+
+In a generic body, a length or repeat count may also be a const parameter,
+`std::builtin::size` or `align` of a generic type, or a computation over
+these. Its value comes from each instance, but the body is checked once for
+all of them, so such lengths are compared symbolically:
+
+- A const parameter matches itself, and a layout query matches the same query
+  of the same type.
+- A computation such as `N + 1` keeps its operand types, operation order, and
+  resolved callees, and matches only the same computation. A local `const` or
+  an alias stands for its initializer's computation.
+- A closed operand is its value, so `N + (1 + 2)` and `N + 3` are the same
+  computation.
+- A number never matches an open computation, even where some instance would
+  make the two equal. The compiler does not reorder, cancel, or invert
+  arithmetic to prove equality or to infer a parameter: `N + 1` and `1 + N`
+  are different lengths.
 
 ```nia
 fun filled[N: usize](value: u8) [u8; N] {
     [value; N]                  // `[value; 4]` is an error, even for `filled[4]`
 }
 
-fun scratch_len[T]() usize
+fun scratchLen[T]() usize
 where T: Sized {
     let bytes = [0u8; std::builtin::size[T]()];
     bytes.len()
@@ -507,24 +530,25 @@ fun forward[N: usize]() usize {
 }
 ```
 
-A local `const` may keep that same symbolic value through aliases, so it can
-also supply an explicit const argument. Its value is resolved separately for
-each generic instance.
-
-Symbolic computations can supply array lengths, repeat counts, const arguments
-and local `const` initializers. A `const fun` can encapsulate a computation,
-including loops and local state; its body executes in the ordinary const
-interpreter once its arguments are concrete:
+Symbolic computations can supply array lengths, repeat counts, explicit const
+arguments, and local `const` initializers. A local `const` that holds one can
+itself be passed as a const argument, as `K` is above; its value is resolved
+separately for each instance. A computation consists of operators, casts,
+`if`, `match` on a scalar value with literal, path, and range patterns, array
+literals and indexing, and `const fun` calls. Other code, including loops and
+local state, goes into a `const fun`, whose body runs during
+[constant evaluation](#constant-evaluation) once its arguments are concrete.
+Each operand has the type its context gives it, and a literal that does not fit
+that type is an error rather than wrapping. A type alias whose target computes
+a length binds the computation to the alias's arguments: with
+`type Bytes[Q: usize] = [u8; Q + 1];`, `Bytes[3]` is `[u8; 4]`.
 
 ```nia
-fun next[N: usize]() usize { N + 1 }
-
-const fun folded_next[N: usize]() usize { N + 1 }
-const FOUR: usize = folded_next[3]();
-const FIVE: usize = 4 + 1;
+const fun foldedNext[N: usize]() usize { N + 1 }
+const four: usize = foldedNext[3]();
 
 fun scratch[N: usize]() usize {
-    const M = folded_next[N]();
+    const M = foldedNext[N]();
     let bytes = [0u8; N + 1];
     value[M]() + bytes.len()
 }
@@ -532,29 +556,13 @@ fun scratch[N: usize]() usize {
 fun value[N: usize]() usize { N }
 ```
 
-The generic body is type checked once. Each demanded concrete instance must
-then evaluate its required constants successfully, including unused local
-constants. Overflow, division by zero and invalid shifts are errors in constant
-contexts, using the artifact target's integer widths. Boolean `and`/`or` and
-`if` evaluate only the selected operands; an unselected operand cannot cause an
-execution error. Instantiation validates these values without type checking the
-body again. Executable arithmetic follows the ordinary overflow rules.
-
-A computation consists of operators, casts, `if`, `match` on a scalar value
-with literal, path and range patterns, array literals and indexing, and
-`const fun` calls; other code goes into a `const fun`. `match` executes only
-the selected arm, and `std::builtin::error` or `trap` in an unselected branch
-is never reached. Each operand has the type its context gives it, and a
-literal that does not fit that type is an error rather than wrapping. A
-closed operand is its value, so `N + (1 + 2)` and `N + 3` are the same
-computation. A type alias whose target computes a length binds the
-computation to the alias's arguments: with `type Bytes[Q: usize] = [u8; Q +
-1];`, `Bytes[3]` is `[u8; 4]`.
-
-An array value is not a slice or a pointer. Where a pointer or slice is
-expected, its address is taken implicitly as described under
-[Pointers](#pointers). `arr[i]` indexes an array; it is a place when `arr` is
-a place.
+The generic body is type checked once. Each concrete instance that is used then
+evaluates the constants it requires, including unused local constants, without
+type checking the body again; an error in that evaluation, such as an overflow,
+is reported for the instance. `and`, `or`, `if`, and `match` evaluate only the
+selected operands, so `std::builtin::error` or `trap` in a branch that is not
+selected is never reached. Arithmetic in code that runs follows the runtime
+[trap rules](#unchecked-operations-and-traps).
 
 ### Slices
 
@@ -572,12 +580,13 @@ tail[0] = 10;
 ```
 
 The base may be an array, a slice, or a pointer. A pointer `&T` is treated as
-pointing at the first of a run of `T` values: an omitted upper bound means
-length 1, and an explicit range is taken as given (`&p[0..12]` claims twelve
-elements; the program is responsible for that claim). For a pointer to an
-array, the elements of that run are whole arrays, so `p[1]` is the array after
-`p.*`; write `p.*[1]` to index inside the array. Range bounds in slicing have
-type `usize`, and unsuffixed literals in them are inferred as `usize`.
+pointing at the first of a run of `T` values: an omitted upper bound is 1, so
+`&p[..]` has length 1, and an explicit range is taken as given (`&p[0..12]`
+claims twelve elements; the program is responsible for that claim). For a
+pointer to an array, the elements of that run are whole arrays, so `p[1]` is
+the array after `p.*`; write `p.*[1]` to index inside the array. An index may
+have any integer type. Range bounds in slicing have type `usize`, and
+unsuffixed literals in them are inferred as `usize`.
 
 A writable slice requires writable elements: slicing an array value with
 `&mut` needs a writable array place, and slicing through a pointer or slice
@@ -594,11 +603,12 @@ to `&mut [T]` or `&[T]`. An array value reaches a slice through the implicit
 address described under [Pointers](#pointers) followed by this conversion.
 
 Method calls apply the same steps to the receiver when the array type has no
-matching method of its own but the slice type does, so `values.len()`,
-`[1, 2, 3].len()`, and `bytes.ptr()` work on arrays directly. A method that
-takes `&mut self` on a slice needs a writable array place: a `let mut` array
-or an array behind a writable pointer, never a `let` binding, a temporary, or a
-read-only array pointer.
+matching method of its own but the slice type does, so `bytes.ptr()` and the
+slice methods of `std::slice` work on arrays directly. A method that takes
+`&mut self` on a slice needs a writable array place: a `let mut` array or an
+array behind a writable pointer, never a `let` binding, a temporary, or a
+read-only array pointer. `len()` is implemented for arrays, array pointers,
+and slices alike; see [Built-In Methods](builtins.md#built-in-methods).
 
 ```nia
 fun first(xs: &[i32]) i32 {
@@ -609,7 +619,7 @@ fun clear(xs: &mut [i32]) {
     xs[0] = 0;
 }
 
-fun use_arrays() i32 {
+fun useArrays() i32 {
     let mut arr = [1, 2, 3];
     clear(arr);
     let count = arr.len() as i32;
@@ -635,10 +645,12 @@ Range expressions and range types share six shapes:
 | `..=b` | `..=T` | no | yes |
 | `..` | `..` | no | no |
 
-There is no nominal range type. Both bounds of a bounded range have the same
-integer type. Ranges are ordinary values; `start()` and `end()` return the
-bound. An omitted slice bound is supplied by the slicing operation, not by
-rewriting the range. `a..b`, `a..=b`, and `a..` are iterable in `for` loops.
+Range types are structural: no declaration names them. Both bounds of a
+bounded range have the same integer type. Ranges are ordinary values, and the
+[built-in methods](builtins.md#built-in-methods) `start()` and `end()` return
+their bounds. An omitted slice bound is supplied by the slicing operation, not
+by rewriting the range. `a..b`, `a..=b`, and `a..` are iterable in
+[`for` loops](#loops).
 
 ```nia
 fun span() usize {
@@ -674,8 +686,9 @@ Values are inspected with [patterns](#patterns) and propagated with
 `std` implements `?T : Eq[?T]` when `T: Eq[T]`: two optionals are equal when
 both are `null`, or both are present with equal values. A `null` or `?value`
 operand takes the other operand's type, as an omitted enum member does, so
-`found == null` and `found == ?2` compare with `found: ?usize`. `is null` and
-`isNull()` test the case without requiring `T: Eq[T]`.
+`found == null` and `found == ?2` compare with `found: ?usize`. The pattern
+condition `found is null` and the method `isNull()` of `std::option` test the
+case without requiring `T: Eq[T]`.
 
 ### Structs, Unions, And Enums
 
@@ -697,25 +710,26 @@ fun id[T](x: T) T {
     x
 }
 
-fun call_items() i32 {
+fun callItems() i32 {
     let f = add;
     let g = id[i32];
     f(1, 2) + g(3)
 }
 ```
 
-`&fun(A, B) R` is a thin function pointer. A function item is converted to one
-where that pointer type is expected, as an argument, initializer, field,
-element, or return value; without an expected pointer type, `&name` requests
-the conversion and a bare `name` stays a function item. A generic function must
-be instantiated first (`id[i32]`, not `id`). Where a callable view is expected,
-the function item first decays to a thin pointer and then to the view, so `name`
-may be passed directly.
-An omitted return type means `()`. Only the read-only form exists; `&mut fun`
-is an error. `&extern fun(A, B) R` is a pointer to a function with the C calling
+`&fun(A, B) R` is a thin function pointer; an omitted `R` means `()`. Only the
+read-only form exists: `&mut fun` is an error. A function item is converted to
+a thin pointer where that pointer type is expected, as an argument,
+initializer, field, element, or return value. Without an expected pointer
+type, `&name` requests the conversion and a bare `name` stays a function item.
+A generic function must be instantiated first (`id[i32]`, not `id`). Where a
+[callable view](#callable-views) is expected, the function item first becomes
+a thin pointer and then a view, so `name` may be passed directly.
+
+`&extern fun(A, B) R` is a pointer to a function with the C calling
 convention, formed the same way from an `extern fun`; `extern` appears only in
-the type. Function pointer types describe runtime calls and are never callable
-during constant evaluation.
+the type. Function pointers describe runtime calls and cannot be called during
+[constant evaluation](#constant-evaluation).
 
 ```nia continued
 fun pointers() i32 {
@@ -725,11 +739,11 @@ fun pointers() i32 {
 }
 ```
 
-Enum variants with a tuple payload convert to function pointers the same way.
-An inherent associated function or unbound method such as `Vec2::len2` is
-also a function item. It follows the same contextual pointer and callable-view
-conversions; `&Vec2::len2` explicitly requests a pointer. The receiver remains
-the first parameter; no instance is captured. See [Enums](#enums) and
+A non-unit enum variant converts to a function pointer the same way; see
+[Enums](#enums). An inherent associated function or unbound method such as
+`Vec2::len2` is also a function item, with the same conversions to pointers and
+callable views; `&Vec2::len2` requests a pointer explicitly. The receiver
+remains the first parameter, and no instance is captured; see
 [Methods](#methods).
 
 ### Callable Views
@@ -771,7 +785,7 @@ A source file is a sequence of items. Every item may be preceded by
 | External function | `extern fun name(params) Return;` or with a body |
 | Struct | `struct Name { field: T, ... }`, `struct Name(T, ...)`, `extern struct` |
 | Union | `union Name { field: T, ... }`, `extern union` |
-| Enum | `enum Name: Backing { Variant, ... }` |
+| Enum | `enum Name { Variant, ... }`, `enum Name: Backing { ... }` |
 | Type alias | `type Name = T;` |
 | Trait | `trait Name { ... }` ([Traits](#traits)) |
 | Extension | `extend Type { ... }`, `extend Type : Trait { ... }` ([Methods](#methods)) |
@@ -828,20 +842,18 @@ extern static mut shared_counter: usize;
   C-callable function. Both use the source name as the symbol name.
 - `@[linkName("symbol")]` renames the symbol a bodyless `extern fun` or an
   `extern static` refers to. `@[exportName("symbol")]` renames the symbol an
-  `extern fun` definition exports. Neither applies to ordinary functions, and
-  there is no `noMangle` attribute; ordinary functions always use Nia's internal
-  names.
+  `extern fun` definition exports. Neither applies to other items; there is no
+  attribute that gives an ordinary function a C symbol name.
 - `...` makes a declaration variadic. Only bodyless `extern fun` declarations
   can be variadic.
 - `extern static` declares a foreign global and requires a type; it has no
   initializer.
 - `extern fun` cannot be `const` or generic.
-- In an executable, every top-level `pub extern fun` definition in a module of
-  the entry package is exported, even if Nia code never calls it.
 
 There are no `extern { ... }` blocks and no ABI strings. Which types may cross
-the boundary, symbol naming, and argument promotion for variadic calls are
-specified in the [ABI reference](abi.md#the-c-abi-boundary); the
+the boundary, symbol names, argument promotion for variadic calls, and which
+`extern fun` definitions an executable exports are specified in the
+[ABI reference](abi.md#the-c-abi-boundary); the
 [C interop guide](../guides/c-interop.md) shows the patterns.
 
 ### Structs
@@ -911,9 +923,15 @@ enum Event {
 }
 ```
 
-Enums use the same type and const generic model as structs and unions. Generic
-parameters are substituted in every variant payload and each concrete
-instantiation has its own representation:
+An enum lists variants. A variant is unit-like, carries a tuple payload
+(`Data(i32)`), or carries named fields (`Resize { ... }`). Any variant may have
+an explicit integer value (`Red = 10`); otherwise values start at 0 and
+increase by one from the previous variant. The backing integer type follows `:`
+and defaults to `u8`; every value must fit in it.
+
+Enums take [generic](#generics) parameters as structs and unions do. The
+parameters are substituted in every variant payload, and each instance has its
+own representation:
 
 ```nia
 enum Packet[T, N: usize] {
@@ -927,24 +945,15 @@ fun example() Packet[i32, 4] {
 }
 ```
 
-The enum declaration and its variants may be defined in one module and used
-from another; the complete type and const argument list identifies the
-instance for layout, ABI, construction, and pattern matching.
-
-An enum lists variants. A variant is unit-like, carries a tuple payload
-(`Data(i32)`), or carries named fields (`Resize { ... }`). Any variant may have
-an explicit integer value (`Red = 10`); otherwise values start at 0 and
-increase by one from the previous variant. The backing integer type follows `:`
-and defaults to `u8`; every value must fit in it.
-
 Variants are named through the enum: `Color::Black`, `Event::Data(1)`,
 `Event::Resize { width: 1, height: 2 }`. Where the expected type is an enum,
-the owner may be omitted: `.Black`, `.Data(1)`, `.Resize { width: 1, height: 2 }`.
+the owner may be omitted: `.Black`, `.Data(1)`,
+`.Resize { width: 1, height: 2 }`.
 
 An enum value casts to any integer type. Integers do not cast to an ordinary
 (closed) enum. An open enum ends its body with `_`; every value of its backing
 type is then a valid value, integers cast to it, and every `match` on it needs a
-`_` arm:
+`_` arm. Only an enum without payloads can be open:
 
 ```nia continued
 enum Flag: u32 {
@@ -953,7 +962,7 @@ enum Flag: u32 {
     _,
 }
 
-fun flag_value() u32 {
+fun flagValue() u32 {
     let flag: Flag = 3 as Flag;
     flag as u32
 }
@@ -1000,7 +1009,7 @@ in a block; a block-level static is visible only in that block.
 ```nia
 static greeting: [u8; 6] = b"hello\0";
 static mut counter: i32 = 0;
-static first_byte = &greeting[0];
+static firstByte = &greeting[0];
 static buffer: [u8; 64];
 
 fun bump() i32 {
@@ -1040,12 +1049,13 @@ struct Config {
 }
 
 const config = Config { width: 8 };
-const config_width: usize = config.width;
+const configWidth: usize = config.width;
 ```
 
-Constants may appear at top level, as [associated constants](#associated-constants),
-and in blocks. There is no `const mut` and no `const let`. Contexts that need a
-compile-time value, such as array lengths, read constants, not statics.
+Constants may appear at top level, as
+[associated constants](#associated-constants), and in blocks. There is no
+`const mut` and no `const let`. Contexts that need a compile-time value, such
+as array lengths, read constants, not statics.
 
 ### Local Bindings
 
@@ -1108,8 +1118,9 @@ attributes select only whole items and statements.
 | `@[cpuFeatures("avx2", "bmi2")]` | functions and methods with a body | enables additional instruction sets for that function |
 | `@[naked]` | `extern fun` definitions | no compiler-generated prologue or epilogue |
 
-An unrecognized attribute on a function, static, constant, trait, or type alias
-is an error. On struct declarations, fields, and statements an unrecognized
+An unrecognized attribute on a function or method, a static, a constant, or a
+trait is an error. On other items (structs, unions, enums, type aliases,
+`extend` blocks, and imports), on fields, and on statements an unrecognized
 attribute has no effect.
 
 #### Conditional Compilation
@@ -1137,7 +1148,7 @@ feature, which depends on the [CPU level](platform-support.md#cpu-levels) the
 code is built for, not on the machine compiling it. The feature names, such as
 `"ssse3"`, `"avx2"`, and `"neon"`, and the level that first guarantees each are
 listed there. An unknown name is an error; a feature of another architecture
-is simply false, so a condition can name an AArch64 feature while building for
+is false, so a condition can name an AArch64 feature while building for
 x86_64.
 
 An item or statement may carry several `@[if ...]` attributes; it is kept only
@@ -1145,16 +1156,16 @@ when every one holds, exactly as if their conditions were joined with `and`.
 
 ```nia
 @[if os == "linux" and arch == "x86_64"]
-fun platform_name() [char; 12] {
+fun platformName() [char; 12] {
     "linux-x86_64"
 }
 
 @[if not (os == "linux" and arch == "x86_64")]
-fun platform_name() [char; 5] {
+fun platformName() [char; 5] {
     "other"
 }
 
-fun word_size() usize {
+fun wordSize() usize {
     @[if pointerWidth == 64]
     return 8;
     4
@@ -1181,10 +1192,10 @@ well.
 #### Build Profiles And Tests
 
 `@[debug]` and `@[release]` keep an item or statement only in the matching
-build profile; the default profile is `debug`. An item may carry at most one
-profile attribute. `@[test]` keeps code only in a test compilation, in either
-profile; a test suite artifact is compiled that way, ordinary artifacts are
-not. Profile and test selection is independent of target facts,
+build profile; the default profile is `debug`. An item or statement may carry
+at most one profile attribute. `@[test]` keeps code only in a test
+compilation, in either profile: test suites are compiled that way, other
+artifacts are not. Profile and test selection is independent of target facts,
 optimization level, and runtime.
 
 #### Caller Location
@@ -1218,28 +1229,28 @@ profitable, within a codegen unit and, through link-time optimization, across
 units. `@[inlineNever]` keeps a function out of line at every level: no
 caller receives a copy of its body, so the function stays a separate symbol
 with its own frame, as cold paths, profiling, and stack measurements may
-need. It does not exempt calls from other optimizations: a call that has no
-effects and whose result is known can still be removed, as it can for any
-function. The attribute takes no arguments and needs a body; on a generic
-function it applies to every instance.
+need. Calls to it are still subject to other optimizations: a call that has no
+effects and whose result is known can be removed, as for any function. The
+attribute takes no arguments and needs a body; on a generic function it
+applies to every instance.
 
 ```nia
 @[inlineNever]
-fun reportOverflow(value: u64) () {
+fun reportOverflow(value: u64) {
     _ = value;
 }
 ```
 
 `@[inlineAlways]` is the opposite guarantee: no direct call to the function
 remains, at every optimization level including `-O0`, `-Os`, and `-Oz`, and
-whether or not link-time optimization runs. A call into another module is
-inlined as well; that module's code generation does not decide it. It suits
-small helpers whose cost would otherwise be the call itself, such as wrappers
-around [vector builtins](builtins.md#simd), and code that should run at the
-same speed in debug builds. Taking the function's address is still allowed:
-a call through the pointer is an ordinary call, as for any function. The
-attribute takes no arguments, needs a body, and applies to every instance of a
-generic function. It cannot be combined with `@[inlineNever]` or `@[naked]`.
+whether or not link-time optimization runs. A call from another module is
+inlined as well; that module's code generation does not decide it. The
+attribute suits small helpers whose cost would otherwise be the call itself,
+such as wrappers around [vector builtins](builtins.md#simd), and code that
+should run at the same speed in debug builds. Taking the function's address is
+still allowed: a call through the pointer is an ordinary call. The attribute
+takes no arguments, needs a body, and applies to every instance of a generic
+function. It cannot be combined with `@[inlineNever]` or `@[naked]`.
 
 Functions marked `@[inlineAlways]` must not call each other in a cycle,
 directly or through other such functions, because one call in the cycle would
@@ -1259,8 +1270,8 @@ fun anyAbove(bytes: u8x16, limit: u8) bool {
 The compiler checks the guarantee: if a direct call to such a function were
 still present after optimization, the build fails with an internal error
 rather than produce code that breaks it. Inlining makes code larger, so the
-attribute is for functions that are small at each call site; the
-optimization levels, and `-Os` and `-Oz` for size, govern every other call.
+attribute is for functions that are small at each call site; the optimization
+level governs every other call.
 
 #### Function CPU Features
 
@@ -1278,10 +1289,11 @@ Conditional compilation and `std::builtin::target::hasFeature` continue to
 describe the whole build; a function attribute does not change them. A runtime
 query such as `std::cpu::supports(.Avx2)` tests whether the running process can
 use that feature. Nia does not generate alternative implementations or choose
-one automatically; [explicit dispatch](../guides/targets.md#function-cpu-features)
-selects the function to call.
+one automatically;
+[explicit dispatch](../guides/targets.md#function-cpu-features) selects the
+function to call.
 
-Calls to the function are not checked, in any build profile. Calling it on a
+Calls to the function are not checked in any build profile. Calling it on a
 processor without its features can execute an illegal instruction; the caller
 is responsible for dispatching correctly.
 
@@ -1298,9 +1310,10 @@ feature boundary.
 A `@[naked]` `extern fun` has a body that consists of inline assembly only. The
 compiler emits no prologue, epilogue, frame, or spills, so its
 [`asm`](builtins.md#inline-assembly) calls cannot have `inputs` or `outputs`.
-The assembly must not return into compiled code; it names other symbols
-directly. Naked functions serve process entry and helpers whose register
-contract no calling convention describes.
+Control must not run off the end of the assembly, because the function has no
+compiled code to continue into, and the assembly refers to other symbols by
+name. Naked functions serve process entry and helpers whose register contract
+no calling convention describes.
 
 ## Patterns
 
@@ -1312,7 +1325,7 @@ accept all of them.
 | --- | --- | --- |
 | `_` | anything, binds nothing | yes |
 | `name` | anything, binds `name` | yes |
-| `mut name` | anything, binds a mutable `name` | yes |
+| `mut p` | what `p` matches; every name `p` binds is mutable | if `p` is |
 | `(p0, p1, ...)` | a tuple, element by element | if all elements are |
 | `&p`, `&mut p` | a `&T` / `&mut T`, matching `p` against the pointee | if `p` is |
 | `Name { f: p, g, .. }` | a struct by fields | if all listed fields are |
@@ -1326,15 +1339,16 @@ accept all of them.
 | `p!` | an error-union error whose value matches `p` | no |
 | literal | an equal integer, `char`, or `bool` value (`0`, `'a'`, `true`) | no |
 | `a..b`, `a..=b` | an integer in the half-open or inclusive range | no |
-| `path::NAME`, `(expr)` | a value equal to a named constant | no |
+| `path::name`, `(expr)` | a value equal to a named constant or a constant expression | no |
 
 A bare identifier always introduces a binding, whatever its spelling. To match
 against a named constant or variant, use a qualified path (`Color::Red`), the
 contextual form (`.Red`), or parentheses (`(limit)`).
 
-A value pattern with an operator is written in parentheses, `(LIMIT + 1)`.
-There are no alternative patterns: `1 | 2` is an error rather than the value
-`3`; write one arm per value, or a range.
+A value pattern with an operator is written in parentheses, `(limit + 1)`.
+There is no `|` pattern: `1 | 2` is an error rather than the value `3`. An arm
+lists alternatives separated by commas instead, as in `0, 1 => ...`, but only
+if none of them binds a name.
 
 Struct patterns name the type. Field `x` is shorthand for `x: x`; `field: _`
 ignores one field. Fields may appear in any order. All fields must be listed
@@ -1400,7 +1414,7 @@ fun nested(value: ?(u8!i32)) i32 {
 In bindings, pointer and struct patterns destructure without a `match`:
 
 ```nia continued
-fun swap_sum(pair: &(i32, i32), point: Point) i32 {
+fun swapSum(pair: &(i32, i32), point: Point) i32 {
     let &(a, b) = pair;
     let Point { x, .. } = point;
     a + b + x
@@ -1413,9 +1427,6 @@ Every `match` must be exhaustive, including one used only for its effects;
 write `_ => {}` to ignore the remaining values. Exhaustiveness is computed over
 nested patterns, and an error names one missing pattern. An arm that earlier
 arms already cover is an error. A `match` on an open enum always needs `_`.
-
-An arm may list several patterns separated by commas, but only if none of them
-binds a name.
 
 ## Statements And Expressions
 
@@ -1447,9 +1458,7 @@ fun discard() {
 }
 ```
 
-`_` only discards: it is not a value, and reading it is an error. Neither are
-the path roots `root` and `super`, which name modules and begin paths such as
-`root::name`.
+`_` only discards: it is not a value, and reading it is an error.
 
 Assignment `place = value` and compound assignment
 (`+= -= *= /= %= <<= >>= &= ^= |=`) require a writable place: a `let mut`
@@ -1476,17 +1485,27 @@ fun grade(score: i32) char {
 }
 ```
 
-The condition is a `bool`. Used as a value, an `if` needs an `else` and
-compatible branch types. Without `else` its type is `()`.
+The condition is a `bool`. Without `else` an `if` has type `()`, so an `if`
+used as a value needs an `else`.
+
+The branches of an `if` and the arms of a `match` have one type: the type the
+context expects, or else the type of the first branch that has a type of its
+own. A branch whose type can only come from its context, such as an unsuffixed
+literal, takes that type wherever it is, so `if c { 1usize } else { 0 }` and
+`if c { 0 } else { 1usize }` are both `usize`. When no branch has a type of its
+own, such a literal gives its default. A branch with no type of its own at
+all, such as `null` or an omitted `.Variant`, never gives the type, so
+`if c { null } else { ?1 }` is `?i32`. A branch of type `never`, such as one
+that ends in `return`, adds no type.
 
 ### Pattern Conditions
 
 `expr is pattern` inside an `if` condition tests one refutable pattern. The
 expression is evaluated once, and bindings are visible in the `then` branch
-only. `mut` goes inside the pattern: `if maybe is mut ?value { ... }`.
+only. `mut` is part of the pattern: `if maybe is mut ?value { ... }`.
 
 ```nia continued
-fun first_or_zero(maybe: ?i32) i32 {
+fun firstOrZero(maybe: ?i32) i32 {
     if maybe is ?value {
         value
     } else {
@@ -1501,7 +1520,7 @@ of them are visible in `else`. Plain boolean clauses may come before, between,
 or after `is` clauses.
 
 ```nia continued
-fun ready_width(enabled: bool, maybe: ?Point) i32 {
+fun readyWidth(enabled: bool, maybe: ?Point) i32 {
     if enabled and maybe is ?p and p.x > 0 and not (p.y == 0) {
         p.x
     } else {
@@ -1527,10 +1546,12 @@ fun code(shape: Shape) i32 {
 ```
 
 `match` tests arms in order and runs the first that matches; there is no
-fallthrough. Arms are separated by `,`. An arm body is an expression, a block,
-or one of `return expr`, `break`, `continue`, `defer expr` written without `;`.
-Arm values must have compatible types, except arms that diverge. See
-[Patterns](#patterns) for patterns and exhaustiveness.
+fallthrough. Arms are separated by `,`; the comma after an arm whose body is a
+block may be omitted, and a trailing comma is allowed. An arm body is an
+expression, a block, or one of `return`, `return expr`, `break`, `continue`,
+and `defer expr`, written without `;`. The arms have one type, determined as
+for the branches of an [`if`](#if). See [Patterns](#patterns) for patterns and
+exhaustiveness.
 
 ### Loops
 
@@ -1652,7 +1673,7 @@ through its [operator trait](#built-in-traits), so user types gain operators by
 implementing the trait, and generic code must state the bound it uses:
 
 ```nia
-fun sum_of[T](a: T, b: T) T
+fun sumOf[T](a: T, b: T) T
 where T: Add[T, Output = T] {
     a + b
 }
@@ -1871,8 +1892,8 @@ conversion. A closure with captures cannot become a `&fun(...)`.
 ```nia
 fun views() i32 {
     let base = 5;
-    let add_base = \[base] value: i32 -> base + value;
-    let view: &Fun(i32) i32 = add_base;
+    let addBase = \[base] value: i32 -> base + value;
+    let view: &Fun(i32) i32 = addBase;
 
     let increment = \value: i32 -> value + 1;
     let pointer: &fun(i32) i32 = increment;
@@ -1895,7 +1916,7 @@ owner from a library.
 ## Constant Evaluation
 
 Constant evaluation runs at compile time for `const` initializers, array
-lengths, repeat counts, range-pattern endpoints, const generic arguments, and
+lengths, repeat counts, value and range patterns, const generic arguments, and
 calls made from those contexts. It uses the same types and values as runtime
 code: nominal structs, arrays, tuples, enums, and unions, with
 target-dependent sizes taken from the [ABI](abi.md). Reads of uninitialized
@@ -1905,16 +1926,16 @@ compiler host.
 
 `const fun` marks a function callable during constant evaluation; it is also an
 ordinary runtime function. A constant context may call `const fun`s but not
-ordinary `fun`s. Each call is staged by its context:
+ordinary `fun`s. Where a call appears decides when it runs:
 
 ```nia
 const fun double(value: usize) usize {
     value * 2
 }
 
-const table_len: usize = double(5);    // evaluated at compile time
+const tableLen: usize = double(5);     // evaluated at compile time
 
-fun runtime_double(value: usize) usize {
+fun runtimeDouble(value: usize) usize {
     double(value)                       // an ordinary runtime call
 }
 ```
@@ -1925,7 +1946,7 @@ takes. Inside a `const fun`, `let mut` locals, loops, aggregates, and
 destructuring work as at runtime, and each call has fresh locals:
 
 ```nia
-const fun count_up(limit: usize) usize {
+const fun countUp(limit: usize) usize {
     let mut value: usize = 0;
     while value < limit {
         value += 1;
@@ -1933,7 +1954,7 @@ const fun count_up(limit: usize) usize {
     value
 }
 
-const fun shifted_sum(pair: (i32, i32)) i32 {
+const fun shiftedSum(pair: (i32, i32)) i32 {
     let mut (x, y) = pair;
     x += 1;
     y += 1;
@@ -1953,37 +1974,33 @@ Pointers in constant evaluation follow these rules:
 - Pointers are never converted to host addresses, and integers never become
   pointers.
 
-Constant evaluation does not materialize callable values. Function items
-(including methods), closures, thin function pointers, callable views, and
-enum constructor pointers cannot be materialized as values, stored, passed, or
-invoked indirectly during constant evaluation. Direct calls to a `const fun`
-remain available. In a `const fun`, a `for` loop requires the selected `Iterable::iter`
-and `Iterator::next` implementations to be `const fun`. The standard library's
+Constant evaluation has no callable values. Function items (including
+methods), closures, thin function pointers, callable views, and enum
+constructor pointers cannot be stored, passed, or called indirectly during
+constant evaluation; direct calls to a `const fun` remain available. In a
+`const fun`, a `for` loop requires the selected `Iterable::iter` and
+`Iterator::next` implementations to be `const fun`. The standard library's
 integer ranges (`a..b`, `a..=b`, `a..`) provide them; slice iteration does not,
 so a loop over a slice in a `const fun` uses an index. A `&self` receiver of a
 `const fun` is a read-only pointer, as at runtime.
 
-`std::builtin::trap()` returns `never`; reached during constant evaluation it is
-a compile-time error at the call, and at runtime it traps.
-`std::builtin::error(message)` makes `message` a compile-time error when it is
-reached. Either may appear in a branch that a particular evaluation does not
-take. `error` is const-only: a `const fun` that contains it cannot be called
-from runtime code. The
-layout builtins `size`, `align`, and `offset` are constants when their type
-argument is concrete and can be used in array lengths and `const` initializers;
-a static initializer uses them through a named `const`.
-`std::builtin::embed` is valid only in constant evaluation. See the
-[builtins reference](builtins.md).
+`std::builtin::trap()` reached during constant evaluation is a compile-time
+error at the call; at runtime it traps. `std::builtin::error(message)` reports
+`message` as a compile-time error when it is reached. Either may appear in a
+branch that a particular evaluation does not take. Which builtins are
+const-only, such as `error` and `embed`, and which are constants usable in
+array lengths, such as `size`, are specified in the
+[builtins reference](builtins.md#control-and-compile-time-data).
 
 ```nia
-const fun checked_width(width: i32) i32 {
+const fun checkedWidth(width: i32) i32 {
     if width < 0 {
         std::builtin::error("width must not be negative");
     }
     width
 }
 
-const width: i32 = checked_width(4);
+const width: i32 = checkedWidth(4);
 ```
 
 Integer arithmetic in constant evaluation follows the
@@ -1997,10 +2014,9 @@ limit is reported as an error and never changes a result.
 
 ## Generics
 
-Functions, structs, unions, type aliases, and traits take generic parameters in
-brackets after the name, and `extend` takes them after the keyword
-(`extend[T] Box[T]`). Enums use the same type and const generic model as
-structs and unions, including generic payload variants.
+Functions, structs, unions, enums, type aliases, and traits take generic
+parameters in brackets after the name, and `extend` takes them after the
+keyword (`extend[T] Box[T]`).
 
 ```nia
 fun identity[T](x: T) T {
@@ -2047,7 +2063,7 @@ fun choose[T, U](value: T, other: U) T {
     value
 }
 
-fun generic_calls() usize {
+fun genericCalls() usize {
     let a = choose(1, true);              // all inferred
     let b = choose[i32, _](2, false);     // `U` inferred
     let c = length[_, _]([1, 2, 3]);
@@ -2056,18 +2072,19 @@ fun generic_calls() usize {
 }
 ```
 
-Type arguments can be inferred through Nia's implicit pointer adjustments. For
-example, a value passed to `&T` or `&mut T` can determine `T`; an array passed
-to a slice parameter can determine its element type. The completed call still
-checks the same addressability and mutability rules as an explicitly typed
-call. Expected result types can also determine generic arguments.
+Type arguments can be inferred through the implicit address and slice
+conversions: a value passed to `&T` or `&mut T` can determine `T`, and an
+array passed to a slice parameter can determine its element type. The
+completed call still checks the same addressability and mutability rules as an
+explicitly typed call. The expected result type can also determine generic
+arguments.
 
 Requirements on parameters go in a `where` clause after the signature or type
 header. Predicates are separated by commas, and several bounds on one parameter
 are joined with `+`:
 
 ```nia
-fun at_most[T, U](value: &T, limit: &U) bool
+fun atMost[T, U](value: &T, limit: &U) bool
 where T: Ord[U] + Eq[U], U: Sized {
     value.* < limit.* or value.* == limit.*
 }
@@ -2080,8 +2097,9 @@ enclosing trait or `extend` block.
 
 ## Methods
 
-An `extend` block attaches associated functions, methods, and associated
-constants to a type:
+An `extend` block without a trait, called an inherent block, attaches
+associated functions, methods, and associated constants to a type; a block
+that implements a trait is described under [Traits](#traits):
 
 ```nia
 struct Vec2 {
@@ -2090,7 +2108,7 @@ struct Vec2 {
 }
 
 extend Vec2 {
-    const ZERO: Vec2 = Vec2 { x: 0, y: 0 };
+    const zero: Vec2 = Vec2 { x: 0, y: 0 };
 
     pub fun new(x: i32, y: i32) Self {
         Self { x, y }
@@ -2104,7 +2122,7 @@ extend Vec2 {
         self.x += dx;
     }
 
-    pub fun into_x(self) i32 {
+    pub fun intoX(self) i32 {
         self.x
     }
 }
@@ -2118,36 +2136,56 @@ extend Vec2 {
 | none | associated function, called as `Type::name(...)` |
 
 `Self` names the extended type inside the block (and the implementing type
-inside a trait). `extend` blocks contain `fun`, `const fun`, and `const` members;
-inherent blocks cannot define associated types, and `let` members are not
-allowed. An `extend` block itself has no visibility; visibility is written on
-each member.
-
-Method calls resolve statically; `.` never implies dynamic dispatch except on
-[trait objects](#trait-object-coercion-and-dispatch). Candidates are the trait
-implementation methods for the receiver type, which need no import (see
-[Extension Targets](#extension-targets)), and the methods of plain `extend`
-blocks for it: public ones from modules that the caller imports with `using` or
-that a module it imports re-exports (see [Re-Exports](#re-exports)), and
-private ones in their own module. Two
-visible methods with the same name for the same receiver type make a call
-ambiguous.
-
-A nominal type also exposes public inherent members declared in its defining
-module, including through a qualified type path. This does not bring that
-module's imports or extensions on other targets into scope.
+inside a trait). `extend` blocks contain `fun`, `const fun`, and `const`
+members; inherent blocks cannot define associated types, and `let` members are
+not allowed. An `extend` block itself has no visibility; visibility is written
+on each member. A method or associated function is also reached through its
+type's path, as a call or as a function item:
 
 ```nia continued
 fun methods() i32 {
     let mut v = Vec2::new(3, 4);
     v.shift(1);
-    let by_path = Vec2::len2(v);         // receiver passed explicitly
+    let byPath = Vec2::len2(v);           // receiver passed explicitly
     let item = Vec2::len2;                // statically known, unbound method
-    let f: &fun(&Vec2) i32 = Vec2::len2;   // converted by the expected type
+    let f: &fun(&Vec2) i32 = Vec2::len2;  // converted by the expected type
     let view: &Fun(&Vec2) i32 = Vec2::len2;
-    by_path + item(v) + f(v) + view(v) + Vec2::ZERO.into_x()
+    byPath + item(v) + f(v) + view(v) + Vec2::zero.intoX()
 }
 ```
+
+### Method Lookup
+
+Method calls resolve statically; `.` dispatches dynamically only on
+[trait objects](#trait-object-coercion-and-dispatch). The candidates for
+`value.name(...)` are the methods named `name` whose target matches the
+receiver type:
+
+- Methods of trait implementations. They need no import, because an
+  implementation is found through the packages that may declare it (see
+  [Where Implementations Live](#where-implementations-live)); lookup follows the
+  trait's visibility, including the restrictions on `pub(root)` and private
+  traits. Calls such as `xs.len()` and loops such as `for i in 0..3` therefore
+  need no `using`.
+- Methods of inherent blocks, which are scoped: the private ones of the
+  caller's own module, the public ones declared in the module that defines the
+  receiver's nominal type, and the public ones of modules that the caller
+  imports with `using` or that a module it imports
+  [re-exports](#re-exports). Using a type does not bring its defining module's
+  imports, or that module's inherent blocks for other types, into scope.
+
+A method of an inherent block that accepts the call is chosen over a trait
+method of the same name. Among methods of inherent blocks, the one whose
+target is strictly more specific is chosen, as for
+[overlapping implementations](#overlapping-implementations); two equally
+specific methods make the call ambiguous, and so do methods of the same name
+from two traits. In generic code, a method that a bound of a type parameter
+provides is called through that bound; see [Resolution](#resolution).
+
+An `extend` block's `where` clause limits the receivers its methods apply to.
+A call on a receiver whose type matches the target but fails the clause is
+reported with the requirement that does not hold, such as
+`` `rev` requires `Take[Range[usize]]: DoubleEndedIterator` ``.
 
 ### Extension Targets
 
@@ -2165,51 +2203,29 @@ extend[T] Box[T] {
         self.value
     }
 
-    fun swap_in[U](&self, other: U) U {
+    fun swapIn[U](&self, other: U) U {
         other
     }
 }
 
 extend[T] &T {
-    fun is_null(self) bool {
+    fun isNull(self) bool {
         self as usize == 0
     }
 }
 
 fun boxes() bool {
     let b = Box[i32] { value: 1 };
-    let flag = b.swap_in[bool](true);
-    let p: &fun(&Box[i32], bool) bool = Box[i32]::swap_in[bool];
+    let flag = b.swapIn[bool](true);
+    let p: &fun(&Box[i32], bool) bool = Box[i32]::swapIn[bool];
     _ = p(b, flag);
-    [&u8]::is_null(0usize as &u8)
+    [&u8]::isNull(0usize as &u8)
 }
 ```
 
 A structural target is named in a path by wrapping it in brackets:
-`[&u8]::is_null`, `[&[char]]::name`. This is only a path to the target's
+`[&u8]::isNull`, `[&[char]]::name`. This is only a path to the target's
 members; it neither captures a receiver nor creates a short name.
-
-[Where Implementations Live](#where-implementations-live) specifies which
-packages may declare a trait implementation. Trait method lookup follows the
-trait's visibility, including the restrictions on `pub(root)` and private
-traits. Calls such as `xs.len()` and loops such as `for i in 0..3` need no
-`using` for their trait implementations.
-Extension methods declared without a trait are different: they are scoped and
-need a `using` of their module, or of a module that
-[re-exports](#re-exports) it. An extension block's `where` clause limits the
-receivers its methods apply to. A call on a receiver whose type matches the
-target but fails the clause is reported with the requirement that does not
-hold, such as `` `rev` requires `Take[Range[usize]]: DoubleEndedIterator` ``.
-
-When two implementation headers overlap, a strictly more-specific header may
-specialize the general one and is selected for matching types. A header is
-more specific when every type and const-argument combination it matches also
-matches the general header, but the reverse does not hold. Declaration order
-does not affect selection. Duplicate unconditional headers are rejected.
-Conditional implementations are filtered by their `where` requirements, and
-multiple applicable candidates without a unique most-specific header are
-ambiguous. Ordinary inherent extensions and
-extension methods remain scoped by `using` as described above.
 
 ### Contextual Receiver Inference
 
@@ -2314,7 +2330,7 @@ extend Point : Ordered {
     }
 }
 
-fun distinct_and_less[T](a: &T, b: &T) bool
+fun distinctAndLess[T](a: &T, b: &T) bool
 where T: Ordered {
     a.different(b) and a.less(b)
 }
@@ -2353,16 +2369,16 @@ extend Counter : Source {
     }
 }
 
-fun read_any[T](source: &T) [T as Source]::Item
+fun readAny[T](source: &T) [T as Source]::Item
 where T: Source {
     source.get()
 }
 ```
 
 A bound may fix associated types after the positional trait arguments:
-`T: Add[T, Output = T]`, `T: Mapper[i32, bool, C = i32, D = bool]`. Each name must
-be an associated type of the trait and may be bound once. The binding is part
-of that bound, not a separate equality.
+`T: Add[T, Output = T]`, `T: Mapper[i32, bool, C = i32, D = bool]`. Each name
+must be an associated type of the trait and may be bound once. The binding is
+part of that bound, not a separate equality.
 
 ```nia continued
 fun mapped[T](value: &T) i32
@@ -2383,7 +2399,7 @@ separate entry, as in `trait A : B + C[Name = T]`.
 ```nia continued
 trait Ranked : Source {}
 
-fun read_ranked[T](source: &T) i32
+fun readRanked[T](source: &T) i32
 where T: Ranked[[Self as Source]::Item = i32] {
     source.get()
 }
@@ -2391,18 +2407,19 @@ where T: Ranked[[Self as Source]::Item = i32] {
 
 ### Associated Constants
 
-A trait declares `const NAME: Type;` without a value, and each implementation
-supplies `const NAME: Type = value;`. Inherent `extend` blocks may also define
-associated constants. They are read as `Type::NAME`; in generic code, where the
-implementing type is a parameter, use the projection form `[T as Lanes]::COUNT`.
+A trait declares `const name: Type;` without a value, and each implementation
+supplies `const name: Type = value;`. Inherent `extend` blocks may also define
+associated constants. They are read as `Type::name`; in generic code, where
+the implementing type is a parameter, use the projection form
+`[T as Lanes]::count`.
 
 ```nia continued
 trait Lanes {
-    const COUNT: usize;
+    const count: usize;
 }
 
 extend Point : Lanes {
-    const COUNT: usize = 1;
+    const count: usize = 1;
 }
 ```
 
@@ -2410,10 +2427,7 @@ extend Point : Lanes {
 
 In generic code a trait method call is resolved through the bound that
 provides it; for a concrete instantiation the selected implementation supplies
-the body and the associated types. User implementations may use strict
-specialization, but they may not overlap the intrinsic implementations the
-language provides for primitive and structural types, such as equality on
-pointers.
+the body and the associated types.
 
 ### Where Implementations Live
 
@@ -2446,10 +2460,19 @@ another package could own the type an uncovered parameter stands for. An
 executable or test tree is a package of its own for this rule, so it implements
 traits for the types and traits it defines.
 
-Within the packages that may implement a goal, two unconditional
-implementations with the same header are an error; an implementation whose
-header is strictly more specific than another's specializes it, and
-implementations whose `where` clauses differ are chosen by which clause holds.
+### Overlapping Implementations
+
+Two implementations of a trait overlap when some type and const-argument
+combination matches both headers. A header is strictly more specific than
+another when every combination it matches also matches the other, but not the
+reverse; the more specific implementation then specializes the general one and
+is selected for the types it matches. Declaration order does not affect
+selection. Two unconditional implementations with the same header are an
+error. Conditional implementations are filtered by their `where` clauses, and
+several applicable implementations without a unique most specific one make a
+use ambiguous. User implementations may not overlap the implementations the
+language provides for primitive and structural types, such as equality on
+pointers.
 
 ### Trait Object Coercion And Dispatch
 
@@ -2460,9 +2483,10 @@ implicitly as described under [Pointers](#pointers), and `&mut Trait` needs a
 writable place. Calls through a trait object dispatch dynamically.
 
 A trait can be used as an object only when every method takes `&self` or
-`&mut self` and has no generic parameters of its own, the trait declares no
-associated constants, and every associated type that a method signature uses
-is bound in the object type. Built-in traits cannot be used as objects.
+`&mut self`, has no generic parameters of its own, and mentions `Self` only in
+its receiver; the trait declares no associated constants; and every associated
+type that a method signature uses is bound in the object type. Built-in traits
+cannot be used as objects.
 
 ```nia continued
 fun total(source: &Source[Item = i32]) i32 {
@@ -2498,12 +2522,11 @@ fun forward(child: &Child) {
 ### Built-In Traits
 
 The language gives these traits fixed meanings. They are declared in
-`std::builtin`. All except `IntoError` and `Len` are visible by name in every
-module without an import; those two are written `std::builtin::IntoError` and
-`std::builtin::Len`. They are implemented
-with ordinary `extend Type : Trait` blocks, which must match the std
-declaration as any trait implementation matches its trait. Their method names
-are fixed.
+`std::builtin`. All except `IntoError` are visible by name in every module
+without an import; that one is written `std::builtin::IntoError` or imported.
+They are implemented with ordinary `extend Type : Trait` blocks, which must
+match the std declaration as any trait implementation matches its trait. Their
+method names are fixed.
 
 Operator traits. Binary operators take both operands by value:
 
@@ -2548,7 +2571,7 @@ extend Meters : Eq[Meters] {
     }
 }
 
-fun same_length(a: Meters, b: Meters) bool {
+fun sameLength(a: Meters, b: Meters) bool {
     a + b == b + a
 }
 ```
@@ -2599,10 +2622,13 @@ Other built-in traits:
 | --- | --- |
 | `Sized` | the type has a known size; required by `size[T]()` and `align[T]()` |
 | `Unsized` | marker for types without a fixed size |
-| `Len` | `const fun len(&self) usize`; implemented for arrays and slices, so `xs.len()` works on both |
 | `Iterable`, `Iterator` | the [`for` loop](#loops) protocol (below) |
 | `IntoError[Target]` | error conversion for [`.?`](#propagation) |
 | `Simd`, `SimdMask` | implemented by the [SIMD vector types](#simd-vector-types); see [builtins](builtins.md#simd) |
+
+`std::builtin::Len`, which provides `len()` for arrays and slices, is an
+ordinary trait with no meaning to the language; see
+[Built-In Methods](builtins.md#built-in-methods).
 
 ```nia
 trait Iterable {
@@ -2619,16 +2645,23 @@ trait Iterator {
 
 ## Modules And Visibility
 
-Each `.nia` file is one module. Modules are loaded explicitly: `module name;`
-declares a child module of the current one, and `using` only opens names that
-the module graph already contains; it never discovers files. How a child
-declaration maps to a file is described in
-[Modules](../learn/modules.md#files-are-modules).
+Each `.nia` file is one module. The modules form trees: the root of a tree is
+the file a command compiles directly, or the `path` of a package's library,
+executable, or test in its [manifest](manifest.md). Modules are loaded
+explicitly: `module name;` declares a child module of the current one, and
+`using` only opens names that the module graph already contains; it never
+discovers files.
 
 ```nia ignore
 module math;            // private child module
 pub module geometry;    // child module that is part of this module's public surface
 ```
+
+A child of a tree's root file is the file `name.nia` in the root's directory. A
+child of any other module `parent.nia` is `parent/name.nia`, in a directory
+named after its parent: the child `shapes` of `geometry.nia` is
+`geometry/shapes.nia`. The chapter [Modules](../learn/modules.md) shows a
+complete layout.
 
 ### Paths
 
@@ -2641,12 +2674,16 @@ Paths separate segments with `::`. These roots have fixed meanings:
 | `self` | the current module |
 | `super` | the parent module |
 
-`root`, `self`, and `super` are keywords. `std` is the package name of the
-standard library, and other package names are supplied by the toolchain. A path
-that starts with a
-declared child module's name starts at that child, in any module including a
-package's root: after `module util;`, `util::Point` and `self::util::Point` are
-the same type. A child declaration shadows a package of the same name.
+`root`, `self`, and `super` are keywords; `root` and `super` name modules and
+are not values. `std` is the package name of the standard library. Other
+package names are the dependency names of the package's
+[manifest](manifest.md#dependency-tables), and a package's own executables and
+tests reach its library by the package name. When a single file is compiled,
+`--module name=path` maps a package name to a source root. A path that starts
+with a declared child module's name starts at that child, in any module
+including a package's root: after `module util;`, `util::Point` and
+`self::util::Point` are the same type. A child declaration shadows a package of
+the same name.
 
 A source file belongs to exactly one module tree. Two trees that declare a
 child mapping to the same file are an error; one tree keeps the declaration and
@@ -2791,27 +2828,3 @@ Inside a `@[trackCaller]` function the location is the tracked call site, as
 for `std::callerLocation()`. The program then traps exactly as it would
 without the report. A release build, an object or library compiled on its own,
 a `--runtime bare` program, and the runtime itself trap without a report.
-
-## Pointers At The C Boundary
-
-String literals are arrays, not pointers, and there is no implicit array-to-
-pointer decay. To pass a C string, write the terminating `\0` and pass a pointer
-to the first byte:
-
-```nia
-extern fun puts(text: &u8) i32;
-
-fun greet() {
-    _ = puts(b"hello\0".ptr());
-}
-```
-
-`array.ptr()` automatically addresses the array, views it as a slice, and
-returns its data pointer; `&bytes[0]` is equivalent. A literal evaluated inside
-a function gets no static storage, so a pointer into it must not outlive the
-enclosing block. Use a `static` for data that foreign code keeps.
-
-The types that may cross the boundary, layout, calling conventions, and symbol
-names are specified in the [ABI reference](abi.md#the-c-abi-boundary). The
-[C interop guide](../guides/c-interop.md) covers declaring, linking, and
-exporting functions.

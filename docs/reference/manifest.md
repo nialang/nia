@@ -86,13 +86,15 @@ Each entry declares one artifact:
 
 | Key | Required | Meaning |
 | --- | --- | --- |
-| `name` | yes | The artifact name, which is also its step name. |
-| `path` | yes | The file that roots the artifact's module tree, relative to the package root. |
+| `name` | yes | The artifact name, at most 128 bytes, which is also its step name. |
+| `path` | yes | The file that roots the artifact's module tree, relative to the package root. It must lie inside the package's source roots. |
 | `runtime` | no | `freestanding` (default) for the standard process entry, or `bare` for none. |
 
 An executable produces the step `<name>`, and `run-<name>` when the build's
-target is the host; a test suite produces the step `<name>`, which builds and
-runs it, and joins `test`. Names follow the
+target is the host. A test suite produces the step `<name>`, which builds and
+runs it, and joins the step `test`. Every executable, every test suite, and
+the `library` step join the aggregate step `all`, the default step unless
+`build.nia` selects another. Names follow the
 [step-name rule](cli.md#nia-build), must be unique across both tables, and
 cannot be `all`, `library`, `test`, or start with `run-`.
 
@@ -104,17 +106,17 @@ cannot be `all`, `library`, `test`, or start with `run-`.
 | `[dev-dependencies]` | test suites |
 | `[build-dependencies]` | `build.nia` |
 | `[optional-dependencies]` | modules that a build script explicitly imports it into |
-| `[lazy-dependencies]` | the same as `[dependencies]` |
+| `[lazy-dependencies]` | the same code as `[dependencies]` |
 
-Each key is a dependency name, a Nia identifier unique across all of the
-package's dependency tables. Its value is an inline table with exactly one
-source:
+Each key is a dependency name, a Nia identifier of at most 128 bytes, unique
+across all of the package's dependency tables. Its value is an inline table
+with exactly one source:
 
 | Keys | Source |
 | --- | --- |
 | `path` | A local package directory, relative to the declaring package. |
-| `git`, plus at most one of `rev`, `tag`, `branch` | A Git repository. `rev` is a full 40-digit commit hash. Without a selector, the remote `HEAD`. |
-| `registry`, `package`, `version` | A registry package: the registry name, `namespace/name`, and a SemVer requirement with an explicit operator (`^1.4`, `~1.4.2`, `>=1.1, <2`, `=1.4.2`, `1.*`). |
+| `git`, plus at most one of `rev`, `tag`, `branch` | A Git repository. `rev` is a full 40-digit hexadecimal commit hash. Without a selector, the remote `HEAD`. |
+| `registry`, `package`, `version` | A registry package: the registry name; `namespace/name`, each part lower-case ASCII letters, digits, and `-`, at most 128 bytes; and a SemVer requirement that writes its operator or wildcard (`^1.4`, `~1.4.2`, `>=1.1, <2`, `=1.4.2`, `1.*`). A bare version such as `1.4` is rejected. |
 | `workspace = true` | The dependency of the same name in `[workspace.dependencies]`. No other key is allowed. |
 
 ## Git Sources
@@ -169,8 +171,9 @@ key into the agent instead.
 ## `[registries]`
 
 Maps registry names to `https://` base URLs without credentials, a query, or a
-fragment. Names use lower-case ASCII letters, digits, and `-`. Only the root
-manifest (the workspace root in a workspace) may declare registries.
+fragment. A name is at most 64 bytes of lower-case ASCII letters, digits, and
+`-`. Only the root manifest (the workspace root in a workspace) may declare
+registries.
 
 ## `[profile.debug]` And `[profile.release]`
 
