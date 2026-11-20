@@ -276,6 +276,38 @@ impl CompilerDatabase {
         full_module_defs_semantic(&self.db, module)
     }
 
+    /// Lists inherent members available through a nominal type's qualified path.
+    pub fn source_associated_members(
+        &self,
+        module: ModuleId,
+        owner: GlobalDefId,
+    ) -> QueryResult<Vec<(SymbolId, GlobalDefId)>> {
+        let extensions = self.db.get(VisibleExtensionsQuery(module))?;
+        let types = self.type_store();
+        let mut members = Vec::new();
+        for target in extensions.methods.targets() {
+            if !matches!(types.get(target.target_ty), Some(TyKind::Nominal { def_id, .. }) if *def_id == owner)
+            {
+                continue;
+            }
+            members.extend(
+                target
+                    .methods
+                    .iter()
+                    .filter(|method| method.trait_id.is_none() && method.is_callable)
+                    .map(|method| (method.name, method.def_id)),
+            );
+            members.extend(
+                target
+                    .associated_values
+                    .iter()
+                    .filter(|value| value.is_accessible)
+                    .map(|value| (value.name, value.def_id)),
+            );
+        }
+        Ok(members)
+    }
+
     /// Resolves a module's implementations to their source traits and members.
     pub fn source_trait_implementations(
         &self,

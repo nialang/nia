@@ -2281,11 +2281,68 @@ impl Analysis {
     ) -> nia_query::QueryResult<Vec<VisibleName>> {
         let module = file.module;
         let imports = self.db.source_imports(module, offset)?;
-        if !qualifier.is_empty() {
-            let Some(target) = self.resolve_namespace(module, &imports, qualifier)? else {
+        if let Some((&last, parent)) = qualifier.split_last() {
+            if let Some(target) = self.resolve_namespace(module, &imports, qualifier)? {
+                return self.namespace_names(module, target);
+            }
+            let name = SymbolId::from_stable_hash(stable_hash(last));
+            let owner = if parent.is_empty() {
+                self.defs
+                    .get(&module)
+                    .and_then(|defs| defs.module_scope.types.get(&name))
+                    .map(|def_id| GlobalDefId {
+                        module_id: module,
+                        def_id,
+                    })
+                    .or_else(|| {
+                        imports.lookup_type(&name).map(|item| GlobalDefId {
+                            module_id: item.target_module,
+                            def_id: item.target_def_id,
+                        })
+                    })
+            } else if let Some(parent) = self.resolve_namespace(module, &imports, parent)? {
+                self.namespace_names(module, parent)?
+                    .into_iter()
+                    .find_map(|item| match item.symbol {
+                        Some(Symbol::Global(id))
+                            if item.name.as_ref() == last
+                                && matches!(
+                                    item.kind,
+                                    Some(DefKind::Struct | DefKind::Enum | DefKind::Union)
+                                ) =>
+                        {
+                            Some(id)
+                        }
+                        _ => None,
+                    })
+            } else {
+                None
+            };
+            let Some(owner) = owner else {
                 return Ok(Vec::new());
             };
-            return self.namespace_names(module, target);
+            let mut members = self.db.source_associated_members(module, owner)?;
+            if let Some(scope) = self
+                .defs
+                .get(&owner.module_id)
+                .and_then(|defs| defs.scopes.enum_members.get(&owner.def_id))
+            {
+                members.extend(scope.variants.entries().map(|(&name, def_id)| {
+                    (
+                        name,
+                        GlobalDefId {
+                            module_id: owner.module_id,
+                            def_id,
+                        },
+                    )
+                }));
+            }
+            return Ok(members
+                .into_iter()
+                .filter_map(|(name, id)| {
+                    Some(self.item_name(self.db.source_symbol_text(name)?, id.module_id, id.def_id))
+                })
+                .collect());
         }
         let mut names = self.direct_names(module, module);
         for (name, item) in imports.values.iter().chain(&imports.types) {
@@ -4293,6 +4350,49 @@ mod tests {
                 hint(13, 12, ": closure(i32) i32"),
             ]
         );
+    }
+
+    #[test]
+    fn qualified_completions_use_the_named_type() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-qualified-members");
+        let entry = root.join("root.nia");
+        for (qualifier, expected) in [("Pair", "init"), ("Mode", "Fast")] {
+            let source = format!(
+                "struct Pair {{}}\nextend Pair {{ fun init() Pair {{ .{{}} }} }}\nenum Mode {{ Fast }}\nfun read() () {{ _ = {qualifier}::; }}"
+            );
+            std::fs::write(&entry, &source).unwrap();
+            let document = Document::new(1, source.clone());
+            let position = document
+                .lines
+                .position(&source, source.rfind("::").unwrap() + 2);
+            let documents = [(
+                entry.clone(),
+                OpenDocument {
+                    uri: uri(&entry).unwrap(),
+                    document,
+                },
+            )]
+            .into_iter()
+            .collect();
+            let checked = test_session().analyze(&documents, &entry).unwrap();
+            let items = test_session()
+                .complete(
+                    &checked,
+                    &documents,
+                    &entry,
+                    position,
+                    &Cancellation::default(),
+                )
+                .unwrap();
+            assert_eq!(
+                items
+                    .iter()
+                    .map(|item| item.label.as_str())
+                    .collect::<Vec<_>>(),
+                [expected]
+            );
+        }
     }
 
     #[test]
