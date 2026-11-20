@@ -37,6 +37,9 @@ const SEMANTIC_DELTA: &str = "textDocument/semanticTokens/full/delta";
 const SEMANTIC_RANGE: &str = "textDocument/semanticTokens/range";
 const SEMANTIC_REFRESH: &str = "workspace/semanticTokens/refresh";
 const COMPLETION: &str = "textDocument/completion";
+const DEFINITION: &str = "textDocument/definition";
+const TYPE_DEFINITION: &str = "textDocument/typeDefinition";
+const DOCUMENT_HIGHLIGHT: &str = "textDocument/documentHighlight";
 const INLAY_HINT: &str = "textDocument/inlayHint";
 const CALL_PREPARE: &str = "textDocument/prepareCallHierarchy";
 const CALL_INCOMING: &str = "callHierarchy/incomingCalls";
@@ -385,9 +388,27 @@ fn analyze(
                 && cached.source_revision == session.source_revision()
                 && cached.path == work.path
         });
-        if cached_for_path.is_none()
-            && let Some(response) =
-                complete_declarations(&mut session, &mut completion_probe, &mut work)
+        let local_analysis = lane == Lane::Editor
+            && work.request.as_ref().is_none_or(|request| {
+                matches!(
+                    request.method.as_str(),
+                    SEMANTIC_FULL
+                        | SEMANTIC_DELTA
+                        | SEMANTIC_RANGE
+                        | DEFINITION
+                        | TYPE_DEFINITION
+                        | DOCUMENT_HIGHLIGHT
+                )
+            });
+        let current_analysis = cached_for_path.and_then(|current| current.analysis.as_deref().ok());
+        if (cached_for_path.is_none()
+            || current_analysis.is_some_and(|analysis| !analysis.supports_navigation()))
+            && let Some(response) = complete_declarations(
+                &mut session,
+                &mut completion_probe,
+                &mut work,
+                current_analysis,
+            )
         {
             if output
                 .send(Reply {
@@ -405,19 +426,21 @@ fn analyze(
             }
             continue;
         }
-        let current = if let Some(current) = cached_for_path {
+        let current = if let Some(current) = cached_for_path.filter(|current| {
+            local_analysis
+                || !matches!(&current.analysis, Ok(analysis) if !analysis.supports_navigation())
+        }) {
             Arc::clone(current)
         } else {
             let previous = cached
                 .as_ref()
                 .filter(|_| lane == Lane::Editor)
                 .and_then(|cached| Some((cached.source_revision, cached.analysis.as_ref().ok()?)));
-            let analysis = session.analyze_editor_snapshot(
-                &work.documents,
-                &work.path,
-                &work.cancel,
-                previous,
-            );
+            let analysis = if local_analysis {
+                session.analyze_publication(&work.documents, &work.path, &work.cancel, previous)
+            } else {
+                session.analyze_editor_snapshot(&work.documents, &work.path, &work.cancel, previous)
+            };
             let highlights = Arc::new(analysis.as_ref().map_or_else(
                 |_| Resolved::new(),
                 |analysis| {
@@ -435,7 +458,10 @@ fn analyze(
                 analysis,
                 highlights,
             });
-            if work.cancel.check().is_ok() {
+            if work.cancel.check().is_ok()
+                && (current.analysis.is_ok()
+                    || !cached_for_path.is_some_and(|cached| cached.analysis.is_ok()))
+            {
                 cached = Some(current.clone());
             }
             current
@@ -646,6 +672,7 @@ fn complete_declarations(
     session: &mut Session,
     probe: &mut Option<Session>,
     work: &mut Work,
+    analysis: Option<&Analysis>,
 ) -> Option<Response> {
     let request = work
         .request
@@ -655,7 +682,20 @@ fn complete_declarations(
     let position = params.text_document_position.position;
     let doc = &work.documents.get(&work.path)?.document;
     let offset = doc.lines.offset(&doc.text, position)?;
-    let result = if let Some(member) = crate::editing::MemberCompletion::at(&doc.text, offset) {
+    let result = if let Some(analysis) = analysis {
+        let probe = probe.get_or_insert_with(|| Session::new(session.toolchain.clone()));
+        let items = probe.complete_bound(
+            analysis,
+            &work.documents,
+            &work.path,
+            position,
+            &work.cancel,
+        )?;
+        if items.is_empty() {
+            return None;
+        }
+        lsp_types::CompletionResponse::Array(items)
+    } else if let Some(member) = crate::editing::MemberCompletion::at(&doc.text, offset) {
         let probe = probe.get_or_insert_with(|| Session::new(session.toolchain.clone()));
         let items = probe.complete_members(&work.documents, &work.path, &member, &work.cancel)?;
         lsp_types::CompletionResponse::List(lsp_types::CompletionList {
@@ -774,34 +814,28 @@ fn query(
     let path = &work.path;
     let Request { id, method, params } = request;
     let result = match method.as_str() {
-        "textDocument/definition" => {
-            decode::<lsp_types::TextDocumentPositionParams>(params).map(|params| {
-                json!(analysis.definition(path, params.position).map(|location| {
+        DEFINITION | TYPE_DEFINITION => decode::<lsp_types::TextDocumentPositionParams>(params)
+            .map(|params| {
+                let location = nia_query::with_cancellation(Some(work.cancel.token()), || {
+                    Ok(if method == DEFINITION {
+                        analysis.definition(path, params.position)
+                    } else {
+                        analysis.type_definition(path, params.position)
+                    })
+                })
+                .ok()
+                .flatten();
+                json!(location.map(|location| {
                     session.generated_location(
-                        |source| analysis.file(source).map(|file| file.text.as_ref()),
+                        |source| analysis.source_text(source),
                         &work.documents,
                         location,
                     )
                 }))
-            })
-        }
-        "textDocument/typeDefinition" => decode::<lsp_types::TextDocumentPositionParams>(params)
-            .map(|params| {
-                json!(
-                    analysis
-                        .type_definition(path, params.position)
-                        .map(|location| {
-                            session.generated_location(
-                                |source| analysis.file(source).map(|file| file.text.as_ref()),
-                                &work.documents,
-                                location,
-                            )
-                        })
-                )
             }),
         "textDocument/hover" => decode::<lsp_types::TextDocumentPositionParams>(params)
             .map(|params| json!(analysis.hover(path, params.position))),
-        "textDocument/documentHighlight" => decode::<lsp_types::TextDocumentPositionParams>(params)
+        DOCUMENT_HIGHLIGHT => decode::<lsp_types::TextDocumentPositionParams>(params)
             .map(|params| json!(analysis.document_highlights(path, params.position))),
         PREPARE_RENAME => decode::<lsp_types::TextDocumentPositionParams>(params).map(|params| {
             json!(analysis.prepare_rename(path, params.position, work.resource_rename))
@@ -1014,11 +1048,11 @@ impl Server {
         }
         if !matches!(
             request.method.as_str(),
-            "textDocument/definition"
-                | "textDocument/typeDefinition"
+            DEFINITION
+                | TYPE_DEFINITION
                 | IMPLEMENTATION
                 | REFERENCES
-                | "textDocument/documentHighlight"
+                | DOCUMENT_HIGHLIGHT
                 | RENAME
                 | PREPARE_RENAME
                 | "textDocument/hover"

@@ -370,11 +370,6 @@ impl Analysis {
         })
     }
 
-    pub(crate) fn callable_declaration(&self, symbol: Symbol) -> Option<CallableDeclaration<'_>> {
-        let (file, name) = self.declaration_file(symbol)?;
-        CallableDeclaration::at(file, name)
-    }
-
     fn callee(&self, file: &File, call: &Call) -> Option<Symbol> {
         if let Some(symbol) = self.symbol_at_offset(file, call.name.start) {
             return Some(symbol);

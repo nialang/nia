@@ -101,10 +101,18 @@ struct MemberProbe {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum AnalysisMode {
+enum AnalysisMode<'a> {
     Full,
     Workspace,
     Declarations,
+    Publication(&'a str),
+}
+
+impl AnalysisMode<'_> {
+    fn can_reuse(self, analysis: &Analysis) -> bool {
+        analysis.supports_navigation()
+            || matches!(self, Self::Publication(path) if analysis.publication.as_ref().is_some_and(|snapshot| snapshot.focus == path))
+    }
 }
 
 impl Session {
@@ -148,6 +156,22 @@ impl Session {
         previous: Option<(u64, &Arc<Analysis>)>,
     ) -> Result<Arc<Analysis>, String> {
         self.analyze_mode(documents, entry, Some(cancel), AnalysisMode::Full, previous)
+    }
+
+    pub(crate) fn analyze_publication(
+        &mut self,
+        documents: &Documents,
+        entry: &Path,
+        cancel: &Cancellation,
+        previous: Option<(u64, &Arc<Analysis>)>,
+    ) -> Result<Arc<Analysis>, String> {
+        self.analyze_mode(
+            documents,
+            entry,
+            Some(cancel),
+            AnalysisMode::Publication(&normalized(entry)),
+            previous,
+        )
     }
 
     pub(crate) fn source_revision(&self) -> u64 {
@@ -252,7 +276,7 @@ impl Session {
         documents: &Documents,
         entry: &Path,
         cancel: Option<&Cancellation>,
-        mode: AnalysisMode,
+        mode: AnalysisMode<'_>,
         previous: Option<(u64, &Arc<Analysis>)>,
     ) -> Result<Arc<Analysis>, String> {
         if let Some(cancel) = cancel {
@@ -278,10 +302,22 @@ impl Session {
                 && previous.request == request
                 && previous.configuration_warning.as_deref() == warning
             {
-                if crate::timing_mode().enabled() {
-                    nia_timing::emit_counter("lsp.editor_entries_reused", 1);
+                if mode.can_reuse(previous) {
+                    if crate::timing_mode().enabled() {
+                        nia_timing::emit_counter("lsp.editor_entries_reused", 1);
+                    }
+                    return Ok(Arc::clone(previous));
                 }
-                return Ok(Arc::clone(previous));
+                if mode == AnalysisMode::Full
+                    && let Some(snapshot) = &previous.publication
+                    && self
+                        .drivers
+                        .borrow()
+                        .front()
+                        .is_some_and(|(key, _)| *key == request)
+                {
+                    return previous.project_navigation(snapshot, cancel).map(Arc::new);
+                }
             }
             analyze_editor_request(
                 &self.toolchain,
@@ -404,7 +440,7 @@ impl Session {
         documents: &Documents,
         request: &EditorRequest,
         cancel: &Cancellation,
-        mode: AnalysisMode,
+        mode: AnalysisMode<'_>,
     ) -> Result<Analysis, String> {
         self.member_probe = None;
         self.install_documents(documents)?;
@@ -459,9 +495,9 @@ impl Session {
         }
     }
 
-    pub(crate) fn generated_location<'a>(
+    pub(crate) fn generated_location<T: AsRef<str>>(
         &mut self,
-        source: impl FnOnce(&Path) -> Option<&'a str>,
+        source: impl FnOnce(&Path) -> Option<T>,
         documents: &Documents,
         location: Location,
     ) -> Location {
@@ -471,6 +507,7 @@ impl Session {
                 return None;
             }
             let text = source(&generated)?;
+            let text = text.as_ref();
             let lines = Lines::new(text);
             let start = lines.offset(text, location.range.start)?;
             let end = lines.offset(text, location.range.end)?;
@@ -548,20 +585,40 @@ impl Session {
         position: Position,
         cancel: &Cancellation,
     ) -> Option<Vec<lsp_types::CompletionItem>> {
+        let items = self.complete_bound(analysis, documents, path, position, cancel)?;
+        if !items.is_empty() {
+            return Some(items);
+        }
+        let file = analysis.file(path)?;
+        let offset = file.lines.offset(&file.text, position)?;
+        match MemberCompletion::at(&file.text, offset) {
+            Some(member) if !member.prefix(&file.text).is_empty() => {
+                self.complete_extension_imports(analysis, documents, path, &member, cancel)
+            }
+            Some(_) => Some(items),
+            None => Some(
+                self.complete_imports(analysis, documents, path, position, cancel)
+                    .unwrap_or_default(),
+            ),
+        }
+    }
+
+    pub(crate) fn complete_bound(
+        &mut self,
+        analysis: &Analysis,
+        documents: &Documents,
+        path: &Path,
+        position: Position,
+        cancel: &Cancellation,
+    ) -> Option<Vec<lsp_types::CompletionItem>> {
         let file = analysis.file(path)?;
         let offset = file.lines.offset(&file.text, position)?;
         let Some(member) = MemberCompletion::at(&file.text, offset) else {
-            let mut items = nia_query::with_cancellation(Some(cancel.token()), || {
+            return nia_query::with_cancellation(Some(cancel.token()), || {
                 Ok(analysis.complete(path, position))
             })
             .ok()
-            .flatten()?;
-            if items.is_empty() {
-                items = self
-                    .complete_imports(analysis, documents, path, position, cancel)
-                    .unwrap_or_default();
-            }
-            return Some(items);
+            .flatten();
         };
         let names = analysis.method_names(member.prefix(&file.text));
         let fields = member
@@ -597,11 +654,7 @@ impl Session {
                 },
             )
         };
-        let items = member.items(&file.text, &file.lines, candidates.unwrap_or_default());
-        if items.is_empty() && !member.prefix(&file.text).is_empty() {
-            return self.complete_extension_imports(analysis, documents, path, &member, cancel);
-        }
-        Some(items)
+        Some(member.items(&file.text, &file.lines, candidates.unwrap_or_default()))
     }
 }
 
@@ -611,7 +664,7 @@ fn analyze_editor_request(
     overlays: &BTreeMap<PathBuf, Arc<str>>,
     request: EditorRequest,
     cancel: Option<&Cancellation>,
-    mode: AnalysisMode,
+    mode: AnalysisMode<'_>,
 ) -> Result<Analysis, String> {
     let context = request.context;
     let runtime =
@@ -687,13 +740,13 @@ fn analyze_request(
     request: EditorRequest,
     check: CheckRequest,
     cancel: Option<&Cancellation>,
-    mode: AnalysisMode,
+    mode: AnalysisMode<'_>,
 ) -> Result<Analysis, String> {
     let cancel = cancel.map(Cancellation::token);
     let check = check.with_timings(crate::timing_mode());
     let result = match mode {
-        AnalysisMode::Full | AnalysisMode::Workspace => {
-            driver.analyze_for_editor(check, cancel, |db, program, loader| {
+        AnalysisMode::Full | AnalysisMode::Workspace | AnalysisMode::Publication(_) => driver
+            .analyze_for_editor(check, cancel, |db, program, loader| {
                 Analysis::from_program(
                     loader,
                     db,
@@ -701,14 +754,13 @@ fn analyze_request(
                         request,
                         graph: program.graph,
                         modules: program.modules,
-                        diagnostics: program.diagnostics,
+                        diagnostics: program.diagnostics.into(),
                         consulted_sources: loader.consulted_sources()?,
                         mode,
                     },
                     cancel,
                 )
-            })
-        }
+            }),
         AnalysisMode::Declarations => driver.inspect_for_editor(check, cancel, |db, loader| {
             nia_timing::time_stage(
                 crate::timing_mode(),
@@ -723,7 +775,7 @@ fn analyze_request(
                                 request,
                                 graph: loader.module_graph()?,
                                 modules: Vec::new(),
-                                diagnostics: Vec::new(),
+                                diagnostics: Arc::default(),
                                 consulted_sources: loader.consulted_sources()?,
                                 mode,
                             },
@@ -737,13 +789,25 @@ fn analyze_request(
     result.map_err(|error| error.to_string())
 }
 
-struct ProgramSources {
+struct ProgramSources<'a> {
     request: EditorRequest,
     graph: ModuleGraphSnapshot,
     modules: Vec<Arc<CheckedModule>>,
-    diagnostics: Vec<ProgramDiagnostic>,
+    diagnostics: Arc<[ProgramDiagnostic]>,
     consulted_sources: Arc<BTreeSet<String>>,
-    mode: AnalysisMode,
+    mode: AnalysisMode<'a>,
+}
+
+struct PublicationSnapshot {
+    focus: String,
+    loader: LoaderDatabase,
+    modules: Vec<Arc<CheckedModule>>,
+    foreign_sources: HashMap<ModuleId, OnceLock<DeclarationSource>>,
+}
+
+struct DeclarationSource {
+    text: Arc<str>,
+    syntax: Arc<nia_syntax::Parse>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -784,10 +848,11 @@ impl File {
 
 pub(crate) struct Analysis {
     request: EditorRequest,
+    publication: Option<PublicationSnapshot>,
     pub(crate) files: BTreeMap<String, File>,
     pub(crate) definitions: HashMap<Symbol, (String, Span)>,
     pub(crate) consulted_sources: Arc<BTreeSet<String>>,
-    diagnostics: Vec<nia_compiler_query::ProgramDiagnostic>,
+    diagnostics: Arc<[ProgramDiagnostic]>,
     configuration_warning: Option<String>,
     trait_implementations: Vec<(GlobalDefId, String, Span)>,
     trait_members: HashMap<GlobalDefId, GlobalDefId>,
@@ -855,15 +920,67 @@ impl Analysis {
         Some((Span::new(span.start, span.start), attribute))
     }
 
+    pub(crate) fn supports_navigation(&self) -> bool {
+        self.publication.is_none()
+    }
+
+    fn project_navigation(
+        &self,
+        snapshot: &PublicationSnapshot,
+        cancel: Option<&Cancellation>,
+    ) -> Result<Self, String> {
+        let cancel = cancel.map(Cancellation::token);
+        let mut analysis = nia_timing::time_stage(
+            crate::timing_mode(),
+            nia_timing::TimingLevel::Summary,
+            "lsp.project_navigation",
+            || {
+                nia_query::with_cancellation(cancel, || {
+                    Self::from_program(
+                        &snapshot.loader,
+                        &self.db,
+                        ProgramSources {
+                            request: self.request.clone(),
+                            graph: self.graph.clone(),
+                            modules: snapshot.modules.clone(),
+                            diagnostics: self.diagnostics.clone(),
+                            consulted_sources: self.consulted_sources.clone(),
+                            mode: AnalysisMode::Full,
+                        },
+                        cancel,
+                    )
+                })
+            },
+        )
+        .map_err(|error| error.to_string())?;
+        analysis.configuration_warning = self.configuration_warning.clone();
+        Ok(analysis)
+    }
+
     fn from_program(
         loader: &LoaderDatabase,
         db: &CompilerDatabase,
-        program: ProgramSources,
+        program: ProgramSources<'_>,
         cancel: Option<&nia_query::CancellationToken>,
     ) -> nia_query::QueryResult<Self> {
         let checkpoint = || cancel.map_or(Ok(()), nia_query::CancellationToken::check);
+        let publication = match program.mode {
+            AnalysisMode::Publication(focus) => Some(PublicationSnapshot {
+                focus: focus.to_owned(),
+                loader: loader.clone(),
+                modules: program.modules.clone(),
+                foreign_sources: program
+                    .graph
+                    .modules()
+                    .filter(|node| node.path.as_str() != focus)
+                    .map(|node| (node.id, OnceLock::new()))
+                    .collect(),
+            }),
+            _ => None,
+        };
         let mut result = Self {
             request: program.request,
+            publication,
             files: BTreeMap::new(),
             definitions: HashMap::new(),
             consulted_sources: program.consulted_sources,
@@ -904,6 +1021,14 @@ impl Analysis {
                 None => db.source_definitions(node.id)?,
             };
             result.defs.insert(node.id, defs.clone());
+            let foreign = matches!(program.mode, AnalysisMode::Publication(focus) if focus != path);
+            if foreign
+                && !defs.defs.iter().any(|(_, def)| {
+                    def.kind == DefKind::Module && node.children.contains_key(&def.name)
+                })
+            {
+                continue;
+            }
             let syntax = loader.source_syntax(file.version())?;
             let tokens = lexical_tokens(syntax.tree.green_root());
             let names: Vec<_> = tokens
@@ -926,11 +1051,36 @@ impl Analysis {
             let name_matches = |span: &Span, name| {
                 SymbolId::from_stable_hash(stable_hash(&file.text[span.start..span.end])) == name
             };
+            let declaration_name = |span, name| {
+                tokens_in(span)
+                    .iter()
+                    .copied()
+                    .find(|span| name_matches(span, name))
+            };
+            if foreign {
+                // Namespace highlighting uses the same declaration locations as navigation.
+                for (_, def) in defs
+                    .defs
+                    .iter()
+                    .filter(|(_, def)| def.kind == DefKind::Module)
+                {
+                    if let Some(&child) = node.children.get(&def.name)
+                        && let Some(span) = declaration_name(def.span, def.name)
+                    {
+                        result
+                            .definitions
+                            .insert(Symbol::Module(child), (path.to_owned(), span));
+                    }
+                }
+                continue;
+            }
             let mut occurrences = Vec::new();
             let mut locals = HashMap::new();
             let mut type_highlights = Resolved::new();
             let mut expr_types = HashMap::new();
             let mut rename_aliases = HashMap::new();
+            let index_implementations =
+                result.supports_navigation() && file.text.contains("extend");
             let mut declare = |symbol, span| {
                 result.definitions.insert(symbol, (path.to_owned(), span));
                 occurrences.push(Occurrence {
@@ -940,10 +1090,7 @@ impl Analysis {
                 });
             };
             for (id, def) in defs.defs.iter() {
-                if let Some(&span) = tokens_in(def.span)
-                    .iter()
-                    .find(|span| name_matches(span, def.name))
-                {
+                if let Some(span) = declaration_name(def.span, def.name) {
                     let symbol = if def.kind == DefKind::Module {
                         node.children.get(&def.name).copied().map(Symbol::Module)
                     } else {
@@ -964,7 +1111,7 @@ impl Analysis {
                     .flat_map(|facts| facts.local_types.iter())
                     .map(|(&id, &ty)| (id, ty))
                     .collect();
-                if file.text.contains("extend") {
+                if index_implementations {
                     let implementations = db.source_trait_implementations(module)?;
                     result.trait_implementations.extend(
                         implementations
@@ -1246,6 +1393,21 @@ impl Analysis {
 
     pub(crate) fn file(&self, path: &Path) -> Option<&File> {
         self.files.get(&normalized(path))
+    }
+
+    pub(crate) fn source_text(&self, path: &Path) -> Option<Arc<str>> {
+        let path = normalized(path);
+        if let Some(file) = self.files.get(&path) {
+            return Some(file.text.clone());
+        }
+        let snapshot = self.publication.as_ref()?;
+        let source = self
+            .graph
+            .modules()
+            .filter(|node| node.path.as_str() == path)
+            .last()?
+            .source_id;
+        Some(snapshot.loader.sources().source_for_id(source)?.text)
     }
 
     pub(crate) fn rename_symbol_at(&self, file: &File, offset: usize) -> Option<(Symbol, Span)> {
@@ -2219,12 +2381,64 @@ impl Analysis {
     }
 
     fn symbol_location(&self, symbol: Symbol) -> Option<Location> {
-        let (source, span) = self.definitions.get(&symbol)?;
-        let file = self.files.get(source)?;
+        if let Some((source, span)) = self.definitions.get(&symbol) {
+            let (uri, range) = if let Some(file) = self.files.get(source) {
+                (file.uri.clone(), file.lines.range(&file.text, *span))
+            } else {
+                let path = Path::new(source);
+                let text = self.source_text(path)?;
+                (uri(path)?, Lines::new(&text).range(&text, *span))
+            };
+            return Some(Location::new(uri, range));
+        }
+        let Symbol::Global(id) = symbol else {
+            return None;
+        };
+        let (source, span) = self.foreign_declaration(id)?;
+        let node = self.graph.get(id.module_id)?;
         Some(Location::new(
-            file.uri.clone(),
-            file.lines.range(&file.text, *span),
+            uri(Path::new(node.path.as_str()))?,
+            Lines::new(&source.text).range(&source.text, span),
         ))
+    }
+
+    pub(crate) fn callable_declaration(
+        &self,
+        symbol: Symbol,
+    ) -> Option<crate::editing::CallableDeclaration<'_>> {
+        if let Some((file, name)) = self.declaration_file(symbol) {
+            return crate::editing::CallableDeclaration::at(file, name);
+        }
+        let Symbol::Global(id) = symbol else {
+            return None;
+        };
+        let (source, name) = self.foreign_declaration(id)?;
+        crate::editing::CallableDeclaration::in_tree(
+            source.syntax.tree.green_root(),
+            &source.text,
+            name,
+        )
+    }
+
+    fn foreign_declaration(&self, id: GlobalDefId) -> Option<(&DeclarationSource, Span)> {
+        let snapshot = self.publication.as_ref()?;
+        let cached = snapshot.foreign_sources.get(&id.module_id)?;
+        let node = self.graph.get(id.module_id)?;
+        let def = self.defs.get(&node.id)?.defs.get(id.def_id)?;
+        if def.kind == DefKind::Module && node.children.contains_key(&def.name) {
+            return None;
+        }
+        if cached.get().is_none() {
+            let source = snapshot.loader.sources().source_for_id(node.source_id)?;
+            let syntax = snapshot.loader.source_syntax(source.version()).ok()?;
+            let _ = cached.set(DeclarationSource {
+                text: source.text,
+                syntax,
+            });
+        }
+        let source = cached.get()?;
+        let span = declaration_name_in_tree(source.syntax.tree.green_root(), def.span, def.name)?;
+        Some((source, span))
     }
 
     pub(crate) fn workspace_declarations(
@@ -2493,6 +2707,32 @@ fn lexical_tokens(root: &GreenNode) -> Vec<&GreenToken> {
         }
     }
     tokens
+}
+
+fn declaration_name_in_tree(root: &GreenNode, span: Span, name: SymbolId) -> Option<Span> {
+    let mut pending: Vec<_> = root.children().iter().rev().collect();
+    while let Some(element) = pending.pop() {
+        match element {
+            GreenElement::Node(node)
+                if span.start < node.span().end && node.span().start < span.end =>
+            {
+                pending.extend(node.children().iter().rev());
+            }
+            GreenElement::Token(token)
+                if span.start <= token.span().start
+                    && token.span().end <= span.end
+                    && matches!(
+                        token.kind().token_kind(),
+                        Some(TokenKind::Ident | TokenKind::SelfValue)
+                    )
+                    && SymbolId::from_stable_hash(stable_hash(token.text())) == name =>
+            {
+                return Some(token.span());
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn type_name_span(tokens: &[&GreenToken], span: Span) -> Option<Span> {
@@ -3566,6 +3806,148 @@ mod tests {
                 .any(|reference| reference.uri == uri(&main).unwrap()
                     && reference.range.start == Position::new(3, 22))
         );
+    }
+
+    #[test]
+    fn publication_matches_navigation_after_edits_and_cancellation() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-publication");
+        let entry = root.join("root.nia");
+        let active = root.join("active.nia");
+        let measurements = root.join("api/measurements.nia");
+        std::fs::create_dir(root.join("api")).unwrap();
+        for (path, source) in [
+            (
+                root.join("nia.toml"),
+                "[package]\nname = \"publication\"\nversion = \"0.1.0\"\n[library]\npath = \"root.nia\"\n",
+            ),
+            (entry, "module active;\nmodule api;\n"),
+            (
+                root.join("api.nia"),
+                "pub module measurements;\npub using root::api::measurements::distance as span;\n",
+            ),
+            (
+                measurements.clone(),
+                "pub struct Reading { value: i32 }\npub fun distance() i32 { 1 }\n",
+            ),
+        ] {
+            std::fs::write(path, source).unwrap();
+        }
+        let source = concat!(
+            "using root::api as facade;\n",
+            "using root::api::{span as measure};\n",
+            "fun width() i32 { _ = \"\u{1f600}\"; facade::measurements::distance() + measure() }\n",
+            "fun read(reading: facade::measurements::Reading) i32 { reading.value }\n",
+        );
+        std::fs::write(&active, source).unwrap();
+        let mut session = test_session();
+        let cancel = Cancellation::default();
+        let mut previous = None;
+        for (version, source) in [
+            (1, source.to_owned()),
+            (2, format!("// shifted declarations\n{source}")),
+            (3, format!("{source}fun incomplete() i32 {{ facade::\n")),
+        ] {
+            let documents = Documents::from([(
+                active.clone(),
+                OpenDocument {
+                    uri: uri(&active).unwrap(),
+                    document: Document::new(version, source.clone()),
+                },
+            )]);
+            let publication = session
+                .analyze_publication(
+                    &documents,
+                    &active,
+                    &cancel,
+                    previous
+                        .as_ref()
+                        .map(|(revision, analysis)| (*revision, analysis)),
+                )
+                .unwrap();
+            assert!(!publication.supports_navigation());
+            assert_eq!(publication.files.len(), 1);
+            let revision = session.source_revision();
+            let cached = Some((revision, &publication));
+            let canceled = Cancellation::default();
+            canceled.cancel();
+            assert!(
+                session
+                    .analyze_editor_snapshot(&documents, &active, &canceled, cached)
+                    .is_err()
+            );
+            let reused = session
+                .analyze_publication(&documents, &active, &cancel, cached)
+                .unwrap();
+            assert!(Arc::ptr_eq(&publication, &reused));
+            let full = session
+                .analyze_editor_snapshot(&documents, &active, &cancel, cached)
+                .unwrap();
+            assert!(full.supports_navigation());
+            assert!(Arc::ptr_eq(&full.diagnostics, &publication.diagnostics));
+            assert_eq!(session.source_revision(), revision);
+            assert_eq!(session.drivers.borrow().len(), 1);
+
+            let document = &documents[&active].document;
+            let diagnostics = publication.diagnostics(&active, document);
+            assert_eq!(diagnostics, full.diagnostics(&active, document));
+            assert_eq!(diagnostics.is_empty(), version < 3, "{diagnostics:?}");
+            let resolved = publication.semantic_highlights(&active);
+            assert_eq!(resolved, full.semantic_highlights(&active));
+            assert_eq!(
+                document.semantic_tokens(Some(&resolved), None).data,
+                document
+                    .semantic_tokens(Some(&full.semantic_highlights(&active)), None)
+                    .data,
+            );
+            let offset = source.find("measure()").unwrap() + 1;
+            let position = document.lines.position(&source, offset);
+            let definition = full.definition(&active, position);
+            for name in [
+                "measure()",
+                "reading.value",
+                "value }",
+                "measurements::distance",
+            ] {
+                let position = document.lines.position(&source, source.find(name).unwrap());
+                assert_eq!(
+                    publication.definition(&active, position),
+                    full.definition(&active, position),
+                    "{name}"
+                );
+                assert_eq!(
+                    publication.type_definition(&active, position),
+                    full.type_definition(&active, position),
+                    "{name}"
+                );
+                assert_eq!(
+                    publication.document_highlights(&active, position),
+                    full.document_highlights(&active, position),
+                    "{name}"
+                );
+            }
+            if version < 3 {
+                assert_eq!(definition.unwrap().uri, uri(&measurements).unwrap());
+                let field_use = document
+                    .lines
+                    .position(&source, source.find("value }").unwrap());
+                assert_eq!(
+                    publication.definition(&active, field_use).unwrap().uri,
+                    uri(&measurements).unwrap()
+                );
+                let receiver = document
+                    .lines
+                    .position(&source, source.find("reading.value").unwrap());
+                assert_eq!(
+                    publication.type_definition(&active, receiver).unwrap().uri,
+                    uri(&measurements).unwrap()
+                );
+            } else {
+                let fresh = test_session().analyze(&documents, &active).unwrap();
+                assert_eq!(definition, fresh.definition(&active, position));
+            }
+            previous = Some((revision, full));
+        }
     }
 
     #[test]
