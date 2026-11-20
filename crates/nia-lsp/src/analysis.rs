@@ -90,7 +90,7 @@ pub(crate) struct Session {
     pub(crate) changed_disk_sources: BTreeSet<String>,
 }
 
-const RETAINED_COMPILATION_ENTRIES: usize = 2;
+const MIN_RETAINED_COMPILATION_ENTRIES: usize = 2;
 
 struct MemberProbe {
     source_revision: u64,
@@ -431,6 +431,9 @@ impl Session {
     }
 
     pub(crate) fn install_documents(&mut self, documents: &Documents) -> Result<(), String> {
+        self.drivers
+            .get_mut()
+            .truncate(documents.len().max(MIN_RETAINED_COMPILATION_ENTRIES));
         let closed: Vec<_> = self
             .overlays
             .keys()
@@ -739,7 +742,7 @@ fn analyze_editor_request(
         for (path, text) in overlays {
             set_source(&driver, path, text.clone())?;
         }
-        drivers.truncate(overlays.len().max(RETAINED_COMPILATION_ENTRIES) - 1);
+        drivers.truncate(overlays.len().max(MIN_RETAINED_COMPILATION_ENTRIES) - 1);
         (request.clone(), driver)
     };
     drivers.push_front(entry);
@@ -2884,6 +2887,33 @@ mod tests {
         ))
         .unwrap();
         Session::new(Arc::new(toolchain))
+    }
+
+    #[test]
+    fn compilation_cache_shrinks_when_open_entries_close() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-close-compilation-entries");
+        let mut documents = Documents::new();
+        let source = "pub fun read() i32 { 1 }";
+        for name in ["a.nia", "b.nia", "c.nia"] {
+            let path = root.join(name);
+            std::fs::write(&path, source).unwrap();
+            documents.insert(
+                path.clone(),
+                OpenDocument {
+                    uri: uri(&path).unwrap(),
+                    document: Document::new(1, source.into()),
+                },
+            );
+        }
+        let mut session = test_session();
+        for path in documents.keys() {
+            session.analyze(&documents, path).unwrap();
+        }
+        assert_eq!(session.drivers.borrow().len(), 3);
+        documents.remove(&root.join("a.nia"));
+        session.install_documents(&documents).unwrap();
+        assert_eq!(session.drivers.borrow().len(), 2);
     }
 
     #[test]
