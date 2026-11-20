@@ -3181,6 +3181,24 @@ impl WorkspaceManifest {
     /// Reads and validates a workspace manifest at its root directory.
     pub fn read(root: &Path) -> io::Result<Self> {
         let raw = read_raw_manifest(root)?;
+        Self::from_manifest(root, raw, None)
+    }
+
+    /// Lists the workspace declared at this root, leaving the contents of
+    /// member manifests to the caller that loads each package.
+    pub fn declared_at(root: &Path) -> io::Result<Option<Self>> {
+        let raw = read_raw_manifest(root)?;
+        if raw.workspace.is_none() {
+            return Ok(None);
+        }
+        Self::from_manifest(root, raw, Some(root)).map(Some)
+    }
+
+    fn from_manifest(
+        root: &Path,
+        raw: RawPackageManifest,
+        member_root: Option<&Path>,
+    ) -> io::Result<Self> {
         let workspace = raw.workspace.ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -3262,7 +3280,7 @@ impl WorkspaceManifest {
                     format!("workspace member `{member}` aliases another member"),
                 ));
             }
-            if member != "." {
+            if member != "." && member_root.is_none_or(|selected| selected == physical_root) {
                 let mut cursor = Some(member_path.as_path());
                 while let Some(directory) = cursor.filter(|path| *path != canonical_root) {
                     if regular_file_exists(&directory.join("nia.toml"), "package manifest")?
@@ -3376,7 +3394,7 @@ impl WorkspaceManifest {
             if regular_file_exists(&manifest_path, "package manifest")? {
                 let raw = read_raw_manifest(root)?;
                 if raw.workspace.is_some() {
-                    let workspace = Self::read(root)?;
+                    let workspace = Self::from_manifest(root, raw, Some(&package_root))?;
                     let relative = package_root.strip_prefix(&workspace.root).map_err(|_| {
                         io::Error::new(io::ErrorKind::InvalidData, "invalid workspace member path")
                     })?;
@@ -3571,6 +3589,24 @@ impl InstalledDependencies {
 }
 
 impl BuildLayout {
+    /// Identifies the workspace member owning a generated path. Nested members
+    /// have nested output directories, so the longest matching root owns it.
+    pub fn for_workspace_output(workspace: &WorkspaceManifest, path: &Path) -> Option<Self> {
+        workspace
+            .members
+            .iter()
+            .map(|member| Self {
+                state_root: workspace.root.clone(),
+                package_root: if member == "." {
+                    workspace.root.clone()
+                } else {
+                    workspace.root.join(member)
+                },
+            })
+            .filter(|layout| path.starts_with(layout.out_dir()))
+            .max_by_key(|layout| layout.package_root.components().count())
+    }
+
     /// Finds the nearest package at or above `start`: the first directory with
     /// a `nia.toml` or a `build.nia`.
     pub fn discover(start: &Path) -> io::Result<Self> {
@@ -3729,7 +3765,7 @@ fn package_manifest_workspace(
     raw: &RawPackageManifest,
 ) -> io::Result<Option<WorkspaceManifest>> {
     let workspace = if raw.workspace.is_some() {
-        Some(WorkspaceManifest::read(root)?)
+        WorkspaceManifest::declared_at(root)?
     } else {
         WorkspaceManifest::discover_for_package(root)?
     };
@@ -3792,6 +3828,7 @@ fn read_raw_manifest(root: &Path) -> io::Result<RawPackageManifest> {
     let text = std::str::from_utf8(&contents)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     parse_raw_manifest(text)
+        .map_err(|error| io::Error::new(error.kind(), format!("{}: {error}", display_path(&path))))
 }
 
 fn parse_raw_manifest(text: &str) -> io::Result<RawPackageManifest> {
@@ -3978,10 +4015,8 @@ fn expand_workspace_paths(root: &Path, patterns: &[String], role: &str) -> io::R
                     ));
                 }
             }
-            match read_raw_manifest(&path) {
-                Ok(_) => {}
-                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-                Err(error) => return Err(error),
+            if !regular_file_exists(&path.join("nia.toml"), "package manifest")? {
+                continue;
             }
             let canonical = canonical_real_directory(&path)?;
             let relative = canonical.strip_prefix(root).map_err(|_| {
