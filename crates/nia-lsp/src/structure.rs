@@ -17,7 +17,11 @@ impl Document {
         positions
             .iter()
             .map(|&position| {
-                let offset = self.lines.offset(&self.text, position)?;
+                let offset = if position.line as usize > self.lines.line_index(self.text.len()) {
+                    self.text.len()
+                } else {
+                    self.lines.offset(&self.text, position)?
+                };
                 let mut spans = vec![Span::new(0, self.text.len())];
                 if let Some(root) = root {
                     selection_spans(root, offset, &mut spans);
@@ -365,7 +369,10 @@ mod tests {
             }
             assert_eq!(range.range, file);
         }
-        assert!(document.selection_ranges(&[Position::new(2, 0)]).is_none());
+        let mixed = document
+            .selection_ranges(&[Position::new(2, 0), name])
+            .unwrap();
+        assert_eq!(mixed, [ranges[0].clone(), ranges[2].clone()]);
         let empty = Document::new(1, String::new());
         assert_eq!(
             empty.selection_ranges(&[Position::new(0, 0)]).unwrap(),
