@@ -1807,6 +1807,18 @@ pub fn module_declaration_visibility_allows(
     visibility_allows(visibility, graph, declaring_module, accessing_module)
 }
 
+/// Resolves a declared child when its declaration is accessible from the caller.
+pub fn visible_child_module(
+    graph: &(impl ModuleGraphLookup + ?Sized),
+    accessing_module: ModuleId,
+    parent_module: ModuleId,
+    name: &SymbolId,
+) -> Option<ModuleId> {
+    let (target, visibility) = graph.child_declaration(parent_module, name)?;
+    module_declaration_visibility_allows(visibility, graph, parent_module, accessing_module)
+        .then_some(target)
+}
+
 fn is_descendant_or_self(
     graph: &(impl ModuleGraphLookup + ?Sized),
     module: ModuleId,

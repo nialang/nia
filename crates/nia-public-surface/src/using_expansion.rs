@@ -2,6 +2,7 @@
 
 use super::*;
 use nia_defs::{UnresolvedUsing, UnresolvedUsingReason};
+use nia_imports::visible_child_module;
 
 mod aliases;
 
@@ -365,27 +366,6 @@ fn hidden_namespace_failure(
         declaration_path: Some(parent.path.as_str().to_owned()),
         unavailable_module: None,
     })
-}
-
-pub(super) fn visible_child_module(
-    graph: &ModuleGraph,
-    accessing_module: ModuleId,
-    parent_module: ModuleId,
-    name: &SymbolId,
-) -> Option<ModuleId> {
-    let parent = graph.get(parent_module)?;
-    let target = parent.children.get(name).copied()?;
-    let declaration = parent
-        .declarations
-        .iter()
-        .find(|declaration| &declaration.name == name && declaration.target == target)?;
-    module_declaration_visibility_allows(
-        declaration.visibility,
-        graph,
-        parent_module,
-        accessing_module,
-    )
-    .then_some(target)
 }
 
 fn item_visibility_allows(

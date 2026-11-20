@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Source locations for module path segments and exported aliases.
 
-use nia_compiler_query::LexicalUsingScopes;
-use nia_defs::{ModulePublicSurface, PublicSource, UsingScopeLookup};
+use nia_defs::PublicSource;
 use nia_syntax::GreenToken;
 
 use super::*;
@@ -143,8 +142,12 @@ impl Namespaces<'_> {
         let path = node
             .child_tokens()
             .filter(|token| path_token(token))
-            .collect();
+            .collect::<Vec<_>>();
+        let has_path = !path.is_empty();
         let host = self.path(path, owner, true, true);
+        if has_path && host.is_none() {
+            return;
+        }
         if let (Some(host), Some(star)) = (host, node.token(&TokenKind::Star)) {
             self.inherit_imports(host, star.span(), None);
         }
@@ -270,14 +273,14 @@ impl Namespaces<'_> {
             self.item_alias(owner, first);
         }
         let mut current = match owner {
-            Some(owner) => self.child(owner, first)?,
+            Some(owner) => self.child(owner, first, using)?,
             None => self.root(first, using)?,
         };
         for (index, token) in rest.iter().enumerate() {
             if !host && index + 1 == rest.len() {
                 self.item_alias(current, token);
             }
-            current = self.child(current, token)?;
+            current = self.child(current, token, using)?;
         }
         Some(current)
     }
@@ -294,13 +297,9 @@ impl Namespaces<'_> {
         } else {
             ModuleRootSegment::Named(name)
         };
-        let direct = self
-            .analysis
-            .graph
-            .root_module_for_segment(self.file.module, segment);
-        let lexical = self
-            .imports
-            .is_some_and(|imports| imports.shadows_module_namespace(&name, span));
+        let direct =
+            self.analysis
+                .direct_namespace_root(self.file.module, segment, self.imports, span);
         let from_import = self.imports.and_then(|imports| {
             let scope = imports.effective_scope(span);
             let target = scope.modules.get(&name).copied()?;
@@ -308,7 +307,7 @@ impl Namespaces<'_> {
             Some((target, origin))
         });
         if matches!(segment, ModuleRootSegment::Named(_))
-            && (direct.is_none() || lexical)
+            && direct.is_none()
             && let Some((target, origin)) = from_import
         {
             let explicit = origin.map(|origin| Symbol::ModuleAlias(self.file.module, origin));
@@ -349,24 +348,16 @@ impl Namespaces<'_> {
         Some(target)
     }
 
-    fn child(&mut self, owner: ModuleId, token: &GreenToken) -> Option<ModuleId> {
+    fn child(&mut self, owner: ModuleId, token: &GreenToken, using: bool) -> Option<ModuleId> {
         let name = symbol(token);
-        if let Some(target) = self.analysis.visible_child(self.file.module, owner, name) {
+        let surface = self.surfaces.get(&owner);
+        let target = self
+            .analysis
+            .visible_child(self.file.module, owner, name, surface, using)?;
+        if !surface.is_some_and(|surface| surface.reexported_modules.get(&name) == Some(&target)) {
             self.record_module(token.span(), target, None);
             return Some(target);
         }
-        let surface = self.surfaces.get(&owner)?;
-        let target = surface.lookup_module(&name).filter(|_| {
-            surface.module_scopes.get(&name).is_none_or(|scope| {
-                scope.allows(&|restriction| {
-                    nia_imports::access_restriction_allows(
-                        restriction,
-                        &self.analysis.graph,
-                        self.file.module,
-                    )
-                })
-            })
-        })?;
         let alias = self
             .module_scopes
             .get(&owner)

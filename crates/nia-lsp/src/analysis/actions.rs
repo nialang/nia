@@ -570,7 +570,8 @@ impl Analysis {
         file: &File,
         cancel: &Cancellation,
     ) -> Option<BTreeMap<Vec<String>, nia_ids::ModuleId>> {
-        let imports = self.db.source_imports(file.module, 0).ok()?;
+        let scopes = self.db.source_import_scopes(file.module).ok()?;
+        let imports = scopes.effective_scope(Span::default());
         let root = self.graph.current_package_root(file.module)?;
         let mut paths: BTreeMap<Vec<String>, _> = imports
             .modules
@@ -622,7 +623,7 @@ impl Analysis {
                     .chain(segments.iter().map(String::as_str))
                     .collect();
                 if self
-                    .resolve_namespace(file.module, &imports, &qualifier)
+                    .resolve_namespace(file.module, &scopes, Span::default(), &qualifier)
                     .ok()?
                     == Some(module.id)
                 {

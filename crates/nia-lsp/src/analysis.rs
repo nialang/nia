@@ -10,8 +10,11 @@ use lsp_types::{
     CompletionItemKind, Diagnostic, DiagnosticSeverity, DocumentHighlight, Location,
     NumberOrString, Position, Uri,
 };
-use nia_compiler_query::{CheckedModule, CompilerDatabase, ProgramDiagnostic};
-use nia_defs::{DefCollection, DefKind, ModuleUsingScope};
+use nia_compiler_query::{CheckedModule, CompilerDatabase, LexicalUsingScopes, ProgramDiagnostic};
+use nia_defs::{
+    DefCollection, DefKind, ModulePublicSurface, ModuleUsingScope, PublicNamespace,
+    PublicSurfaceLookup, UsingScopeLookup,
+};
 use nia_diagnostic::LabelStyle;
 use nia_driver::{CheckRequest, Driver, DriverConfig};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
@@ -2412,9 +2415,11 @@ impl Analysis {
         qualifier: &[&str],
     ) -> nia_query::QueryResult<Vec<VisibleName>> {
         let module = file.module;
-        let imports = self.db.source_imports(module, offset)?;
+        let scopes = self.db.source_import_scopes(module)?;
+        let span = Span::new(offset, offset);
+        let imports = scopes.effective_scope(span);
         if let Some((&last, parent)) = qualifier.split_last() {
-            if let Some(target) = self.resolve_namespace(module, &imports, qualifier)? {
+            if let Some(target) = self.resolve_namespace(module, &scopes, span, qualifier)? {
                 return self.namespace_names(module, target);
             }
             let name = SymbolId::from_stable_hash(stable_hash(last));
@@ -2422,6 +2427,9 @@ impl Analysis {
                 self.defs
                     .get(&module)
                     .and_then(|defs| defs.module_scope.types.get(&name))
+                    .filter(|_| {
+                        !scopes.shadows_module_definition(&name, PublicNamespace::Type, span)
+                    })
                     .map(|def_id| GlobalDefId {
                         module_id: module,
                         def_id,
@@ -2432,7 +2440,7 @@ impl Analysis {
                             def_id: item.target_def_id,
                         })
                     })
-            } else if let Some(parent) = self.resolve_namespace(module, &imports, parent)? {
+            } else if let Some(parent) = self.resolve_namespace(module, &scopes, span, parent)? {
                 self.namespace_names(module, parent)?
                     .into_iter()
                     .find_map(|item| match item.symbol {
@@ -2502,7 +2510,8 @@ impl Analysis {
     fn resolve_namespace(
         &self,
         current: ModuleId,
-        imports: &ModuleUsingScope,
+        scopes: &LexicalUsingScopes,
+        span: Span,
         qualifier: &[&str],
     ) -> nia_query::QueryResult<Option<ModuleId>> {
         let root = match qualifier[0] {
@@ -2511,41 +2520,42 @@ impl Analysis {
             "super" => ModuleRootSegment::Parent,
             name => ModuleRootSegment::Named(SymbolId::from_stable_hash(stable_hash(name))),
         };
-        let initial = match root {
-            ModuleRootSegment::Named(name) => imports
-                .lookup_module(&name)
-                .or_else(|| self.graph.root_module_for_segment(current, root)),
-            _ => self.graph.root_module_for_segment(current, root),
-        };
+        let initial = self
+            .direct_namespace_root(current, root, Some(scopes), span)
+            .or_else(|| {
+                let ModuleRootSegment::Named(name) = root else {
+                    return None;
+                };
+                scopes.effective_scope(span).lookup_module(&name)
+            });
         let Some(mut target) = initial else {
             return Ok(None);
         };
         for name in &qualifier[1..] {
-            let id = SymbolId::from_stable_hash(stable_hash(name));
-            let child = self.visible_child(current, target, id);
-            let exported = if child.is_none() {
-                self.db.source_exports(target)?.and_then(|surface| {
-                    surface.lookup_module(&id).filter(|_| {
-                        surface.module_scopes.get(&id).is_none_or(|scope| {
-                            scope.allows(&|restriction| {
-                                nia_imports::access_restriction_allows(
-                                    restriction,
-                                    &self.graph,
-                                    current,
-                                )
-                            })
-                        })
-                    })
-                })
-            } else {
-                None
-            };
-            let Some(next) = child.or(exported) else {
+            let name = SymbolId::from_stable_hash(stable_hash(name));
+            let surface = self.db.source_exports(target)?;
+            let Some(child) = self.visible_child(current, target, name, surface.as_ref(), false)
+            else {
                 return Ok(None);
             };
-            target = next;
+            target = child;
         }
         Ok(Some(target))
+    }
+
+    fn direct_namespace_root(
+        &self,
+        current: ModuleId,
+        segment: ModuleRootSegment,
+        scopes: Option<&LexicalUsingScopes>,
+        span: Span,
+    ) -> Option<ModuleId> {
+        if let ModuleRootSegment::Named(name) = segment
+            && scopes.is_some_and(|scopes| scopes.shadows_module_namespace(&name, span))
+        {
+            return None;
+        }
+        self.graph.root_module_for_segment(current, segment)
     }
 
     fn visible_child(
@@ -2553,17 +2563,27 @@ impl Analysis {
         current: ModuleId,
         parent: ModuleId,
         name: SymbolId,
+        surface: Option<&Arc<ModulePublicSurface>>,
+        using: bool,
     ) -> Option<ModuleId> {
-        let node = self.graph.get(parent)?;
-        let declaration = node.declarations.iter().find(|item| item.name == name)?;
-        nia_imports::module_declaration_visibility_allows(
-            declaration.visibility,
-            &self.graph,
-            parent,
-            current,
-        )
-        .then(|| node.children.get(&name).copied())
-        .flatten()
+        let exports = |_: ModuleId| surface.cloned();
+        let allows =
+            |restriction| nia_imports::access_restriction_allows(restriction, &self.graph, current);
+        if let Some(target) = exports.lookup_module(parent, &name, &allows).into_visible() {
+            return Some(target);
+        }
+        let declared = nia_imports::visible_child_module(&self.graph, current, parent, &name)?;
+        // A value or type path can select an exported type before a private child
+        // module. A using path prefers the child module.
+        if !using
+            && exports
+                .lookup_type(parent, &name, &allows)
+                .into_visible()
+                .is_some()
+        {
+            return None;
+        }
+        Some(declared)
     }
 
     fn direct_names(&self, current: ModuleId, target: ModuleId) -> Vec<VisibleName> {
@@ -2589,9 +2609,10 @@ impl Analysis {
         target: ModuleId,
     ) -> nia_query::QueryResult<Vec<VisibleName>> {
         let mut names = self.direct_names(current, target);
+        let surface = self.db.source_exports(target)?;
         if let Some(node) = self.graph.get(target) {
             names.extend(node.children.keys().filter_map(|&name| {
-                self.visible_child(current, target, name)?;
+                self.visible_child(current, target, name, surface.as_ref(), false)?;
                 Some(VisibleName {
                     name: self.db.source_symbol_text(name)?,
                     kind: Some(DefKind::Module),
@@ -2599,7 +2620,7 @@ impl Analysis {
                 })
             }));
         }
-        if let Some(surface) = self.db.source_exports(target)? {
+        if let Some(surface) = surface {
             let allowed = |scope: &nia_defs::ExportScope| {
                 scope.allows(&|restriction| {
                     nia_imports::access_restriction_allows(restriction, &self.graph, current)
@@ -4659,6 +4680,46 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn namespace_lookup_follows_block_imports_even_when_a_binding_failed() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-namespace-block-imports");
+        let entry = root.join("root.nia");
+        let source = concat!(
+            "module api; module palette;\n",
+            "enum Shade { Old }\n",
+            "fun use_color() () { using root::palette::Tone as Shade; _ = Shade::New; }\n",
+            "fun broken() () { using root::palette::missing as api; _ = api::fallback(); }\n",
+            "fun valid() () { _ = api::fallback(); }\n",
+            "fun bad_group() () { using root::missing::{api::{fallback}}; }\n",
+        );
+        std::fs::write(&entry, source).unwrap();
+        std::fs::write(root.join("api.nia"), "pub fun fallback() () {}").unwrap();
+        std::fs::write(root.join("palette.nia"), "pub enum Tone { New }").unwrap();
+        let analysis = test_session().analyze(&Documents::new(), &entry).unwrap();
+        let file = analysis.file(&entry).unwrap();
+        let names = |offset, name: &str| {
+            analysis
+                .names(file, offset, &[name])
+                .unwrap()
+                .into_iter()
+                .map(|item| item.name.to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(source.find("Shade::").unwrap(), "Shade"), ["New"]);
+        let broken = source.find("api::fallback").unwrap();
+        let valid = source.rfind("api::fallback").unwrap();
+        assert!(names(broken, "api").is_empty());
+        assert!(analysis.symbol_at_offset(file, broken).is_none());
+        assert!(names(valid, "api").iter().any(|name| name == "fallback"));
+        assert!(matches!(
+            analysis.symbol_at_offset(file, valid),
+            Some(Symbol::Module(_))
+        ));
+        let nested = source.find("api::{").unwrap();
+        assert!(analysis.symbol_at_offset(file, nested).is_none());
     }
 
     #[test]
