@@ -80,7 +80,7 @@ pub(crate) fn normalized(path: &Path) -> String {
 
 pub(crate) struct Session {
     pub(crate) toolchain: Arc<ToolchainLayout>,
-    drivers: RefCell<VecDeque<(EditorRequest, Driver)>>,
+    drivers: RefCell<VecDeque<CompilationEntry>>,
     overlays: BTreeMap<PathBuf, Arc<str>>,
     source_revision: u64,
     configuration_changed: bool,
@@ -88,6 +88,13 @@ pub(crate) struct Session {
     pub(crate) projects: Projects,
     pub(crate) workspace_index: Option<crate::workspace::WorkspaceSnapshot>,
     pub(crate) changed_disk_sources: BTreeSet<String>,
+}
+
+struct CompilationEntry {
+    request: EditorRequest,
+    driver: Driver,
+    consulted_sources: Option<Arc<BTreeSet<String>>>,
+    embedded_inputs: BTreeSet<String>,
 }
 
 const MIN_RETAINED_COMPILATION_ENTRIES: usize = 2;
@@ -370,7 +377,7 @@ impl Session {
                         .drivers
                         .borrow()
                         .front()
-                        .is_some_and(|(key, _)| *key == request)
+                        .is_some_and(|entry| entry.request == request)
                 {
                     return previous.project_navigation(snapshot, cancel).map(Arc::new);
                 }
@@ -479,8 +486,8 @@ impl Session {
     fn replace_source(&mut self, path: &Path, text: Arc<str>) -> Result<(), String> {
         let drivers = self.drivers.get_mut();
         let mut changed = false;
-        for (_, driver) in drivers.iter() {
-            match set_source(driver, path, text.clone()) {
+        for entry in drivers.iter() {
+            match set_source(&entry.driver, path, text.clone()) {
                 Ok(updated) => changed |= updated,
                 Err(error) => {
                     drivers.clear();
@@ -544,27 +551,69 @@ impl Session {
     }
 
     pub(crate) fn reload_changed_sources(&mut self, paths: &BTreeSet<PathBuf>) {
-        if paths.iter().all(|path| {
-            self.overlays.get(path).is_some_and(|text| {
-                nia_source::read_source_text(path).is_ok_and(|disk| disk == **text)
-            })
-        }) {
-            // Saving an installed buffer leaves the compiler's source revision
-            // intact. Re-read plans because configuration can observe that file.
-            self.projects = Projects::default();
-            if self.workspace_index.is_some() {
-                self.changed_disk_sources
-                    .extend(paths.iter().map(|path| normalized(path)));
-            }
-            return;
+        self.projects = Projects::default();
+        let changed: BTreeSet<_> = paths.iter().map(|path| normalized(path)).collect();
+        if self.workspace_index.is_some() {
+            self.changed_disk_sources.extend(changed.iter().cloned());
         }
-        let index = self.workspace_index.take();
-        let mut changed = std::mem::take(&mut self.changed_disk_sources);
-        changed.extend(paths.iter().map(|path| normalized(path)));
-        self.reload();
-        if let Some(index) = index {
-            self.workspace_index = Some(index);
-            self.changed_disk_sources = changed;
+        let mut updates = BTreeMap::new();
+        for path in paths {
+            if !self.overlays.contains_key(path) {
+                updates.insert(
+                    normalized(path),
+                    nia_source::read_source_text(path)
+                        .ok()
+                        .map(Arc::<str>::from),
+                );
+            }
+        }
+        let mut invalidated = false;
+        self.drivers.get_mut().retain(|entry| {
+            // Embedded bytes come directly from disk, even when the editor
+            // owns an overlay at the same path.
+            if !entry.embedded_inputs.is_disjoint(&changed) {
+                invalidated = true;
+                return false;
+            }
+            if updates.is_empty() {
+                return true;
+            }
+            let Some(consulted) = &entry.consulted_sources else {
+                invalidated = true;
+                return false;
+            };
+            // Keep every installed logical identity for each physical path
+            // in sync. Also revisit negative graph lookups after a file appears.
+            let mut found = BTreeSet::new();
+            for file in entry.driver.sources().source_files() {
+                let Some(update) = updates.get(file.path.as_str()) else {
+                    continue;
+                };
+                let Some(text) = update else {
+                    invalidated = true;
+                    return false;
+                };
+                found.insert(file.path.as_str().to_owned());
+                if file.text != *text {
+                    invalidated = true;
+                    if entry
+                        .driver
+                        .set_source_path(file.path, text.clone())
+                        .is_err()
+                    {
+                        return false;
+                    }
+                }
+            }
+            let missing = updates
+                .keys()
+                .any(|path| consulted.contains(path) && !found.contains(path));
+            invalidated |= missing;
+            !missing
+        });
+        if invalidated {
+            self.member_probe = None;
+            self.source_revision += 1;
         }
     }
 
@@ -775,7 +824,7 @@ fn analyze_editor_request(
         nia_build::compiler_inputs::runtime_spec(context.runtime, toolchain, &context.target)
             .map_err(|error| error.to_string())?;
     let mut drivers = drivers.borrow_mut();
-    let entry = if let Some(index) = drivers.iter().position(|(key, _)| key == &request) {
+    let entry = if let Some(index) = drivers.iter().position(|entry| entry.request == request) {
         drivers.remove(index).expect("located compilation entry")
     } else {
         let config = DriverConfig::new(toolchain.clone())
@@ -786,10 +835,15 @@ fn analyze_editor_request(
             set_source(&driver, path, text.clone())?;
         }
         drivers.truncate(overlays.len().max(MIN_RETAINED_COMPILATION_ENTRIES) - 1);
-        (request.clone(), driver)
+        CompilationEntry {
+            request: request.clone(),
+            driver,
+            consulted_sources: None,
+            embedded_inputs: BTreeSet::new(),
+        }
     };
     drivers.push_front(entry);
-    let (_, driver) = drivers.front().expect("current compilation entry");
+    let entry = drivers.front_mut().expect("current compilation entry");
     let check = request
         .check
         .clone()
@@ -799,7 +853,19 @@ fn analyze_editor_request(
             nia_build_plan::CompilationMode::Normal => nia_target_config::CompilationMode::Normal,
             nia_build_plan::CompilationMode::Test => nia_target_config::CompilationMode::Test,
         });
-    analyze_request(driver, request, check, cancel, mode)
+    let result = analyze_request(&entry.driver, request, check, cancel, mode);
+    entry.consulted_sources = result
+        .as_ref()
+        .ok()
+        .map(|analysis| analysis.consulted_sources.clone());
+    if let Ok(analysis) = &result {
+        entry.embedded_inputs = analysis
+            .embedded_resources
+            .iter()
+            .map(|resource| normalized(&resource.resolve_at(Path::new(resource.source.as_str()))))
+            .collect();
+    }
+    result
 }
 
 fn set_source(driver: &Driver, path: &Path, text: Arc<str>) -> Result<bool, String> {
@@ -1088,15 +1154,11 @@ impl Analysis {
             files: BTreeMap::new(),
             definitions: HashMap::new(),
             consulted_sources: program.consulted_sources,
-            embedded_resources: if program.mode == AnalysisMode::Workspace {
-                program
-                    .modules
-                    .iter()
-                    .flat_map(|m| m.const_eval.embedded_resources.iter().cloned())
-                    .collect()
-            } else {
-                Default::default()
-            },
+            embedded_resources: program
+                .modules
+                .iter()
+                .flat_map(|m| m.const_eval.embedded_resources.iter().cloned())
+                .collect(),
             diagnostics: program.diagnostics,
             configuration_warning: None,
             trait_implementations: Vec::new(),
@@ -3229,7 +3291,7 @@ mod tests {
                         .borrow()
                         .front()
                         .expect("current compilation entry")
-                        .1
+                        .driver
                         .sources()
                         .source_for_path(&path)
                         .unwrap()
@@ -3270,11 +3332,81 @@ mod tests {
 
         std::fs::write(&path, "pub fun diskValue() i32 { 3 }\n").unwrap();
         session.reload_changed_sources(&BTreeSet::from([path.clone()]));
+        let open = session
+            .analyze_editor_snapshot(&documents, &path, &cancel, Some((revision, &before)))
+            .unwrap();
+        assert!(Arc::ptr_eq(&before, &open));
         let closed = session.analyze(&Documents::new(), &path).unwrap();
         assert_eq!(
             closed.file(&path).unwrap().text.as_ref(),
             "pub fun diskValue() i32 { 3 }\n"
         );
+    }
+
+    #[test]
+    fn watched_dependency_updates_match_fresh_diagnostics_in_the_same_driver() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-watch-dependency");
+        let entry = root.join("root.nia");
+        let dependency = root.join("child.nia");
+        let source = "module child;\nfun value() i32 { child::number() }\n";
+        let good = "pub fun number() i32 { 1 }\n";
+        std::fs::write(&entry, source).unwrap();
+        std::fs::write(&dependency, good).unwrap();
+        let documents = Documents::from([(
+            entry.clone(),
+            OpenDocument {
+                uri: uri(&entry).unwrap(),
+                document: Document::new(1, source.into()),
+            },
+        )]);
+        let mut session = test_session();
+        let original = session.analyze(&documents, &entry).unwrap();
+        assert_eq!(original.first_error(), None);
+        for (text, broken) in [("pub fun other() i32 { 2 }\n", true), (good, false)] {
+            std::fs::write(&dependency, text).unwrap();
+            session.reload_changed_sources(&BTreeSet::from([dependency.clone()]));
+            let updated = session.analyze(&documents, &entry).unwrap();
+            let fresh = test_session().analyze(&documents, &entry).unwrap();
+            assert!(
+                updated
+                    .db
+                    .query_session()
+                    .ptr_eq(&original.db.query_session())
+            );
+            assert_eq!(updated.file(&dependency).unwrap().text.as_ref(), text);
+            let document = &documents[&entry].document;
+            let diagnostics = updated.diagnostics(&entry, document);
+            assert_eq!(!diagnostics.is_empty(), broken);
+            assert_eq!(diagnostics, fresh.diagnostics(&entry, document));
+        }
+    }
+
+    #[test]
+    fn watched_embedded_source_reads_the_changed_disk_bytes() {
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let root = test_dir("lsp-watch-embed");
+        let entry = root.join("root.nia");
+        let data = root.join("data.nia");
+        let source = "const data: [u8; 3] = std::builtin::embed(\"data.nia\");\n";
+        std::fs::write(&entry, source).unwrap();
+        std::fs::write(&data, "abc").unwrap();
+        let documents = Documents::from([(
+            data.clone(),
+            OpenDocument {
+                uri: uri(&data).unwrap(),
+                document: Document::new(1, "abc".into()),
+            },
+        )]);
+        let mut session = test_session();
+        let before = session.analyze(&documents, &entry).unwrap();
+        assert_eq!(before.first_error(), None);
+        std::fs::write(&data, "abcd").unwrap();
+        session.reload_changed_sources(&BTreeSet::from([data]));
+        let after = session.analyze(&documents, &entry).unwrap();
+        let fresh = test_session().analyze(&documents, &entry).unwrap();
+        assert!(fresh.first_error().is_some());
+        assert_eq!(after.first_error(), fresh.first_error());
     }
 
     #[test]

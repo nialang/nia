@@ -1384,11 +1384,10 @@ impl Server {
             "workspace/didChangeWatchedFiles" => {
                 decode::<DidChangeWatchedFilesParams>(notification.params).map(|params| {
                     let mut sources = BTreeSet::new();
-                    for path in params
-                        .changes
-                        .iter()
-                        .filter_map(|event| analysis::path(&event.uri))
-                    {
+                    for event in &params.changes {
+                        let Some(path) = analysis::path(&event.uri) else {
+                            continue;
+                        };
                         if path.file_name().is_some_and(|name| {
                             name == "nia.toml" || name == "nia.lock" || name == "build-plan.bin"
                         }) {
@@ -1396,6 +1395,10 @@ impl Server {
                             return;
                         }
                         if path.extension().is_some_and(|extension| extension == "nia") {
+                            if event.typ != lsp_types::FileChangeType::CHANGED {
+                                self.disk_changed(DiskChanges::Configuration);
+                                return;
+                            }
                             sources.insert(path);
                         }
                     }
@@ -2209,6 +2212,85 @@ mod tests {
             server.workspace_disk_changes,
             DiskChanges::Configuration
         ));
+    }
+
+    #[test]
+    fn watching_module_creation_and_deletion_refreshes_graph_membership() {
+        use nia_test_support::{TestWorkload, acquire_test_resources, test_dir, workspace_root};
+        use nia_toolchain::{ToolchainLayout, ToolchainLayoutRequest};
+
+        let _resources = acquire_test_resources(TestWorkload::Compiler);
+        let toolchain = Arc::new(
+            ToolchainLayout::resolve(ToolchainLayoutRequest::explicit(
+                std::env::current_exe().unwrap(),
+                workspace_root().join("lib"),
+            ))
+            .unwrap(),
+        );
+        let root = test_dir("lsp-watch-module-lifecycle");
+        let path = root.join("root.nia");
+        let child = root.join("child.nia");
+        let text = "module child;\nfun read() i32 { child::value() }\n";
+        std::fs::write(&path, text).unwrap();
+        let mut server = Server::default();
+        server.documents.insert(
+            path.clone(),
+            OpenDocument {
+                uri: analysis::uri(&path).unwrap(),
+                document: Document::new(1, text.into()),
+            },
+        );
+        let mut worker = AnalysisWorker::new(&toolchain);
+        let (connection, _client) = Connection::memory();
+        let (editor, jobs) = unbounded();
+        let (workspace, _) = unbounded();
+        for (event, contents, broken) in [
+            (1, Some("pub fun value() i32 { 1 }"), false),
+            (2, Some("pub fun other() i32 { 2 }"), true),
+            (3, None, true),
+            (1, Some("pub fun value() i32 { 3 }"), false),
+        ] {
+            match contents {
+                Some(text) => std::fs::write(&child, text).unwrap(),
+                None => std::fs::remove_file(&child).unwrap(),
+            }
+            server
+                .notification(
+                    &connection,
+                    Notification::new(
+                        "workspace/didChangeWatchedFiles".into(),
+                        json!({"changes":[{"uri":analysis::uri(&child), "type":event}]}),
+                    ),
+                )
+                .unwrap();
+            assert_eq!(
+                matches!(server.editor_disk_changes, DiskChanges::Sources(_)),
+                event == 2
+            );
+            server
+                .schedule(&connection, &editor, &workspace, true)
+                .unwrap();
+            let WorkerMessage::Analyze(work) = jobs.try_recv().unwrap() else {
+                panic!("expected diagnostics")
+            };
+            let result = worker.analyze(Lane::Editor, work);
+            let diagnostics = result
+                .publication
+                .as_ref()
+                .unwrap()
+                .diagnostics
+                .as_ref()
+                .unwrap();
+            let fresh = Session::new(toolchain.clone())
+                .analyze(&server.documents, &path)
+                .unwrap();
+            assert_eq!(!diagnostics.is_empty(), broken);
+            assert_eq!(
+                *diagnostics,
+                fresh.diagnostics(&path, &server.documents[&path].document)
+            );
+            server.reply(&connection, result).unwrap();
+        }
     }
 
     #[test]

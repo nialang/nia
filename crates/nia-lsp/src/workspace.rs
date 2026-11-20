@@ -589,6 +589,9 @@ impl Entry {
                 .consulted_sources
                 .as_ref()
                 .is_some_and(|paths| paths.contains(source))
+            || self.embedded_resources.iter().any(|resource| {
+                normalized(&resource.resolve_at(Path::new(resource.source.as_str()))) == source
+            })
     }
 
     pub(crate) fn inactive_at(&self, source: &str, span: Span) -> bool {
