@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    collections::{BTreeSet, HashMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     path::PathBuf,
     sync::Arc,
     thread,
@@ -123,7 +123,7 @@ pub(crate) fn run(toolchain: nia_toolchain::ToolchainLayout) -> Result<(), Error
         json!({
             "capabilities": {
                 "positionEncoding": "utf-16",
-                "textDocumentSync": { "openClose": true, "change": 2, "save": true },
+                "textDocumentSync": { "openClose": true, "change": 2, "save": { "includeText": true } },
                 "definitionProvider": true,
                 "typeDefinitionProvider": true,
                 "implementationProvider": true,
@@ -939,6 +939,8 @@ struct Server {
     refresh_sequence: u64,
     documents: Documents,
     dirty: BTreeSet<PathBuf>,
+    // Latest client version for each buffer missing an applicable edit.
+    missing_text: BTreeMap<PathBuf, i32>,
     diagnostics_after: Option<Instant>,
     pending: VecDeque<(PathBuf, u64, Request)>,
     editor: Option<Active>,
@@ -1072,6 +1074,17 @@ impl Server {
     }
 
     fn request(&mut self, connection: &Connection, request: Request) -> Result<(), Error> {
+        if let Some((path, _)) = self.missing_text.first_key_value() {
+            connection.sender.send(
+                Response::new_err(
+                    request.id,
+                    ErrorCode::ContentModified as i32,
+                    format!("Waiting for the current text of {}", path.display()),
+                )
+                .into(),
+            )?;
+            return Ok(());
+        }
         if matches!(
             request.method.as_str(),
             WORKSPACE_SYMBOL | WILL_RENAME_FILES | CALL_INCOMING | CALL_OUTGOING
@@ -1218,6 +1231,7 @@ impl Server {
                 decode::<DidOpenTextDocumentParams>(notification.params).map(|params| {
                     let document = params.text_document;
                     if let Some(path) = analysis::path(&document.uri) {
+                        self.missing_text.remove(&path);
                         self.documents.insert(
                             path.clone(),
                             OpenDocument {
@@ -1230,21 +1244,24 @@ impl Server {
                     }
                 })
             }
-            "textDocument/didChange" => decode::<DidChangeTextDocumentParams>(notification.params)
-                .map(|params| {
-                    if let Some(path) = analysis::path(&params.text_document.uri)
-                        && let Some(open) = self.documents.get_mut(&path)
-                        && let Some(changed) = open
-                            .document
-                            .changed(params.text_document.version, params.content_changes)
-                    {
-                        open.document = changed;
-                        self.invalidate();
+            "textDocument/didChange" => {
+                match decode::<DidChangeTextDocumentParams>(notification.params) {
+                    Ok(params) => {
+                        self.change_document(connection, params)?;
+                        Ok(())
                     }
-                }),
+                    Err(error) => Err(error),
+                }
+            }
             "textDocument/didSave" => {
                 decode::<DidSaveTextDocumentParams>(notification.params).map(|params| {
                     if let Some(path) = analysis::path(&params.text_document.uri) {
+                        if let Some(text) = params.text
+                            && let Some(version) = self.missing_text.remove(&path)
+                            && let Some(open) = self.documents.get_mut(&path)
+                        {
+                            open.document = Document::new(version, text);
+                        }
                         self.disk_changed(DiskChanges::Sources(Arc::new(BTreeSet::from([path]))));
                     }
                 })
@@ -1288,6 +1305,7 @@ impl Server {
                         if let Some(path) = analysis::path(&uri)
                             && self.documents.remove(&path).is_some()
                         {
+                            self.missing_text.remove(&path);
                             self.token_results.remove(&path);
                             publish(connection, uri, None, Vec::new())?;
                             self.invalidate();
@@ -1355,10 +1373,58 @@ impl Server {
         Ok(())
     }
 
+    fn change_document(
+        &mut self,
+        connection: &Connection,
+        params: DidChangeTextDocumentParams,
+    ) -> Result<(), Error> {
+        let Some(path) = analysis::path(&params.text_document.uri) else {
+            return Ok(());
+        };
+        let Some(open) = self.documents.get_mut(&path) else {
+            return Ok(());
+        };
+        let version = params.text_document.version;
+        let missing = self.missing_text.get(&path).copied();
+        if version <= missing.unwrap_or(open.document.version) {
+            return Ok(());
+        }
+        let mut changes = params.content_changes;
+        // A complete replacement supersedes every preceding range, even
+        // when the client puts it in the middle of a notification.
+        let replacement = changes.iter().rposition(|change| change.range.is_none());
+        if let Some(index) = replacement {
+            changes.drain(..index);
+        }
+        if (missing.is_none() || replacement.is_some())
+            && let Some(current) = open.document.changed(version, changes)
+        {
+            open.document = current;
+            self.missing_text.remove(&path);
+            self.invalidate();
+            return Ok(());
+        }
+        self.missing_text.insert(path.clone(), version);
+        self.invalidate();
+        if missing.is_none() {
+            for open in self.documents.values() {
+                publish(connection, open.uri.clone(), None, Vec::new())?;
+            }
+            connection.sender.send(Notification::new("window/showMessage".into(), json!({
+                "type": 2,
+                "message": format!("An edit to {} could not be applied. Save or reopen the file to resume analysis.", path.display()),
+            })).into())?;
+        }
+        Ok(())
+    }
+
     fn invalidate(&mut self) {
         self.cancel_active();
         self.revision += 1;
-        self.dirty = self.documents.keys().cloned().collect();
+        self.dirty.clear();
+        if self.missing_text.is_empty() {
+            self.dirty.extend(self.documents.keys().cloned());
+        }
         self.diagnostics_after =
             (!self.dirty.is_empty()).then(|| Instant::now() + DIAGNOSTIC_DEBOUNCE);
         self.highlights.clear();
@@ -1399,15 +1465,21 @@ impl Server {
         let mut moved = Vec::new();
         for (old, new, uri) in relocated {
             if let Some(mut open) = self.documents.remove(&old) {
+                let missing = self.missing_text.remove(&old);
                 self.token_results.remove(&old);
                 publish(connection, open.uri, None, Vec::new())?;
                 open.uri = uri;
-                moved.push((new, open));
+                moved.push((new, open, missing));
             }
         }
-        for (path, open) in moved {
+        for (path, open, missing) in moved {
             // A client may have opened the destination before sending its file notification.
-            self.documents.entry(path).or_insert(open);
+            if let std::collections::btree_map::Entry::Vacant(slot) = self.documents.entry(path) {
+                if let Some(version) = missing {
+                    self.missing_text.insert(slot.key().clone(), version);
+                }
+                slot.insert(open);
+            }
         }
         self.disk_changed(DiskChanges::Configuration);
         Ok(())
@@ -1722,6 +1794,52 @@ mod tests {
             .project_editor(&path, &work.cancel, true, None)
             .unwrap();
         assert_eq!(current.source_text(&path).as_deref(), Some(edited));
+    }
+
+    #[test]
+    fn invalid_range_requires_a_newer_complete_document() {
+        let (connection, client) = Connection::memory();
+        let mut server = Server::default();
+        let uri = analysis::uri(&std::env::current_dir().unwrap().join("buffer.nia")).unwrap();
+        let path = analysis::path(&uri).unwrap();
+        server
+            .notification(
+                &connection,
+                Notification::new(
+                    "textDocument/didOpen".into(),
+                    json!({"textDocument":{"uri":uri,"version":1,"languageId":"nia","text":"abc"}}),
+                ),
+            )
+            .unwrap();
+        let change = |server: &mut Server, version, changes| {
+            server.notification(&connection, Notification::new("textDocument/didChange".into(),
+                json!({"textDocument":{"uri":uri,"version":version},"contentChanges":changes}))).unwrap();
+        };
+        let range = |line| json!({"range":{"start":{"line":line,"character":0},"end":{"line":line,"character":1}},"text":"x"});
+        change(&mut server, 2, json!([range(99)]));
+        assert!(server.dirty.is_empty());
+        assert!(client.receiver.try_iter().any(
+            |msg| matches!(msg, Message::Notification(n) if n.method == "window/showMessage")
+        ));
+        change(&mut server, 3, json!([range(0)]));
+        change(&mut server, 2, json!([{"text":"old"}]));
+        assert_eq!(server.missing_text.get(&path), Some(&3));
+        change(&mut server, 4, json!([range(99), {"text":"new"}, range(0)]));
+        assert_eq!(server.documents[&path].document.text.as_ref(), "xew");
+        assert!(server.missing_text.is_empty());
+        assert!(server.dirty.contains(&path));
+        change(&mut server, 5, json!([range(99)]));
+        server
+            .notification(
+                &connection,
+                Notification::new(
+                    "textDocument/didSave".into(),
+                    json!({"textDocument":{"uri":uri},"text":"saved"}),
+                ),
+            )
+            .unwrap();
+        assert!(server.missing_text.is_empty());
+        assert_eq!(server.documents[&path].document.text.as_ref(), "saved");
     }
 
     #[test]
