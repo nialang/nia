@@ -95,7 +95,7 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
         .expect("create loader query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 21);
+    assert_eq!(descriptors.len(), 22);
     assert!(
         descriptors
             .windows(2)
@@ -363,6 +363,7 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
     assert!(compiler.query_session().ptr_eq(&loader.query_session()));
 
     let checked = compiler.check_program().expect("compiler check");
+    compiler.analyze_entry_program().expect("entry analysis");
     let _ = compiler.provider_fact_revision();
 
     assert!(!has_error_diagnostics(&checked.diagnostics));
@@ -413,4 +414,65 @@ fn compiler_loader_roots_record_cross_database_dependencies() {
     assert!(trace.dependencies.iter().any(|dependency| {
         dependency.from.name == "provider_fact_worklist" && dependency.to.name == "provider_demands"
     }));
+    assert!(trace.dependencies.iter().any(|dependency| {
+        dependency.from.name == "executable_fact_epoch"
+            && dependency.to.name == "source_grammar_revision"
+    }));
+}
+
+#[test]
+fn dependency_signature_edit_invalidates_checked_callers() {
+    let root = temp_dir("dependency_signature_edit_invalidates_checked_callers");
+    let main = root.join("main.nia");
+    let dependency = root.join("dep.nia");
+    write(&main, "using dep;\nfun main() i32 { dep::value() }\n");
+    let original = "pub fun value() i32 { 42 }\n";
+    write(&dependency, original);
+    let mut module_map = ModuleMap::new();
+    module_map
+        .insert("dep", SourcePath::new(dependency.to_string_lossy()))
+        .unwrap();
+    let loader = LoaderDatabase::new_for_test(
+        test_request(main.to_string_lossy()).with_module_map(module_map),
+    );
+    let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone())).unwrap();
+    let analyzed = compiler.analyze_entry_program().unwrap();
+    assert!(!has_error_diagnostics(&analyzed.diagnostics));
+    let graph = loader.module_graph().unwrap();
+    let grammar = loader.source_grammar_revision().unwrap();
+
+    loader
+        .set_source(
+            dependency.to_string_lossy(),
+            format!("// comment\n{original}"),
+        )
+        .unwrap();
+    assert_eq!(loader.source_grammar_revision().unwrap(), grammar);
+    assert!(loader.module_graph().unwrap().ptr_eq(&graph));
+    assert!(!has_error_diagnostics(
+        &compiler.analyze_entry_program().unwrap().diagnostics
+    ));
+
+    loader
+        .set_source(
+            dependency.to_string_lossy(),
+            "pub fun value() bool { true }\n",
+        )
+        .unwrap();
+    assert_ne!(loader.source_grammar_revision().unwrap(), grammar);
+    let cancel = nia_query::CancellationToken::default();
+    cancel.cancel();
+    assert!(matches!(
+        compiler.analyze_entry_program_with_cancellation(Some(&cancel)),
+        Err(nia_query::QueryError::Canceled),
+    ));
+    let edited = compiler.analyze_entry_program().unwrap();
+    assert!(has_error_diagnostics(&edited.diagnostics));
+
+    loader
+        .set_source(dependency.to_string_lossy(), original)
+        .unwrap();
+    assert!(!has_error_diagnostics(
+        &compiler.analyze_entry_program().unwrap().diagnostics
+    ));
 }

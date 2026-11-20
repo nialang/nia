@@ -209,6 +209,7 @@ fn test_loader_context(
             Some(test_toolchain_layout().as_ref()),
         ),
         sources,
+        source_grammar_revision: Mutex::new(0),
         node_store: nia_node_id::NodeStore::new(),
         diagnostic_store: Arc::new(
             nia_diagnostic::DiagnosticStore::new().expect("create diagnostic store"),

@@ -515,6 +515,7 @@ impl CompilerInputs {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ExecutableFactEpoch {
+    pub(super) source_grammar_revision: Option<u64>,
     pub(super) entry_module: ModuleId,
     pub(super) runtime_root_modules: Vec<ModuleId>,
     pub(super) target: TargetConfig,

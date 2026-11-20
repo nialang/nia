@@ -1142,7 +1142,7 @@ fn executable_check_in_session(
                 entry_module,
                 &reachability,
                 &reachability_by_module,
-                &mut fact_by_id,
+                &fact_by_id,
                 &caches,
             )
         },
@@ -1960,7 +1960,7 @@ fn final_executable_checked_modules(
     entry_module: ModuleId,
     reachability: &nia_executable_reachability::ExecutableReachability,
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
-    fact_by_id: &mut HashMap<ModuleId, ExecutableFactModuleState>,
+    fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
     caches: &ExecutableCheckCaches,
 ) -> QueryResult<HashMap<ModuleId, CheckedModule>> {
     let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module)?;
@@ -2055,21 +2055,16 @@ fn final_executable_checked_modules(
                         }
                     }
                 };
-                let (prechecked, provider_demands) = match fact_by_id.remove(&module_id) {
-                    Some(state) => (
-                        Some(nia_body_check::PrecheckedBodyCheck {
-                            ir: state.body_ir,
-                            facts: state.semantic_facts,
-                            global_type_issues: state.global_type_issues,
-                            body_check_rejections: state.body_check_rejections,
-                            checked_functions: state.checked_functions,
-                            diagnostic_owners: state.diagnostic_owners,
-                            diagnostics: state.diagnostics,
-                        }),
-                        state.provider_demands,
-                    ),
-                    None => (None, HashSet::new()),
-                };
+                let state = fact_by_id.get(&module_id);
+                let prechecked = state.map(|state| nia_body_check::PrecheckedBodyCheck {
+                    ir: state.body_ir.clone(),
+                    facts: state.semantic_facts.clone(),
+                    global_type_issues: state.global_type_issues.clone(),
+                    body_check_rejections: state.body_check_rejections.clone(),
+                    checked_functions: state.checked_functions.clone(),
+                    diagnostic_owners: state.diagnostic_owners.clone(),
+                    diagnostics: state.diagnostics.clone(),
+                });
                 let body_check =
                     time_module_provider(db, "executable_body_check", module_id, || {
                         body_check_with_filter_and_layouts_with_inputs(
@@ -2100,7 +2095,10 @@ fn final_executable_checked_modules(
                 let mut module = executable_checked_module_with_body_and_flow_check(
                     db, module_id, body_check, flow_check, layouts,
                 )?;
-                Arc::make_mut(&mut module.provider_demands).extend(provider_demands);
+                if let Some(state) = state {
+                    Arc::make_mut(&mut module.provider_demands)
+                        .extend(state.provider_demands.iter().cloned());
+                }
                 Ok((module_id, module))
             },
         )

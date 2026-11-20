@@ -96,6 +96,7 @@ fn loader_query_registry() -> QueryResult<nia_query::QueryRegistry> {
         queries::ProviderSummaryQuery,
         queries::SourceStatusQuery,
         queries::SourceTextQuery,
+        source_edits::SourceGrammarRevisionQuery,
         queries::SyntaxModuleQuery,
     );
     Ok(registry)
@@ -339,6 +340,7 @@ impl LoaderDatabase {
                 entry_path,
                 module_map,
                 sources: sources.clone(),
+                source_grammar_revision: Mutex::new(0),
                 node_store: nia_node_id::NodeStore::new(),
                 diagnostic_store: Arc::new(nia_diagnostic::DiagnosticStore::new()?),
                 symbols,
@@ -479,6 +481,7 @@ impl LoaderDatabase {
                 },
                 |file| file.version(),
             );
+            self.advance_source_grammar_revision(retirement)?;
             self.reset_provider_facts(retirement)?;
             let invalidation = retirement.invalidate(SourceTextQuery(source_id))?;
             queries::retire_source_revision_queries(retirement, previous_version)?;
@@ -655,6 +658,12 @@ impl LoaderFactProvider for LoaderDatabase {
 
     fn node_store(&self) -> nia_node_id::NodeStore {
         self.db.context().node_store.clone()
+    }
+
+    fn source_grammar_revision(&self) -> QueryResult<Option<u64>> {
+        Ok(Some(
+            *self.db.get(source_edits::SourceGrammarRevisionQuery)?,
+        ))
     }
 
     fn module_graph(&self) -> QueryResult<nia_imports::ModuleGraphSnapshot> {
@@ -1037,6 +1046,7 @@ fn load_program_trace(
             entry_path,
             module_map,
             sources: SourceDatabase::new(),
+            source_grammar_revision: Mutex::new(0),
             node_store: nia_node_id::NodeStore::new(),
             diagnostic_store: Arc::new(
                 nia_diagnostic::DiagnosticStore::new().expect("create diagnostic store"),
@@ -1109,6 +1119,7 @@ pub(crate) struct LoaderContext {
     pub(crate) entry_path: SourcePath,
     pub(crate) module_map: ModuleMap,
     pub(crate) sources: SourceDatabase,
+    pub(crate) source_grammar_revision: Mutex<u64>,
     pub(crate) node_store: nia_node_id::NodeStore,
     pub(crate) diagnostic_store: Arc<nia_diagnostic::DiagnosticStore>,
     pub(crate) symbols: SymbolTable,

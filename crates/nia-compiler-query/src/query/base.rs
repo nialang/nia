@@ -582,6 +582,7 @@ impl QueryKey<CompilerContext> for ExecutableFactEpochQuery {
             .map(|module| module.id)
             .collect();
         Ok(ExecutableFactEpoch {
+            source_grammar_revision: db.context().loader_facts().source_grammar_revision()?,
             entry_module: graph.entry(),
             runtime_root_modules,
             target: *db.get(CompilerTargetQuery)?.as_ref(),

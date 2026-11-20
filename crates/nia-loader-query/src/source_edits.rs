@@ -6,7 +6,35 @@ use crate::queries::SyntaxModuleQuery;
 use nia_span::Span;
 use nia_syntax::TextEdit;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct SourceGrammarRevisionQuery;
+
+impl nia_query::QueryKey<LoaderContext> for SourceGrammarRevisionQuery {
+    type Value = u64;
+
+    fn name() -> &'static str {
+        "source_grammar_revision"
+    }
+
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        Ok(*db.context().source_grammar_revision.lock())
+    }
+}
+
 impl LoaderDatabase {
+    pub(super) fn advance_source_grammar_revision(
+        &self,
+        retirement: &QueryRetirement<'_, LoaderContext>,
+    ) -> QueryResult<()> {
+        let mut revision = self.db.context().source_grammar_revision.lock();
+        let next = revision
+            .checked_add(1)
+            .ok_or_else(|| QueryError::internal("source grammar revision space exhausted"))?;
+        retirement.invalidate(SourceGrammarRevisionQuery)?;
+        *revision = next;
+        Ok(())
+    }
+
     /// Applies a UTF-8 edit to the specified current source revision.
     /// Stale revisions and invalid ranges leave the source and its queries intact.
     pub fn edit_source(&self, version: SourceVersion, edit: &TextEdit) -> QueryResult<SourceFile> {
@@ -74,15 +102,7 @@ impl LoaderDatabase {
                         && syntax.same_grammar(&edited);
                     (Some(edited), same_grammar)
                 }
-                (Some(previous), _, None)
-                    if previous.text.as_ref() != text.as_ref()
-                        && self
-                            .db
-                            .context()
-                            .provider_facts
-                            .revision_if_nonempty()
-                            .is_some() =>
-                {
+                (Some(previous), _, None) if previous.text.as_ref() != text.as_ref() => {
                     // A relocated source can have an overlay under an
                     // additional identity with no cached parse of its own.
                     let parsed = nia_syntax::parse(&text, Some(version)).ok();
@@ -94,12 +114,16 @@ impl LoaderDatabase {
                 }
                 _ => (None, false),
             };
+            let same_grammar = previous
+                .as_ref()
+                .is_some_and(|previous| previous.path.as_str() == path.as_str() && same_grammar);
             // Parsing and edit validation finish before any old resource is retired.
             // Provider demands name sources and symbols, so changes to trivia
             // and positions alone do not invalidate settled demands.
             if same_grammar {
                 *self.db.context().provider_demand_plan_candidate.lock() = None;
             } else {
+                self.advance_source_grammar_revision(retirement)?;
                 self.reset_provider_facts(retirement)?;
             }
             retirement.invalidate(SourceTextQuery(source_id))?;

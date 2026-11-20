@@ -131,6 +131,11 @@ pub trait LoaderFactProvider: Send + Sync {
         Ok(())
     }
     fn node_store(&self) -> NodeStore;
+    /// Advances on source edits that can change semantics, including disk invalidation.
+    /// Snapshot providers without tracked source transitions can omit this revision.
+    fn source_grammar_revision(&self) -> QueryResult<Option<u64>> {
+        Ok(None)
+    }
     fn module_graph(&self) -> QueryResult<ModuleGraphSnapshot>;
     fn loaded_module_source_identities(&self) -> QueryResult<Vec<SourceIdentity>>;
     fn module_path(&self, module_id: nia_ids::ModuleId) -> QueryResult<Option<SourcePath>>;

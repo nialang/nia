@@ -167,6 +167,13 @@ impl ExecutableFactSession {
             self.reachability = Default::default();
             stats.reset_reachability = true;
         }
+        // Without a tracked grammar revision, a changed source can change the
+        // type or constant value observed by any other module.
+        let preserve_cross_module_facts = additive_growth
+            || self
+                .epoch
+                .as_ref()
+                .is_some_and(|epoch| epoch.source_grammar_revision.is_some());
         let mut retained_modules = self
             .module_versions
             .iter()
@@ -181,11 +188,12 @@ impl ExecutableFactSession {
         let discard_diagnostic_modules = !additive_growth || !precise_provider_changes_applied;
         self.modules.retain(|module_id, state| {
             let source_retained = retained_modules.contains(module_id);
-            let retained =
-                source_retained && (!discard_diagnostic_modules || state.diagnostics.is_empty());
+            let retained = preserve_cross_module_facts
+                && source_retained
+                && (!discard_diagnostic_modules || state.diagnostics.is_empty());
             if !retained {
                 stats.discarded_functions += state.checked_functions.len();
-                if source_retained {
+                if preserve_cross_module_facts && source_retained {
                     stats.discarded_diagnostic_modules += 1;
                 }
             }
