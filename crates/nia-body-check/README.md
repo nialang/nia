@@ -29,6 +29,13 @@ the concrete closure state and callable mutability. A bound never substitutes
 for the declared generic parameter when deciding whether the argument is
 admissible.
 
+For `R = Target!Value`, the closure body is checked in that error-union
+context: `!value` checks its payload against `Valueθ`, and `error!` checks
+against `Targetθ`. A nominal error constructor in the closure body may
+determine `Target`; another argument or the receiver may determine `Value`.
+The inferred closure signature is then checked against the same instantiated
+bound.
+
 ## Explicit Callable View
 
 An explicit callable-view parameter has a different representation and a
@@ -64,48 +71,31 @@ An implementation that uses the expected `&Fun` only after checking the
 closure body is too late. An implementation that accepts the callable shape in
 place of the view is too permissive.
 
-The corresponding error-propagation rule is:
-
-```text
-Γ; return E_target!R ⊢ e.? : V
-    if Γ ⊢ e : E_source!V
-    and E_source = E_target or IntoError[E_source, E_target] is satisfied
-```
-
-For an optional operand the analogous rule requires an optional return
-boundary and preserves its payload. In the error-union rule, `IntoError` is an
-obligation at this particular propagation boundary, never an equality between
-`E_source` and `E_target`. Consequently, contextualizing a callback's return
-with `E_target!V` must not rewrite the operand's error type or cause the
-conversion obligation to disappear.
-
-These rules separate three questions that had been easy to conflate: which
-signature checks the closure body, which concrete closure state satisfies the
-callable parameter, and which conversion discharges `.?`. The local inference
-pass may add only the justified structural equalities; ordinary body checking
-and trait solving remain authoritative for coercions and `IntoError`.
-
-For `R = Target!Value`, the body is checked in that error-union context. Thus
-`!value` checks its payload against `Valueθ`, and `error!` checks against
-`Targetθ`. A nominal error constructor in the closure body may determine
-`Target`; another argument or the receiver may determine `Value`. The inferred
-closure signature is then checked against the same instantiated bound.
+These rules keep three questions apart: which signature checks the closure
+body, which concrete closure state satisfies the callable parameter, and which
+conversion discharges `.?`. The local inference pass may add only the
+justified structural equalities; ordinary body checking and trait solving
+remain authoritative for coercions and `IntoError`.
 
 ## Propagation Constraint
 
-For `e.?`, if the enclosing function result is `Optional[R]`, the operand is
-constrained to `Optional[T]` and the expression yields `T`. If the enclosing
-function result is `E_target!R`, the operand is constrained to `E_source!T`
-and the expression yields `T`:
+For `e.?`, if the enclosing function result is `?R`, the operand is
+constrained to `?T` and the expression yields `T`. If the enclosing function
+result is `E_target!R`, the operand is constrained to `E_source!T` and the
+expression yields `T`:
 
 ```text
-e : E_source!T       IntoError[E_source, E_target] is required
-e.? : T              when the enclosing result is E_target!R
+Γ; return E_target!R ⊢ e.? : T
+    if Γ ⊢ e : E_source!T
+    and E_source = E_target or IntoError[E_source, E_target] is satisfied
 ```
 
-The error sides are intentionally not unified. Nia checks one direct
-`IntoError` conversion at the propagation boundary after ordinary type
-inference. This keeps generic closure inference from changing propagation or
+The error sides are intentionally not unified. `IntoError` is an obligation at
+this particular propagation boundary, never an equality between `E_source` and
+`E_target`: Nia checks one direct conversion there after ordinary type
+inference. Contextualizing a callback's return with `E_target!T` therefore
+must not rewrite the operand's error type or make the conversion obligation
+disappear, and generic closure inference cannot change propagation or
 conversion semantics.
 
 The return boundary selects the propagation family, not the payload type:

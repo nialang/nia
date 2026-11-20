@@ -20,11 +20,12 @@
 //! Linker and archiver failures keep both captured output streams and use the
 //! same diagnostic constructor for text and JSON output.
 //!
-//! Executable codegen has three final-link policies: no LTO (the default),
-//! ThinLTO, and full LTO. LTO is executable-only, because object sets and
-//! static archives do not own a complete final linkage unit. The driver
-//! prepares the ThinLTO backend cache namespace beneath the invocation cache
-//! root before passing it to LLVM.
+//! Executable codegen has three final-link policies: no LTO, ThinLTO, and full
+//! LTO. An executable that does not choose one links without LTO at `-O0` and
+//! with ThinLTO at every other level (`LinkTimeOptimization::for_level`). LTO
+//! is executable-only, because object sets and static archives do not own a
+//! complete final linkage unit. The driver prepares the ThinLTO backend cache
+//! namespace beneath the invocation cache root before passing it to LLVM.
 
 fn stream_chunk_len(remaining: u64, buffer_len: usize) -> usize {
     usize::try_from(remaining).map_or(buffer_len, |remaining| remaining.min(buffer_len))

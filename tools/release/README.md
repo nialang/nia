@@ -1,11 +1,12 @@
-# Nia Release Build
+# Release Build
 
-`build.sh` builds the release compiler and language server. It requires the pinned
-LLVM 23.1.2 static prefix produced by [`../llvm/build-static.sh`](../llvm/README.md),
-and uses the `llvm-static` feature for both binaries. It checks the static
-prefix and checks both binaries for shared LLVM or LLD dependencies with
-`readelf` on Linux and `otool` on macOS. Standard-library sources remain part
-of the toolchain resources and are compiled through the normal source pipeline.
+`build.sh` builds the release compiler and language server on Linux and macOS
+with the `llvm-static` feature. It requires the pinned LLVM 23.1.2 static
+prefix produced by [`tools/llvm/build-static.sh`](../llvm/README.md): it
+checks that the prefix reports version 23.1.2, links statically, and contains
+`ld.lld`, and it rejects either binary if `readelf` (Linux) or `otool` (macOS)
+shows a shared LLVM or LLD dependency. Standard-library sources remain part of
+the toolchain resources and are compiled through the normal source pipeline.
 
 Run it from any directory:
 
@@ -13,24 +14,27 @@ Run it from any directory:
 tools/release/build.sh
 ```
 
-Set `LLVM_SYS_231_PREFIX` when the static prefix is outside the repository.
-The release compiler still has normal host dependencies such as libc and the
-C++ runtime. Target programs may additionally require a target sysroot, CRT,
-and linker runtime; those are separate from the compiler's LLVM linkage.
+Set `LLVM_SYS_231_PREFIX` when the static prefix is not at its default
+location, `target/llvm-static/install`. The release compiler still has normal
+host dependencies such as libc and the C++ runtime. Target programs may
+additionally require a target sysroot, CRT, and linker runtime; those are
+separate from the compiler's LLVM linkage.
 
-## Platform packages
+## Platform Packages
 
-`package.sh` assembles relocatable Unix archives for `linux-x86_64`,
-`linux-aarch64`, `darwin-x86_64`, and `darwin-aarch64`. It runs on the matching
-host and invokes `build.sh`:
+`package.sh` assembles relocatable `.tar.gz` archives for `linux-x86_64`,
+`linux-aarch64`, `darwin-x86_64`, and `darwin-aarch64`. It must run on a host
+of the named platform, and it runs `build.sh` first:
 
 ```sh
 NIA_RELEASE_PLATFORM=darwin-aarch64 tools/release/package.sh
 ```
 
-`package.ps1` assembles the matching `windows-x86_64` ZIP archive on a Windows
-MSVC host. Build the compiler and language server with the static LLVM prefix
-before running it.
+`package.ps1` assembles the `windows-x86_64` ZIP archive on a Windows MSVC
+host. It does not build: first build the compiler and language server against
+the static prefix from an x64 Developer PowerShell (see [Development
+Setup](../../docs/dev/setup.md#windows-msvc)). It takes `ld.lld.exe` from
+`LLVM_SYS_231_PREFIX`, or from `target/llvm-static/install` when that is unset.
 
 ```powershell
 cargo build --locked --release -p nia-cli -p nia-lsp --no-default-features --features nia-cli/llvm-static,nia-lsp/llvm-static --target x86_64-pc-windows-msvc
@@ -62,3 +66,8 @@ nia-<version>-<platform>/
 Keep that layout intact so compiler relocation remains supported. The bundled
 LLD links every target: the compiler selects the ELF, COFF, or Mach-O flavor
 for the artifact target.
+
+`.github/workflows/release.yml` runs these scripts for every platform from a
+release tag, smoke-tests each archive and its language server, builds the VS
+Code extension (`nia-<version>.vsix`), and publishes them together. The tag
+rules are in [Contributing](../../docs/dev/contributing.md#releases).

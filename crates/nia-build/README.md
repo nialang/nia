@@ -12,7 +12,7 @@ public `std::build` API and its ownership rules live with the Nia sources in
 [`lib/std/build/`](../../lib/std/build/). Language-visible build behavior is
 specified in the [language reference](../../docs/reference/language.md); the
 outer CLI and compiler boundary are described in
-[Compiler architecture](../../docs/dev/architecture.md).
+[Compiler Architecture](../../docs/dev/architecture.md).
 
 ## Invocation
 
@@ -99,6 +99,14 @@ policy for the short-lived plan constructor.
     publication of complete action output sets.
   - [`helpers.rs`](src/coordinator/helpers.rs) owns frozen-plan lookup,
     target conversion, and typed consistency errors.
+- [`src/compiler_inputs.rs`](src/compiler_inputs.rs) is the read-only
+  projection of a configured plan's compiler inputs (entries, imports,
+  profile, CPU level, and dependency visibility). The coordinator and the
+  language server both read compiler requests through it.
+- [`src/source_map.rs`](src/source_map.rs) validates the `.nia.map` source map
+  a build action publishes beside a generated Nia file and maps generated
+  ranges back to the action's declared inputs. The map format is documented
+  for users in [`editors/README.md`](../../editors/README.md#generated-sources).
 - [`src/program_search.rs`](src/program_search.rs) resolves programs launched
   by name for both external-command steps and configuration probes, so a
   step, its cache identity, and a probe agree on the file.
@@ -199,17 +207,21 @@ affect.
 
 Output-changing artifact settings are plan fields. Each artifact carries its
 runtime and an `ArtifactConfiguration` record of linkage, debug info, panic
-strategy, LTO, defines, and system libraries; each compiler-check action
-carries a copy of the record of the artifact it checks. Only the executable
-link consumes the record: linkage selects the executable form on ELF targets
-and is ignored elsewhere, system libraries are added to the link options, and
-LTO selects the link request's link-time optimization policy. Object-set and
-static-archive emits read none of it. Debug info, panic strategy, and defines
-appear only in the plan, in cache identity, and in inspection output. The
-compiler-check and compiler-emit identities encode the complete record, and a
-change is reported as the `artifact` invalidation component; the test-suite
-completion identity encodes the artifact's LTO. Runtime is a separate artifact
-field with its own `runtime` invalidation component.
+strategy, LTO, CPU level, defines, and system libraries; each compiler-check
+action carries a copy of the record of the artifact it checks. The CPU level
+selects the compiler driver for every compiler action of the artifact; an unset
+level follows the invocation's level for the invocation artifact target and is
+the baseline for any other target. The rest of the record is consumed only by
+the executable link: linkage selects the executable form on ELF targets and is
+ignored elsewhere, system libraries are added to the link options, and LTO
+selects the link request's link-time optimization policy; an unset LTO mode
+means ThinLTO at `O1` and above and none at `O0`. Object-set and static-archive
+emits read none of these. Debug info, panic strategy, and defines appear only
+in the plan, in cache identity, and in inspection output. The compiler-check
+and compiler-emit identities encode the complete record, and a change is
+reported as the `artifact` invalidation component; the test-suite completion
+identity encodes the artifact's LTO. Runtime is a separate artifact field with
+its own `runtime` invalidation component.
 
 The invocation `--lto` setting is not an artifact setting. It selects
 link-time optimization for the host runner link only, and it is part of the
@@ -226,12 +238,12 @@ environment components, and the toolchain-derived byte order and pointer width.
 The runner receives the toolchain's complete maintained target matrix. An
 artifact without a target builds for the invocation artifact target;
 `forTarget` selects any other member, such as `b.hostTarget()` for a tool the
-build runs or `b.target("x86_64-apple-macos")` for an additional artifact.
-Each compiler action carries its resolved target, and the coordinator creates
-one driver per distinct target in the plan. Run, test, and command programs must
-be built for the host target.
+build runs or `b.target("x86_64-apple-macos")` for an additional artifact. Each
+compiler action carries its resolved target, and the coordinator creates one
+driver per distinct pair of target and CPU level in the plan. Run, test, and
+command programs must be built for the host target.
 
-### Encoding bounds
+### Encoding Bounds
 
 The Nia encoder bounds every collection count by the registered `maxItems`
 limit before narrowing it to the wire `u32` representation. Aggregate counts
@@ -250,7 +262,7 @@ It grows a list only after each item has consumed and validated its bytes, so a
 truncated count prefix cannot amplify a tiny draft into `count * size_of(T)` of
 host allocation.
 
-### Protocol identity
+### Protocol Identity
 
 The registered protocol identities in `nia-compat` are the only schema and
 namespace authorities. One protocol epoch is shared by compiler, toolchain,
@@ -376,7 +388,7 @@ packages; configure, action, and suite caches stay under the package's
 Cache I/O failures and corruption produce explicit misses and never replace the
 ordinary correctness path.
 
-### Runner cache
+### Runner Cache
 
 Generated runners use content-addressed
 `build/cache/runner/protocol/<key>.cache` records. The namespace and payload
@@ -396,7 +408,7 @@ key, because the runner is always compiled at O0. A hit verifies and atomically
 restores the runner executable; malformed or corrupted records are retired as
 misses.
 
-### Configuration cache
+### Configuration Cache
 
 The CLI freezes a new plan for each invocation; only a configure miss starts the
 runner. A configure record is keyed by three identities: the runner cache key,
@@ -447,7 +459,7 @@ host rechecks each reported value before publishing a record:
 Malformed records, path escapes, oversized values, duplicate facts, and
 read-after-run changes are rejected and cannot enter the configure cache.
 
-### Action cache
+### Action Cache
 
 Generated-file and eligible external-command entries store complete validated
 payloads. Compiler-check entries record only a prior successful zero-diagnostic
@@ -492,7 +504,7 @@ file; the coordinator never passes its own stdin, and a declared stdin path is
 part of the input set, command identity, and dependency closure. The view is
 not an OS-level sandbox, as the guide states.
 
-## Publication and Locks
+## Publication And Locks
 
 Actions publish only declared build-root outputs. Equal logical destinations
 share a cross-process lock; unrelated destinations proceed independently.
@@ -564,8 +576,8 @@ Text action-cache entries use stable status and reason names and include
 publication state and declared outputs. Component invalidations are listed on
 the following indented line. The text `--print-plan` artifact line prints the
 artifact configuration as compact JSON with keys in alphabetical order, such as
-`configuration={"debug_info":"line-tables","defines":[],...}`; the JSON
-`build-plan` record carries the same object.
+`configuration={"cpu":"invocation","debug_info":"none","defines":[],...}`; the
+JSON `build-plan` record carries the same object.
 
 Dry runs consult action caches to predict hits and miss reasons. They do not run
 compiler, linker, or external-command actions, restore outputs, or publish cache
@@ -588,8 +600,6 @@ Run focused owner tests before broad workspace gates; the harness rules are in
 [`nia-cli/tests/build_cases.rs`](../nia-cli/tests/build_cases.rs) and the
 `std_build_*` suites. The representative clean/warm/edit/corruption workload
 lives under [`benchmarks/build/`](../../benchmarks/build/) and runs through
-`cargo maintain baseline build`, documented in
-[`maintain/performance.md`](../../maintain/performance.md). Its runner-only
-package measures the fixed cost of configuring through `build_configure_plan`
-and `build_run_runner` timings, alongside exact configure hits and runner
-executions per transition.
+`cargo maintain baseline build`; its states, runner-only package, and timing
+records are documented in
+[`maintain/performance.md`](../../maintain/performance.md#build-baseline).

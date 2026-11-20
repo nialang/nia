@@ -17,13 +17,22 @@ manifest syntax is in
 | [`src/lib.rs`](src/lib.rs) | Identities, manifests and workspaces, source fingerprints, graph resolution and the version solver, fetching, `nia.lock`, and `nia update` |
 | [`src/registry.rs`](src/registry.rs) | Registry endpoints, index and archive validation, HTTPS fetch, and the validated cache |
 
-## Package versions
+## Package Versions
 
-Every package identity uses a strict SemVer 2.0.0 version, regardless of whether its source is a workspace member, path, Git checkout, or registry archive. Parse versions into a SemVer value at package metadata boundaries; do not retain an unchecked string as the identity. Prerelease and build metadata follow SemVer. The compiler's own `0.3.0-dev` version and the standard-library suffix are valid SemVer values.
+Every package identity uses a strict SemVer 2.0.0 version, whether its source
+is a workspace member, path, Git checkout, or registry archive. Versions are
+parsed into a SemVer value at package metadata boundaries; an unchecked string
+is never retained as the identity. Prerelease and build metadata follow
+SemVer. The compiler's own `0.3.0-dev` version and the standard-library suffix
+are valid SemVer values.
 
-Package release versions and source selectors are separate concepts. A package version identifies the package contents' declared release. Git `rev`, `tag`, and `branch` select source revisions and never substitute for, or relax, the package version. All path and Git manifests must declare valid SemVer too.
+Package release versions and source selectors are separate concepts. A package
+version identifies the declared release of the package contents. Git `rev`,
+`tag`, and `branch` select source revisions and never substitute for, or relax,
+the package version. Path and Git manifests must declare a valid SemVer
+version too.
 
-## Dependency declarations and resolution
+## Dependency Declarations And Resolution
 
 The dependency source forms and SemVer requirement syntax are user-facing and
 are specified in
@@ -41,7 +50,16 @@ dependencies of every package in the graph, but the development dependencies
 of the graph's root packages only (the package, or the workspace members
 being resolved), because only a root's tests are built.
 
-The initial resolver selects one version per `(namespace, name)` across that complete graph. Intersect all requirements and select the highest stable version satisfying them. SemVer build metadata remains part of package identity but does not affect precedence; when candidates have equal precedence, select the lexicographically greatest canonical version text so the result is independent of index record order. Prereleases are eligible only when a requirement explicitly admits that prerelease. On conflict, report each requiring package, its constraint, and its dependency chain. Reject aliases duplicated within a manifest; aliases may differ from package names. Multiple versions of the same identity are unsupported.
+The resolver selects one version per `(namespace, name)` across that complete
+graph: it intersects all requirements and selects the highest stable version
+that satisfies them. SemVer build metadata remains part of package identity
+but does not affect precedence; among candidates of equal precedence, the
+resolver selects the lexicographically greatest canonical version text, so the
+result does not depend on index record order. Prereleases are eligible only
+when a requirement explicitly admits that prerelease. A conflict reports each
+requiring package, its constraint, and its dependency chain. An alias declared
+twice in one manifest is rejected; an alias may differ from the package name.
+Multiple versions of the same identity are unsupported.
 
 ## Registry
 
@@ -62,7 +80,14 @@ closed. The registry distributes packages but does not define package
 semantics. Publishing, namespace ownership, account management, private
 registry authentication, and signing are not part of this crate.
 
-Verify archive digests before extraction, bound metadata and archive sizes, reject path traversal and escaping symlinks, and publish cache entries atomically only after validation. Registry source identity remains distinct from Git/path identity. Within one resolved graph, a `(namespace, package)` identity must come from exactly one named registry; requesting it from multiple registries is an error rather than combining unrelated indexes. Credentials must never enter manifests, lockfiles, cache keys, or diagnostics.
+Archive digests are verified before extraction, metadata and archive sizes
+are bounded, path traversal and escaping links are rejected, and cache entries
+are published atomically only after validation. Registry source identity stays
+distinct from Git and path identity. Within one resolved graph, a
+`(namespace, package)` identity must come from exactly one named registry;
+requesting it from several registries is an error rather than a merge of
+unrelated indexes. Credentials never enter manifests, lockfiles, cache keys,
+or diagnostics.
 
 The v1 index is a bounded TOML document with `schema_version = 1` and a
 `packages` array. Each record contains `namespace`, `name`, `version`,
@@ -124,7 +149,7 @@ including formatting, or removes a newly published lockfile when no lockfile
 existed before the update. The transaction also covers reading the published
 result for change reporting.
 
-## Graph restarts
+## Graph Restarts
 
 Registry graph resolution may restart from the root when a later dependency
 constraint changes an already selected release. Each restart carries explicit
@@ -138,10 +163,10 @@ lower release without repeatedly restoring the previous locked version.
 ## Compatibility
 
 The manifest, index, archive, and lockfile rules have no compatibility mode.
-While Nia is unreleased, a change that makes the package model coherent is made
+Before Nia 1.0, a change that makes the package model coherent is made
 directly, and obsolete formats stay rejected.
 
-## Source identity
+## Source Identity
 
 A package source identity walks only the selected roots, skips excluded and
 symlinked entries, and streams file contents into BLAKE3 fingerprints. The

@@ -1,4 +1,4 @@
-# Nia Formal Models
+# Formal Models
 
 This directory holds Lean 4 models of selected compiler contracts. A model
 states a rule precisely and proves its properties; it does not verify the Rust
@@ -19,9 +19,10 @@ toolchain is pinned in [`lean-toolchain`](lean-toolchain).
 | [`NiaFormal/ModuleVisibility.lean`](NiaFormal/ModuleVisibility.lean) | Explicit extension visibility and separate trait-witness closure | [`imports.rs`](../crates/nia-driver/src/tests/imports.rs) |
 | [`NiaFormal/ScopedExports.lean`](NiaFormal/ScopedExports.lean) | Restricted name exports and authorized provider publication | [`using.rs`](../crates/nia-driver/src/tests/using.rs) |
 | [`NiaFormal/SymbolicConst.lean`](NiaFormal/SymbolicConst.lean) | Symbolic const identity, substitution, and value preservation | [`const_generics.rs`](../crates/nia-driver/src/tests/const_generics.rs) |
-| [`NiaFormal/ReachabilityRetraction.lean`](NiaFormal/ReachabilityRetraction.lean) | Exactness of over-delete/rederive after dependency-edge changes | Pending reachability integration tests |
+| [`NiaFormal/ConstComputation.lean`](NiaFormal/ConstComputation.lean) | Residual const computations under substitution and lazy execution | No shared manifest; behavior covered by [`const_generics.rs`](../crates/nia-driver/src/tests/const_generics.rs) |
+| [`NiaFormal/ReachabilityRetraction.lean`](NiaFormal/ReachabilityRetraction.lean) | Exactness of over-delete/rederive after dependency-edge changes | None; the compiler does not use localized retraction yet |
 
-### Value construction inference
+### Value Construction Inference
 
 The model starts after name resolution. It describes how an expected value
 type reaches the leaves of a constructor expression: a stack of frames (tuple
@@ -65,12 +66,12 @@ The third link does not reach the manifest: nothing checks that
 `ast_expression_forms` names exactly the `ExprKind` variants, so a new variant
 must be added to the manifest and the model by hand.
 
-### Module value type facts
+### Module Value Type Facts
 
 Globals and top-level constants keep different initialization rules: globals
 need runtime static storage, while constants are compile-time values. Their
-runtime value types now use one module-level inference query and dependency
-fixed point. The Lean model proves the finite bound for facts that only grow;
+runtime value types use one module-level inference query and dependency fixed
+point. The Lean model proves the finite bound for facts that only grow;
 it does not model the compiler's body checker or cross-module query graph.
 
 [`NiaFormal/module_value_types_matrix.json`](NiaFormal/module_value_types_matrix.json)
@@ -79,7 +80,7 @@ forward const use, a const chain, cross-module const lookup, incremental
 invalidation, source-level cycle reporting, and forward global inference. The
 Lean model checks the inventory, and the compiler tests read the same file.
 
-### Module visibility
+### Module Visibility
 
 `ModuleVisibility.lean` models the source-visible extension set separately
 from trait implementation witnesses. Extension methods follow the caller's
@@ -111,11 +112,12 @@ the manifest. This still does not prove
 the Rust loader and query implementation correct, so the end-to-end cases are
 required alongside the model.
 
-### Scoped exports
+### Scoped Exports
 
 The extension-visibility model starts with resolved provider edges. It does not
-model access restrictions on exported names. [ScopedExports.lean](NiaFormal/ScopedExports.lean)
-covers that separate contract after host-path resolution: alternative routes are
+model access restrictions on exported names.
+[`ScopedExports.lean`](NiaFormal/ScopedExports.lean) covers that separate
+contract after host-path resolution: alternative routes are
 a union, each route requires all its restrictions, and re-exporting a selected
 name cannot remove that name's earlier restriction. It proves that intersecting
 routes requires both scopes, removing subsumed routes preserves access, and
@@ -133,9 +135,9 @@ to the private module namespace. Source selection uses the exporting module's
 ordinary access permissions for every selector; publishing a name retains its
 access routes instead of requiring unrestricted visibility.
 
-[export_scope_matrix.json](NiaFormal/export_scope_matrix.json)
+[`NiaFormal/export_scope_matrix.json`](NiaFormal/export_scope_matrix.json)
 connects these rules to cross-package driver regressions in
-[using.rs](../crates/nia-driver/src/tests/using.rs) for restricted values,
+[`using.rs`](../crates/nia-driver/src/tests/using.rs) for restricted values,
 types, enum aliases, alias chains, private implementation facades, and restricted
 provider publication. The algebra accepts an arbitrary grant predicate; it does
 not prove the Rust ancestry predicate, loader scheduling, or query implementation.
@@ -146,7 +148,7 @@ the same JSON in the driver test. Adding a scoped-export rule therefore requires
 updating the implementation inventory, the Rust manifest assertion, and the Lean
 inventory check together.
 
-### Symbolic const values
+### Symbolic Const Values
 
 `SymbolicConst.lean` covers the scalar identities retained while checking a
 generic body: a literal length, a resolved const parameter, or a size/alignment
@@ -156,7 +158,8 @@ symbolic parameters. The model proves that accepted symbolic equality remains
 equal after substitution and evaluation, and that converting between array
 lengths and const arguments preserves meaning.
 
-The shared [symbolic_const_matrix.json](NiaFormal/symbolic_const_matrix.json)
+The shared
+[`NiaFormal/symbolic_const_matrix.json`](NiaFormal/symbolic_const_matrix.json)
 connects this inventory to compiler checks and LLVM lowering. A separate driver
 test links and runs multiple instances, including imported aliases, to check
 that an instance cannot reuse another instance's local constant value.
@@ -186,6 +189,8 @@ Neither fragment proves Rust implementation correctness, target layout,
 recursive operand-type traversal, interpreter memory and pointer lifetimes,
 or cache invalidation.
 
+### Residual Const Computations
+
 `ConstComputation.lean` adds a residual-expression model with ordered unary and
 binary operations, conditional execution and opaque function calls. Substitution
 preserves the complete partial execution result, including failures. Unselected
@@ -197,11 +202,13 @@ reassociation is not a valid equality rule.
 The operation/call kernel is an explicit parameter, and replacement evaluation
 must agree with the source environment. This proves a semantic interface
 contract, not arithmetic opcode correctness, const function bodies, interpreter
-budgets, or the compiler's symbolic-term construction and cache keys. Compiler
-tests exercise generic arithmetic, cross-module const functions with loops,
+budgets, or the compiler's symbolic-term construction and cache keys. The
+model has no shared manifest; compiler tests such as
+`generic_const_computation_instances_execute` in `const_generics.rs` exercise
+generic arithmetic, cross-module const functions with loops,
 multiple concrete instances, lazy branches and failing instance obligations.
 
-### Incremental reachability retraction
+### Incremental Reachability Retraction
 
 `ReachabilityRetraction.lean` models an edge graph whose changed outgoing
 dependencies are owned by a known set of source nodes. It defines the affected
@@ -228,16 +235,18 @@ cd formal
 lake build
 ```
 
-The manifest is declared as a Lake input, so editing it rebuilds the model.
-Manifest changes also trigger the build/std workflow, which runs the Rust
-matrix tests; changes to the checker sources trigger the formal workflow.
-The compiler side runs with the driver tests:
+Each manifest is declared as a Lake input, so editing it rebuilds the model
+that reads it. Manifest changes also trigger the build/std workflow, which
+runs the Rust tests that read the manifests; changes to `formal/` or to the
+compiler sources a model describes trigger the formal workflow. Run the
+compiler test listed in the [Models](#models) table for the model you changed,
+for example:
 
 ```sh
 cargo test -p nia-driver value_inference_matrix
 ```
 
-## Changing a model
+## Changing A Model
 
 - Changing a rule: update the model and its proofs, the manifest, and the
   compiler test in the same change, and build both sides.

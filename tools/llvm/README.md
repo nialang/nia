@@ -1,54 +1,74 @@
-# Nia LLVM Toolchain
+# LLVM Toolchain
 
-`build-static.sh` builds the LLVM prefix used by a hermetic Nia release. The
-script keeps the source and build trees under `target/` by default, so LLVM is
-not part of the Nia repository or its release archives.
+`build-static.sh` (Linux and macOS) and `build-static.ps1` (Windows) build the
+static LLVM prefix that a release links. The prefix holds static LLVM
+libraries and LLD; the release archive bundles its `ld.lld`. Source and build
+trees stay under `target/` by default, so LLVM is not part of the repository
+or the release archives.
 
-The default source is the `llvmorg-23.1.2` tag from `llvm-project`. Override
-`LLVM_RELEASE_TAG` only when updating the pinned toolchain. The build disables
-optional compression, XML, terminal, and performance-monitoring libraries so a
-static `llvm-sys` link does not inherit distro-specific `-lz`, `-lzstd`, or
-`-lxml2` requirements.
+Both scripts check out the `llvmorg-23.1.2` tag from `llvm-project` and reject
+an existing source tree at another tag; override `LLVM_RELEASE_TAG` only when
+updating the pinned toolchain. They disable optional compression, XML,
+terminal, and performance-monitoring libraries, so a static `llvm-sys` link
+does not inherit distribution-specific `-lz`, `-lzstd`, or `-lxml2`
+requirements.
 
-The resulting prefix is selected by `LLVM_SYS_231_PREFIX`. A release build
-must use a static-only `llvm-sys` configuration and fail when the prefix does
-not provide static archives. Development builds may continue using the distro
-LLVM installation; release builds consume this prefix through
-`tools/release/build.sh`.
+Select the resulting prefix with `LLVM_SYS_231_PREFIX`. Release builds
+consume it through [`tools/release/build.sh`](../release/README.md), which
+uses a static-only `llvm-sys` configuration and fails when the prefix does not
+provide static archives. Development builds may keep using a distribution
+LLVM installation.
 
-Useful overrides for `build-static.sh` (the PowerShell script always builds the
-`X86;AArch64` targets):
+## Variables
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `LLVM_RELEASE_TAG` | `llvmorg-23.1.2` | the LLVM tag to check out |
+| `LLVM_REPOSITORY` | `https://github.com/llvm/llvm-project.git` | the repository cloned when the source tree is missing |
+| `LLVM_SOURCE_ROOT` | `target/llvm-source` | the LLVM source checkout |
+| `LLVM_BUILD_ROOT` | `target/llvm-static/build` | the CMake build tree |
+| `LLVM_INSTALL_ROOT` | `target/llvm-static/install` | the installed prefix, which `tools/release/build.sh` uses when `LLVM_SYS_231_PREFIX` is unset |
+| `LLVM_ENABLE_PROJECTS` | `lld` | the CMake semicolon list of LLVM projects to build |
+| `LLVM_TARGETS_TO_BUILD` | `X86;AArch64` | the LLVM targets (`build-static.sh` only; the PowerShell script always builds both) |
+| `LLVM_BUILD_JOBS` | the host CPU count | build parallelism |
+| `LLVM_CMAKE_FRESH` | unset | `1` regenerates the CMake cache (`build-static.ps1` only) |
+
+Default paths are relative to the repository root. For example:
 
 ```sh
 LLVM_TARGETS_TO_BUILD=X86 LLVM_BUILD_JOBS=8 tools/llvm/build-static.sh
 ```
 
-The default build includes LLD. A validation workflow that needs the matching
-Clang driver may set `LLVM_ENABLE_PROJECTS='clang;lld'`; the project list is a
-CMake semicolon list and participates in that workflow's toolchain identity.
+A validation workflow that needs the matching Clang driver, such as the C ABI
+and interoperability tests, may set `LLVM_ENABLE_PROJECTS='clang;lld'`; the
+project list is part of that workflow's toolchain identity.
 
-When `LLVM_BUILD_JOBS` is omitted, the script uses the full host CPU count.
-WSL users should lower it when the VM has limited memory; an explicit value can
-be set after increasing the WSL memory and swap allocation.
+Under WSL, or on any host with limited memory, lower `LLVM_BUILD_JOBS`, or
+raise the WSL memory and swap allocation before using a higher value.
 
-The release package contains the Nia compiler and its `lib` resources, not
-this LLVM source tree. LLVM build inputs and the resolved source revision are
-release-build inputs.
+## Windows
 
-On Windows, use the PowerShell build entry point. It pins the source tree to
-the same LLVM release, configures the MSVC static runtime, and disables
-optional libraries that are not needed by Nia:
+On Windows, use the PowerShell entry point. It locates Visual Studio and the
+Windows SDK itself, configures the static MSVC runtime
+(`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded`), and builds with Ninja:
 
-    $env:LLVM_SOURCE_ROOT = 'D:\Downloads\llvm-project'
-    $env:LLVM_BUILD_ROOT = 'D:\Tools\llvm-build'
-    $env:LLVM_INSTALL_ROOT = 'D:\Tools\llvm'
-    $env:LLVM_ENABLE_PROJECTS = 'clang;lld'
-    .\tools\llvm\build-static.ps1
+```powershell
+$env:LLVM_SOURCE_ROOT = 'D:\Downloads\llvm-project'
+$env:LLVM_BUILD_ROOT = 'D:\Tools\llvm-build'
+$env:LLVM_INSTALL_ROOT = 'D:\Tools\llvm'
+$env:LLVM_ENABLE_PROJECTS = 'clang;lld'
+.\tools\llvm\build-static.ps1
+```
 
-Including Clang in this prefix also provides the matching compiler required by
-the C ABI and interoperability tests.
+Including Clang in this prefix also provides the compiler required by the C
+ABI and interoperability tests. The source root must be a standalone checkout
+at the pinned tag. When moving an existing build tree or changing its source
+path, set `LLVM_CMAKE_FRESH=1` for the first invocation to regenerate its
+CMake cache.
 
-The source root is a standalone checkout at the `llvmorg-23.1.2` tag; the LLVM
-main branch is not used by this workspace. When moving an existing build tree
-or changing its source path, set `LLVM_CMAKE_FRESH=1` for the first invocation
-to regenerate its CMake cache.
+## Release Contents
+
+The release archive contains the compiler, the language server, the `lib`
+resources, and the prefix's `ld.lld`, not the LLVM source tree or the rest of
+the prefix. LLVM build inputs and the resolved source revision are inputs of
+the release build.

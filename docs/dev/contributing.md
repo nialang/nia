@@ -1,4 +1,4 @@
-# Contributing to Nia
+# Contributing To Nia
 
 Nia is a maintainer-led project. Contributions, issues, and design discussions
 are welcome; final language and implementation decisions rest with the project
@@ -8,9 +8,11 @@ not fit the direction of Nia.
 
 Related developer documents:
 
-- [Development setup](setup.md): toolchains, Windows MSVC, environment variables.
-- [Testing](testing.md): gates, test layout, and the resource-accounted harness.
-- [Compiler architecture](architecture.md): phases, products, and crate index.
+- [Development Setup](setup.md): toolchains, Windows MSVC, environment variables.
+- [Testing](testing.md): gates, test layout, the resource-accounted harness,
+  and the language-server tools.
+- [Compiler Architecture](architecture.md): phases, products, and crate index.
+- [ABI Internals](abi-internals.md): how the compiler implements the ABI.
 - [Build system](../../crates/nia-build/README.md): build plans, execution, and caches.
 
 ## Project Status
@@ -59,6 +61,7 @@ Start a change at the owner of the contract it modifies:
 | Targets and platform support | [Platform support](../reference/platform-support.md) | `crates/nia-target-config/`, `lib/` startup resources |
 | Repository audit or performance baseline | [`maintain/README.md`](../../maintain/README.md), [`maintain/performance.md`](../../maintain/performance.md) | `maintain/` |
 | Formal model of a compiler contract | [`formal/README.md`](../../formal/README.md) | `formal/` and the compiler test that shares its manifest |
+| Language server or editor clients | [`editors/README.md`](../../editors/README.md) | `crates/nia-lsp/`, `editors/` |
 
 ## Code Standards
 
@@ -77,7 +80,7 @@ Start a change at the owner of the contract it modifies:
 These rules apply across compiler subsystems. Detailed ownership rules live
 with their owners (architecture, ABI, build-system, and standard-library docs).
 
-### Ownership and boundaries
+### Ownership And Boundaries
 
 Every durable fact has one owner and one source of truth. Ownership follows the
 lifetime and mutation authority of the fact, not the crate that happens to
@@ -99,7 +102,7 @@ stable artifact needs an explicit canonical representation. When a proposed
 aggregate, shared cache, or crate split has no clear consumer or ownership
 authority, keep the narrower product.
 
-### Failure, ICEs, and diagnostics
+### Failure, ICEs, And Diagnostics
 
 Expected failures use typed results and the project's diagnostic channels.
 User errors stay distinguishable from internal compiler errors (ICEs), and an
@@ -120,7 +123,7 @@ no-follow regular-file boundary; malformed, redirected, or incompatible data is
 a miss or typed failure, never interpreted optimistically. Semantic checks and
 later lowering agree on the same accepted value set.
 
-### Incremental equals clean
+### Incremental Equals Clean
 
 The typed query and fact graph is the single dependency and invalidation
 source. A persistent cache is an additional storage layer, not a replacement for
@@ -152,22 +155,26 @@ internals, in three kinds:
 A chapter or guide may explain a rule in its own words and with examples, but
 the reference states it exactly and is updated first; chapters and guides link
 to it. Developer documentation (`docs/dev/`, crate READMEs, `maintain/`,
-`formal/`) owns contributor policy and subsystem contracts. Crate-level `//!`
-docs own a crate's internal invariants, and source comments explain local
-reasoning. Each rule has one owner document, updated in the same change that
-establishes it; other documents link to it. Dated measurements and completion
-notes belong in Git history, not in docs, and so do investigations, review
-checklists, and plans.
+`formal/`, `tools/`) owns contributor policy and subsystem contracts.
+Crate-level `//!` docs own a crate's internal invariants, and source comments
+explain local reasoning. Each rule has one owner document, updated in the same
+change that establishes it; other documents link to it. Dated measurements,
+completion notes, investigations, review checklists, and plans belong in Git
+history, not in docs.
 
-Every `nia` code block in the documentation is type-checked by
-`crates/nia-cli/tests/documentation.rs`. Write a block as a complete source
-file where possible; mark statements with ` ```nia fragment `, a block that
-builds on the previous one with ` ```nia continued `, and a block that cannot
-stand alone, such as one file of a multi-file layout, with ` ```nia ignore `.
-A complete program that shows its output should be built and run before the
-output is written down. Each example program lists its expected output in
-`crates/nia-cli/tests/examples_run.rs`. Write examples in the standard
-library's current style.
+Every `nia` code block in `README.md`, `lib/README.md`, `examples/README.md`,
+`docs/`, and the crate READMEs is type-checked by
+`crates/nia-cli/tests/documentation.rs`, which lists every such file. Write a
+block as a complete source file where possible; mark statements with
+` ```nia fragment `, a block that builds on the previous one with
+` ```nia continued `, a complete source file the compiler must reject with
+` ```nia rejected `, and a block that cannot stand alone, such as one file of a
+multi-file layout, with ` ```nia ignore `. A block that declares
+`pub fun main(init` is checked with the `freestanding` runtime, every other
+block with `bare`. A complete program that shows its output should be built
+and run before the output is written down. Each example program lists its
+expected output in `crates/nia-cli/tests/examples_run.rs`. Write examples in
+the standard library's current style.
 
 ## Review
 

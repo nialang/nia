@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Every example builds, runs, and prints the output its README promises. On
+//! Every example builds, runs, and prints the output listed in `EXAMPLES`. On
 //! Linux x86_64 the same programs also run on every Linux target: i686 natively
 //! and aarch64 under user-mode QEMU.
 

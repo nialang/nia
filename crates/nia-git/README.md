@@ -44,11 +44,12 @@ their corpora are in [`fuzz/`](fuzz/).
   opened does not redirect output. Output traversal, exclusive file creation,
   and metadata cleanup are relative to `cap-std` directory handles. The
   destination directory must be empty; opening it safely (no linked ancestors)
-  and discarding partial output on failure belong to the caller. Trees are walked with an explicit
-  stack, and each path is created exclusively. Tree entries cannot name Git
-  metadata, traverse directories, or use Windows device names (including with
-  trailing spaces or dots before an extension) and alternate data streams. Remote pack objects are decoded from the validated response
-  bytes, without a temporary `.git` tree.
+  and discarding partial output on failure belong to the caller. Trees are
+  walked with an explicit stack, and each path is created exclusively. Tree
+  entries cannot name Git metadata, traverse directories, use Windows device
+  names (including with trailing spaces or dots before an extension), or name
+  alternate data streams. Remote pack objects are decoded from the validated
+  response bytes, without a temporary `.git` tree.
 - **Local repositories.** Source paths are made absolute lexically and opened
   component by component without following links. Refs, loose objects, and
   pack files are read relative to those handles, so linked source components,

@@ -39,15 +39,15 @@ revision and dirty state to the measured compiler's checkout rather than the
 runner's checkout; each compiler uses its own standard library and runtime.
 
 Every compiler and build report records the full Git revision and dirty state;
-resolved paths and version output for Rust, Cargo, `llvm-config`, and the linker
-selected through the compiler's native link policy (`NIA_LINKER`, then
+resolved paths and version output for Rust, Cargo, `llvm-config`, and the
+linker selected through the compiler's native link policy (`NIA_LINKER`, then
 `NIA_LLD`, bundled LLD from the measured resource root, or the target's LLD
-driver on `PATH`); the measured Nia executable
-identity where applicable; and the compiler/workload profile, feature,
-optimization, project-cache, and operating-system page-cache policy. The build
-baseline builds the repository-default release compiler before measurement;
-`--no-build` is an explicit escape hatch for an externally prepared compiler,
-and the report marks that distinction.
+driver on `PATH`); the measured Nia executable identity where applicable; and
+the compiler/workload profile, feature, optimization, project-cache, and
+operating-system page-cache policy. The build baseline builds the
+repository-default release compiler before measurement; `--no-build` is an
+explicit escape hatch for an externally prepared compiler, and the report marks
+that distinction.
 
 The suite fixes twenty-four compiler workloads. Generated sources, objects,
 executables, and reports stay under temporary or `target/` directories; the
@@ -73,19 +73,18 @@ remaining sources live in `benchmarks/` or reuse maintained examples.
 
 Source-volume records include the generated source byte count, so size effects
 are not inferred from workload names. The object-codegen workloads are rejected
-unless every emitted unit was submitted through the live readiness path and
-the minimum unit count is met, so their CPU/RSS trends cannot silently become
+unless every emitted unit was submitted through the live readiness path and the
+minimum unit count is met, so their CPU/RSS trends cannot silently become
 single-unit, cache-hit, linker, or synchronous-fallback measurements. The
 compiler-builtins unit is emitted synchronously after the readiness tasks; the
 total must equal the task submissions plus that one unit, and every unit must
-acquire a memory permit. Reports
-record bounded LLVM worker lanes and live ready-task submissions separately
-from stable unit count; one lane may consume several units without coarsening
-their work-product identities. Each synthetic sample is rejected unless its
-loaded-module, query-execution, checked-body, reachable-body, LLVM-unit, and
-live ready-task counters retain at least the requested scale, so repeated
-samples give the internal distributions behind the competitive baseline's cold
-wall, CPU-utilization, and peak-RSS scales.
+acquire a memory permit. Reports record bounded LLVM worker lanes and live
+ready-task submissions separately from stable unit count; one lane may consume
+several units without coarsening their work-product identities. Each synthetic
+sample is rejected unless its loaded-module, query-execution, checked-body,
+reachable-body, LLVM-unit, and live ready-task counters retain at least the
+requested scale, so repeated samples give the internal distributions behind the
+competitive baseline's cold wall, CPU-utilization, and peak-RSS scales.
 
 Each result contains process wall, user, and system time; maximum resident set
 size; CPU utilization; aggregated stage/query timings; query execution and
@@ -114,8 +113,8 @@ Query products are returned as shared handles or transferred owned values;
 the query engine does not clone cached semantic payloads on cache hits.
 
 The compiler baseline command selects the feature automatically. When
-`--no-build` or a custom `--compiler` is used, the runner rejects a timing report without
-allocation counters. To build that binary manually:
+`--no-build` or a custom `--compiler` is used, the runner rejects a timing
+report without allocation counters. To build that binary manually:
 
 ```sh
 cargo build --release -p nia-cli --features perf-alloc
@@ -156,10 +155,11 @@ cargo maintain baseline competitive
 By default this builds the release Nia compiler, takes five samples of both
 development and release profiles, and writes a revision-labelled report below
 `target/nia-perf/competitive/`. `--no-build`, `--repeat`, `--profile`,
-`--workload`, `--nia`, `--rustc`, `--cargo`, `--zig`, `--time`, `--resource-root`,
-`--timeout-seconds`, and `--output` make every material input explicit. The profile and workload options
-may be repeated to select distinct entries; duplicate selections are rejected
-rather than measured twice accidentally.
+`--workload`, `--nia`, `--rustc`, `--cargo`, `--zig`, `--time`,
+`--resource-root`, `--timeout-seconds`, and `--output` make every material
+input explicit. The profile and workload options may be repeated to select
+distinct entries; duplicate selections are rejected rather than measured twice
+accidentally.
 
 The matrix covers `minimal_check`, `hello_check`, `hello_executable`,
 `empty_build`, `hello_build`, and the `synthetic_10_modules`,
@@ -223,15 +223,16 @@ change, and executes every artifact. It also proves that each state used a
 different process and that build products were absent only before clean and
 present before both non-cold states.
 
-Project Planner is a non-generated medium Nia application. It is an ordinary multi-module `nia build` project that reads a plan
-file, indexes task names, validates references and cycles, computes a
-topological schedule and critical path, and formats a deterministic report.
-The collector copies the complete project, builds it from source, then runs
-the executable from the copied project root with `data/reference.plan`; the
-sample is rejected unless the exact 63-task summary is produced. Its report
-contract explicitly records one Nia tool and no synthetic generator. No Rust
-or Zig translation is supplied because this workload represents real Nia
-development and is not a cross-language parity claim.
+Project Planner is a non-generated medium Nia application. It is an ordinary
+multi-module `nia build` project that reads a plan file, indexes task names,
+validates references and cycles, computes a topological schedule and critical
+path, and formats a deterministic report. The collector copies the complete
+project, builds it from source, then runs the executable from the copied
+project root with `data/reference.plan`; the sample is rejected unless the
+exact 63-task summary is produced. Its report contract explicitly records one
+Nia tool and no synthetic generator. No Rust or Zig translation is supplied
+because this workload represents real Nia development and is not a
+cross-language parity claim.
 
 Every clean sample or state sequence gets an independently created workspace.
 Direct compilation starts with absent explicit Nia/Zig project caches;
@@ -260,13 +261,13 @@ compiler or acceptance check fails so the failure remains auditable.
 ## Build Baseline
 
 `cargo maintain baseline build` runs the representative package under
-`benchmarks/build/`. It also measures a runner-only package in independent clean and
-warm processes. Its build plan contains one aggregate step and no actions, so
-`build_compile_runner`, `build_run_runner`, query work, and peak RSS expose the
-fixed cost of compiling and executing `build.nia` without application codegen
-or action-cache work. The representative fixture covers clean,
-warm, source-edit, module-map-edit, corruption recovery, clean-equivalent
-artifacts, and failed-action behavior.
+`benchmarks/build/`. It also measures a runner-only package in independent
+clean and warm processes. Its build plan contains one aggregate step and no
+actions, so `build_compile_runner`, `build_run_runner`, query work, and peak
+RSS expose the fixed cost of compiling and executing `build.nia` without
+application codegen or action-cache work. The representative fixture covers
+clean, warm, source-edit, module-map-edit, corruption recovery,
+clean-equivalent artifacts, and failed-action behavior.
 
 A project-cold build starts a fresh process in a copied workspace where both
 `build/out` and `build/cache` were absent before process creation. The report
@@ -340,36 +341,35 @@ result is itself machine-readable JSON.
 
 `.github/workflows/performance.yml` defines the managed Linux LLVM performance
 job. It follows the newest Rust stable release, reports the resolved toolchain
-identity, and installs LLVM 23 from apt.llvm.org on `ubuntu-24.04`. It builds and
-measures both revisions in the same job, running each workload three times with
-the `github-hosted-ubuntu-24.04-x64` runner class. Pull requests compare against
-their base revision; pushes compare against the branch tip before the push;
-scheduled and manually dispatched runs compare against the current revision's
-parent. The reference uses its own source tree, standard library, workload
-harness, and release compiler in a detached worktree. Both builds use the same
-Rust and LLVM installations. Failure to build or measure an available reference
-fails the job. The candidate must pass the existing comparator guards before
-the workflow succeeds.
+identity, and installs LLVM 23 from apt.llvm.org on `ubuntu-24.04`. It builds
+and measures both revisions in the same job, running each workload three times
+with the `github-hosted-ubuntu-24.04-x64` runner class. Pull requests compare
+against their base revision; pushes compare against the branch tip before the
+push; scheduled and manually dispatched runs compare against the current
+revision's parent. The reference uses its own source tree, standard library,
+workload harness, and release compiler in a detached worktree. Both builds use
+the same Rust and LLVM installations. Failure to build or measure an available
+reference fails the job. The candidate must pass the existing comparator guards
+before the workflow succeeds.
 
 Every fully collected main-branch or scheduled candidate becomes the rolling
-`nia-perf-baseline`, with its comparison report and run/revision identity retained
-for 90 days. The artifact also retains `reference.json` and `reference.log` when
-available, so both sides of the same-machine comparison can be inspected. The
-current run remains failed when a guard fires. Artifacts record trends; later
-jobs rebuild their comparison revision rather than comparing timing samples
-from different hosted machines.
+`nia-perf-baseline`, with its comparison report and run/revision identity
+retained for 90 days. The artifact also retains `reference.json` and
+`reference.log` when available, so both sides of the same-machine comparison
+can be inspected. The current run remains failed when a guard fires. Artifacts
+record trends; later jobs rebuild their comparison revision rather than
+comparing timing samples from different hosted machines.
 
 Pull-request candidates and main runs that fail before completing
 `candidate.json` are stored separately for 14 days for diagnosis. A failed
 collection retains its combined candidate log plus run/revision identity. The
 first main run is an explicit bootstrap only when the selected comparison
-revision predates the performance harness; every available reference is measured.
-This stores main-branch trends without committing machine-specific numbers to
-the source tree or treating a developer sample as a project-wide absolute
-threshold.
-Each run also publishes an Actions step summary containing the candidate
-revision, controlled runner class, comparison revision, and comparison result
-when a reference was available.
+revision predates the performance harness; every available reference is
+measured. This stores main-branch trends without committing machine-specific
+numbers to the source tree or treating a developer sample as a project-wide
+absolute threshold. Each run also publishes an Actions step summary containing
+the candidate revision, controlled runner class, comparison revision, and
+comparison result when a reference was available.
 
 Draw performance conclusions from the complete workload path, repeated samples,
 and compatible resource identity, and understand the deterministic query,

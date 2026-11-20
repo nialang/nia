@@ -1,7 +1,7 @@
 # Development Setup
 
 The compiler is a Rust workspace that links LLVM 23.1 through `llvm-sys`.
-This page covers building it from a checkout on Linux and Windows. Gate
+This page covers building it from a checkout on Linux, Windows, and WSL. Gate
 commands and test rules are in [Testing](testing.md).
 
 ## Requirements
@@ -47,7 +47,7 @@ Use an LLVM prefix built with the static MSVC CRT (`/MT`, or
 [`.cargo/config.toml`](../../.cargo/config.toml) enables Rust's `crt-static`
 for `x86_64-pc-windows-msvc`, and the C++ LLVM bridge follows it. LLVM archive
 linkage and CRT linkage are separate choices: `llvm-config --shared-mode` does
-not tell you which CRT a prefix uses. [`tools/llvm/build-static.ps1`](../../tools/llvm/README.md)
+not tell you which CRT a prefix uses. [`tools/llvm/build-static.ps1`](../../tools/llvm/README.md#windows)
 builds a suitable pinned prefix.
 
 The same file links Rust binaries with `rust-lld`, which rustup installs with
@@ -89,7 +89,7 @@ Windows system libraries, and can fail because `psapi.lib` is installed but not
 in rustc's archive search path. The explicit target avoids global SDK
 `-Lnative` flags or 8.3 short paths.
 
-### Windows troubleshooting
+### Windows Troubleshooting
 
 Distinguish missing installations from shell setup:
 
@@ -109,10 +109,10 @@ Distinguish missing installations from shell setup:
 
 ## WSL
 
-WSL builds follow the Linux instructions. Tests and the static LLVM build size
-their parallelism from the Linux VM's visible CPU and memory; on a VM with
-limited memory, lower `LLVM_BUILD_JOBS` for `tools/llvm/build-static.sh` or
-raise the WSL memory and swap allocation.
+WSL builds follow the Linux instructions. Tests size their parallelism from
+the Linux VM's visible CPU and memory, and the static LLVM build uses its CPU
+count; on a VM with limited memory, lower `LLVM_BUILD_JOBS` for
+`tools/llvm/build-static.sh` or raise the WSL memory and swap allocation.
 
 ## Running the Compiler From a Checkout
 
@@ -144,8 +144,8 @@ tools/release/build.sh
 ```
 
 See [`tools/llvm/README.md`](../../tools/llvm/README.md) and
-[`tools/release/README.md`](../../tools/release/README.md) for overrides and
-Linux packaging.
+[`tools/release/README.md`](../../tools/release/README.md) for overrides, the
+Windows build, and platform packages.
 
 ## Environment Variables
 
@@ -166,9 +166,11 @@ described in [`tools/release/README.md`](../../tools/release/README.md).
 | `NIA_LLD` | User | Overrides the discovered LLD executable. A generic multi-flavor LLD binary receives the target's `-flavor`; dedicated drivers such as `lld-link` use their own command line. |
 | `NIA_AR` | User | Overrides the static archive tool; otherwise `llvm-ar`, then `ar`, is discovered. |
 | `NO_COLOR` | User | Standard terminal convention respected by CLI help and diagnostics rendering. |
+| `NIA_LSP_TIMINGS` | Development | `summary` makes `nia-lsp` print a JSON timing report on stderr at shutdown; `detail` adds individual compiler query timings. See [Testing](testing.md#language-server). |
 | `LLVM_SYS_231_PREFIX` | Build | `llvm-sys` override for a non-standard LLVM installation. |
 | `NIA_TEST_SHARED_ARTIFACT_CACHE` | Tests | Set by `nia-test-support` for child `nia build` processes: an absolute directory that holds the runner and compiler-product caches shared by every test package in one run. Not a user option. |
 | `NIA_TEST_RESOURCE_TRACE=1` | Tests | Prints permit waits and the peak process count/RSS of each managed test command. Useful when tuning a new host; it does not change scheduling or limits. |
+| `NIA_UPDATE_SNAPSHOTS=1` | Tests | Makes the `nia-driver` check cases rewrite a changed `main.snap` instead of failing, for review as a diff. |
 
 Test-only fixture variables such as `NIA_TEST_ENV` may appear inside tests that
 verify process-environment behavior.

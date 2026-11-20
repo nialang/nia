@@ -1,17 +1,19 @@
-# Nia Compiler Architecture
+# Compiler Architecture
 
 This document describes how the compiler is put together: the pipeline, the
 query model, crate layering, and the data flows that cross crate boundaries.
 Each crate's own responsibilities and internal rules are documented in its
-crate-level rustdoc (`crates/<name>/src/lib.rs`); the [crate index](#5-crate-index)
-below gives a one-line summary of each.
+crate-level rustdoc (`crates/<name>/src/lib.rs`, or `src/main.rs` for the
+`nia-cli` and `nia-lsp` binaries); the [crate index](#5-crate-index) below
+gives a one-line summary of each.
 
 Related documents:
 
 - [Language reference](../reference/language.md) for language semantics.
-- [ABI reference](../reference/abi.md) and [ABI internals](abi-internals.md)
+- [ABI reference](../reference/abi.md) and [ABI Internals](abi-internals.md)
   for representation and symbol rules.
 - [Build system internals](../../crates/nia-build/README.md) for `nia build`.
+- [Language server](../../editors/README.md) for `nia-lsp` behavior.
 - [Contributing](contributing.md) for engineering rules and review policy.
 
 ## 1. Overview
@@ -70,7 +72,7 @@ source files
   -> static initializer check
   -> flow check
   -> body check
-  -> closure escape check
+  -> escape check
   -> function lowering and optimization
   -> executable reachability
   -> monomorphization
@@ -118,80 +120,6 @@ The shared objects crossing these layers are handles and immutable products:
 `TypeStore` supplies canonical `TyId` values, `nia-sema-ir` supplies semantic
 facts, and `nia-query` records dependency edges. No layer receives a mutable
 global compiler context.
-
-Compile-time execution adds capability requirements to ordinary value semantics.
-`nia-sema::const_value_restriction` classifies normalized value types after body
-checking and implicit adjustments; callable values currently require a
-representation unavailable to the const engine. Direct callees are resolved
-without materializing callable values. Const IR retains unavailable capabilities
-as explicit nodes, so lowering one unsupported value does not abort independent
-body diagnostics. The evaluator rejects execution of those nodes using the same
-capability reason. An empty container or absent optional payload does not
-materialize its element type.
-
-Const IR remains an execution representation: adding a source construct requires
-its execution lowering or an explicit unavailable-capability node. This does
-not introduce an alternative typing rule. Qualified and omitted constructors
-carry resolved aggregate or variant identities, and constructor field context
-comes from declaration signatures rather than source-path spelling. Contextual
-lowering expands aliases with the same recursive normalizer used by typing,
-using raw foreign alias signatures to avoid depending on completed const facts.
-Instantiated enum payload types supply context to nested constructors and
-patterns. Local const annotations, declared global types, and the other operand
-of enum equality also preserve that context. Explicit constructor prefixes
-instantiate their own type and const arguments before payload context is
-propagated. Aliases select the same enum declaration and instance in body
-checking and const execution; qualified unit variants are values rather than
-callable capabilities.
-
-Const IR retains whether a named aggregate constructor omitted its type.
-Body checking fixes that constructor's nominal declaration; an omitted
-constructor takes its instantiated arguments from the current expected type.
-Explicit constructors retain their written arguments. Aggregate execution uses
-the prepared type facts as well, including generic union field ABI selection.
-
-Const calls query function declarations by `GlobalDefId`, including ordinary
-functions, extension methods, and trait methods. Body-local const evaluation
-uses the ordinary program signature scope for this lookup. Module signature
-subsets remain query inputs selected by declaration kind; a type-only subset
-must never serve as the function declaration provider.
-
-Const expression types and call instantiations share a transient facts frame.
-Each evaluation root, residual computation, and function invocation owns its
-frame: a source span does not identify an instance when recursive calls bind
-different generic arguments. Argument typing establishes its own operand
-context before execution. The function-result preparation hook propagates the
-return type through the whole result expression before evaluating its operands,
-including intermediate integer widths. Local initializers and arguments prepare
-their own contexts, which nested block tails retain instead of overwriting them
-with the enclosing function's return type. Inferring a containing call from an
-operand would re-enter argument evaluation before a function frame exists.
-
-The interpreter shares step and call-depth budgets across nested entry points.
-Physical stack growth at those entry points is independent of the logical
-budget, so host stack size does not turn budget exhaustion into process abort.
-Stack segments execute on the same thread and preserve query-local state.
-
-Generic field lengths become residual computations before declaration parameters
-are substituted. This refinement also applies to type-only modules and foreign
-payload declarations. Backend finalization roots those declarations, extends
-concrete enum instance layouts, and publishes canonical type facts for closed
-substituted types. Enum contracts, constructor adapters and fingerprints consume
-the same facts; LLVM emission does not execute const terms.
-Index publication resolves those facts through its owned write snapshot; it
-must not re-enter a reader API while publishing vtables under the same lock.
-
-Types synthesized during body checking use the same recursive alias normalizer
-as explicit types, including aliases nested in callable signatures and trait
-arguments. A body-local cache retains these additional normalized identities;
-foreign aliases are obtained from raw signature facts.
-
-Conversions must preserve source evaluation in checked IR. In particular, a
-Body IR closure-to-function-pointer node retains its source expression until
-function lowering has evaluated it and extracted any inline closure entry.
-Only Function IR reduces the result to a closure entry identity. Walks for
-closure discovery, provenance, executable dependencies, and local allocation
-all traverse the conversion source.
 
 For one declaration, the product flow is:
 
@@ -242,10 +170,11 @@ module then goes through LLVM's per-module pipeline for the same level, in one
 place: `nia_llvm::pipeline`, with `nia_codegen_llvm::llvm_pipeline_level` as
 the only mapping from Nia levels. `O0` only promotes stack slots. `Os` and `Oz`
 run the `O2` pipeline with every function marked `optsize`, plus `minsize` for
-`Oz`. LTO pre-link bitcode uses the same level, and the LTO backend runs the
-whole-program pipeline at it. Modules are always optimized as freestanding
-code: Nia never relies on a hosted C library, so LLVM may not assume library
-functions or introduce calls to them.
+`Oz`. Executables link with ThinLTO at `O1` and above unless an LTO mode is
+selected explicitly; LTO pre-link bitcode uses the same level, and the LTO
+backend runs the whole-program pipeline at it. Modules are always optimized as
+freestanding code: Nia never relies on a hosted C library, so LLVM may not
+assume library functions or introduce calls to them.
 
 The policy is data passed to optimization owners, not a second execution graph:
 
@@ -322,7 +251,7 @@ Crates in the same layer may depend on each other.
 
 ```text
 +--------------------------------------------------------------+
-| Product surface: nia-cli, nia-build, nia-build-plan          |
+| Product surface: nia-cli, nia-lsp, nia-build, nia-build-plan |
 +--------------------------------------------------------------+
 | Orchestration: nia-driver, nia-compiler-query,               |
 | nia-loader-query, nia-loader-contract                        |
@@ -335,7 +264,7 @@ Crates in the same layer may depend on each other.
 | function lowering and optimization                           |
 +--------------------------------------------------------------+
 | Semantic analysis: layout, ABI, trait solving, program       |
-| signatures, const, static, flow, body, closure checking      |
+| signatures, const, static, flow, body, escape checking       |
 +--------------------------------------------------------------+
 | Declaration and resolution: target selection, defs, imports, |
 | public surface, type/value/local resolution, signatures      |
@@ -354,6 +283,74 @@ The IR data-model crates sit low because several analysis crates construct or
 read them: body checking produces Body IR that embeds static IR, and static IR
 reuses function-IR operands. Orchestration crates assemble products across all
 lower layers; they are the only crates that see the whole pipeline.
+
+### 2.4 Compile-Time Execution
+
+Compile-time execution spans `nia-const-ir` (the executable representation),
+`nia-const-check` (typing and staging), `nia-const-eval` (the interpreter), and
+backend finalization. The rules below cross those crates.
+
+Compile-time execution adds capability requirements to ordinary value semantics.
+`nia-sema::const_value_restriction` classifies normalized value types after body
+checking and implicit adjustments; callable values currently require a
+representation unavailable to the const engine. Direct callees are resolved
+without materializing callable values. Const IR retains unavailable capabilities
+as explicit nodes, so lowering one unsupported value does not abort independent
+body diagnostics. The evaluator rejects execution of those nodes using the same
+capability reason. An empty container or absent optional payload does not
+materialize its element type.
+
+Const IR remains an execution representation: adding a source construct requires
+its execution lowering or an explicit unavailable-capability node. This does
+not introduce an alternative typing rule. Qualified and omitted constructors
+carry resolved aggregate or variant identities, and constructor field context
+comes from declaration signatures rather than source-path spelling. Contextual
+lowering expands aliases with the same recursive normalizer used by typing,
+using raw foreign alias signatures to avoid depending on completed const facts.
+Instantiated enum payload types supply context to nested constructors and
+patterns. Local const annotations, declared global types, and the other operand
+of enum equality also preserve that context. Explicit constructor prefixes
+instantiate their own type and const arguments before payload context is
+propagated. Aliases select the same enum declaration and instance in body
+checking and const execution; qualified unit variants are values rather than
+callable capabilities.
+
+Const IR retains whether a named aggregate constructor omitted its type.
+Body checking fixes that constructor's nominal declaration; an omitted
+constructor takes its instantiated arguments from the current expected type.
+Explicit constructors retain their written arguments. Aggregate execution uses
+the prepared type facts as well, including generic union field ABI selection.
+
+Const calls query function declarations by `GlobalDefId`, including ordinary
+functions, extension methods, and trait methods. Body-local const evaluation
+uses the ordinary program signature scope for this lookup. Module signature
+subsets remain query inputs selected by declaration kind; a type-only subset
+must never serve as the function declaration provider.
+
+Const expression types and call instantiations share a transient facts frame.
+Each evaluation root, residual computation, and function invocation owns its
+frame: a source span does not identify an instance when recursive calls bind
+different generic arguments. Argument typing establishes its own operand
+context before execution. The function-result preparation hook propagates the
+return type through the whole result expression before evaluating its operands,
+including intermediate integer widths. Local initializers and arguments prepare
+their own contexts, which nested block tails retain instead of overwriting them
+with the enclosing function's return type. Inferring a containing call from an
+operand would re-enter argument evaluation before a function frame exists.
+
+The interpreter shares step and call-depth budgets across nested entry points.
+Physical stack growth at those entry points is independent of the logical
+budget, so host stack size does not turn budget exhaustion into process abort.
+Stack segments execute on the same thread and preserve query-local state.
+
+Generic field lengths become residual computations before declaration parameters
+are substituted. This refinement also applies to type-only modules and foreign
+payload declarations. Backend finalization roots those declarations, extends
+concrete enum instance layouts, and publishes canonical type facts for closed
+substituted types. Enum contracts, constructor adapters and fingerprints consume
+the same facts; LLVM emission does not execute const terms.
+Index publication resolves those facts through its owned write snapshot; it
+must not re-enter a reader API while publishing vtables under the same lock.
 
 ## 3. Cross-Cutting Rules
 
@@ -576,6 +573,18 @@ named method parameters. Substitution covers parameters, return types, predicate
 trait arguments, and associated type bindings. Predicate comparison ignores
 source spans and declaration order while preserving the required constraints.
 
+Types synthesized during body checking use the same recursive alias normalizer
+as explicit types, including aliases nested in callable signatures and trait
+arguments. A body-local cache retains these additional normalized identities;
+foreign aliases are obtained from raw signature facts.
+
+Conversions must preserve source evaluation in checked IR. In particular, a
+Body IR closure-to-function-pointer node retains its source expression until
+function lowering has evaluated it and extracted any inline closure entry.
+Only Function IR reduces the result to a closure entry identity. Walks for
+closure discovery, provenance, executable dependencies, and local allocation
+all traverse the conversion source.
+
 Expected-type adaptations are semantic facts as well. In particular, implicit
 address formation is recorded separately from pointer-array-to-slice views:
 `T -> &T` may create storage, while `&[T; N] -> &[T]` creates a slice view.
@@ -672,8 +681,9 @@ crate-level rustdoc is the detailed reference.
 | --- | --- |
 | **Product surface** | |
 | `nia-cli` | The `nia` command: argument parsing, toolchain resolution, command dispatch, ICE boundary. |
-| `nia-build` | Bootstrap and invocation of `nia build`: runs `build.nia`, decodes its plan, executes actions. |
+| `nia-build` | Bootstrap and invocation of `nia build`: runs `build.nia`, decodes its plan, executes actions; plan projections and generated-source maps shared with the language server. |
 | `nia-build-plan` | Immutable build-plan model, codec, and graph validation. |
+| `nia-lsp` | The `nia-lsp` language server: editor sessions over the loader and compiler queries, workspace indexing, verified rename and code actions. User-facing behavior is in [`editors/README.md`](../../editors/README.md). |
 | **Orchestration** | |
 | `nia-driver` | Request sequencing, artifact production, object/archive/executable caches, linking. |
 | `nia-compiler-query` | Session-owned compiler query facade and registry joining loader facts to semantic and backend products. |
@@ -705,11 +715,11 @@ crate-level rustdoc is the detailed reference.
 | `nia-escape-check` | Escape analysis: closures and callable views across calls, and addresses of a function's own storage that outlive its call. |
 | `nia-pattern-analysis` | Pure usefulness and exhaustiveness analysis over pattern matrices. |
 | `nia-constructor-check` | The single report of the constructor generic-argument rule, in every expression and pattern position. |
-| `nia-sema` | Shared validation contracts for array lengths, arity, fields, and constructor generic arguments. |
+| `nia-sema` | Shared validation primitives: const value capabilities, implicit address classification, array lengths, arity, field sets, and constructor generic arguments. |
 | **Declaration and resolution** | |
 | `nia-target-config` | Evaluation of target, profile, and test conditions; pruning to the active item tree. |
 | `nia-provider-summary` | Conservative extension-provider summaries and cross-module provider demands. |
-| `nia-defs` | Stable definition identities, namespaces, and module-local definition tables. |
+| `nia-defs` | Stable definition identities, namespaces, lexical scopes, and extension indexes. |
 | `nia-imports` | Module maps, stable module identities, and the module graph. |
 | `nia-public-surface` | Exported module surfaces and lexical `using` scopes. |
 | `nia-type-resolve` | Resolution of type names to definitions, primitives, and generics. |
@@ -751,8 +761,9 @@ crate-level rustdoc is the detailed reference.
 | `nia-compat` | Protocol registry: format magic, the release-derived protocol epoch, and build-protocol name rules. |
 | `nia-opt` | Declarative optimization policy matrix. |
 | `nia-package-metadata` | Relocation-independent package, module, and definition identities; stable type graphs. |
-| `nia-git` | Nia-owned Git transports (local, `git://`, HTTP(S), SSH) and verified checkout of package dependencies. |
+| `nia-git` | Nia-owned Git transports (local, `git://`, HTTP(S), SSH), verified checkout of package dependencies, and the HTTPS fetch used by the registry client. |
 | `nia-toolchain` | Toolchain resource layout discovery and compatibility identity. |
 | `nia-alloc` | Process allocator (mimalloc) installed by every binary that compiles Nia; optional counting wrapper. |
-| **Test infrastructure** | |
+| **Test infrastructure and repository tooling** | |
 | `nia-test-support` | Resource-accounted child-process helpers for workspace tests. |
+| `nia-maintain` (`maintain/`) | Repository audits, reports, and performance baselines run as `cargo maintain`; see [`maintain/README.md`](../../maintain/README.md). |

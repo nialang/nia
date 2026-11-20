@@ -1,4 +1,4 @@
-# ABI Implementation Notes
+# ABI Internals
 
 Compiler-side notes for the ABI described in
 [`docs/reference/abi.md`](../reference/abi.md). The reference owns the
@@ -28,7 +28,7 @@ Lowering and codegen must not recompute struct layout from source order,
 choose aggregate signatures independently, or silently change a C signature.
 LLVM is a consumer of `AbiSignature`; it never derives a second calling
 convention. A program that exposes a Nia-only representation through the C ABI
-is rejected; the compiler never synthesizes an adapter representation.
+is rejected: the compiler never synthesizes an adapter representation.
 
 Any optimization that would change size, alignment, field offsets, parameter or
 return passing, static data, or symbol identity is an ABI change and belongs in
@@ -82,8 +82,8 @@ Exact-key monomorphized instance deduplication is required at every
 optimization level; the `dedup_monomorphized_instances` report field must not
 make it optional or merge instances that need distinct symbols.
 
-Only `ExternImport`/`ExternExport` symbols get default visibility; everything
-else is hidden, so references need no GOT indirection.
+Only `ExternImport` and `ExternExport` symbols get default visibility;
+everything else is hidden, so references need no GOT indirection.
 
 ## Nia Function Classification
 
@@ -113,16 +113,18 @@ never                               no normal return
 An indirect address holds a fresh copy made by the caller. The callee owns that
 copy and may mutate it as the by-value parameter's storage. Method receivers
 follow the receiver type (`&self` and `&mut self` are pointers, `self` is an
-ordinary value parameter). Generic
-functions are classified after monomorphization, on concrete types only.
+ordinary value parameter). Generic functions are classified after
+monomorphization, on concrete types only.
 
-The baseline vector width is 16 bytes on x86_64 and AArch64, and zero on
-i686. Classification consumes the artifact target, never the host or the
-selected CPU level. It compares the register width, not the memory layout:
-LLVM promotes each `<N x i1>` mask lane to at least a byte at call
-boundaries, so `boolx32` (4 bytes in memory) would need a `ymm` register with
-AVX and be split without it. Function-local vector values remain SSA immediates;
-codegen spills arguments and loads indirect results at the call boundary.
+The baseline vector width is 16 bytes on x86_64 and AArch64, and zero on i686,
+whose baseline has no SSE. Classification consumes the artifact target, never
+the host, the selected CPU level, or a function's enabled features, so every
+function passes a vector in the same registers. It compares the register width,
+not the memory layout: LLVM promotes each `<N x i1>` mask lane to at least a
+byte at call boundaries, so `boolx32` (4 bytes in memory) would need a `ymm`
+register with AVX and be split without it. Function-local vector values remain
+SSA immediates; codegen spills arguments and loads indirect results at the call
+boundary.
 
 ### Tracked Caller Metadata
 
@@ -193,9 +195,10 @@ addressability.
 Executable startup is owned by the selected toolchain runtime, a private
 resource under the internal runtime package identity, not public std API.
 
-- Linux x86_64 and i686 runtimes export `_start` as an `extern fun`
-  (`ExternExport`) and call the Nia root entry contract. The i686 runtime uses
-  the `int 0x80` syscall ABI and is experimental.
+- The Linux and Windows runtimes export a naked `_start` as an `extern fun`
+  (`ExternExport`) that calls the platform startup function, which calls the
+  Nia root entry contract. On i686 Linux, which is experimental, system calls
+  use the `int 0x80` ABI.
 - `_start` and its platform startup function (`niaStartStack` on Linux,
   `niaWindowsStart` on Windows) are the runtime's external codegen roots. The
   naked `_start` names its startup function in assembly, so the runtime roots
@@ -211,10 +214,11 @@ resource under the internal runtime package identity, not public std API.
   Runtime modules never report, so the reporter cannot re-enter itself, and
   startup code runs before relocation without a reporter call. Report calls
   carry distinct location records, which deliberately keeps LLVM from merging
-  trap blocks; that cost, about 28% of release `.text` on the json benchmark,
-  is why release builds keep the bare trap.
-- On Darwin the source entry is `main`, spelled `_main` for Mach-O; `dyld`
-  enters through `LC_MAIN` and it forwards to `niaDarwinStart`.
+  trap blocks. That code-size cost is why release builds keep the bare trap;
+  `reports_failed_checks` records the measurement.
+- On Darwin the runtime entry is an `extern fun main`, spelled `_main` in
+  Mach-O. `dyld` enters it through `LC_MAIN`, and it forwards to
+  `niaDarwinStart`.
 - Linux executables are static-pie by default. `_start` passes `__ehdr_start`
   and `_DYNAMIC` to `niaStartStack`, whose first statement applies the image's
   RELATIVE relocations (REL, RELA, or RELR) before any relocated address is
@@ -223,9 +227,11 @@ resource under the internal runtime package identity, not public std API.
   `dynamic` (relocated by the interpreter) it returns without writing. The form
   is a link option (`--executable static-pie|static|dynamic`); objects are
   identical for all three.
-- LLVM object emission uses the artifact's explicit triple, baseline CPU,
-  features, PIC relocation model, and default code model. All are part of the
-  native object and LTO cache identity.
+- LLVM object emission uses the artifact's explicit triple, the CPU model of
+  the selected CPU level (the baseline unless a level is selected; `native`
+  uses the host's model and detected features), the PIC relocation model, and
+  the default code model. All are part of the native object and LTO cache
+  identity. The CPU level never changes the ABI classification above.
 - Vtables and other address-holding data go in `.data.rel.ro`.
 
 ## C ABI Classification
@@ -252,7 +258,7 @@ temporaries, and removed redundant work. They must not change:
 - any symbol identity;
 - diagnostics required by earlier phases.
 
-`-Os`/`-Oz` may deduplicate, inline less, merge wrappers, or simplify
+`-Os` and `-Oz` may deduplicate, inline less, merge wrappers, or simplify
 initializers only when the ABI surface is unchanged. Backend cleanup passes and
 the LLVM codegen level must not become a second layout, mangling, or
 calling-convention authority. The `--opt-report` output is an observability
