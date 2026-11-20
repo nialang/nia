@@ -896,6 +896,58 @@ fn rename_moves_a_module_and_its_child_directory() {
 }
 
 #[test]
+fn moving_manifest_entries_preserves_their_modules_and_updates_each_artifact() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-move-manifest-entries");
+    let manifest = concat!(
+        "[package]\nname = \"fixture\"\nversion = \"1.0.0\"\n",
+        "[library]\npath = \"src/root.nia\" # public API\n",
+        "[[executable]]\nname = \"app\"\npath = \"src/main.nia\"\n",
+        "[[test]]\nname = \"suite\"\npath = \"src/check.nia\"\n",
+    );
+    std::fs::write(root.join("nia.toml"), manifest).unwrap();
+    std::fs::create_dir(root.join("src")).unwrap();
+    for (file, source) in [
+        ("root.nia", "pub module util;\n"),
+        ("util.nia", "pub fun value() i32 { 1 }\n"),
+        ("main.nia", "fun main() { _ = fixture::util::value(); }\n"),
+        (
+            "check.nia",
+            "fun testValue() i32 { fixture::util::value() }\n",
+        ),
+    ] {
+        std::fs::write(root.join("src").join(file), source).unwrap();
+    }
+    for (from, to) in [("src/root.nia", "src/api.nia"), ("src", "lib")] {
+        let result = test_session()
+            .will_rename_files(
+                vec![lsp_types::FileRename {
+                    old_uri: uri(&root.join(from)).unwrap().to_string(),
+                    new_uri: uri(&root.join(to)).unwrap().to_string(),
+                }],
+                &Documents::new(),
+                &[root.to_owned()],
+                true,
+                &Cancellation::default(),
+            )
+            .unwrap()
+            .unwrap();
+        let Some(lsp_types::DocumentChanges::Edits(edits)) = result.document_changes else {
+            panic!("missing manifest edit")
+        };
+        assert_eq!(edits.len(), 1);
+        assert_eq!(
+            edits[0].text_document.uri,
+            uri(&root.join("nia.toml")).unwrap()
+        );
+        let [lsp_types::OneOf::Left(edit)] = &edits[0].edits[..] else {
+            panic!("expected a single edit")
+        };
+        assert_eq!(edit.new_text, manifest.replace(from, to));
+    }
+}
+
+#[test]
 fn files_can_move_between_declaring_modules() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-move-between-modules");

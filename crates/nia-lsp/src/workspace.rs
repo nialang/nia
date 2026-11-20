@@ -377,6 +377,7 @@ impl Session {
                 && index.configuration.package_errors == workspace.package_errors
                 && index.configuration.incomplete_inputs == workspace.incomplete_inputs
                 && index.configuration.package_names == workspace.package_names
+                && index.configuration.declared_entries == workspace.declared_entries
                 && index.entries.len() == entries.len()
                 && index
                     .entries

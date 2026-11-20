@@ -46,6 +46,7 @@ pub(crate) struct WorkspaceRequests {
     pub(crate) package_errors: BTreeMap<PathBuf, String>,
     pub(crate) incomplete_inputs: BTreeMap<PathBuf, BTreeSet<PathBuf>>,
     pub(crate) package_names: BTreeMap<PathBuf, String>,
+    pub(crate) declared_entries: BTreeMap<PathBuf, PathBuf>,
     pub(crate) plans: BTreeMap<PathBuf, Arc<(BuildPlan, PlanConfiguration)>>,
 }
 
@@ -64,6 +65,13 @@ enum RequestOrigin {
 }
 
 impl EditorRequest {
+    pub(crate) fn follows_manifest_entry(&self) -> bool {
+        matches!(
+            self.origin,
+            RequestOrigin::Manifest(Context::Executable | Context::Library | Context::Test)
+        )
+    }
+
     pub(crate) fn standalone(path: &Path, toolchain: &nia_toolchain::ToolchainLayout) -> Self {
         Self::manifest(
             CheckRequest::new(normalized(path)),
@@ -168,6 +176,7 @@ impl Projects {
         let mut unavailable_plans = Vec::new();
         let mut package_errors = BTreeMap::new();
         let mut package_names = BTreeMap::new();
+        let mut declared_entries = BTreeMap::new();
         let mut plans = BTreeMap::new();
         for folder in folders {
             if !self.folder_roots.contains_key(folder) {
@@ -259,6 +268,7 @@ impl Projects {
             };
             for (path, context) in package.declared_entries() {
                 let key = normalized(&path);
+                declared_entries.insert(PathBuf::from(&key), package_root.clone());
                 if planned.iter().any(|request| {
                     request.check.entry_path.as_str() == key
                         && (request.check.compilation_mode == CompilationMode::Test)
@@ -315,6 +325,7 @@ impl Projects {
             managed,
             unavailable_plans,
             package_names,
+            declared_entries,
             plans,
         })
     }
@@ -525,7 +536,7 @@ impl Package {
         }
     }
 
-    fn declared_entries(&self) -> Vec<(PathBuf, Context)> {
+    pub(crate) fn declared_entries(&self) -> Vec<(PathBuf, Context)> {
         let root = self.layout.package_root();
         let mut entries = Vec::new();
         if let Some(library) = &self.manifest.library_path {

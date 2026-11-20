@@ -103,7 +103,7 @@ impl Session {
     ) -> Result<Option<WorkspaceEdit>, String> {
         let moves = file_moves(files);
         let is_nia = |path: &Path| path.extension().is_some_and(|ext| ext == "nia");
-        let Some(anchor) = moves.iter().find_map(|(old, _)| {
+        let mut anchor = moves.iter().find_map(|(old, _)| {
             if is_nia(old) {
                 return Some(old.clone());
             }
@@ -111,7 +111,23 @@ impl Session {
             // to the final component, which is the module name.
             let sibling = old.with_file_name(format!("{}.nia", old.file_name()?.to_str()?));
             (old.is_dir() && sibling.is_file()).then_some(sibling)
-        }) else {
+        });
+        if anchor.is_none() {
+            for (old, _) in &moves {
+                if old.is_dir()
+                    && let Some(package) = self.projects.package(&old.join("nia.toml"))?
+                    && let Some(entry) = package
+                        .declared_entries()
+                        .into_iter()
+                        .map(|(entry, _)| PathBuf::from(normalized(&entry)))
+                        .find(|entry| entry.starts_with(old))
+                {
+                    anchor = Some(entry);
+                    break;
+                }
+            }
+        }
+        let Some(anchor) = anchor else {
             return Ok(None);
         };
         let workspace = self.workspace_index(&anchor, documents, folders, cancel)?;
@@ -125,7 +141,21 @@ impl Session {
                 ))
             })
             .collect();
-        if declared.is_empty() {
+        let mut plan = RenamePlan::default();
+        for (from, to) in &moves {
+            if workspace
+                .configuration
+                .declared_entries
+                .iter()
+                .any(|(entry, owner)| {
+                    entry.starts_with(from) && from.starts_with(owner) && owner != from
+                })
+            {
+                validate_move(from, to, &workspace)?;
+                plan.moves.push((from.clone(), to.clone()));
+            }
+        }
+        if declared.is_empty() && plan.moves.is_empty() {
             if moves.iter().any(|(old, _)| {
                 old.is_dir()
                     && workspace.module_declarations.keys().any(|module| {
@@ -137,7 +167,6 @@ impl Session {
             }
             return Ok(None);
         }
-        let mut plan = RenamePlan::default();
         let mut analyses = BTreeMap::new();
         let mut use_analyses = HashMap::new();
         let directories: Moves = moves
@@ -377,13 +406,6 @@ impl Session {
                 package.display()
             ));
         }
-        if workspace
-            .entries
-            .iter()
-            .any(|entry| relocated(entry.request.check.entry_path.as_str(), &moves).is_some())
-        {
-            return Err("A module move would relocate a declared build entry".to_owned());
-        }
         let generated = self.project_generated_rename(workspace, documents, &mut edits, cancel)?;
         if !moves.is_empty() {
             for resource in workspace
@@ -408,7 +430,27 @@ impl Session {
         }
         let files = &workspace.files;
         let mut updated = documents.clone();
-        let manifest_edits = manifests.prepare(documents, cancel)?;
+        let mut manifest_edits = manifests.prepare(documents, cancel)?;
+        let mut moved_entries = BTreeMap::new();
+        for (source, owner) in &workspace.configuration.declared_entries {
+            if let Some(destination) = relocated(&normalized(source), &moves) {
+                if let Some((root, error)) =
+                    workspace.configuration_problem_for(&normalized(source))
+                {
+                    return Err(format!(
+                        "Cannot verify the entry in {} ({error})",
+                        root.display()
+                    ));
+                }
+                moved_entries
+                    .entry(owner.clone())
+                    .or_insert_with(BTreeMap::new)
+                    .insert(source.clone(), destination);
+            }
+        }
+        for (owner, entries) in moved_entries {
+            manifest_edits.relocate_entries(&owner, &entries, documents)?;
+        }
         let mut changes = manifest_edits.text_edits()?;
         for (source, spans) in &edits {
             cancel.check()?;
@@ -524,17 +566,28 @@ impl Session {
                     error.path.as_str()
                 ));
             }
-            let proposed;
-            let request = if manifest_edits.proposed.is_empty() {
-                &entry.request
+            let mut request = if manifest_edits.proposed.is_empty() {
+                entry.request.clone()
             } else {
-                proposed = entry.request.with_manifest_edits(
+                entry.request.with_manifest_edits(
                     &mut verification.projects,
                     &manifest_edits.proposed,
                     &verification.toolchain,
-                )?;
-                &proposed
+                )?
             };
+            if let Some(destination) = relocated(request.check.entry_path.as_str(), &moves) {
+                if !request.follows_manifest_entry()
+                    || !workspace
+                        .configuration
+                        .declared_entries
+                        .contains_key(Path::new(request.check.entry_path.as_str()))
+                {
+                    return Err(format!(
+                        "The move would relocate a build entry without updating its declaration ({request})"
+                    ));
+                }
+                request.check.entry_path = nia_source::SourcePath::new(normalized(&destination));
+            }
             let after = verification
                 .analyze_request(request.clone(), cancel)
                 .map_err(|error| format!("Cannot verify rename in {request} ({error})"))?;
@@ -940,39 +993,43 @@ fn module_move_to(
         moves.push((subtree, target_subtree));
     }
     for (old, new) in &moves {
-        if old.is_dir() && new.starts_with(old) {
-            return Err("A module subtree cannot move inside itself".into());
-        }
-        if !workspace.editable_source(old)
-            || !workspace.editable_source(new)
-            || workspace.contains_build_state(old)
-            || old
-                .canonicalize()
-                .ok()
-                .is_none_or(|path| normalized(&path) != normalized(old))
-        {
-            return Err(format!(
-                "Cannot move a module outside the workspace ({})",
-                old.display()
-            ));
-        }
-        if old.parent() != new.parent()
-            && let Some(parent) = new
-                .parent()
-                .and_then(|parent| parent.ancestors().find(|path| path.exists()))
-            && parent
-                .canonicalize()
-                .ok()
-                .is_none_or(|path| normalized(&path) != normalized(parent))
-        {
-            return Err(format!(
-                "Cannot move a module through a linked destination ({})",
-                parent.display()
-            ));
-        }
-        check_destination(old, new)?;
+        validate_move(old, new, workspace)?;
     }
     Ok(moves)
+}
+
+fn validate_move(old: &Path, new: &Path, workspace: &WorkspaceIndex) -> Result<(), String> {
+    if old.is_dir() && new.starts_with(old) {
+        return Err("A module subtree cannot move inside itself".into());
+    }
+    if !workspace.editable_source(old)
+        || !workspace.editable_source(new)
+        || workspace.contains_build_state(old)
+        || old
+            .canonicalize()
+            .ok()
+            .is_none_or(|path| normalized(&path) != normalized(old))
+    {
+        return Err(format!(
+            "Cannot move a module outside the workspace ({})",
+            old.display()
+        ));
+    }
+    if old.parent() != new.parent()
+        && let Some(parent) = new
+            .parent()
+            .and_then(|parent| parent.ancestors().find(|path| path.exists()))
+        && parent
+            .canonicalize()
+            .ok()
+            .is_none_or(|path| normalized(&path) != normalized(parent))
+    {
+        return Err(format!(
+            "Cannot move a module through a linked destination ({})",
+            parent.display()
+        ));
+    }
+    check_destination(old, new)
 }
 
 fn check_destination(source: &Path, destination: &Path) -> Result<(), String> {

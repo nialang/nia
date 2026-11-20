@@ -93,18 +93,7 @@ impl ManifestEdits {
         for (owner, additions) in self.additions {
             cancel.check()?;
             let path = owner.join("nia.toml");
-            let original = read_manifest(&path)?;
-            let version = if let Some(open) = documents.get(&path) {
-                if open.document.text.as_ref() != original {
-                    return Err(format!(
-                        "Save the modified manifest before moving modules ({})",
-                        path.display()
-                    ));
-                }
-                Some(open.document.version)
-            } else {
-                None
-            };
+            let (original, version) = manifest_snapshot(&path, documents)?;
             let mut manifest = original
                 .parse::<DocumentMut>()
                 .map_err(|error| error.to_string())?;
@@ -151,6 +140,66 @@ impl ManifestEdits {
 }
 
 impl PreparedManifestEdits {
+    pub(super) fn relocate_entries(
+        &mut self,
+        owner: &Path,
+        moves: &BTreeMap<PathBuf, PathBuf>,
+        documents: &Documents,
+    ) -> Result<(), String> {
+        let path = owner.join("nia.toml");
+        let snapshot = match self.original.entry(path.clone()) {
+            std::collections::btree_map::Entry::Occupied(slot) => slot.into_mut(),
+            std::collections::btree_map::Entry::Vacant(slot) => {
+                slot.insert(manifest_snapshot(&path, documents)?)
+            }
+        };
+        let source = self.proposed.get(owner).unwrap_or(&snapshot.0);
+        let mut manifest = source
+            .parse::<DocumentMut>()
+            .map_err(|error| error.to_string())?;
+        let mut updated = BTreeSet::new();
+        let mut relocate = |item: &mut Item| -> Result<(), String> {
+            let Some(value) = item.get_mut("path").and_then(Item::as_value_mut) else {
+                return Ok(());
+            };
+            let Some(old) = value.as_str() else {
+                return Err("Invalid manifest entry path".into());
+            };
+            let source = PathBuf::from(normalized(&owner.join(old)));
+            if let Some(destination) = moves.get(&source) {
+                let relative = destination
+                    .strip_prefix(owner)
+                    .ok()
+                    .and_then(Path::to_str)
+                    .ok_or("A manifest entry must stay within its package")?;
+                let mut replacement = Value::from(relative.replace('\\', "/"));
+                *replacement.decor_mut() = value.decor().clone();
+                *value = replacement;
+                updated.insert(source);
+            }
+            Ok(())
+        };
+        if let Some(library) = manifest.get_mut("library") {
+            relocate(library)?;
+        }
+        for section in ["executable", "test"] {
+            if let Some(items) = manifest.get_mut(section) {
+                let mut index = 0;
+                while let Some(item) = items.get_mut(index) {
+                    relocate(item)?;
+                    index += 1;
+                }
+            }
+        }
+        if updated.len() != moves.len() {
+            return Err(format!("Entry declarations changed in {}", path.display()));
+        }
+        let proposed = manifest.to_string();
+        PackageManifest::read_with_text(owner, &proposed).map_err(|error| error.to_string())?;
+        self.proposed.insert(owner.to_owned(), proposed);
+        Ok(())
+    }
+
     pub(super) fn text_edits(&self) -> Result<Vec<TextDocumentEdit>, String> {
         self.original
             .iter()
@@ -193,6 +242,18 @@ fn read_manifest(path: &Path) -> Result<String, String> {
         ));
     }
     std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+fn manifest_snapshot(path: &Path, documents: &Documents) -> Result<(String, Option<i32>), String> {
+    let original = read_manifest(path)?;
+    let open = documents.get(path);
+    if open.is_some_and(|open| open.document.text.as_ref() != original) {
+        return Err(format!(
+            "Save the modified manifest before moving modules ({})",
+            path.display()
+        ));
+    }
+    Ok((original, open.map(|open| open.document.version)))
 }
 
 fn relative_dependency(owner: &Path, target: &Path) -> Result<String, String> {
