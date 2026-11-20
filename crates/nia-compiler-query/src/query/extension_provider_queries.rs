@@ -230,6 +230,7 @@ pub(super) struct ExtensionProviderModuleFactsQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for ExtensionProviderModuleFactsQuery {
     type Value = ExtensionProviderModuleFactsValue;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "extension_provider_module_facts"
@@ -241,6 +242,10 @@ impl QueryKey<CompilerContext> for ExtensionProviderModuleFactsQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_provider_module_facts)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 
@@ -302,6 +307,7 @@ pub(super) struct ExtensionMethodByIdQuery(pub(super) GlobalDefId);
 
 impl QueryKey<CompilerContext> for ExtensionMethodByIdQuery {
     type Value = ExtensionMethodByIdValue;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "extension_method_by_id"
@@ -313,6 +319,10 @@ impl QueryKey<CompilerContext> for ExtensionMethodByIdQuery {
 
     fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
         (db.context().providers.extension_method_by_id)(db, self.0)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
     }
 }
 

@@ -103,6 +103,8 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "executable_static_init"
             | "executable_value_ref_item"
             | "executable_value_ref_item_index"
+            | "extension_method_by_id"
+            | "extension_provider_module_facts"
             | "full_active_module_item_tree_input"
             | "full_active_module_item_tree"
             | "executable_fact_epoch"

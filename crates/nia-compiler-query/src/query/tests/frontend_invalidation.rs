@@ -2,6 +2,40 @@
 use super::*;
 
 #[test]
+fn extension_method_lookup_reuses_equal_facts_after_source_edits() {
+    let body = "struct S { value: i32 } extend S { fun get(self) i32 { self.value } }";
+    let mut fixture = LoadedProgramFixture::new("main.nia", body);
+    let module = fixture.entry_id();
+    let database = fixture.database();
+    let db = &database.db;
+    let facts = db.expect_get(ExtensionProviderModuleFactsQuery(module));
+    let method = facts.methods.methods_named(&sym("get")).next().unwrap();
+    let key = ExtensionMethodByIdQuery(method.def_id);
+    let original = db.expect_get(key);
+    assert_eq!(original.method.as_ref(), Some(method));
+
+    fixture.update_module_source(
+        module,
+        &format!("// leading comment\n{body}"),
+        SourceRevision(1),
+    );
+    database.update(CompileRequest::new(fixture.program()));
+    assert!(Arc::ptr_eq(&original, &db.expect_get(key)));
+
+    fixture.update_module_source(
+        module,
+        &body.replace("fun get", "pub fun get"),
+        SourceRevision(2),
+    );
+    database.update(CompileRequest::new(fixture.program()));
+    let changed = db.expect_get(key);
+    assert_ne!(
+        original.method.as_ref().unwrap().visibility,
+        changed.method.as_ref().unwrap().visibility
+    );
+}
+
+#[test]
 fn restricted_export_edits_invalidate_name_scopes_without_replacing_targets() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub module api; pub module source;");
     let entry = fixture.entry_id();
