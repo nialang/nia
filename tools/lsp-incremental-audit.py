@@ -108,12 +108,16 @@ def request(client, method, params):
     return elapsed, response["result"]
 
 
-def inspect(client, document, text, use, label):
+def definition_params(document, text, use, label):
     point = position(text, use)
     point["character"] += use.index(label)
-    definition_ms, definition = request(client, "textDocument/definition", dict(
-        textDocument=document, position=point,
-    ))
+    return dict(textDocument=document, position=point)
+
+
+def inspect(client, document, text, use, label):
+    params = definition_params(document, text, use, label)
+    point = params["position"]
+    definition_ms, definition = request(client, "textDocument/definition", params)
     completion_ms, completion = request(client, "textDocument/completion", dict(
         textDocument=document, position=dict(point, character=point["character"] + len(label)),
     ))
@@ -123,7 +127,19 @@ def inspect(client, document, text, use, label):
     }
 
 
-def session(server, resources, workspace, source, snapshots, probes, profile, sample_rss=False):
+def cancel_definition(client, params):
+    ident = client.request("textDocument/definition", params)
+    client.notify("$/cancelRequest", {"id": ident})
+    elapsed, response = client.wait(ident)
+    if "result" in response:
+        return None
+    if response.get("error", {}).get("code") != -32800:
+        raise AssertionError(f"unexpected cancellation response: {response!r}")
+    return elapsed
+
+
+def session(server, resources, workspace, source, snapshots, probes, profile, sample_rss=False,
+            cancel_retry=False):
     document = {"uri": source.as_uri()}
     environment = os.environ.copy()
     environment["NIA_LSP_TIMINGS"] = "detail" if profile else "off"
@@ -138,7 +154,7 @@ def session(server, resources, workspace, source, snapshots, probes, profile, sa
             values, latency = [], []
             previous = {}
             versions = {}
-            for snapshot in snapshots:
+            for index, snapshot in enumerate(snapshots):
                 started = perf_counter()
                 for path, text in snapshot.items():
                     if previous.get(path) == text:
@@ -155,6 +171,10 @@ def session(server, resources, workspace, source, snapshots, probes, profile, sa
                             "textDocument": changed, "contentChanges": [{"text": text}],
                         })
                 previous = snapshot
+                text = snapshot[source]
+                canceled_ms = None
+                if cancel_retry and index == 1:
+                    canceled_ms = cancel_definition(client, definition_params(document, text, *probes[0]))
                 # Editing a dependency republishes caller diagnostics under the
                 # same caller version. Previous requests can publish that version too.
                 published, diagnostics = client.wait_diagnostics(
@@ -163,7 +183,6 @@ def session(server, resources, workspace, source, snapshots, probes, profile, sa
                 for path, version in versions.items():
                     if path != source:
                         client.wait_diagnostics(path.as_uri(), version, since=started)
-                text = snapshot[source]
                 use, label = probes[0]
                 value, elapsed = inspect(client, document, text, use, label)
                 if not value["definition"] or not any(item["label"] == label for item in value["completion"]):
@@ -174,6 +193,8 @@ def session(server, resources, workspace, source, snapshots, probes, profile, sa
                 value["diagnostics"] = sorted(diagnostics, key=lambda item: json.dumps(item, sort_keys=True))
                 values.append(value)
                 latency.append(dict(diagnostics_ms=1000 * (published - started), **elapsed))
+                if cancel_retry and index == 1:
+                    latency[-1]["canceled_request_ms"] = canceled_ms
                 if sample_rss:
                     latency[-1]["rss_bytes"] = current_rss(process.pid)
             request(client, "shutdown", None)
@@ -219,10 +240,10 @@ def count_delta(before, after):
     }
 
 
-def audit(server, resources, workspace, name, repeat, profile, sample_rss):
+def audit(server, resources, workspace, name, repeat, profile, sample_rss, cancel_retry):
     root, source, original, edits, probes = workload(resources, workspace, name)
-    def run(snapshots, measure_rss=False):
-        return session(server, resources, root, source, snapshots, probes, profile, measure_rss)
+    def run(snapshots, measure_rss=False, cancel=False):
+        return session(server, resources, root, source, snapshots, probes, profile, measure_rss, cancel)
 
     baseline_value, _, baseline = run([original])
     results = {}
@@ -233,22 +254,30 @@ def audit(server, resources, workspace, name, repeat, profile, sample_rss):
             assert_dependency_results(edit, baseline_value[0], fresh[0], path)
         latency = []
         rss = []
+        canceled = []
         for _ in range(repeat):
             snapshots = [original, edited] if profile else [original, edited, original]
-            incremental, timings, edited_timing = run(snapshots, sample_rss)
+            incremental, timings, edited_timing = run(snapshots, sample_rss, cancel_retry)
             if incremental[1] != fresh[0] or any(value != baseline_value[0] for value in incremental[::2]):
                 raise AssertionError(f"{name}/{edit}: fresh and incremental snapshots differ:\n"
                                      f"fresh={fresh[0]!r}\nincremental={incremental[1]!r}")
             latency.append(timings[1])
+            if cancel_retry:
+                canceled.append(timings[1].pop("canceled_request_ms"))
             if sample_rss:
                 rss.append([timing.pop("rss_bytes") for timing in timings])
         observations = {metric: summary([sample[metric] for sample in latency]) for metric in latency[0]}
         results[edit] = dict(latency=observations, diagnostics=len(fresh[0]["diagnostics"]))
         if sample_rss:
             results[edit]["snapshot_rss_bytes"] = rss
+        if cancel_retry:
+            results[edit]["canceled_request_ms"] = [elapsed for elapsed in canceled if elapsed is not None]
+            results[edit]["completed_before_cancel"] = canceled.count(None)
         if profile:
             results[edit]["edit_count_delta"] = count_delta(baseline, edited_timing)
             results[edit]["timings"] = dict(baseline=baseline, incremental=edited_timing, fresh=fresh_timing)
+    if cancel_retry and not any(result["canceled_request_ms"] for result in results.values()):
+        raise AssertionError("all definition requests completed before cancellation")
     return results
 
 
@@ -284,6 +313,8 @@ def main():
     parser.add_argument("--revision", help="commit used to build the server")
     parser.add_argument("--sample-rss", action="store_true",
                         help="record RSS after each original, edited, and restored snapshot")
+    parser.add_argument("--cancel-retry", action="store_true",
+                        help="cancel a definition request after each edit and validate the retry")
     measurement = parser.add_mutually_exclusive_group()
     measurement.add_argument("--repeat", type=int, default=1)
     measurement.add_argument("--profile", action="store_true")
@@ -292,9 +323,12 @@ def main():
         parser.error("--repeat must be positive")
     if args.sample_rss and args.profile:
         parser.error("--sample-rss requires profiling to be off")
+    if args.cancel_retry and args.profile:
+        parser.error("--cancel-retry requires profiling to be off")
     with tempfile.TemporaryDirectory(prefix="nia-lsp-incremental-") as directory:
         result = audit(args.server.resolve(strict=True), args.resource_root.resolve(strict=True),
-                       Path(directory).resolve(), args.workload, args.repeat, args.profile, args.sample_rss)
+                       Path(directory).resolve(), args.workload, args.repeat, args.profile, args.sample_rss,
+                       args.cancel_retry)
     print(json.dumps(dict(platform=platform.platform(), revision=args.revision, workload=args.workload,
                           profiled=args.profile, edits=result), indent=2))
 
