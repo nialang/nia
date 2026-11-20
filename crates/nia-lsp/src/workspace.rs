@@ -196,6 +196,7 @@ impl Session {
             documents.keys().cloned(),
             &snapshot.folders,
             &self.toolchain,
+            cancel,
         );
         cancel.check()?;
         let problem = match current {
@@ -295,6 +296,7 @@ impl Session {
             documents.keys().cloned(),
             folders,
             &self.toolchain,
+            cancel,
         )?);
         let mut entries: Vec<Arc<Entry>> = Vec::new();
         let mut reused = 0;
@@ -372,6 +374,8 @@ impl Session {
                 && index.configuration.editable == workspace.editable
                 && index.configuration.managed == workspace.managed
                 && index.configuration.unavailable_plans == workspace.unavailable_plans
+                && index.configuration.package_errors == workspace.package_errors
+                && index.configuration.incomplete_inputs == workspace.incomplete_inputs
                 && index.configuration.package_names == workspace.package_names
                 && index.entries.len() == entries.len()
                 && index
@@ -895,19 +899,47 @@ impl WorkspaceIndex {
     }
 
     pub(crate) fn reference_coverage_warning(&self, source: &str) -> Option<String> {
-        let problem = if let Some((package, error)) = self.configuration.unavailable_plans.first() {
-            format!("`{}`. {error}", package.display())
-        } else {
-            let (entry, error) = self
-                .entries
-                .iter()
-                .filter(|entry| self.entry_may_reach(entry, source))
-                .find_map(|entry| Some((entry, entry.coverage.problem()?)))?;
-            format!("{}. {error}", entry.request)
-        };
+        let problem =
+            if let Some((package, error)) = self.configuration.package_errors.first_key_value() {
+                format!("{}: {error}", package.display())
+            } else if let Some((package, error)) = self.configuration_problem_for(source) {
+                format!("`{}`. {error}", package.display())
+            } else {
+                let (entry, error) = self
+                    .entries
+                    .iter()
+                    .filter(|entry| self.entry_may_reach(entry, source))
+                    .find_map(|entry| Some((entry, entry.coverage.problem()?)))?;
+                format!("{}. {error}", entry.request)
+            };
         Some(format!(
             "Workspace references may be incomplete for {problem}"
         ))
+    }
+
+    pub(crate) fn configuration_problem_for(&self, source: &str) -> Option<(&PathBuf, &String)> {
+        let path = Path::new(source);
+        self.configuration
+            .package_errors
+            .iter()
+            .chain(
+                self.configuration
+                    .unavailable_plans
+                    .iter()
+                    .map(|(root, error)| (root, error)),
+            )
+            .find(|(root, _)| {
+                path.starts_with(root)
+                    || self
+                        .configuration
+                        .incomplete_inputs
+                        .get(*root)
+                        .is_some_and(|inputs| inputs.iter().any(|input| path.starts_with(input)))
+                    || self.entries.iter().any(|entry| {
+                        Path::new(entry.request.check.entry_path.as_str()).starts_with(root)
+                            && self.entry_may_reach(entry, source)
+                    })
+            })
     }
 
     pub(crate) fn contains_build_state(&self, path: &Path) -> bool {

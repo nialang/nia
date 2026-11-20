@@ -32,6 +32,7 @@ mod configured;
 #[derive(Default)]
 pub(crate) struct Projects {
     packages: HashMap<PathBuf, Package>,
+    folder_roots: HashMap<PathBuf, BTreeSet<PathBuf>>,
 }
 
 #[derive(PartialEq, Eq)]
@@ -42,6 +43,8 @@ pub(crate) struct WorkspaceRequests {
     pub(crate) editable: BTreeSet<PathBuf>,
     pub(crate) managed: BTreeSet<PathBuf>,
     pub(crate) unavailable_plans: Vec<(PathBuf, String)>,
+    pub(crate) package_errors: BTreeMap<PathBuf, String>,
+    pub(crate) incomplete_inputs: BTreeMap<PathBuf, BTreeSet<PathBuf>>,
     pub(crate) package_names: BTreeMap<PathBuf, String>,
     pub(crate) plans: BTreeMap<PathBuf, Arc<(BuildPlan, PlanConfiguration)>>,
 }
@@ -153,8 +156,9 @@ impl Projects {
         open: impl Iterator<Item = PathBuf>,
         folders: &[PathBuf],
         toolchain: &nia_toolchain::ToolchainLayout,
+        cancel: &crate::workspace::Cancellation,
     ) -> Result<WorkspaceRequests, String> {
-        let mut entries = BTreeSet::new();
+        let mut entries = BTreeMap::new();
         let mut standalone = BTreeSet::new();
         let mut roots = BTreeSet::new();
         let mut editable = BTreeSet::new();
@@ -162,16 +166,27 @@ impl Projects {
         let mut configured = Vec::new();
         let mut build_candidates = Vec::new();
         let mut unavailable_plans = Vec::new();
+        let mut package_errors = BTreeMap::new();
         let mut package_names = BTreeMap::new();
         let mut plans = BTreeMap::new();
         for folder in folders {
-            if folder.join("nia.toml").is_file() {
-                roots.insert(folder.canonicalize().map_err(|error| error.to_string())?);
+            if !self.folder_roots.contains_key(folder) {
+                let discovered = discover_packages(folder, cancel)?;
+                self.folder_roots.insert(folder.clone(), discovered);
             }
+            roots.extend(self.folder_roots[folder].iter().cloned());
         }
         for path in entry.map(Path::to_path_buf).into_iter().chain(open) {
+            let package = match self.package(&path) {
+                Ok(package) => package,
+                Err(error) => {
+                    package_errors
+                        .insert(package_directory(&path).unwrap_or(&path).to_owned(), error);
+                    continue;
+                }
+            };
             standalone.insert(PathBuf::from(normalized(&path)));
-            let Some(package) = self.package(&path)? else {
+            let Some(package) = package else {
                 if let Some(parent) = path.parent() {
                     editable.insert(PathBuf::from(normalized(parent)));
                 }
@@ -182,25 +197,39 @@ impl Projects {
         }
         let mut visited = BTreeSet::new();
         while let Some(root) = roots.pop_first() {
+            cancel.check()?;
             if !visited.insert(root.clone()) {
                 continue;
             }
-            if let Some(workspace) =
-                WorkspaceManifest::discover(&root).map_err(|error| error.to_string())?
-                && root == workspace.root
-            {
-                let members = workspace
-                    .member_packages()
-                    .map_err(|error| error.to_string())?;
-                let is_package = members.iter().any(|member| member.root == root);
-                roots.extend(members.into_iter().map(|member| member.root));
-                if !is_package {
-                    continue;
+            if root.join("nia.toml").is_file() {
+                match WorkspaceManifest::declared_at(&root) {
+                    Ok(Some(workspace)) => {
+                        roots.extend(
+                            workspace
+                                .members
+                                .iter()
+                                .filter(|member| *member != ".")
+                                .map(|member| root.join(member)),
+                        );
+                        if !workspace.members.iter().any(|member| member == ".") {
+                            continue;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        package_errors.insert(PathBuf::from(normalized(&root)), error.to_string());
+                        continue;
+                    }
                 }
             }
-            let package = self
-                .package(&root.join("nia.toml"))?
-                .ok_or("Workspace package disappeared")?;
+            let package = match self.package(&root.join("nia.toml")) {
+                Ok(Some(package)) => package,
+                Ok(None) => return Err("Workspace package disappeared".into()),
+                Err(error) => {
+                    package_errors.insert(PathBuf::from(normalized(&root)), error);
+                    continue;
+                }
+            };
             let package_root = package.source_root();
             package_names.insert(package_root.clone(), package.manifest.package.name.clone());
             if let Some(plan) = &package.plan {
@@ -214,54 +243,74 @@ impl Projects {
                     .map(|path| PathBuf::from(normalized(&path))),
             );
             if let Some(build) = package.build_candidate() {
-                build_candidates.push(package.build_request(&build, toolchain)?);
+                match package.build_request(&build, toolchain) {
+                    Ok(request) => build_candidates.push(request),
+                    Err(error) => {
+                        package_errors.insert(package_root.clone(), error);
+                    }
+                }
             }
             let planned = match package.configured_requests(toolchain) {
                 Ok(requests) => requests,
                 Err(error) => {
-                    unavailable_plans.push((package.layout.package_root().to_path_buf(), error));
+                    unavailable_plans.push((package_root.clone(), error));
                     Vec::new()
                 }
             };
-            entries.extend(
-                package
-                    .declared_entries()
-                    .into_iter()
-                    .filter(|(path, context)| {
-                        let path = normalized(path);
-                        !planned.iter().any(|request| {
-                            request.check.entry_path.as_str() == path
-                                && (request.check.compilation_mode == CompilationMode::Test)
-                                    == (*context == Context::Test)
-                        })
-                    }),
-            );
+            for (path, context) in package.declared_entries() {
+                let key = normalized(&path);
+                if planned.iter().any(|request| {
+                    request.check.entry_path.as_str() == key
+                        && (request.check.compilation_mode == CompilationMode::Test)
+                            == (context == Context::Test)
+                }) {
+                    continue;
+                }
+                match package.editor_request(&path, context, toolchain) {
+                    Ok(request) => {
+                        entries.insert((key, context), request);
+                    }
+                    Err(error) => {
+                        package_errors.insert(package_root.clone(), error);
+                    }
+                }
+            }
             configured.extend(planned);
         }
-        let mut entries = entries
-            .into_iter()
-            .map(|(path, context)| (PathBuf::from(normalized(&path)), context))
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .map(|(path, context)| match self.package(&path)? {
-                Some(package) => package.editor_request(&path, context, toolchain),
-                None => Ok(EditorRequest::standalone(&path, toolchain)),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut entries: Vec<_> = entries.into_values().collect();
         entries.extend(configured);
-        let standalone = standalone
-            .into_iter()
-            .map(|path| match self.package(&path)? {
+        let mut standalone_requests = Vec::new();
+        for path in standalone {
+            match self.package(&path)? {
                 Some(package) => {
-                    package.editor_request(&path, package.fallback_context(&path), toolchain)
+                    match package.editor_request(&path, package.fallback_context(&path), toolchain)
+                    {
+                        Ok(request) => standalone_requests.push(request),
+                        Err(error) => {
+                            package_errors.insert(package.source_root(), error);
+                        }
+                    }
                 }
-                None => Ok(EditorRequest::standalone(&path, toolchain)),
-            })
-            .collect::<Result<_, _>>()?;
+                None => standalone_requests.push(EditorRequest::standalone(&path, toolchain)),
+            }
+        }
+        let mut incomplete_inputs = BTreeMap::new();
+        for root in package_errors
+            .keys()
+            .chain(unavailable_plans.iter().map(|(root, _)| root))
+        {
+            if let Some(package) = self.packages.get(root)
+                && !incomplete_inputs.contains_key(root)
+            {
+                incomplete_inputs.insert(root.clone(), package.local_dependency_roots(cancel)?);
+            }
+        }
         Ok(WorkspaceRequests {
             entries,
             build_candidates,
-            standalone,
+            standalone: standalone_requests,
+            package_errors,
+            incomplete_inputs,
             editable,
             managed,
             unavailable_plans,
@@ -271,32 +320,19 @@ impl Projects {
     }
 
     pub(crate) fn package(&mut self, entry: &Path) -> Result<Option<&mut Package>, String> {
-        let Some(mut root) = entry
-            .ancestors()
-            .skip(1)
-            .find(|directory| {
-                directory.join("nia.toml").is_file() || build_script_path(directory).is_file()
-            })
-            .map(Path::to_path_buf)
-        else {
+        let Some(mut root) = package_directory(entry).map(Path::to_path_buf) else {
             return Ok(None);
         };
         let output = root.join("build/out");
         if entry.starts_with(&output)
+            && root.join("nia.toml").is_file()
             && let Some(workspace) =
-                WorkspaceManifest::discover(&root).map_err(|error| error.to_string())?
+                WorkspaceManifest::declared_at(&root).map_err(|error| error.to_string())?
+            && let Ok(relative) = entry.strip_prefix(&root)
+            && let Some(layout) =
+                BuildLayout::for_workspace_output(&workspace, &workspace.root.join(relative))
         {
-            for member in workspace
-                .member_packages()
-                .map_err(|error| error.to_string())?
-            {
-                let layout =
-                    BuildLayout::for_package(&member.root).map_err(|error| error.to_string())?;
-                if entry.starts_with(Path::new(&normalized(&layout.out_dir()))) {
-                    root = layout.package_root().to_path_buf();
-                    break;
-                }
-            }
+            root = layout.package_root().to_owned();
         }
         let root = PathBuf::from(normalized(&root));
         if !self.packages.contains_key(&root) {
@@ -305,6 +341,57 @@ impl Projects {
         }
         Ok(self.packages.get_mut(&root))
     }
+}
+
+fn package_directory(entry: &Path) -> Option<&Path> {
+    entry.ancestors().skip(1).find(|directory| {
+        directory.join("nia.toml").is_file() || build_script_path(directory).is_file()
+    })
+}
+
+fn discover_packages(
+    folder: &Path,
+    cancel: &crate::workspace::Cancellation,
+) -> Result<BTreeSet<PathBuf>, String> {
+    let mut roots = BTreeSet::new();
+    if !folder.is_dir() {
+        return Ok(roots);
+    }
+    let mut directories = vec![folder.to_owned()];
+    while let Some(directory) = directories.pop() {
+        cancel.check()?;
+        if directory.join("nia.toml").is_file() || build_script_path(&directory).is_file() {
+            roots.insert(
+                directory
+                    .canonicalize()
+                    .map_err(|error| error.to_string())?,
+            );
+            continue;
+        }
+        let cargo = directory.join("Cargo.toml").is_file();
+        for item in directory
+            .read_dir()
+            .map_err(|error| format!("{}: {error}", directory.display()))?
+        {
+            let item = item.map_err(|error| error.to_string())?;
+            let name = item.file_name();
+            if matches!(
+                name.to_str(),
+                Some(".git" | ".hg" | ".svn" | "node_modules")
+            ) || (cargo && name == "target")
+            {
+                continue;
+            }
+            if item
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_dir()
+            {
+                directories.push(item.path());
+            }
+        }
+    }
+    Ok(roots)
 }
 
 pub(crate) struct Package {
@@ -352,6 +439,35 @@ pub(crate) enum Context {
 }
 
 impl Package {
+    // A failed module map has no entry in the index. Follow the remaining
+    // readable path dependencies so a rename cannot bypass that caller.
+    fn local_dependency_roots(
+        &self,
+        cancel: &crate::workspace::Cancellation,
+    ) -> Result<BTreeSet<PathBuf>, String> {
+        let mut seen = BTreeSet::from([self.source_root()]);
+        let mut pending = vec![(self.source_root(), self.manifest.clone())];
+        while let Some((owner, manifest)) = pending.pop() {
+            cancel.check()?;
+            for dependency in manifest.dependencies {
+                let nia_package_metadata::DependencySource::Path(relative) = dependency.source
+                else {
+                    continue;
+                };
+                let target = PathBuf::from(normalized(&owner.join(relative)));
+                let target = target
+                    .canonicalize()
+                    .map_or(target, |path| PathBuf::from(normalized(&path)));
+                if seen.insert(target.clone())
+                    && let Ok(manifest) = PackageManifest::read(&target)
+                {
+                    pending.push((target, manifest));
+                }
+            }
+        }
+        Ok(seen)
+    }
+
     pub(crate) fn generated_origin(
         &self,
         generated: &Path,

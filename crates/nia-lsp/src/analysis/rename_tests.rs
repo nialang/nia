@@ -311,6 +311,126 @@ fn opening_a_build_script_child_uses_the_build_dependency_scope() {
 }
 
 #[test]
+fn unopened_callers_remain_indexed_beside_a_broken_package() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-unopened-caller");
+    let write = |relative: &str, text: &str| {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        path
+    };
+    write(
+        "api/nia.toml",
+        "[package]\nname='api'\nversion='1.0.0'\n[library]\npath='root.nia'\n",
+    );
+    write(
+        "client/nia.toml",
+        "[package]\nname='client'\nversion='1.0.0'\n[library]\npath='root.nia'\n[dependencies]\napi={path='../api'}\n",
+    );
+    write("broken/nia.toml", "[package\n");
+    let api = write("api/root.nia", "pub fun amount() i32 { 1 }");
+    let client = write(
+        "client/root.nia",
+        "using api; pub fun read() i32 { api::amount() }",
+    );
+    let broken = write("broken/root.nia", "fun incomplete() {}");
+    let documents = Documents::new();
+    let cancel = Cancellation::default();
+    let folders = [root.to_path_buf()];
+    for explicit in [false, true] {
+        if explicit {
+            write(
+                "nia.toml",
+                "[workspace]\nmembers=['api','client','broken']\n",
+            );
+        }
+        let mut session = test_session();
+        let analysis = session.analyze(&documents, &api).unwrap();
+        assert_eq!(analysis.first_error(), None);
+        let index = session
+            .workspace_index(&api, &documents, &folders, &cancel)
+            .unwrap();
+        assert_eq!(index.symbols("amount", &cancel).unwrap().len(), 1);
+        let position = Position::new(0, 8);
+        let refs = index
+            .references(&analysis, &api, position, false, &cancel)
+            .unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].uri, uri(&client).unwrap());
+        let edit = session
+            .rename(
+                &analysis,
+                &documents,
+                crate::rename::Rename {
+                    path: &api,
+                    position,
+                    new_name: "quantity",
+                    folders: &folders,
+                    versioned: true,
+                    resource_rename: false,
+                },
+                &cancel,
+            )
+            .unwrap();
+        let Some(lsp_types::DocumentChanges::Edits(edits)) = edit.document_changes else {
+            panic!("expected document edits")
+        };
+        assert_eq!(
+            edits
+                .iter()
+                .map(|edit| edit.text_document.uri.clone())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([uri(&api).unwrap(), uri(&client).unwrap()])
+        );
+        let err = session
+            .analyze(&documents, &broken)
+            .err()
+            .expect("broken manifest");
+        assert!(err.replace('\\', "/").contains("broken/nia.toml"), "{err}");
+        if explicit {
+            let generated = root.join("build/out/client/generated.nia");
+            assert_eq!(
+                session
+                    .projects
+                    .package(&generated)
+                    .unwrap()
+                    .unwrap()
+                    .source_root(),
+                PathBuf::from(normalized(client.parent().unwrap()))
+            );
+        }
+    }
+    // This caller still declares its dependency on api, but loading its
+    // other dependency now prevents the compiler from indexing any uses.
+    write(
+        "client/nia.toml",
+        "[package]\nname='client'\nversion='1.0.0'\n[library]\npath='root.nia'\n[dependencies]\napi={path='../api'}\nbroken={path='../broken'}\n",
+    );
+    let mut session = test_session();
+    let analysis = session.analyze(&documents, &api).unwrap();
+    let error = session
+        .rename(
+            &analysis,
+            &documents,
+            crate::rename::Rename {
+                path: &api,
+                position: Position::new(0, 8),
+                new_name: "quantity",
+                folders: &folders,
+                versioned: true,
+                resource_rename: false,
+            },
+            &cancel,
+        )
+        .unwrap_err();
+    assert!(
+        error.contains("client") && error.contains("broken"),
+        "{error}"
+    );
+}
+
+#[test]
 fn workspace_implementation_search_follows_trait_and_member_bindings_across_packages() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-workspace-implementations");

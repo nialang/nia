@@ -75,7 +75,15 @@ rereads manifests and the build plan only when a Nia buffer is saved.
 Workspace references and rename share one index per document revision. They
 run separately from interactive analysis, and an edit cancels them at their
 next cancellation point. References include resolved uses in entries that
-have diagnostics.
+have diagnostics. In a folder with no Nia manifest, the server searches
+subdirectories for package roots. Open a common parent folder or add both
+packages as workspace folders to include unopened callers of a path dependency.
+A malformed package manifest leaves other packages available. A reference
+search warns when its results may be incomplete.
+
+After a buffer edit the server schedules diagnostics for that file first,
+then for open files whose compiler entries consulted the edited source.
+Files awaiting their first analysis are also checked.
 
 ## Rename
 
@@ -93,14 +101,11 @@ and re-analyzes every library, executable, test, and build-script entry that
 can see the edited files, including files that are not open. It rejects the
 rename when the edited code reports a new error, when any use would bind to a
 different declaration, or when the edit would have to change a generated file
-or a source outside the workspace. The check covers only what that analysis
-sees:
-
-- a rename in a file that already has a syntax error is not fully verified;
-- code in inactive `@[if]` regions, such as release-only code, is not
-  checked;
-- a package that depends on the renamed one is found only when it is open or
-  is a member of the same `[workspace]`.
+or a source outside the workspace. Syntax errors in an edited module can
+prevent verification. In inactive code the server checks for uses of the old
+or proposed name whose binding it cannot establish. The rename covers the
+packages discovered in the editor session. Other checkouts that depend on a
+published library are outside its scope.
 
 ### Renaming Modules
 

@@ -368,7 +368,10 @@ impl Session {
                 return Err(format!("Overlapping module moves at {}", old.display()));
             }
         }
-        if let Some((package, error)) = workspace.configuration.unavailable_plans.first() {
+        if let Some((package, error)) = edits
+            .keys()
+            .find_map(|source| workspace.configuration_problem_for(source))
+        {
             return Err(format!(
                 "Cannot verify rename in package `{}` ({error})",
                 package.display()
