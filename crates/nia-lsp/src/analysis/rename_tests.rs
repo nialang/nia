@@ -448,6 +448,23 @@ fn rename_at(path: &Path, token: &str, new_name: &str) -> Result<lsp_types::Work
 }
 
 #[test]
+fn rename_accepts_source_modules_under_target() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let root = test_dir("lsp-editable-target-module");
+    std::fs::create_dir(root.join("target")).unwrap();
+    std::fs::write(
+        root.join("nia.toml"),
+        "[package]\nname='fixture'\nversion='1.0.0'\n[library]\npath='root.nia'\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("root.nia"), "pub module target;").unwrap();
+    std::fs::write(root.join("target.nia"), "pub module item;").unwrap();
+    let source = root.join("target/item.nia");
+    std::fs::write(&source, "pub fun amount() i32 { 42 }").unwrap();
+    rename_at(&source, "amount()", "quantity").unwrap();
+}
+
+#[test]
 fn rename_indexes_associated_function_calls() {
     let _resources = acquire_test_resources(TestWorkload::Compiler);
     let root = test_dir("lsp-associated-function-uses");

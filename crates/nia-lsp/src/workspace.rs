@@ -930,15 +930,10 @@ impl WorkspaceIndex {
         else {
             return false;
         };
-        let Ok(relative) = path.strip_prefix(root) else {
-            return false;
-        };
-        !relative.starts_with("target")
-            && path
-                .ancestors()
-                .skip(1)
-                .take_while(|ancestor| *ancestor != root)
-                .all(|ancestor| !ancestor.join("nia.toml").is_file())
+        path.ancestors()
+            .skip(1)
+            .take_while(|ancestor| *ancestor != root)
+            .all(|ancestor| !ancestor.join("nia.toml").is_file())
     }
 
     pub(crate) fn managed_source(&self, path: &Path) -> bool {
