@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Source formatting that preserves significant tokens and comments.
 
-use std::num::NonZeroU8;
+use std::{collections::BTreeMap, num::NonZeroU8};
 
 use nia_lexer::TokenKind;
 use nia_span::Span;
@@ -69,17 +69,19 @@ pub fn format_parsed(
     let mut constraints = Vec::new();
     let mut tokens = Vec::new();
     let mut operators = Vec::new();
+    let mut continuations = BTreeMap::new();
     layout_inputs(
         parsed.tree.green_root(),
         &mut constraints,
         &mut tokens,
         &mut operators,
+        &mut continuations,
     );
     let unit = match indentation {
         Indentation::Spaces(width) => " ".repeat(width.get().into()),
         Indentation::Tabs => "\t".to_owned(),
     };
-    let mut edits = layout_edits(source, &unit, &constraints, &tokens);
+    let mut edits = layout_edits(source, &unit, &constraints, &tokens, &continuations);
     for [left, operator, right] in tokens.array_windows() {
         if operators.binary_search(&operator.span()).is_err() {
             continue;
@@ -125,6 +127,7 @@ fn layout_inputs<'a>(
     spans: &mut Vec<Span>,
     tokens: &mut Vec<&'a GreenToken>,
     operators: &mut Vec<Span>,
+    continuations: &mut BTreeMap<usize, usize>,
 ) {
     if node.kind() == &SyntaxKind::WhereClause
         && let Some(keyword) = node.first_token()
@@ -132,17 +135,54 @@ fn layout_inputs<'a>(
     {
         spans.push(Span::new(keyword.span().end, last.span().end));
     }
+    let start = tokens.len();
+    let mut after_operator = false;
     for child in node.children() {
         match child {
-            GreenElement::Node(node) => layout_inputs(node, spans, tokens, operators),
+            GreenElement::Node(child) => {
+                if after_operator && let Some(rhs) = child.first_token() {
+                    continuations.insert(rhs.span().start, tokens[start].span().start);
+                }
+                layout_inputs(child, spans, tokens, operators, continuations);
+                after_operator = false;
+            }
             GreenElement::Token(token)
                 if !matches!(
                     token.kind(),
                     SyntaxKind::Whitespace | SyntaxKind::Token(TokenKind::Eof)
                 ) =>
             {
-                if spaced_operator(node.kind(), token.kind()) {
+                let operator = spaced_operator(node.kind(), token.kind());
+                if operator {
                     operators.push(token.span());
+                }
+                if operator
+                    || (node.kind() == &SyntaxKind::FieldInit
+                        && token.kind().token_kind() == Some(&TokenKind::Colon))
+                {
+                    after_operator = true;
+                }
+                if tokens.len() > start
+                    && (operator
+                        || matches!(
+                            node.kind(),
+                            SyntaxKind::StringExpr
+                                | SyntaxKind::FieldExpr
+                                | SyntaxKind::TupleFieldExpr
+                                | SyntaxKind::TryExpr
+                                | SyntaxKind::DerefExpr
+                                | SyntaxKind::QualifiedExpr
+                        ) && !token.kind().is_trivia())
+                {
+                    let first = tokens[start].span().start;
+                    // Adjacent literals form one string. If the entire value begins
+                    // on a continuation line, its fragments all share that indent.
+                    let anchor = if node.kind() == &SyntaxKind::StringExpr {
+                        continuations.get(&first).copied().unwrap_or(first)
+                    } else {
+                        first
+                    };
+                    continuations.insert(token.span().start, anchor);
                 }
                 tokens.push(token);
             }
@@ -164,6 +204,7 @@ fn spaced_operator(node: &SyntaxKind, token: &SyntaxKind) -> bool {
         | SyntaxKind::AssocConstDecl
         | SyntaxKind::AssocBindingArg => *token == TokenKind::Eq,
         SyntaxKind::MatchArm => *token == TokenKind::FatArrow,
+        SyntaxKind::IfExpr => *token == TokenKind::And,
         _ => false,
     }
 }
@@ -173,12 +214,16 @@ fn layout_edits(
     unit: &str,
     constraints: &[Span],
     tokens: &[&GreenToken],
+    continuations: &BTreeMap<usize, usize>,
 ) -> Vec<TextEdit> {
     let mut edits = Vec::new();
     let mut index = 0;
     let mut line_start = 0;
     let mut token_end = 0;
-    let mut depth: usize = 0;
+    // Each delimiter remembers the indentation of its opening line. Several
+    // openers on one line therefore share a single hanging indent.
+    let mut openers = Vec::new();
+    let mut line_levels = Vec::new();
     let mut lines = source.split_inclusive(['\r', '\n']).peekable();
     while let Some(line) = lines.next() {
         let mut line_end = line_start + line.len();
@@ -192,28 +237,45 @@ fn layout_edits(
             index += 1;
         }
         let on_line = &tokens[start..index];
+        let mut level = openers.last().map_or(0, |level| level + 1);
+        for (_, &opening_level) in on_line
+            .iter()
+            .take_while(|token| delimiter(token.kind()) == -1)
+            .zip(openers.iter().rev())
+        {
+            level = opening_level;
+        }
         if let Some(first) = on_line.first()
             && token_end <= line_start
         {
             let first = first.span().start;
             let existing = &source[line_start..first];
             if existing.bytes().all(|byte| matches!(byte, b' ' | b'\t')) {
-                let closing = on_line
-                    .iter()
-                    .take_while(|token| delimiter(token.kind()) == -1)
-                    .count();
                 let constraint = constraints
                     .iter()
                     .any(|span| span.start <= first && first < span.end);
-                let indentation =
-                    unit.repeat(depth.saturating_sub(closing) + usize::from(constraint));
+                level += usize::from(constraint);
+                if let Some(&anchor) = continuations.get(&first)
+                    && anchor < line_start
+                {
+                    let line = line_levels.partition_point(|&(start, _)| start <= anchor) - 1;
+                    level = level.max(line_levels[line].1 + 1);
+                }
+                let indentation = unit.repeat(level);
                 if existing != indentation {
                     edits.push(TextEdit::replace(Span::new(line_start, first), indentation));
                 }
             }
         }
+        line_levels.push((line_start, level));
         for token in on_line {
-            depth = depth.saturating_add_signed(delimiter(token.kind()));
+            match delimiter(token.kind()) {
+                1 => openers.push(level),
+                -1 => {
+                    openers.pop();
+                }
+                _ => {}
+            }
             token_end = token.span().end;
         }
         let trailing_start = line_start
@@ -239,6 +301,29 @@ fn delimiter(kind: &SyntaxKind) -> isize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn standard_library_is_already_formatted() {
+        let mut directories =
+            vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib/std")];
+        while let Some(directory) = directories.pop() {
+            for entry in std::fs::read_dir(directory).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    directories.push(path);
+                } else if path.extension().is_some_and(|ext| ext == "nia") {
+                    let source = std::fs::read_to_string(&path).unwrap();
+                    let formatted = format_source(&source, Indentation::default()).unwrap();
+                    assert!(
+                        formatted.edits.is_empty(),
+                        "{}: {:?}",
+                        path.display(),
+                        formatted.edits.first()
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn formats_constraints_and_nested_blocks_preserving_comments_and_crlf() {
@@ -294,7 +379,7 @@ mod tests {
             "fun apply(x: i32) i32 {\r\n",
             "    let mut value = x * -base;\r\n",
             "    value += // increment\r\n",
-            "    1 + 2;\r\n",
+            "        1 + 2;\r\n",
             "    value\r\n",
             "}\r\n",
         );

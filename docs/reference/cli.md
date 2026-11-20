@@ -198,8 +198,8 @@ nesting, writes one space on each side of an infix operator, `=`, and `=>`
 within a line, and removes trailing whitespace. Line breaks, comments, and
 literals stay as written: the formatter neither wraps nor joins lines. A
 continuation line, such as the next line of a broken condition or method
-chain, is indented at the level of the line it continues, not one level
-deeper.
+chain, is indented one level deeper. Delimiters opened on the same line
+share an indentation level.
 
 The file must parse. On a syntax error, `nia fmt` reports the diagnostic,
 prints nothing to stdout, and exits with status 1. The path must name a file,

@@ -436,9 +436,7 @@ fun narrowReport() ReportOptions {
 std's layout is the style, and this section describes it.
 [`nia fmt`](../reference/cli.md#nia-fmt) prints a file with normalized
 indentation, operator spacing, and trailing whitespace, and keeps line breaks
-as written. It indents a continuation line, such as a line of a broken
-chain, condition, or literal, at the level of the line it continues rather
-than one level deeper as std does, so lay out those lines as shown here.
+as written. Wrapped chains, conditions, and literals continue one level deeper.
 
 - **Lines stay within 100 columns.**
 - **One statement per line.** An `if` whose branches are single expressions,

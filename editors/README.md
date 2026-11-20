@@ -172,9 +172,8 @@ the next build regenerates the outputs.
 Document and range formatting use the lossless syntax tree. Formatting sets
 the indentation of each line from its nesting depth, puts single spaces
 around infix operators, and removes trailing whitespace. It keeps comments,
-literals, and existing line breaks. Because indentation follows nesting depth
-alone, a continuation line of a wrapped expression is moved to its nesting
-level; the continuation indentation used in the standard library is not kept.
+literals, and existing line breaks. Wrapped expressions use one continuation
+level. Delimiters opened on the same line share an indentation level.
 A file with a syntax error is not formatted.
 
 Range formatting changes only the lines that intersect the selection. The
