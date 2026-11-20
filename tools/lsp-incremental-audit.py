@@ -51,6 +51,8 @@ def replace_once(text, old, new):
 
 
 def workload(resources, workspace, name):
+    if name == "dependencies":
+        return dependency_workload(workspace)
     if name == "workspace":
         source = fixture(workspace)
         body, other_body = "util::amount() + 1", "util::amount() + 2"
@@ -63,11 +65,40 @@ def workload(resources, workspace, name):
         signature, other_signature = "fun isEmpty(&self) bool", "fun isEmpty(&self) usize"
         use, label = "self.len() ", "len"
     clean = source.read_text(encoding="utf-8")
-    return workspace, source, clean, {
-        "comment": "// Position-changing audit edit\n" + clean,
-        "body": replace_once(clean, body, other_body),
-        "signature": replace_once(clean, signature, other_signature),
-    }, use, label
+    return workspace, source, {source: clean}, {
+        "comment": (source, "// Position-changing audit edit\n" + clean),
+        "body": (source, replace_once(clean, body, other_body)),
+        "signature": (source, replace_once(clean, signature, other_signature)),
+    }, [(use, label)]
+
+
+def dependency_workload(workspace):
+    source = fixture(workspace)
+    dependency = workspace / "dep" / "root.nia"
+    provider = dependency.with_name("provider.nia")
+    dependency_text = """pub module provider;
+pub fun amount() i32 { 42 }
+pub struct Counter {}
+"""
+    provider_text = """using root::Counter;
+extend Counter { pub fun measure(&self) i32 { 42 } }
+"""
+    dependency.write_text(dependency_text, encoding="utf-8")
+    provider.write_text(provider_text, encoding="utf-8")
+    source_text = "using util::provider;\n" + source.read_text(encoding="utf-8")
+    return workspace, source, {
+        source: source_text, dependency: dependency_text, provider: provider_text,
+    }, {
+        "dependency_signature": (dependency, replace_once(
+            dependency_text, "amount() i32 { 42 }", "amount() bool { true }",
+        )),
+        "provider_demand": (source, replace_once(source_text, "{ counter.measure() }", "{ _ = counter; 42 }")),
+        "provider_definition": (provider, replace_once(provider_text, "fun measure(", "fun renamed(")),
+        "provider_position": (provider, "// Move the extension method.\n" + provider_text),
+        "unresolved_name": (source, replace_once(
+            source_text, "unaffected() i32 { util::amount() }", "unaffected() i32 { unknown_value }",
+        )),
+    }, [("util::amount() +", "amount"), ("counter.measure(", "measure")]
 
 
 def request(client, method, params):
@@ -87,14 +118,12 @@ def inspect(client, document, text, use, label):
         textDocument=document, position=dict(point, character=point["character"] + len(label)),
     ))
     items = completion["items"] if isinstance(completion, dict) else completion
-    if not definition or not any(item["label"] == label for item in items or []):
-        raise AssertionError(f"expected a definition and completion at {use!r}")
-    return dict(definition=definition, completion=sorted(items, key=lambda item: json.dumps(item, sort_keys=True))), {
+    return dict(definition=definition, completion=sorted(items or [], key=lambda item: json.dumps(item, sort_keys=True))), {
         "definition_ms": definition_ms, "completion_ms": completion_ms,
     }
 
 
-def session(server, resources, workspace, source, texts, use, label, profile, sample_rss=False):
+def session(server, resources, workspace, source, snapshots, probes, profile, sample_rss=False):
     document = {"uri": source.as_uri()}
     environment = os.environ.copy()
     environment["NIA_LSP_TIMINGS"] = "detail" if profile else "off"
@@ -107,18 +136,41 @@ def session(server, resources, workspace, source, texts, use, label, profile, sa
             request(client, "initialize", {"processId": None, "rootUri": workspace.as_uri(), "capabilities": {}})
             client.notify("initialized", {})
             values, latency = [], []
-            for version, text in enumerate(texts, 1):
+            previous = {}
+            versions = {}
+            for snapshot in snapshots:
                 started = perf_counter()
-                if version == 1:
-                    client.notify("textDocument/didOpen", {"textDocument": dict(
-                        **document, version=version, languageId="nia", text=text,
-                    )})
-                else:
-                    client.notify("textDocument/didChange", {
-                        "textDocument": dict(**document, version=version), "contentChanges": [{"text": text}],
-                    })
-                published, diagnostics = client.wait_diagnostics(source.as_uri(), version)
+                for path, text in snapshot.items():
+                    if previous.get(path) == text:
+                        continue
+                    version = versions.get(path, 0) + 1
+                    versions[path] = version
+                    changed = dict(uri=path.as_uri(), version=version)
+                    if version == 1:
+                        client.notify("textDocument/didOpen", {"textDocument": dict(
+                            **changed, languageId="nia", text=text,
+                        )})
+                    else:
+                        client.notify("textDocument/didChange", {
+                            "textDocument": changed, "contentChanges": [{"text": text}],
+                        })
+                previous = snapshot
+                # Editing a dependency republishes caller diagnostics under the
+                # same caller version. Previous requests can publish that version too.
+                published, diagnostics = client.wait_diagnostics(
+                    document["uri"], versions[source], since=started,
+                )
+                for path, version in versions.items():
+                    if path != source:
+                        client.wait_diagnostics(path.as_uri(), version, since=started)
+                text = snapshot[source]
+                use, label = probes[0]
                 value, elapsed = inspect(client, document, text, use, label)
+                if not value["definition"] or not any(item["label"] == label for item in value["completion"]):
+                    raise AssertionError(f"expected a definition and completion at {use!r}")
+                for use, label in probes[1:]:
+                    if use in text:
+                        value[label], _ = inspect(client, document, text, use, label)
                 value["diagnostics"] = sorted(diagnostics, key=lambda item: json.dumps(item, sort_keys=True))
                 values.append(value)
                 latency.append(dict(diagnostics_ms=1000 * (published - started), **elapsed))
@@ -168,18 +220,21 @@ def count_delta(before, after):
 
 
 def audit(server, resources, workspace, name, repeat, profile, sample_rss):
-    root, source, original, edits, use, label = workload(resources, workspace, name)
-    def run(texts, measure_rss=False):
-        return session(server, resources, root, source, texts, use, label, profile, measure_rss)
+    root, source, original, edits, probes = workload(resources, workspace, name)
+    def run(snapshots, measure_rss=False):
+        return session(server, resources, root, source, snapshots, probes, profile, measure_rss)
 
     baseline_value, _, baseline = run([original])
     results = {}
-    for edit, text in edits.items():
-        fresh, _, fresh_timing = run([text])
+    for edit, (path, text) in edits.items():
+        edited = original | {path: text}
+        fresh, _, fresh_timing = run([edited])
+        if name == "dependencies":
+            assert_dependency_results(edit, baseline_value[0], fresh[0], path)
         latency = []
         rss = []
         for _ in range(repeat):
-            snapshots = [original, text] if profile else [original, text, original]
+            snapshots = [original, edited] if profile else [original, edited, original]
             incremental, timings, edited_timing = run(snapshots, sample_rss)
             if incremental[1] != fresh[0] or any(value != baseline_value[0] for value in incremental[::2]):
                 raise AssertionError(f"{name}/{edit}: fresh and incremental snapshots differ:\n"
@@ -197,11 +252,35 @@ def audit(server, resources, workspace, name, repeat, profile, sample_rss):
     return results
 
 
+def assert_dependency_results(edit, original, edited, edited_path):
+    def has_errors(value):
+        return any(item["severity"] == 1 for item in value["diagnostics"])
+
+    original_definition = original["measure"]["definition"]
+    if has_errors(original) or not original_definition:
+        raise AssertionError(f"expected a bound provider in the original workspace: {original!r}")
+    expected_errors = edit in ("dependency_signature", "provider_definition", "unresolved_name")
+    if has_errors(edited) != expected_errors:
+        raise AssertionError(f"{edit}: unexpected caller diagnostics: {edited['diagnostics']!r}")
+    if edit == "provider_definition" and edited["measure"]["definition"]:
+        raise AssertionError(f"{edit}: still resolves the removed method")
+    if edit == "provider_demand" and not any(
+        item["code"] == "W0201" and "`provider`" in item["message"] for item in edited["diagnostics"]
+    ):
+        raise AssertionError(f"{edit}: the import is still marked as used")
+    if edit == "provider_position":
+        updated_definition = edited["measure"]["definition"]
+        if (not updated_definition or updated_definition["uri"] != edited_path.as_uri()
+                or updated_definition["range"]["start"]["line"]
+                != original_definition["range"]["start"]["line"] + 1):
+            raise AssertionError(f"{edit}: expected the method definition to move down one line")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("server", type=Path)
     parser.add_argument("--resource-root", type=Path, required=True)
-    parser.add_argument("--workload", choices=("workspace", "array-list"), default="workspace")
+    parser.add_argument("--workload", choices=("workspace", "array-list", "dependencies"), default="workspace")
     parser.add_argument("--revision", help="commit used to build the server")
     parser.add_argument("--sample-rss", action="store_true",
                         help="record RSS after each original, edited, and restored snapshot")

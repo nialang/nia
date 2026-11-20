@@ -72,13 +72,13 @@ class Client:
         elif "id" in message:
             self.responses[message["id"]] = (timestamp, message)
 
-    def wait_diagnostics(self, uri, version, accept=lambda _: True):
+    def wait_diagnostics(self, uri, version, accept=lambda _: True, *, since=None):
         key = (uri, version)
         deadline = perf_counter() + self.timeout
         while True:
             if key in self.diagnostics:
                 timestamp, diagnostics = self.diagnostics.pop(key)
-                if accept(diagnostics):
+                if (since is None or timestamp >= since) and accept(diagnostics):
                     return timestamp, diagnostics
             self.receive(deadline)
 
