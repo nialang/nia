@@ -300,7 +300,7 @@ struct Work {
     dispatched_at: Option<Instant>,
     revision: u64,
     disk_changes: DiskChanges,
-    documents: Documents,
+    documents: Arc<Documents>,
     path: PathBuf,
     request: Option<Request>,
     folders: Vec<PathBuf>,
@@ -1097,7 +1097,7 @@ struct Server {
     refresh_needed: bool,
     refresh_request: Option<RequestId>,
     refresh_sequence: u64,
-    documents: Documents,
+    documents: Arc<Documents>,
     dirty: BTreeSet<PathBuf>,
     diagnostic_inputs: HashMap<PathBuf, Vec<Arc<BTreeSet<String>>>>,
     edited: Option<PathBuf>,
@@ -1342,7 +1342,7 @@ impl Server {
                     let document = params.text_document;
                     if let Some(path) = analysis::path(&document.uri) {
                         self.missing_text.remove(&path);
-                        self.documents.insert(
+                        Arc::make_mut(&mut self.documents).insert(
                             path.clone(),
                             OpenDocument {
                                 uri: document.uri,
@@ -1368,7 +1368,7 @@ impl Server {
                     if let Some(path) = analysis::path(&params.text_document.uri) {
                         if let Some(text) = params.text
                             && let Some(version) = self.missing_text.remove(&path)
-                            && let Some(open) = self.documents.get_mut(&path)
+                            && let Some(open) = Arc::make_mut(&mut self.documents).get_mut(&path)
                         {
                             open.document = Document::new(version, text);
                         }
@@ -1416,8 +1416,9 @@ impl Server {
                     Ok(params) => {
                         let uri = params.text_document.uri;
                         if let Some(path) = analysis::path(&uri)
-                            && self.documents.remove(&path).is_some()
+                            && self.documents.contains_key(&path)
                         {
+                            Arc::make_mut(&mut self.documents).remove(&path);
                             self.missing_text.remove(&path);
                             self.token_results.remove(&path);
                             publish(connection, uri, None, Vec::new())?;
@@ -1495,7 +1496,7 @@ impl Server {
         let Some(path) = analysis::path(&params.text_document.uri) else {
             return Ok(());
         };
-        let Some(open) = self.documents.get_mut(&path) else {
+        let Some(open) = self.documents.get(&path) else {
             return Ok(());
         };
         let version = params.text_document.version;
@@ -1513,7 +1514,10 @@ impl Server {
         if (missing.is_none() || replacement.is_some())
             && let Some(current) = open.document.changed(version, changes)
         {
-            open.document = current;
+            Arc::make_mut(&mut self.documents)
+                .get_mut(&path)
+                .expect("open document")
+                .document = current;
             self.missing_text.remove(&path);
             if missing.is_some() {
                 self.invalidate();
@@ -1630,7 +1634,7 @@ impl Server {
             .collect();
         let mut moved = Vec::new();
         for (old, new, uri) in relocated {
-            if let Some(mut open) = self.documents.remove(&old) {
+            if let Some(mut open) = Arc::make_mut(&mut self.documents).remove(&old) {
                 let missing = self.missing_text.remove(&old);
                 self.token_results.remove(&old);
                 publish(connection, open.uri, None, Vec::new())?;
@@ -1640,7 +1644,9 @@ impl Server {
         }
         for (path, open, missing) in moved {
             // A client may have opened the destination before sending its file notification.
-            if let std::collections::btree_map::Entry::Vacant(slot) = self.documents.entry(path) {
+            if let std::collections::btree_map::Entry::Vacant(slot) =
+                Arc::make_mut(&mut self.documents).entry(path)
+            {
                 if let Some(version) = missing {
                     self.missing_text.insert(slot.key().clone(), version);
                 }
@@ -1762,7 +1768,7 @@ impl Server {
                 dispatched_at,
                 revision: self.revision,
                 disk_changes: std::mem::take(disk_changes),
-                documents: self.documents.clone(),
+                documents: Arc::clone(&self.documents),
                 path,
                 request,
                 folders: self.folders.clone(),
@@ -1952,7 +1958,7 @@ mod tests {
             (&unrelated, vec![analysis::normalized(&unrelated)]),
             (&edited, vec![analysis::normalized(&edited)]),
         ] {
-            server.documents.insert(
+            Arc::make_mut(&mut server.documents).insert(
                 path.clone(),
                 OpenDocument {
                     uri: analysis::uri(path).unwrap(),
@@ -1993,7 +1999,7 @@ mod tests {
         let uri = analysis::uri(&path).unwrap();
         let (queue, work) = unbounded();
         let (output, replies) = unbounded();
-        let mut documents = Documents::new();
+        let mut documents = Arc::new(Documents::new());
         for revision in [1, 2] {
             // Omit the required document from the first internal task.
             queue
@@ -2012,7 +2018,7 @@ mod tests {
                     cancel: Cancellation::default(),
                 }))
                 .unwrap();
-            documents.insert(
+            Arc::make_mut(&mut documents).insert(
                 path.clone(),
                 OpenDocument {
                     uri: uri.clone(),
@@ -2062,7 +2068,7 @@ mod tests {
             dispatched_at: None,
             revision: 1,
             disk_changes: DiskChanges::None,
-            documents: Documents::new(),
+            documents: Arc::default(),
             path: path.clone(),
             request: None,
             folders: Vec::new(),
@@ -2072,7 +2078,7 @@ mod tests {
         };
         let mut session = Session::new(Arc::new(toolchain));
         let original = "fun sample() i32 { 1 }\n";
-        work.documents.insert(
+        Arc::make_mut(&mut work.documents).insert(
             path.clone(),
             OpenDocument {
                 uri,
@@ -2095,13 +2101,19 @@ mod tests {
         }));
 
         work.revision += 1;
-        work.documents.get_mut(&path).unwrap().document = Document::new(2, original.into());
+        Arc::make_mut(&mut work.documents)
+            .get_mut(&path)
+            .unwrap()
+            .document = Document::new(2, original.into());
         install_analysis_sources(&mut session, &work, &mut cached).unwrap();
         assert!(old_projection.upgrade().is_some());
 
         work.revision += 1;
         let edited = "fun sample() i32 { 2 }\n";
-        work.documents.get_mut(&path).unwrap().document = Document::new(3, edited.into());
+        Arc::make_mut(&mut work.documents)
+            .get_mut(&path)
+            .unwrap()
+            .document = Document::new(3, edited.into());
         install_analysis_sources(&mut session, &work, &mut cached).unwrap();
         assert!(cached.is_none());
         assert!(old_projection.upgrade().is_none());
@@ -2237,7 +2249,7 @@ mod tests {
         let text = "module child;\nfun read() i32 { child::value() }\n";
         std::fs::write(&path, text).unwrap();
         let mut server = Server::default();
-        server.documents.insert(
+        Arc::make_mut(&mut server.documents).insert(
             path.clone(),
             OpenDocument {
                 uri: analysis::uri(&path).unwrap(),
@@ -2414,7 +2426,7 @@ mod tests {
                 dispatched_at: None,
                 revision: 1,
                 disk_changes: DiskChanges::None,
-                documents,
+                documents: Arc::new(documents),
                 path,
                 request: Some(Request::new(
                     1.into(),
@@ -2631,6 +2643,64 @@ mod tests {
     }
 
     #[test]
+    fn dispatched_documents_keep_their_version_across_edits_and_close() {
+        let (connection, _client) = Connection::memory();
+        let (editor, jobs) = unbounded();
+        let (workspace, _) = unbounded();
+        let mut server = Server::default();
+        let uri = analysis::uri(&std::env::current_dir().unwrap().join("snapshot.nia")).unwrap();
+        let path = analysis::path(&uri).unwrap();
+        server.notification(&connection, Notification::new("textDocument/didOpen".into(),
+            json!({"textDocument":{"uri":uri,"version":1,"languageId":"nia","text":"a\r\nb"}}))).unwrap();
+        server
+            .request(
+                &connection,
+                Request::new(
+                    1.into(),
+                    FORMATTING.into(),
+                    json!({"textDocument":{"uri":uri}}),
+                ),
+            )
+            .unwrap();
+        server
+            .schedule(&connection, &editor, &workspace, false)
+            .unwrap();
+        let WorkerMessage::Analyze(work) = jobs.recv().unwrap() else {
+            panic!("expected formatting request")
+        };
+        assert!(Arc::ptr_eq(&work.documents, &server.documents));
+        for version in [1, 2] {
+            server.notification(&connection, Notification::new("textDocument/didChange".into(),
+                json!({"textDocument":{"uri":uri,"version":version},"contentChanges":[{"text":"edited"}]}))).unwrap();
+            assert_eq!(
+                Arc::ptr_eq(&work.documents, &server.documents),
+                version == 1
+            );
+        }
+        let edited = Arc::clone(&server.documents);
+        server
+            .notification(
+                &connection,
+                Notification::new(
+                    "textDocument/didClose".into(),
+                    json!({"textDocument":{"uri":uri}}),
+                ),
+            )
+            .unwrap();
+        assert!(server.documents.is_empty());
+        let old = &work.documents[&path].document;
+        assert_eq!(
+            (old.version, old.text.as_ref(), old.lines.line_start(1)),
+            (1, "a\r\nb", 3)
+        );
+        let new = &edited[&path].document;
+        assert_eq!(
+            (new.version, new.text.as_ref(), new.lines.next_line_start(0)),
+            (2, "edited", None)
+        );
+    }
+
+    #[test]
     fn syntax_requests_use_the_worker_snapshot_of_their_document() {
         let path = std::env::current_dir().unwrap().join("sample.nia");
         let uri = analysis::uri(&path).unwrap();
@@ -2640,7 +2710,7 @@ mod tests {
         let (editor, jobs) = unbounded();
         let (workspace, _) = unbounded();
         let mut server = Server::default();
-        server.documents.insert(
+        Arc::make_mut(&mut server.documents).insert(
             path.clone(),
             OpenDocument {
                 uri: uri.clone(),

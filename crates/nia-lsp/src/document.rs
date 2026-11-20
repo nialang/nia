@@ -187,7 +187,7 @@ impl Document {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Lines(Vec<usize>);
+pub(crate) struct Lines(Arc<[usize]>);
 
 impl Lines {
     pub(crate) fn new(text: &str) -> Self {
@@ -200,7 +200,7 @@ impl Lines {
                 _ => {}
             }
         }
-        Self(starts)
+        Self(starts.into())
     }
 
     pub(crate) fn offset(&self, text: &str, position: Position) -> Option<usize> {
