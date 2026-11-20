@@ -1489,6 +1489,22 @@ impl Analysis {
     }
 
     pub(crate) fn rename_supported(&self, symbol: Symbol) -> bool {
+        let module = match symbol {
+            Symbol::Global(id) => id.module_id,
+            Symbol::Module(module)
+            | Symbol::Local(module, _)
+            | Symbol::ModuleAlias(module, _)
+            | Symbol::ItemAlias(module, _) => module,
+        };
+        if self.graph.get(module).is_some_and(|module| {
+            module
+                .path
+                .identity_ref()
+                .normalized_path()
+                .starts_with("toolchain:/")
+        }) {
+            return false;
+        }
         match symbol {
             Symbol::Local(..) => true,
             Symbol::Global(id) => self
