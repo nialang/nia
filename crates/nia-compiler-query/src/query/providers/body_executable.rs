@@ -1310,11 +1310,11 @@ fn body_check_with_inputs(
             .map(|methods| methods.methods.clone())
             .unwrap_or_default()
     };
-    let member_graph = db.get(ModuleGraphQuery)?;
+    let member_graph = QueryModuleGraphLookup::new(db)?;
     let member_visibility_allows = |visibility, defining_module| {
         nia_imports::visibility_allows(
             visibility,
-            member_graph.as_ref(),
+            &member_graph,
             defining_module,
             module_id,
         )
@@ -1888,9 +1888,10 @@ fn body_check_with_inputs(
     let output = BodyCheckWithResolutionInputs {
         body_check,
         inputs: stored_inputs,
+        const_module: filtered_const_inputs.as_ref().map(|inputs| Arc::clone(&inputs.module.module)),
         const_eval: filtered_const_inputs.map(BodyCheckConstInputs::into_check),
     };
-    match query_failure.into_inner() {
+    match query_failure.into_inner().or_else(|| member_graph.take_failure()) {
         Some(error) => Err(error),
         None => Ok(output),
     }
@@ -1907,20 +1908,17 @@ pub(super) fn executable_layouts_for_reachable_items(
 ) -> QueryResult<ModuleLayouts> {
     time_module_provider(db, "executable_layouts", module_id, || {
         let query_failure = RefCell::new(None);
-        let (defs, active_item_tree, type_lowering, type_normalization, item_signatures) =
-            time_provider(
-                db.context().timings(),
-                "executable_layouts.inputs",
-                || -> QueryResult<_> {
-                    Ok((
-                        full_module_defs_semantic(db, module_id)?,
-                        db.get(FullActiveModuleItemTreeQuery(module_id))?,
-                        type_lowering_semantic(db, module_id)?,
-                        db.get(LayoutTypeNormalizationQuery(module_id))?,
-                        item_signatures_semantic(db, module_id)?,
-                    ))
-                },
-            )?;
+        let (active_item_tree, type_lowering, item_signatures) = time_provider(
+            db.context().timings(),
+            "executable_layouts.inputs",
+            || -> QueryResult<_> {
+                Ok((
+                    db.get(FullActiveModuleItemTreeQuery(module_id))?,
+                    type_lowering_semantic(db, module_id)?,
+                    item_signatures_semantic(db, module_id)?,
+                ))
+            },
+        )?;
         let program_struct = |def_id: GlobalDefId| {
             capture_query_failure(
                 &query_failure,
@@ -2127,17 +2125,15 @@ pub(super) fn executable_layouts_for_reachable_items(
             }
         }
         let signature_array_lengths = RefCell::new(HashMap::new());
-        let type_normalization = type_normalization.resolve_array_lengths(
-            module_id,
-            &db.context().type_store,
-            &roots.types,
-            &|id| {
+        let defs = full_module_defs_semantic(db, module_id)?;
+        let type_normalization = db
+            .get(LayoutTypeNormalizationQuery(module_id))?
+            .resolve_array_lengths(module_id, &db.context().type_store, &roots.types, &|id| {
                 local_array_lengths
                     .symbolic
                     .get(id)
                     .map(|arg| arg.value.clone())
-            },
-        )?;
+            })?;
         let target = time_provider(db.context().timings(), "executable_layouts.target", || {
             compiler_target_data_layout(db)
         })?;
@@ -2424,6 +2420,7 @@ pub(super) fn executable_checked_module_with_body_and_flow_check(
         body_check,
         inputs: body_inputs,
         const_eval,
+        ..
     } = body_check;
     let type_resolution = db.get(TypeResolutionQuery(module_id))?;
     let type_lowering = db.get(TypeLoweringQuery(module_id))?;
