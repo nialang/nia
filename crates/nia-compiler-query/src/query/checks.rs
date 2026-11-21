@@ -170,6 +170,11 @@ pub(super) struct AbiCheckQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for AbiCheckQuery {
     type Value = ModuleAbiCheck;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 
     fn name() -> &'static str {
         "abi_check"

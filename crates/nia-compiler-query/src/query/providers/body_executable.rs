@@ -119,36 +119,90 @@ struct BodyCheckConstInputs {
 
 #[derive(Clone, Copy)]
 pub(super) struct ReachableBodyModules<'a> {
-    base: &'a HashSet<ModuleId>,
+    base: Option<&'a HashSet<ModuleId>>,
+    lookup: Option<&'a dyn Fn(ModuleId) -> bool>,
     extra: Option<ModuleId>,
 }
 
 impl<'a> ReachableBodyModules<'a> {
     pub(super) fn new(base: &'a HashSet<ModuleId>) -> Self {
-        Self { base, extra: None }
+        Self {
+            base: Some(base),
+            lookup: None,
+            extra: None,
+        }
+    }
+    pub(super) fn tracked(lookup: &'a dyn Fn(ModuleId) -> bool) -> Self {
+        Self {
+            base: None,
+            lookup: Some(lookup),
+            extra: None,
+        }
     }
 
     pub(super) fn with_extra(self, module_id: ModuleId) -> Self {
         Self {
-            base: self.base,
             extra: Some(module_id),
+            ..self
         }
     }
 
     fn contains(self, module_id: ModuleId) -> bool {
-        self.extra == Some(module_id) || self.base.contains(&module_id)
+        self.extra == Some(module_id)
+            || self.base.is_some_and(|base| base.contains(&module_id))
+            || self.lookup.is_some_and(|lookup| lookup(module_id))
     }
 }
 
 #[derive(Clone, Copy)]
 pub(super) struct ExecutableFactMode<'a> {
+    finalizing: bool,
     non_function_signatures: Option<&'a ProgramExecutableNonFunctionSignatures>,
     reachable_body_modules: Option<ReachableBodyModules<'a>>,
 }
 
 impl<'a> ExecutableFactMode<'a> {
+    pub(super) fn finalizing(reachable_body_modules: ReachableBodyModules<'a>) -> Self {
+        Self {
+            finalizing: true,
+            ..Self::executable(reachable_body_modules)
+        }
+    }
+    fn visible_trait_impls(
+        self,
+        db: &QueryDb<CompilerContext>,
+        id: ModuleId,
+    ) -> QueryResult<Arc<VisibleTraitImplsValue>> {
+        if self.finalizing {
+            Ok(db.get(FinalVisibleTraitImplsQuery(id))?.as_ref().clone())
+        } else {
+            db.get(VisibleTraitImplsQuery(id))
+        }
+    }
+    fn const_module(
+        self,
+        db: &QueryDb<CompilerContext>,
+        id: ModuleId,
+    ) -> QueryResult<Arc<ConstModuleLowering>> {
+        if self.finalizing {
+            Ok(db.get(FinalConstModuleQuery(id))?.as_ref().clone())
+        } else {
+            db.get(ConstModuleQuery(id))
+        }
+    }
+    fn trait_method_index(
+        self,
+        db: &QueryDb<CompilerContext>,
+    ) -> QueryResult<Arc<ProgramTraitMethodIndex>> {
+        if self.finalizing {
+            Ok(db.get(FinalTraitMethodIndexQuery)?.as_ref().clone())
+        } else {
+            db.get(ProgramTraitMethodIndexQuery)
+        }
+    }
     fn full() -> Self {
         Self {
+            finalizing: false,
             non_function_signatures: None,
             reachable_body_modules: None,
         }
@@ -156,6 +210,7 @@ impl<'a> ExecutableFactMode<'a> {
 
     pub(super) fn executable(reachable_body_modules: ReachableBodyModules<'a>) -> Self {
         Self {
+            finalizing: false,
             non_function_signatures: None,
             reachable_body_modules: Some(reachable_body_modules),
         }
@@ -287,7 +342,7 @@ fn filtered_const_global_initializer_for_body_check(
             )
         },
     );
-    let graph = db.get(ModuleGraphQuery)?;
+    let graph = QueryModuleGraphLookup::new(db)?;
     let program_defs =
         |module_id| capture_query_failure(&query_failure, full_module_defs_semantic(db, module_id));
     let program_signatures =
@@ -296,12 +351,7 @@ fn filtered_const_global_initializer_for_body_check(
         capture_query_failure(&query_failure, db.get(VisibleExtensionsQuery(module_id)))
             .map(|facts| Arc::clone(&facts.methods))
     };
-    let public_surfaces = time_module_provider(
-        db,
-        "executable_body_check.const_eval.global_initializer.public_surfaces",
-        global_id.module_id,
-        || db.get(PublicSurfacesQuery),
-    )?;
+    let public_surfaces = QueryPublicSurfaceLookup::new(db);
     let using_scope = time_module_provider(
         db,
         "executable_body_check.const_eval.global_initializer.module_using_scope",
@@ -348,7 +398,7 @@ fn filtered_const_global_initializer_for_body_check(
                     defs: Some(&program_defs),
                     graph: Some(&graph),
                 },
-                &public_surfaces.surfaces,
+                &public_surfaces,
                 &using_scope.scopes,
                 nia_value_resolve::ValueResolveOptions::with_store(
                     Some(&associated_values),
@@ -461,7 +511,7 @@ fn filtered_const_global_initializer_for_body_check(
                     defs: Some(&program_defs),
                     graph: Some(&graph),
                 },
-                &public_surfaces.surfaces,
+                &public_surfaces,
                 &using_scope.scopes,
                 nia_value_resolve::ValueResolveOptions::with_store(
                     Some(&associated_values),
@@ -476,7 +526,11 @@ fn filtered_const_global_initializer_for_body_check(
         },
     );
     let initializer = lower_with_values(values)?;
-    match query_failure.into_inner() {
+    match query_failure
+        .into_inner()
+        .or_else(|| graph.take_failure())
+        .or_else(|| public_surfaces.take_failure())
+    {
         Some(error) => Err(error),
         None => Ok(initializer),
     }
@@ -593,7 +647,7 @@ fn const_inputs_for_body_check(
             )
             .map(|lowering| lowering.module.clone());
         }
-        capture_query_failure(&query_failure, db.get(ConstModuleQuery(module_id)))
+        capture_query_failure(&query_failure, fact_mode.const_module(db, module_id))
             .map(|lowering| lowering.module.clone())
     };
     let program_source_path = |module_id| {
@@ -601,8 +655,8 @@ fn const_inputs_for_body_check(
             .map(|path| path.as_ref().clone())
     };
     let program_module_path = |module_id| {
-        capture_query_failure(&query_failure, db.context().loader_facts().module_graph())
-            .and_then(|graph| graph.module_path(module_id))
+        capture_query_failure(&query_failure, db.get(ModuleGraphPathQuery(module_id)))
+            .and_then(|path| path.as_ref().clone())
     };
     let program_source_text = |module_id| {
         capture_query_failure(
@@ -635,7 +689,7 @@ fn const_inputs_for_body_check(
             if local_trait_impls.borrow().is_none() {
                 let facts = capture_query_failure(
                     &query_failure,
-                    db.get(VisibleTraitImplsQuery(module_id)),
+                    fact_mode.visible_trait_impls(db, module_id),
                 )?;
                 *local_trait_impls.borrow_mut() = Some(facts);
             }
@@ -649,7 +703,7 @@ fn const_inputs_for_body_check(
         }
         capture_query_failure(
             &query_failure,
-            db.get(VisibleTraitImplsQuery(requested_module_id)),
+            fact_mode.visible_trait_impls(db, requested_module_id),
         )
         .map(|impls| impls.trait_impls.clone())
     };
@@ -854,6 +908,7 @@ pub(super) fn body_check_with_filter_and_layouts(
             program_layouts_override,
             fact_mode: match non_function_signatures_override {
                 Some(program_signatures) => ExecutableFactMode {
+                    finalizing: false,
                     non_function_signatures: Some(program_signatures),
                     reachable_body_modules: None,
                 },
@@ -1312,12 +1367,7 @@ fn body_check_with_inputs(
     };
     let member_graph = QueryModuleGraphLookup::new(db)?;
     let member_visibility_allows = |visibility, defining_module| {
-        nia_imports::visibility_allows(
-            visibility,
-            &member_graph,
-            defining_module,
-            module_id,
-        )
+        nia_imports::visibility_allows(visibility, &member_graph, defining_module, module_id)
     };
     let program_type_normalization = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
@@ -1534,12 +1584,12 @@ fn body_check_with_inputs(
         .map(|signature| ProgramTypeAliasSignature { signature })
     };
     let program_traits_by_method_name = |name: &SymbolId| {
-        capture_query_failure(&query_failure, db.get(ProgramTraitMethodIndexQuery))
+        capture_query_failure(&query_failure, fact_mode.trait_method_index(db))
             .map(|index| index.trait_ids_with_method_named(name))
             .unwrap_or_default()
     };
     let program_trait_owning_method = |method_id: GlobalDefId| {
-        capture_query_failure(&query_failure, db.get(ProgramTraitMethodIndexQuery))?
+        capture_query_failure(&query_failure, fact_mode.trait_method_index(db))?
             .trait_owning_method_id(method_id)
             .and_then(|trait_id| {
                 program_trait_signature(trait_id).map(|signature| (trait_id, signature))
@@ -1583,7 +1633,7 @@ fn body_check_with_inputs(
             &signatures.trait_impl_index,
         )
     } else {
-        visible_trait_impls = db.get(VisibleTraitImplsQuery(module_id))?;
+        visible_trait_impls = fact_mode.visible_trait_impls(db, module_id)?;
         ProgramSignatureContext::new_indexed(
             &program_signature_lookup,
             &visible_trait_impls.trait_impls,
@@ -1722,7 +1772,15 @@ fn body_check_with_inputs(
                 .get(&module_id)
                 .cloned();
         }
-        capture_query_failure(&query_failure, db.get(ConstValuesQuery(module_id)))
+        capture_query_failure(
+            &query_failure,
+            if fact_mode.finalizing {
+                db.get(FinalConstValuesQuery(module_id))
+                    .map(|values| values.as_ref().clone())
+            } else {
+                db.get(ConstValuesQuery(module_id))
+            },
+        )
     };
     let program_const_module = |module_id| {
         if fact_mode.signature_facts_for(module_id) {
@@ -1732,7 +1790,7 @@ fn body_check_with_inputs(
             )
             .map(|lowering| lowering.module.clone());
         }
-        capture_query_failure(&query_failure, db.get(ConstModuleQuery(module_id)))
+        capture_query_failure(&query_failure, fact_mode.const_module(db, module_id))
             .map(|lowering| lowering.module.clone())
     };
     let program_visible_extensions = |module_id| {
@@ -1747,8 +1805,8 @@ fn body_check_with_inputs(
         .flatten()
     };
     let program_module_path = |module_id| {
-        capture_query_failure(&query_failure, db.context().loader_facts().module_graph())
-            .and_then(|graph| graph.module_path(module_id))
+        capture_query_failure(&query_failure, db.get(ModuleGraphPathQuery(module_id)))
+            .and_then(|path| path.as_ref().clone())
     };
     let program_module_source_text = |module_id| {
         capture_query_failure(
@@ -1888,10 +1946,15 @@ fn body_check_with_inputs(
     let output = BodyCheckWithResolutionInputs {
         body_check,
         inputs: stored_inputs,
-        const_module: filtered_const_inputs.as_ref().map(|inputs| Arc::clone(&inputs.module.module)),
+        const_module: filtered_const_inputs
+            .as_ref()
+            .map(|inputs| Arc::clone(&inputs.module.module)),
         const_eval: filtered_const_inputs.map(BodyCheckConstInputs::into_check),
     };
-    match query_failure.into_inner().or_else(|| member_graph.take_failure()) {
+    match query_failure
+        .into_inner()
+        .or_else(|| member_graph.take_failure())
+    {
         Some(error) => Err(error),
         None => Ok(output),
     }

@@ -194,13 +194,8 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                     )
                 },
             ));
-            let graph = db.get(ModuleGraphQuery)?;
-            let public_surfaces = time_module_provider(
-                db,
-                "executable_body_check.public_surfaces",
-                module_id,
-                || db.get(PublicSurfacesQuery),
-            )?;
+            let graph = QueryModuleGraphLookup::new(db)?;
+            let public_surfaces = QueryPublicSurfaceLookup::new(db);
             let using_scope = time_module_provider(
                 db,
                 "executable_body_check.module_using_scope",
@@ -234,7 +229,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                             defs: Some(&program_defs),
                             graph: Some(&graph),
                         },
-                        &public_surfaces.surfaces,
+                        &public_surfaces,
                         &using_scope.scopes,
                         nia_value_resolve::ValueResolveOptions::with_store(
                             Some(&associated_values),
@@ -284,7 +279,7 @@ pub(super) fn body_check_resolution_inputs_for_filter(
                                     defs: Some(&program_defs),
                                     graph: Some(&graph),
                                 },
-                                &public_surfaces.surfaces,
+                                &public_surfaces,
                                 &using_scope.scopes,
                                 nia_value_resolve::ValueResolveOptions::with_store(
                                     Some(&associated_values),
@@ -335,6 +330,8 @@ pub(super) fn body_check_resolution_inputs_for_filter(
             match query_failure
                 .into_inner()
                 .or_else(|| associated_values.take_failure())
+                .or_else(|| graph.take_failure())
+                .or_else(|| public_surfaces.take_failure())
             {
                 Some(error) => Err(error),
                 None => Ok(output),
@@ -384,6 +381,7 @@ pub(in crate::query) struct BodyCheckWithResolutionInputs {
     pub(in crate::query) body_check: nia_body_check::BodyCheck,
     pub(in crate::query) inputs: BodyCheckResolutionInputs,
     pub(in crate::query) const_eval: Option<ConstCheck>,
+    pub(in crate::query) const_module: Option<Arc<nia_const_ir::ResolvedConstModule>>,
 }
 
 pub(super) struct BodyCheckResolutionContext<'a> {

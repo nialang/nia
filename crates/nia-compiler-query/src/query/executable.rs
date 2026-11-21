@@ -124,6 +124,14 @@ pub(super) struct ModuleVersionSyncStats {
 }
 
 impl ExecutableFactSession {
+    fn reset_reachability(&mut self) {
+        self.reachability = Default::default();
+        // A scan records edges in the current reachability set. After dropping
+        // that set, unchecked items must contribute their edges again.
+        self.value_ref_scanned_functions.clear();
+        self.value_ref_scanned_globals.clear();
+    }
+
     pub(super) fn enter_epoch(&mut self, epoch: &ExecutableFactEpoch) {
         if self.epoch.as_ref() == Some(epoch) {
             return;
@@ -158,10 +166,6 @@ impl ExecutableFactSession {
             .module_versions
             .iter()
             .all(|(module_id, version)| module_versions.get(module_id) == Some(version));
-        if !additive_growth {
-            self.reachability = Default::default();
-            stats.reset_reachability = true;
-        }
         // Without a tracked grammar revision, a changed source can change the
         // type or constant value observed by any other module.
         let preserve_cross_module_facts = additive_growth
@@ -194,8 +198,8 @@ impl ExecutableFactSession {
             }
             retained
         });
-        if self.modules.len() != module_count {
-            self.reachability = Default::default();
+        if !additive_growth || self.modules.len() != module_count {
+            self.reset_reachability();
             stats.reset_reachability = true;
         }
         retained_modules.retain(|module_id| self.modules.contains_key(module_id));
@@ -244,8 +248,13 @@ impl ExecutableFactSession {
         if pending_module_ids
             .iter()
             .any(|module_id| self.modules.contains_key(module_id))
+            || self
+                .value_ref_scanned_functions
+                .iter()
+                .chain(&self.value_ref_scanned_globals)
+                .any(|def| pending_module_ids.contains(&def.module_id))
         {
-            self.reachability = Default::default();
+            self.reset_reachability();
         }
         let mut retained_modules = HashSet::new();
         self.modules.retain(|module_id, _| {
@@ -318,7 +327,7 @@ impl ExecutableFactSession {
                 retained
             });
             if invalidates_reachability {
-                self.reachability = Default::default();
+                self.reset_reachability();
                 stats.reset_reachability = true;
             }
             self.caches.retain_modules(&retained_modules);
@@ -427,6 +436,7 @@ impl ExecutableFactModuleState {
             body_check,
             inputs: _,
             const_eval,
+            ..
         } = body_check;
         let nia_body_check::BodyCheck {
             internal_error: _,
@@ -493,6 +503,7 @@ impl ExecutableFactModuleState {
             body_check,
             inputs: _,
             const_eval,
+            ..
         } = increment;
         let nia_body_check::BodyCheck {
             internal_error: _,

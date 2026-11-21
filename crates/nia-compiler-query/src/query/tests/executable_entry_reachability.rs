@@ -20,20 +20,24 @@ fn executable_checked_program_uses_query_backed_extension_method_lookup() {
 
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "executable_checked_module_facts"
+        dependency.from.name == "executable_reachability_plan"
             && dependency.to.name == "extension_trait_impls_for_trait"
     }));
     assert!(!trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "executable_checked_module_facts"
-            && dependency.to.name == "program_trait_solving_signatures"
+        matches!(
+            dependency.from.name,
+            "executable_reachability_plan" | "executable_checked_module_facts"
+        ) && dependency.to.name == "program_trait_solving_signatures"
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "executable_checked_module_facts"
+        dependency.from.name == "executable_reachability_plan"
             && dependency.to.name == "extension_provider_module_facts"
     }));
     assert!(!trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "executable_checked_module_facts"
-            && dependency.to.name == "extension_method_index"
+        matches!(
+            dependency.from.name,
+            "executable_reachability_plan" | "executable_checked_module_facts"
+        ) && dependency.to.name == "extension_method_index"
     }));
     assert!(trace_has_dependency(
         &trace,

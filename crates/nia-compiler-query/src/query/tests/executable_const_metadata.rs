@@ -3,6 +3,89 @@
 use super::*;
 
 #[test]
+fn final_function_body_reuses_unchanged_inputs_across_edits() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "pub module lib; pub module values; pub fun main() i32 { lib::read() + 1 }",
+    );
+    let entry = fixture.entry_id();
+    let lib = fixture.add_child(
+        entry,
+        "lib",
+        "lib.nia",
+        "using root::values; pub fun read() i32 { values::K }",
+    );
+    let values = fixture.add_child(entry, "values", "values.nia", "pub const K: i32 = 7;");
+    let database = fixture.database();
+    let body = || {
+        let facts = database.db.expect_get(ExecutableCheckedModuleFactsQuery);
+        facts
+            .function_bodies
+            .iter()
+            .find(|(id, _)| id.module_id == lib)
+            .unwrap()
+            .1
+            .clone()
+    };
+    let initial = body();
+    fixture.update_module_source(
+        entry,
+        "pub module lib; pub module values; pub fun main() i32 { 2 + lib::read() }",
+        SourceRevision(1),
+    );
+    database.update(CompileRequest::new(fixture.program()));
+    let edited = body();
+    assert!(Arc::ptr_eq(&initial, &edited));
+    assert!(
+        !database
+            .db
+            .query_trace()
+            .unwrap()
+            .queries
+            .iter()
+            .any(|query| query.frame.name == "executable_provider_demands")
+    );
+    fixture.update_module_source(values, "pub const K: i32 = 9;", SourceRevision(1));
+    database.update(CompileRequest::new(fixture.program()));
+    let changed = body();
+    assert_ne!(*edited, *changed);
+}
+
+#[test]
+fn final_static_only_module_retains_its_const_lowering_on_cache_hits() {
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "pub module data; pub fun main() i32 { data::VALUE }",
+    );
+    let entry = fixture.entry_id();
+    let data = fixture.add_child(entry, "data", "data.nia", "pub static VALUE: i32 = 42;");
+    let database = fixture.database();
+    let initializer = || {
+        let facts = database.db.expect_get(ExecutableCheckedModuleFactsQuery);
+        assert!(facts.const_modules.contains_key(&data));
+        let global = *facts
+            .runtime_globals
+            .iter()
+            .find(|id| id.module_id == data)
+            .unwrap();
+        database
+            .db
+            .expect_get(ExecutableStaticInitQuery(global))
+            .as_ref()
+            .clone()
+            .unwrap()
+    };
+    let before = initializer();
+    fixture.update_module_source(
+        entry,
+        "pub module data; pub fun main() i32 { data::VALUE + 1 }",
+        SourceRevision(1),
+    );
+    database.update(CompileRequest::new(fixture.program()));
+    assert_eq!(before, initializer());
+}
+
+#[test]
 fn executable_checked_modules_reuse_filtered_const_inputs() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 149);
+    assert_eq!(descriptors.len(), 158);
     assert!(
         !descriptors
             .iter()
@@ -23,6 +23,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         "compiler_build_profile",
         "current_module_id",
         "executable_fact_epoch",
+        "executable_reachability_plan",
         "full_body_resolution_inputs",
         "inferred_module_value_types",
         "module_graph_entry",
@@ -89,6 +90,26 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
             | "semantic_module_ids"
             | "using_scope_module" => nia_query::QueryFingerprintPolicy::StableValue,
             "active_module_item_tree"
+            | "abi_check"
+            | "compiler_cpu_features"
+            | "compiler_target"
+            | "module_graph"
+            | "type_resolution"
+            | "type_lowering"
+            | "signature_const_type_resolution"
+            | "signature_const_type_lowering"
+            | "signature_const_item_signatures"
+            | "signature_const_type_normalization"
+            | "signature_const_module"
+            | "type_normalization"
+            | "executable_final_body"
+            | "executable_final_layout"
+            | "executable_final_selection"
+            | "executable_prechecked_module"
+            | "final_const_module"
+            | "final_const_values"
+            | "final_trait_method_index"
+            | "final_visible_trait_impls"
             | "active_module_item_tree_input"
             | "backend_module_function_instance_plan"
             | "backend_module_source_item_plan"

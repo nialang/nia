@@ -40,8 +40,6 @@ pub(super) struct ExecutableProviderDemandsQuery;
 pub(super) struct ExecutableProviderDemands {
     pub(super) demands: Vec<crate::ProviderDemand>,
     pub(super) type_only_modules: Vec<ModuleId>,
-    pub(super) checks: HashMap<ModuleId, Arc<nia_body_check::PrecheckedBodyCheck>>,
-    pub(super) selection: Arc<ExecutableFinalSelection>,
 }
 
 impl QueryKey<CompilerContext> for ExecutableProviderDemandsQuery {
@@ -91,6 +89,11 @@ pub(super) struct ModuleGraphQuery;
 
 impl QueryKey<CompilerContext> for ModuleGraphQuery {
     type Value = nia_imports::ModuleGraphSnapshot;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old.ptr_eq(new) || old == new
+    }
 
     fn name() -> &'static str {
         "module_graph"
@@ -406,6 +409,10 @@ pub(super) struct CompilerTargetQuery;
 
 impl QueryKey<CompilerContext> for CompilerTargetQuery {
     type Value = TargetConfig;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 
     fn name() -> &'static str {
         "compiler_target"
@@ -421,6 +428,10 @@ pub(super) struct CompilerCpuFeaturesQuery;
 
 impl QueryKey<CompilerContext> for CompilerCpuFeaturesQuery {
     type Value = nia_target::CpuFeatures;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
     fn name() -> &'static str {
         "compiler_cpu_features"
     }

@@ -60,8 +60,11 @@ pub(in crate::query) use self::codegen::{
 };
 use self::const_eval::*;
 pub(in crate::query) use self::executable_reachability::{
-    ExecutableCheckRootsQuery, provide_executable_checked_module_facts,
-    provide_executable_provider_demands,
+    ExecutableCheckRootsQuery, ExecutableFinalBodyQuery, ExecutableFinalLayoutQuery,
+    ExecutableFinalSelectionQuery, ExecutablePrecheckedModuleQuery,
+    ExecutableReachabilityPlanQuery, FinalConstModuleQuery, FinalConstValuesQuery,
+    FinalTraitMethodIndexQuery, FinalVisibleTraitImplsQuery,
+    provide_executable_checked_module_facts, provide_executable_provider_demands,
 };
 pub(super) use self::extension_providers::visible_trait_impl_modules_for_module;
 use self::extension_providers::*;

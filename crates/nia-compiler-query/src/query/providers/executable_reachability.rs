@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+mod final_body;
+pub(in crate::query) use final_body::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(in crate::query) struct ExecutableCheckRootsQuery;
@@ -51,13 +53,15 @@ impl QueryKey<CompilerContext> for ExecutableCheckRootsQuery {
 pub(in crate::query) fn provide_executable_checked_module_facts(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<ExecutableCheckedModuleFacts> {
+    // Compute the fixed point before finalization takes the session scheduler.
+    db.get(ExecutableReachabilityPlanQuery)?;
     time_provider(
         db.context().timings(),
         "executable_checked_module_facts",
         || match executable_check(db, ExecutableCheckProduct::Modules)? {
             ExecutableCheckOutput::Modules(set) => Ok(set),
-            ExecutableCheckOutput::ProviderDemands(_) => Err(QueryError::internal(
-                "module executable check returned provider demands",
+            ExecutableCheckOutput::Plan(_) => Err(QueryError::internal(
+                "module executable check returned a reachability plan",
             )),
         },
     )
@@ -69,23 +73,33 @@ pub(in crate::query) fn provide_executable_provider_demands(
     time_provider(
         db.context().timings(),
         "executable_provider_demands",
-        || match executable_check(db, ExecutableCheckProduct::ProviderDemands)? {
-            ExecutableCheckOutput::ProviderDemands(demands) => Ok(demands),
-            ExecutableCheckOutput::Modules(_) => Err(QueryError::internal(
-                "provider-demand executable check returned modules",
-            )),
+        || {
+            let plan = db.get(ExecutableReachabilityPlanQuery)?;
+            let mut demands = plan
+                .demands
+                .values()
+                .flatten()
+                .cloned()
+                .collect::<HashSet<_>>();
+            demands.extend(executable_module_body_demands(db, plan.checked.clone())?);
+            // Final checking validates all const declarations, including unreachable ones.
+            demands.extend(const_declaration_demands(db, plan.checks.keys().copied())?);
+            Ok(ExecutableProviderDemands {
+                demands: demands.into_iter().collect(),
+                type_only_modules: plan.type_only.clone(),
+            })
         },
     )
 }
 
 #[derive(Clone, Copy)]
 enum ExecutableCheckProduct {
-    ProviderDemands,
+    Reachability,
     Modules,
 }
 
 enum ExecutableCheckOutput {
-    ProviderDemands(ExecutableProviderDemands),
+    Plan(ExecutableReachabilityPlan),
     Modules(ExecutableCheckedModuleFacts),
 }
 
@@ -802,268 +816,27 @@ fn executable_check_in_session(
         };
     }
     let extension_lookup = QueryExecutableExtensionLookup::new(db);
-    loop {
-        emit_executable_check_counter(db, product, "iterations", 1);
-        let reachable_inputs = time_provider(
-            db.context().timings(),
-            "executable_checked_modules.inputs",
-            || reachable_fact_module_inputs(&fact_by_id, &db.context().type_store),
-        );
-        let reachability_result = time_provider(
-            db.context().timings(),
-            "executable_checked_modules.reachability_compute",
-            || {
-                compute_executable_reachability_incremental_with_timings(
-                    &mut reachability_state,
-                    nia_executable_reachability::ExecutableReachabilityInput {
-                        parse_ok,
-                        entry_module,
-                        root_defs: ExecutableRootDefs {
-                            functions: &roots.functions,
-                            globals: &roots.globals,
-                        },
-                        program_signatures: nia_executable_reachability::ExecutableSignatureIndex {
-                            function: &function_signature,
-                            struct_: &struct_signature,
-                            union: &union_signature,
-                            enum_: &enum_signature,
-                            type_alias: &type_alias_signature,
-                            trait_: &trait_signature,
-                            trait_default_method: &trait_default_method,
-                        },
-                        modules: &reachable_inputs,
-                    },
-                    &extension_lookup,
-                    db.context().timings(),
-                )
-            },
-        );
-        if let Err(error) = reachability_result {
-            return_session_error!(error);
-        }
-        if let Some(error) = query_failure.borrow_mut().take() {
-            return_session_error!(error);
-        }
-        let (value_edges_changed, value_ref_stats) = match time_provider(
-            db.context().timings(),
-            "executable_checked_modules.value_ref_edges",
-            || {
-                let reachability = reachability_state.reachability_mut();
-                extend_reachability_from_value_ref_edges(
-                    db,
-                    parse_ok,
-                    reachability,
-                    &function_signature,
-                    &fact_by_id,
-                    &caches,
-                    &mut value_ref_scan_progress,
-                )
-            },
-        ) {
-            Ok(changed) => changed,
-            Err(error) => return_session_error!(error),
-        };
-        emit_value_ref_scan_counters(db, product, &value_ref_stats);
-        if let Some(error) = query_failure.borrow_mut().take() {
-            return_session_error!(error);
-        }
-        if value_edges_changed {
-            emit_executable_check_counter(db, product, "value_edge_restarts", 1);
-            continue;
-        }
-        let reachability_by_module = reachability_state.reachability().by_module();
-        let stale = match time_provider(
-            db.context().timings(),
-            "executable_checked_modules.stale_select",
-            || {
-                stale_executable_fact_modules(
-                    db,
-                    parse_ok,
-                    reachability_state.reachability(),
-                    &reachability_by_module,
-                    &fact_by_id,
-                )
-            },
-        ) {
-            Ok(stale) => stale,
-            Err(error) => return_session_error!(error),
-        };
-        if stale.is_empty() {
-            break;
-        }
-        emit_executable_check_counter(db, product, "stale_modules", stale.len() as u64);
-        let round_reachable_body_modules = match time_provider(
-            db.context().timings(),
-            "executable_checked_modules.reachable_body_modules",
-            || executable_reachable_body_modules(db, &reachability_by_module),
-        ) {
-            Ok(modules) => modules,
-            Err(error) => return_session_error!(error),
-        };
-        let round_reachable_body_modules = Arc::new(round_reachable_body_modules);
-        let mut prepared_checks = Vec::with_capacity(stale.len());
-        for module_id in stale {
-            let already_checked_functions = fact_by_id
-                .get(&module_id)
-                .map(|state| state.checked_functions.clone());
-            let already_checked_globals = fact_by_id
-                .get(&module_id)
-                .map(|state| state.checked_globals.clone());
-            let (module_functions, module_globals) =
-                unchecked_executable_items(&reachability_by_module, module_id, &fact_by_id);
-            let (module_functions, static_owner_added) = match time_module_provider(
-                db,
-                "executable_checked_modules.extend_local_static_owners",
-                module_id,
-                || {
-                    extend_module_functions_from_local_static_globals(
-                        db,
-                        module_id,
-                        module_functions,
-                        &module_globals,
-                        already_checked_functions.as_ref(),
-                    )
-                },
-            ) {
-                Ok(functions) => functions,
-                Err(error) => return_session_error!(error),
-            };
-            let module_functions = if static_owner_added {
-                match time_module_provider(
-                    db,
-                    "executable_checked_modules.extend_value_refs",
-                    module_id,
-                    || {
-                        extend_module_functions_from_filtered_value_refs(
-                            db,
-                            module_id,
-                            module_functions,
-                            &module_globals,
-                            already_checked_functions.as_ref(),
-                        )
-                    },
-                ) {
-                    Ok(functions) => functions,
-                    Err(error) => return_session_error!(error),
-                }
-            } else {
-                module_functions
-            };
-            reachability_state
-                .reachability_mut()
-                .insert_functions(module_functions.iter().copied());
-            let mut has_reachable_body_items = !module_functions.is_empty();
-            if !has_reachable_body_items && !module_globals.is_empty() {
-                let defs = match module_defs_semantic(db, module_id) {
-                    Ok(defs) => defs,
-                    Err(error) => return_session_error!(error),
-                };
-                has_reachable_body_items = module_globals.iter().any(|def_id| {
-                    defs.defs
-                        .get(def_id.def_id)
-                        .is_some_and(|def| def.kind == DefKind::Global)
-                });
-            }
-            let seed_facts = fact_by_id
-                .get(&module_id)
-                .map(|state| state.semantic_facts.clone());
-            let seed_global_type_issues = fact_by_id
-                .get(&module_id)
-                .map(|state| state.global_type_issues.clone())
-                .unwrap_or_default();
-            let reachability = reachability_state.reachability();
-            prepared_checks.push(PreparedExecutableBodyCheck {
-                module_id,
-                module_functions,
-                module_globals,
-                already_checked_functions,
-                already_checked_globals,
-                seed_facts,
-                seed_global_type_issues,
-                reachable_functions: reachability.functions().clone(),
-                reachable_globals: reachability.globals().clone(),
-                reachable_body_modules: Arc::clone(&round_reachable_body_modules),
-                module_has_reachable_body_items: has_reachable_body_items,
-            });
-        }
-        let cache_handles = ExecutableBodyCheckCacheHandles::from(&caches);
-        let checked_modules = match db.map_tasks(prepared_checks.into_iter().map(|request| {
-            let cache_handles = cache_handles.clone();
-            move |db| executable_body_check_for_prepared_module(&db, request, cache_handles)
-        })) {
-            Ok(checked_modules) => checked_modules,
-            Err(error) => return_session_error!(error),
-        };
-        let mut batch_items = Vec::with_capacity(checked_modules.len());
-        for checked_module in checked_modules {
-            let ExecutableBodyCheckResult {
-                module_id,
-                module_globals,
-                checked_functions: checked_this_round,
-                body_check,
-            } = checked_module;
-            reachability_state
-                .reachability_mut()
-                .insert_functions(checked_this_round.iter().copied());
-            let merge_result = time_module_provider(
-                db,
-                "executable_checked_modules.fact_merge",
-                module_id,
-                || -> QueryResult<()> {
-                    match fact_by_id.get_mut(&module_id) {
-                        Some(state) => {
-                            state.extend(body_check, module_globals, &db.context().type_store)?;
-                        }
-                        None => {
-                            fact_by_id.insert(
-                                module_id,
-                                ExecutableFactModuleState::new(
-                                    db,
-                                    module_id,
-                                    body_check,
-                                    module_globals,
-                                )?,
-                            );
-                        }
-                    }
-                    Ok(())
-                },
+    if matches!(product, ExecutableCheckProduct::Reachability) {
+        loop {
+            emit_executable_check_counter(db, product, "iterations", 1);
+            let reachable_inputs = time_provider(
+                db.context().timings(),
+                "executable_checked_modules.inputs",
+                || reachable_fact_module_inputs(&fact_by_id, &db.context().type_store),
             );
-            if let Err(error) = merge_result {
-                return_session_error!(error);
-            }
-            batch_items.push(ExecutableBodyCheckBatchItem {
-                module_id,
-                checked_functions: checked_this_round,
-            });
-        }
-        let checked_inputs = time_provider(
-            db.context().timings(),
-            "executable_checked_modules.batch_inputs",
-            || reachable_fact_module_inputs(&fact_by_id, &db.context().type_store),
-        );
-        let checked_inputs_by_id = time_provider(
-            db.context().timings(),
-            "executable_checked_modules.batch_inputs_by_id",
-            || reachable_module_inputs_by_id(&checked_inputs),
-        );
-        for batch_item in batch_items {
-            let Some(module_input) = checked_inputs_by_id.get(&batch_item.module_id).copied()
-            else {
-                return_session_error!(QueryError::internal(format!(
-                    "checked module {:?} has no reachable input",
-                    batch_item.module_id
-                )))
-            };
-            let incremental_result = time_module_provider(
-                db,
-                "executable_checked_modules.incremental_extend",
-                batch_item.module_id,
+            let reachability_result = time_provider(
+                db.context().timings(),
+                "executable_checked_modules.reachability_compute",
                 || {
-                    extend_incremental_executable_reachability_from_checked_module_with_timings(
+                    compute_executable_reachability_incremental_with_timings(
                         &mut reachability_state,
-                        nia_executable_reachability::CheckedModuleReachabilityInput {
+                        nia_executable_reachability::ExecutableReachabilityInput {
                             parse_ok,
+                            entry_module,
+                            root_defs: ExecutableRootDefs {
+                                functions: &roots.functions,
+                                globals: &roots.globals,
+                            },
                             program_signatures:
                                 nia_executable_reachability::ExecutableSignatureIndex {
                                     function: &function_signature,
@@ -1074,58 +847,330 @@ fn executable_check_in_session(
                                     trait_: &trait_signature,
                                     trait_default_method: &trait_default_method,
                                 },
-                            module: module_input,
-                            checked_functions: &batch_item.checked_functions,
-                            modules_by_id: &checked_inputs_by_id,
+                            modules: &reachable_inputs,
                         },
                         &extension_lookup,
                         db.context().timings(),
                     )
                 },
             );
-            if let Err(error) = incremental_result {
+            if let Err(error) = reachability_result {
                 return_session_error!(error);
             }
             if let Some(error) = query_failure.borrow_mut().take() {
                 return_session_error!(error);
             }
+            let (value_edges_changed, value_ref_stats) = match time_provider(
+                db.context().timings(),
+                "executable_checked_modules.value_ref_edges",
+                || {
+                    let reachability = reachability_state.reachability_mut();
+                    extend_reachability_from_value_ref_edges(
+                        db,
+                        parse_ok,
+                        reachability,
+                        &function_signature,
+                        &fact_by_id,
+                        &caches,
+                        &mut value_ref_scan_progress,
+                    )
+                },
+            ) {
+                Ok(changed) => changed,
+                Err(error) => return_session_error!(error),
+            };
+            emit_value_ref_scan_counters(db, product, &value_ref_stats);
+            if let Some(error) = query_failure.borrow_mut().take() {
+                return_session_error!(error);
+            }
+            if value_edges_changed {
+                emit_executable_check_counter(db, product, "value_edge_restarts", 1);
+                continue;
+            }
+            let reachability_by_module = reachability_state.reachability().by_module();
+            let stale = match time_provider(
+                db.context().timings(),
+                "executable_checked_modules.stale_select",
+                || {
+                    stale_executable_fact_modules(
+                        db,
+                        parse_ok,
+                        reachability_state.reachability(),
+                        &reachability_by_module,
+                        &fact_by_id,
+                    )
+                },
+            ) {
+                Ok(stale) => stale,
+                Err(error) => return_session_error!(error),
+            };
+            if stale.is_empty() {
+                break;
+            }
+            emit_executable_check_counter(db, product, "stale_modules", stale.len() as u64);
+            let round_reachable_body_modules = match time_provider(
+                db.context().timings(),
+                "executable_checked_modules.reachable_body_modules",
+                || executable_reachable_body_modules(db, &reachability_by_module),
+            ) {
+                Ok(modules) => modules,
+                Err(error) => return_session_error!(error),
+            };
+            let round_reachable_body_modules = Arc::new(round_reachable_body_modules);
+            let mut prepared_checks = Vec::with_capacity(stale.len());
+            for module_id in stale {
+                let already_checked_functions = fact_by_id
+                    .get(&module_id)
+                    .map(|state| state.checked_functions.clone());
+                let already_checked_globals = fact_by_id
+                    .get(&module_id)
+                    .map(|state| state.checked_globals.clone());
+                let (module_functions, module_globals) =
+                    unchecked_executable_items(&reachability_by_module, module_id, &fact_by_id);
+                let (module_functions, static_owner_added) = match time_module_provider(
+                    db,
+                    "executable_checked_modules.extend_local_static_owners",
+                    module_id,
+                    || {
+                        extend_module_functions_from_local_static_globals(
+                            db,
+                            module_id,
+                            module_functions,
+                            &module_globals,
+                            already_checked_functions.as_ref(),
+                        )
+                    },
+                ) {
+                    Ok(functions) => functions,
+                    Err(error) => return_session_error!(error),
+                };
+                let module_functions = if static_owner_added {
+                    match time_module_provider(
+                        db,
+                        "executable_checked_modules.extend_value_refs",
+                        module_id,
+                        || {
+                            extend_module_functions_from_filtered_value_refs(
+                                db,
+                                module_id,
+                                module_functions,
+                                &module_globals,
+                                already_checked_functions.as_ref(),
+                            )
+                        },
+                    ) {
+                        Ok(functions) => functions,
+                        Err(error) => return_session_error!(error),
+                    }
+                } else {
+                    module_functions
+                };
+                reachability_state
+                    .reachability_mut()
+                    .insert_functions(module_functions.iter().copied());
+                let mut has_reachable_body_items = !module_functions.is_empty();
+                if !has_reachable_body_items && !module_globals.is_empty() {
+                    let defs = match module_defs_semantic(db, module_id) {
+                        Ok(defs) => defs,
+                        Err(error) => return_session_error!(error),
+                    };
+                    has_reachable_body_items = module_globals.iter().any(|def_id| {
+                        defs.defs
+                            .get(def_id.def_id)
+                            .is_some_and(|def| def.kind == DefKind::Global)
+                    });
+                }
+                let seed_facts = fact_by_id
+                    .get(&module_id)
+                    .map(|state| state.semantic_facts.clone());
+                let seed_global_type_issues = fact_by_id
+                    .get(&module_id)
+                    .map(|state| state.global_type_issues.clone())
+                    .unwrap_or_default();
+                let reachability = reachability_state.reachability();
+                prepared_checks.push(PreparedExecutableBodyCheck {
+                    module_id,
+                    module_functions,
+                    module_globals,
+                    already_checked_functions,
+                    already_checked_globals,
+                    seed_facts,
+                    seed_global_type_issues,
+                    reachable_functions: reachability.functions().clone(),
+                    reachable_globals: reachability.globals().clone(),
+                    reachable_body_modules: Arc::clone(&round_reachable_body_modules),
+                    module_has_reachable_body_items: has_reachable_body_items,
+                });
+            }
+            let cache_handles = ExecutableBodyCheckCacheHandles::from(&caches);
+            let checked_modules = match db.map_tasks(prepared_checks.into_iter().map(|request| {
+                let cache_handles = cache_handles.clone();
+                move |db| executable_body_check_for_prepared_module(&db, request, cache_handles)
+            })) {
+                Ok(checked_modules) => checked_modules,
+                Err(error) => return_session_error!(error),
+            };
+            let mut batch_items = Vec::with_capacity(checked_modules.len());
+            for checked_module in checked_modules {
+                let ExecutableBodyCheckResult {
+                    module_id,
+                    module_globals,
+                    checked_functions: checked_this_round,
+                    body_check,
+                } = checked_module;
+                reachability_state
+                    .reachability_mut()
+                    .insert_functions(checked_this_round.iter().copied());
+                let merge_result = time_module_provider(
+                    db,
+                    "executable_checked_modules.fact_merge",
+                    module_id,
+                    || -> QueryResult<()> {
+                        match fact_by_id.get_mut(&module_id) {
+                            Some(state) => {
+                                state.extend(
+                                    body_check,
+                                    module_globals,
+                                    &db.context().type_store,
+                                )?;
+                            }
+                            None => {
+                                fact_by_id.insert(
+                                    module_id,
+                                    ExecutableFactModuleState::new(
+                                        db,
+                                        module_id,
+                                        body_check,
+                                        module_globals,
+                                    )?,
+                                );
+                            }
+                        }
+                        Ok(())
+                    },
+                );
+                if let Err(error) = merge_result {
+                    return_session_error!(error);
+                }
+                batch_items.push(ExecutableBodyCheckBatchItem {
+                    module_id,
+                    checked_functions: checked_this_round,
+                });
+            }
+            let checked_inputs = time_provider(
+                db.context().timings(),
+                "executable_checked_modules.batch_inputs",
+                || reachable_fact_module_inputs(&fact_by_id, &db.context().type_store),
+            );
+            let checked_inputs_by_id = time_provider(
+                db.context().timings(),
+                "executable_checked_modules.batch_inputs_by_id",
+                || reachable_module_inputs_by_id(&checked_inputs),
+            );
+            for batch_item in batch_items {
+                let Some(module_input) = checked_inputs_by_id.get(&batch_item.module_id).copied()
+                else {
+                    return_session_error!(QueryError::internal(format!(
+                        "checked module {:?} has no reachable input",
+                        batch_item.module_id
+                    )))
+                };
+                let incremental_result = time_module_provider(
+                    db,
+                    "executable_checked_modules.incremental_extend",
+                    batch_item.module_id,
+                    || {
+                        extend_incremental_executable_reachability_from_checked_module_with_timings(
+                            &mut reachability_state,
+                            nia_executable_reachability::CheckedModuleReachabilityInput {
+                                parse_ok,
+                                program_signatures:
+                                    nia_executable_reachability::ExecutableSignatureIndex {
+                                        function: &function_signature,
+                                        struct_: &struct_signature,
+                                        union: &union_signature,
+                                        enum_: &enum_signature,
+                                        type_alias: &type_alias_signature,
+                                        trait_: &trait_signature,
+                                        trait_default_method: &trait_default_method,
+                                    },
+                                module: module_input,
+                                checked_functions: &batch_item.checked_functions,
+                                modules_by_id: &checked_inputs_by_id,
+                            },
+                            &extension_lookup,
+                            db.context().timings(),
+                        )
+                    },
+                );
+                if let Err(error) = incremental_result {
+                    return_session_error!(error);
+                }
+                if let Some(error) = query_failure.borrow_mut().take() {
+                    return_session_error!(error);
+                }
+            }
         }
-    }
-    if matches!(product, ExecutableCheckProduct::ProviderDemands) {
         let reachability_by_module = reachability_state.reachability().by_module();
-        let mut demands = fact_by_id
-            .values()
-            .flat_map(|state| state.provider_demands.iter().cloned())
-            .collect::<HashSet<_>>();
         let checked_modules = executable_checked_module_ids(
             parse_ok,
             entry_module,
             reachability_state.reachability(),
             &reachability_by_module,
         );
-        match executable_module_body_demands(db, checked_modules) {
-            Ok(module_demands) => demands.extend(module_demands),
+        let body_modules = match executable_reachable_body_modules(db, &reachability_by_module) {
+            Ok(ids) => ids,
             Err(error) => return_session_error!(error),
-        }
-        // Final checking validates every `const fun` declaration of a checked
-        // module, reachable or not; discovery must request its trait
-        // implementations too, or finalization adds them in a later round.
-        match const_declaration_demands(db, fact_by_id.keys().copied()) {
-            Ok(const_demands) => demands.extend(const_demands),
-            Err(error) => return_session_error!(error),
-        }
+        };
+        let selected = checked_modules
+            .iter()
+            .copied()
+            .map(|id| {
+                let items = reachability_by_module.get(id).cloned().unwrap_or_default();
+                (
+                    id,
+                    ExecutableFinalSelection {
+                        checked: true,
+                        functions: items.functions,
+                        globals: items.globals,
+                        body: body_modules.contains(&id),
+                    },
+                )
+            })
+            .collect();
         let output = match extension_lookup.take_failure() {
             Some(error) => Err(error),
-            None => Ok(ExecutableCheckOutput::ProviderDemands(
-                ExecutableProviderDemands {
-                    demands: demands.into_iter().collect(),
-                    type_only_modules: executable_type_only_modules(
-                        parse_ok,
-                        reachability_state.reachability(),
-                    )
+            None => Ok(ExecutableCheckOutput::Plan(ExecutableReachabilityPlan {
+                reachable: reachability_state.reachability().clone(),
+                demands: fact_by_id
+                    .iter()
+                    .map(|(id, state)| (*id, state.provider_demands.clone()))
                     .collect(),
-                },
-            )),
+                checks: fact_by_id
+                    .iter()
+                    .map(|(&id, state)| {
+                        (
+                            id,
+                            Arc::new(nia_body_check::PrecheckedBodyCheck {
+                                ir: state.body_ir.clone(),
+                                facts: state.semantic_facts.clone(),
+                                global_type_issues: state.global_type_issues.clone(),
+                                body_check_rejections: state.body_check_rejections.clone(),
+                                checked_functions: state.checked_functions.clone(),
+                                diagnostic_owners: state.diagnostic_owners.clone(),
+                                diagnostics: state.diagnostics.clone(),
+                            }),
+                        )
+                    })
+                    .collect(),
+                selected,
+                checked: checked_modules,
+                type_only: executable_type_only_modules(
+                    parse_ok,
+                    reachability_state.reachability(),
+                )
+                .collect(),
+            })),
         };
         return (
             output,
@@ -1143,10 +1188,14 @@ fn executable_check_in_session(
             },
         );
     }
-    let reachability = reachability_state.reachability().clone();
+    let plan = match db.get(ExecutableReachabilityPlanQuery) {
+        Ok(plan) => plan,
+        Err(error) => return_session_error!(error),
+    };
+    let reachability = &plan.reachable;
     let reachability_by_module = reachability.by_module();
     let parse_ok_modules = parse_ok;
-    let mut checked_modules_by_id = match time_provider(
+    let (mut checked_modules_by_id, const_modules) = match time_provider(
         db.context().timings(),
         "executable_checked_module_facts.finalize",
         || {
@@ -1154,10 +1203,9 @@ fn executable_check_in_session(
                 db,
                 parse_ok_modules,
                 entry_module,
-                &reachability,
+                reachability,
                 &reachability_by_module,
-                &fact_by_id,
-                &caches,
+                &plan.demands,
             )
         },
     ) {
@@ -1217,7 +1265,7 @@ fn executable_check_in_session(
         None,
     );
     let mut type_only_modules = Vec::new();
-    for module_id in executable_type_only_modules(parse_ok_modules, &reachability) {
+    for module_id in executable_type_only_modules(parse_ok_modules, reachability) {
         let layouts = match executable_program_layouts(module_id) {
             Some(_) => {
                 let layouts = codegen_layout_cache.borrow().get(&module_id).cloned();
@@ -1363,7 +1411,7 @@ fn executable_check_in_session(
     let checked_module_ids = executable_checked_module_ids(
         parse_ok_modules,
         entry_module,
-        &reachability,
+        reachability,
         &reachability_by_module,
     );
     let module_body_demands = match executable_module_body_demands(db, checked_module_ids) {
@@ -1386,18 +1434,6 @@ fn executable_check_in_session(
             Ok(modules) => modules,
             Err(error) => return_session_error!(error),
         };
-    let runtime_module_ids = runtime_functions
-        .iter()
-        .chain(&runtime_globals)
-        .map(|def_id| def_id.module_id)
-        .collect::<HashSet<_>>();
-    let const_modules = caches
-        .const_modules
-        .lock()
-        .iter()
-        .filter(|(module_id, _)| runtime_module_ids.contains(module_id))
-        .map(|(module_id, module)| (*module_id, Arc::clone(&module.module)))
-        .collect();
     let mut function_bodies = HashMap::new();
     for module in &mut codegen_modules {
         let body_ir = Arc::make_mut(&mut module.body_ir);
@@ -1443,7 +1479,7 @@ fn emit_executable_check_counter(
         return;
     }
     let product = match product {
-        ExecutableCheckProduct::ProviderDemands => "provider_demands",
+        ExecutableCheckProduct::Reachability => "reachability",
         ExecutableCheckProduct::Modules => "modules",
     };
     nia_timing::emit_counter(
@@ -1972,147 +2008,36 @@ fn named_top_level_function(
     }))
 }
 
+type FinalModuleProducts = (
+    HashMap<ModuleId, CheckedModule>,
+    HashMap<ModuleId, Arc<nia_const_ir::ResolvedConstModule>>,
+);
+
 fn final_executable_checked_modules(
     db: &QueryDb<CompilerContext>,
     parse_ok: &[ModuleId],
     entry_module: ModuleId,
     reachability: &nia_executable_reachability::ExecutableReachability,
     reachability_by_module: &nia_executable_reachability::ExecutableReachabilityByModule,
-    fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
-    caches: &ExecutableCheckCaches,
-) -> QueryResult<HashMap<ModuleId, CheckedModule>> {
-    let reachable_body_modules = Arc::new(executable_reachable_body_modules(
-        db,
-        reachability_by_module,
-    )?);
-    let empty_module_items = nia_executable_reachability::ExecutableModuleReachability::default();
-    let modules_with_executable_items =
-        executable_checked_module_ids(parse_ok, entry_module, reachability, reachability_by_module)
-            .into_iter()
-            .map(|module_id| {
-                (
-                    module_id,
-                    reachability_by_module
-                        .get(module_id)
-                        .unwrap_or(&empty_module_items),
-                )
-            })
-            .collect::<Vec<_>>();
-    let reachability = Arc::new(reachability.clone());
-    let caches = ExecutableBodyCheckCacheHandles::from(caches);
-    let program_layouts =
-        db.map_tasks(modules_with_executable_items.iter().map(|&(module_id, _)| {
-            let reachability = Arc::clone(&reachability);
-            let reachable_body_modules = Arc::clone(&reachable_body_modules);
-            let array_lengths = Arc::clone(&caches.array_lengths);
-            move |db| {
-                let layouts = executable_layouts_for_reachable_items(
-                    &db,
-                    module_id,
-                    reachability.functions(),
-                    reachability.globals(),
-                    ExecutableLayoutCaches {
-                        array_lengths: Some(&array_lengths),
-                        fact_layouts: None,
-                    },
-                    None,
-                    Some(ReachableBodyModules::new(&reachable_body_modules)),
-                )?;
-                Ok((module_id, layouts))
+    demands: &HashMap<ModuleId, HashSet<crate::ProviderDemand>>,
+) -> QueryResult<FinalModuleProducts> {
+    let ids =
+        executable_checked_module_ids(parse_ok, entry_module, reachability, reachability_by_module);
+    let modules = db.get_many(ids.iter().copied().map(ExecutableFinalBodyQuery))?;
+    let mut lowered = HashMap::new();
+    let checked = ids
+        .into_iter()
+        .zip(modules)
+        .map(|(id, checked)| {
+            let mut module = checked.0.clone();
+            lowered.insert(id, Arc::clone(&checked.1));
+            if let Some(demands) = demands.get(&id) {
+                Arc::make_mut(&mut module.provider_demands).extend(demands.iter().cloned());
             }
-        }))?;
-    let program_layouts = Arc::new(program_layouts.into_iter().collect::<HashMap<_, _>>());
-    let modules = db.map_tasks(modules_with_executable_items.into_iter().map(
-        |(module_id, module_items)| {
-            let module_items = module_items.clone();
-            let layouts = program_layouts[&module_id].clone();
-            let program_layouts = Arc::clone(&program_layouts);
-            let reachability = Arc::clone(&reachability);
-            let reachable_body_modules = Arc::clone(&reachable_body_modules);
-            let caches = caches.clone();
-            let state = fact_by_id.get(&module_id);
-            let demands = state
-                .map(|state| state.provider_demands.clone())
-                .unwrap_or_default();
-            let prechecked = state.map(|state| nia_body_check::PrecheckedBodyCheck {
-                ir: state.body_ir.clone(),
-                facts: state.semantic_facts.clone(),
-                global_type_issues: state.global_type_issues.clone(),
-                body_check_rejections: state.body_check_rejections.clone(),
-                checked_functions: state.checked_functions.clone(),
-                diagnostic_owners: state.diagnostic_owners.clone(),
-                diagnostics: state.diagnostics.clone(),
-            });
-            move |db| {
-                let db = &db;
-                let fallback_layouts = RefCell::new(HashMap::new());
-                let layout_failure = RefCell::new(None);
-                let fallback = executable_program_layouts(
-                    db,
-                    (&fallback_layouts, &layout_failure),
-                    reachability.functions(),
-                    reachability.globals(),
-                    Some(&caches.array_lengths),
-                    None,
-                    Some(ReachableBodyModules::new(&reachable_body_modules)),
-                );
-                let lookup = |id| {
-                    program_layouts
-                        .get(&id)
-                        .map(|layouts| Arc::clone(&layouts.semantic))
-                        .or_else(|| fallback(id))
-                };
-                let module_functions = &module_items.functions;
-                let module_globals = &module_items.globals;
-                let filter = nia_body_check::BodyCheckFilter::ReachableItems {
-                    functions: module_functions,
-                    globals: module_globals,
-                    already_checked_functions: None,
-                    already_checked_globals: None,
-                };
-                let resolution_inputs = db.get(FullBodyResolutionInputsQuery(module_id))?;
-                let body_check =
-                    time_module_provider(db, "executable_body_check", module_id, || {
-                        body_check_with_filter_and_layouts_with_inputs(
-                            db,
-                            ExecutableBodyCheckInput {
-                                module_id,
-                                filter,
-                                layouts: Some(Arc::clone(&layouts.semantic)),
-                                program_layouts_override: Some(&lookup),
-                                fact_mode: ExecutableFactMode::executable(
-                                    ReachableBodyModules::new(&reachable_body_modules),
-                                ),
-                                resolution_inputs: Some(resolution_inputs.as_ref().clone()),
-                                seed: None,
-                                global_initializer_cache: Some(&caches.global_initializers),
-                                const_module_cache: Some(&caches.const_modules),
-                                const_inputs: None,
-                                program_function_signature_cache: Some(
-                                    &caches.body_function_signatures,
-                                ),
-                                product: nia_body_check::BodyCheckProduct::Full,
-                                prechecked,
-                            },
-                        )
-                    })?;
-                let checked_functions = body_check.body_check.checked_functions.clone();
-                let flow_check = executable_flow_check(db, module_id, &checked_functions)?;
-                let mut module = executable_checked_module_with_body_and_flow_check(
-                    db, module_id, body_check, flow_check, layouts,
-                )?;
-                if !demands.is_empty() {
-                    Arc::make_mut(&mut module.provider_demands).extend(demands);
-                }
-                drop(fallback);
-                if let Some(error) = layout_failure.into_inner() {
-                    return Err(error);
-                }
-                Ok((module_id, module))
-            }
-        },
-    ))?;
-    Ok(modules.into_iter().collect())
+            (id, module)
+        })
+        .collect();
+    Ok((checked, lowered))
 }
 
 fn extend_reachability_from_value_ref_edges(

@@ -76,16 +76,22 @@ fn executable_reachability_uses_lazy_signature_resolvers() {
     let trace = db.query_trace().expect("query trace");
 
     assert!(!trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "executable_checked_module_facts"
-            && dependency.to.name == "program_executable_reachability_signatures"
+        matches!(
+            dependency.from.name,
+            "executable_reachability_plan" | "executable_checked_module_facts"
+        ) && dependency.to.name == "program_executable_reachability_signatures"
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "executable_checked_module_facts"
+        dependency.from.name == "executable_reachability_plan"
             && dependency.to.name == "signature_item_signatures"
     }));
     assert!(!depends_on_body_signature_query(
         &trace,
         "executable_checked_module_facts"
+    ));
+    assert!(!depends_on_body_signature_query(
+        &trace,
+        "executable_reachability_plan"
     ));
     assert!(trace_has_dependency(
         &trace,

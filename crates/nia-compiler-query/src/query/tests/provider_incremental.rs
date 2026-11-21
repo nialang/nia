@@ -63,6 +63,30 @@ fn provider_graph_growth_recomputes_query_derived_executable_roots() {
 }
 
 #[test]
+fn activating_a_body_clears_scans_from_the_previous_reachability() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "static VALUE: i32 = 42; fun read() i32 { VALUE } fun main() i32 { read() }",
+    );
+    let database = fixture.database();
+    database.executable_provider_demands().unwrap();
+    let id = fixture.entry_id();
+    let key = fixture.graph.stable_key(id).unwrap().clone();
+    let worklist = BodyActivationWorklist {
+        modules: Arc::new(HashMap::from([(key.clone(), id)])),
+    };
+    let mut session = database.db.context().executable_fact_session.lock();
+    assert!(!session.value_ref_scanned_functions.is_empty());
+    assert!(!session.value_ref_scanned_globals.is_empty());
+    session.applied_body_activations.remove(&key);
+    session.apply_body_activation_worklist(&worklist);
+    assert!(!session.modules.contains_key(&id));
+    assert!(session.reachability.reachability().functions().is_empty());
+    assert!(session.value_ref_scanned_functions.is_empty());
+    assert!(session.value_ref_scanned_globals.is_empty());
+}
+
+#[test]
 fn additive_provider_graph_growth_reuses_existing_executable_facts() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();
@@ -363,7 +387,7 @@ fn executable_products_depend_on_incremental_worklists() {
 
     let dependencies = &database.query_trace().expect("query trace").dependencies;
     for product in [
-        "executable_provider_demands",
+        "executable_reachability_plan",
         "executable_checked_module_facts",
     ] {
         for worklist in ["body_activation_worklist", "provider_fact_worklist"] {
@@ -374,6 +398,16 @@ fn executable_products_depend_on_incremental_worklists() {
         assert!(dependencies.iter().any(|dependency| {
             dependency.from.name == product && dependency.to.name == "executable_fact_epoch"
         }));
+    }
+    for product in [
+        "executable_provider_demands",
+        "executable_checked_module_facts",
+    ] {
+        assert!(
+            dependencies.iter().any(
+                |dep| dep.from.name == product && dep.to.name == "executable_reachability_plan"
+            )
+        );
     }
     assert!(dependencies.iter().any(|dependency| {
         dependency.from.name == "executable_checked_modules"

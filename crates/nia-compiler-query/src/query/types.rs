@@ -34,6 +34,11 @@ pub(super) struct DeclarationTypeResolutionQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for TypeResolutionQuery {
     type Value = ModuleTypeResolution;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 
     fn name() -> &'static str {
         "type_resolution"
@@ -74,6 +79,11 @@ pub(super) struct DeclarationTypeLoweringQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for TypeLoweringQuery {
     type Value = ModuleTypeLowering;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 
     fn name() -> &'static str {
         "type_lowering"
@@ -403,6 +413,11 @@ pub(super) struct SignatureConstTypeResolutionQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for SignatureConstTypeResolutionQuery {
     type Value = TypeResolution;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 
     fn name() -> &'static str {
         "signature_const_type_resolution"
@@ -422,6 +437,11 @@ pub(super) struct SignatureConstTypeLoweringQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for SignatureConstTypeLoweringQuery {
     type Value = TypeLowering;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 
     fn name() -> &'static str {
         "signature_const_type_lowering"
@@ -441,6 +461,11 @@ pub(super) struct SignatureConstItemSignaturesQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for SignatureConstItemSignaturesQuery {
     type Value = ItemSignatures;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 
     fn name() -> &'static str {
         "signature_const_item_signatures"
@@ -460,6 +485,11 @@ pub(super) struct SignatureConstTypeNormalizationQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for SignatureConstTypeNormalizationQuery {
     type Value = TypeNormalization;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 
     fn name() -> &'static str {
         "signature_const_type_normalization"
@@ -479,6 +509,11 @@ pub(super) struct SignatureConstModuleQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for SignatureConstModuleQuery {
     type Value = ConstModuleLowering;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 
     fn name() -> &'static str {
         "signature_const_module"
@@ -501,6 +536,11 @@ pub(super) struct LayoutTypeNormalizationQuery(pub(super) ModuleId);
 
 impl QueryKey<CompilerContext> for TypeNormalizationQuery {
     type Value = ModuleTypeNormalization;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 
     fn name() -> &'static str {
         "type_normalization"
