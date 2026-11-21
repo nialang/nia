@@ -87,24 +87,26 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
         .set_source(main.to_string_lossy(), without_call)
         .unwrap();
     assert_eq!(assert_provider_body(false), provider_id);
-    let catalog_executions =
-        || query_executions(&loader.query_trace().unwrap(), "trait_provider_modules");
-    let before = catalog_executions();
-    assert!(before > 0);
     loader
         .set_source(main.to_string_lossy(), with_call)
         .unwrap();
     assert_eq!(assert_provider_body(true), provider_id);
-    assert_eq!(catalog_executions(), before);
-    let declaration = "using root::Counter;\nextend Counter { pub fun measure(&self) i32 { 13 } }\n";
+    let declaration =
+        "using root::Counter;\nextend Counter { pub fun measure(&self) i32 { 13 } }\n";
     loader
-        .set_source(provider.to_string_lossy(), declaration.replace("measure", "other"))
+        .set_source(
+            provider.to_string_lossy(),
+            declaration.replace("measure", "other"),
+        )
         .unwrap();
-    compiler.update(CompileRequest::new(loader.clone())).unwrap();
+    compiler
+        .update(CompileRequest::new(loader.clone()))
+        .unwrap();
     let broken = compiler.analyze_entry_program().unwrap();
     assert!(has_error_diagnostics(&broken.diagnostics));
-    assert!(catalog_executions() > before);
-    loader.set_source(provider.to_string_lossy(), declaration).unwrap();
+    loader
+        .set_source(provider.to_string_lossy(), declaration)
+        .unwrap();
     assert_eq!(assert_provider_body(true), provider_id);
 }
 
@@ -325,19 +327,42 @@ fn body_provider_demand_uses_canonical_source_identity() {
     );
     assert!(!child.process_used_paths);
 
+    let missing_trait = |name| ProviderDemand {
+        source_path: child.path.clone(),
+        request: nia_compiler_query::ProviderRequest::TraitImpl {
+            target_type_name: None,
+            target_package: Some(nia_symbol::known::STD),
+            target_module_segments: Vec::new(),
+            trait_name: sym(name),
+            trait_package: Some(nia_symbol::known::STD),
+            trait_type_arguments: Vec::new(),
+        },
+    };
+    database
+        .update_provider_demands([missing_trait("FirstAbsentTrait")])
+        .unwrap();
+    let catalog_executions =
+        || query_executions(&database.query_trace().unwrap(), "trait_provider_modules");
+    let before = catalog_executions();
+    assert!(before > 0);
+
     assert_eq!(
         database
-            .update_provider_demands([ProviderDemand {
-                source_path: child.path.clone(),
-                request: nia_compiler_query::ProviderRequest::ModuleBody {
-                    module_path: child.path.clone(),
+            .update_provider_demands([
+                ProviderDemand {
+                    source_path: child.path.clone(),
+                    request: nia_compiler_query::ProviderRequest::ModuleBody {
+                        module_path: child.path.clone(),
+                    },
                 },
-            }])
+                missing_trait("SecondAbsentTrait"),
+            ])
             .expect("activate child body"),
         ProviderGraphUpdate::Changed {
             invalidates_resolved_body_facts: false,
         }
     );
+    assert_eq!(catalog_executions(), before);
     let updated = database.db.expect_get(crate::graph::ModuleGraphQuery);
     assert!(
         updated

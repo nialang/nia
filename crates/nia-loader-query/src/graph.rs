@@ -89,6 +89,7 @@ impl QueryKey<LoaderContext> for GraphModuleDeclarationsQuery {
 /// source-version lookup work.
 pub(crate) struct ModuleGraphFactMemo<'a> {
     db: &'a QueryDb<LoaderContext>,
+    provider_lookup_changed_graph: bool,
     sources: BTreeSet<String>,
     module_declarations: std::collections::HashMap<
         nia_source::SourceIdentity,
@@ -107,6 +108,7 @@ impl<'a> ModuleGraphFactMemo<'a> {
     fn new(db: &'a QueryDb<LoaderContext>) -> Self {
         Self {
             db,
+            provider_lookup_changed_graph: false,
             sources: BTreeSet::new(),
             module_declarations: std::collections::HashMap::new(),
             provider_summaries: std::collections::HashMap::new(),
@@ -226,6 +228,12 @@ pub(crate) struct ModuleGraphValue {
     pub(crate) consulted_sources: Arc<BTreeSet<String>>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ModuleGraphRevision {
+    graph: ModuleGraphValue,
+    pub(crate) provider_lookup_changed_graph: bool,
+}
+
 impl QueryKey<LoaderContext> for ModuleGraphQuery {
     type Value = ModuleGraphValue;
 
@@ -239,7 +247,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
         let provider_facts = db.get(ProviderDemandsQuery)?;
         Ok(db
             .get(ModuleGraphRevisionQuery(provider_facts.revision()))?
-            .as_ref()
+            .graph
             .clone())
     }
 
@@ -249,7 +257,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
 }
 
 impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
-    type Value = ModuleGraphValue;
+    type Value = ModuleGraphRevision;
 
     const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
@@ -269,7 +277,7 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
             ProviderFactEvent::Current { demands } => build_module_graph(db, None, &demands),
             ProviderFactEvent::Added { previous, demands } => {
                 let seed = db.get(ModuleGraphRevisionQuery(previous))?;
-                build_module_graph(db, Some(seed), &demands)
+                build_module_graph(db, Some(&seed.graph), &demands)
             }
         }?;
         db.context().provider_facts.compact_transition(self.0);
@@ -306,9 +314,9 @@ impl QueryKey<LoaderContext> for ModuleSourceIdQuery {
 
 fn build_module_graph(
     db: &QueryDb<LoaderContext>,
-    seed: Option<std::sync::Arc<ModuleGraphValue>>,
+    seed: Option<&ModuleGraphValue>,
     new_provider_demands: &std::collections::HashSet<nia_loader_contract::ProviderDemand>,
-) -> QueryResult<ModuleGraphValue> {
+) -> QueryResult<ModuleGraphRevision> {
     db.context()
         .runtime
         .validate_for_target(&db.context().target)
@@ -316,6 +324,12 @@ fn build_module_graph(
     let mut fresh_diagnostics = Vec::new();
     let mut pending_trait_provider_imports = Vec::new();
     let mut fact_memo = ModuleGraphFactMemo::new(db);
+    // A changed graph built solely from lookups already identifies the cause.
+    // Only a mixed batch needs to distinguish lookups from module activation.
+    fact_memo.provider_lookup_changed_graph = !new_provider_demands.is_empty()
+        && new_provider_demands
+            .iter()
+            .all(|demand| demand.request.invalidates_resolved_body_facts());
     // Index demands by the module whose graph node must process them. Module
     // activation/body requests name their target explicitly; provider method
     // requests are owned by their requesting source module. Keeping this
@@ -516,10 +530,13 @@ fn build_module_graph(
             .map(|(path, diagnostic)| ProgramDiagnostic { path, diagnostic })
             .collect(),
     )?;
-    Ok(ModuleGraphValue {
-        semantic: ModuleGraphSnapshot::new(graph),
-        diagnostics: prior_diagnostics.append(&diagnostics)?,
-        consulted_sources: Arc::new(fact_memo.sources),
+    Ok(ModuleGraphRevision {
+        provider_lookup_changed_graph: fact_memo.provider_lookup_changed_graph,
+        graph: ModuleGraphValue {
+            semantic: ModuleGraphSnapshot::new(graph),
+            diagnostics: prior_diagnostics.append(&diagnostics)?,
+            consulted_sources: Arc::new(fact_memo.sources),
+        },
     })
 }
 
@@ -700,6 +717,8 @@ fn process_pending_trait_provider_imports(
 ) -> QueryResult<()> {
     for provider in pending.drain(..) {
         if let Some(provider_node) = graph.get(provider).cloned() {
+            // Processing a provider's imports starts by selecting that module.
+            fact_memo.provider_lookup_changed_graph |= !provider_node.semantic_selected;
             record_traversal_diagnostic(
                 process_trait_provider_imports(db, graph, provider, fact_memo),
                 diagnostics,
@@ -879,6 +898,7 @@ fn apply_provider_demands(
     fact_memo: &mut ModuleGraphFactMemo<'_>,
 ) -> QueryResult<()> {
     let db = fact_memo.db();
+    let mut before_lookup = None;
     for demand in demands {
         if let nia_loader_contract::ProviderRequest::ModuleSemantic { module_path } =
             &demand.request
@@ -902,6 +922,11 @@ fn apply_provider_demands(
         // are searched, and `using` paths never add a third package to the
         // candidate set. A method demand also searches the importing module's
         // scope below, which is where inherent extension methods come from.
+        // The batch is ordered with all module activations first. Compare
+        // only the lookup suffix, until one such batch changes the graph.
+        if !fact_memo.provider_lookup_changed_graph && before_lookup.is_none() {
+            before_lookup = Some(graph.clone());
+        }
         apply_trait_demand(
             db,
             graph,
@@ -954,6 +979,9 @@ fn apply_provider_demands(
                 }
             }
         }
+    }
+    if let Some(before) = before_lookup {
+        fact_memo.provider_lookup_changed_graph |= before != *graph;
     }
     Ok(())
 }

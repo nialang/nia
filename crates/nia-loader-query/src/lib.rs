@@ -539,9 +539,10 @@ impl LoaderDatabase {
             Ok(nia_loader_contract::ProviderGraphUpdate::Stable)
         } else {
             Ok(nia_loader_contract::ProviderGraphUpdate::Changed {
-                invalidates_resolved_body_facts: added
-                    .iter()
-                    .any(|demand| demand.request.invalidates_resolved_body_facts()),
+                invalidates_resolved_body_facts: self
+                    .db
+                    .get(graph::ModuleGraphRevisionQuery(current_revision))?
+                    .provider_lookup_changed_graph,
             })
         }
     }
