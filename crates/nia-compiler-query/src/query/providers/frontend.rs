@@ -171,7 +171,7 @@ fn shared_defs_by_module(db: &QueryDb<CompilerContext>) -> QueryResult<Vec<Arc<D
 
 pub(in crate::query) fn shared_public_surface_defs_by_module(
     db: &QueryDb<CompilerContext>,
-) -> QueryResult<Vec<DefCollection>> {
+) -> QueryResult<Vec<Arc<DefCollection>>> {
     let parse_ok_modules = db.get(ParseOkModuleIdsQuery)?;
     let _graph = db.get(ModuleGraphQuery)?;
     let module_ids = db
@@ -179,11 +179,7 @@ pub(in crate::query) fn shared_public_surface_defs_by_module(
         .resolve_stable_module_sequence(&parse_ok_modules)?;
     module_ids
         .into_iter()
-        .map(|module_id| {
-            Ok(db
-                .get(PublicSurfaceModuleFactsQuery(module_id))?
-                .materialize_for_public_surface(module_id))
-        })
+        .map(|module_id| db.get(PublicSurfaceModuleFactsQuery(module_id)))
         .collect()
 }
 

@@ -233,6 +233,11 @@ impl PublicSurfaces {
         self.per_module.get(&module_id).map(Arc::as_ref)
     }
 
+    /// Updates a module's exports while preserving any previously shared snapshot.
+    pub fn get_mut(&mut self, module_id: ModuleId) -> Option<&mut ModulePublicSurface> {
+        self.per_module.get_mut(&module_id).map(Arc::make_mut)
+    }
+
     /// Iterates all stored module surfaces.
     pub fn iter(&self) -> impl Iterator<Item = (&ModuleId, &ModulePublicSurface)> {
         self.per_module

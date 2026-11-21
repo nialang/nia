@@ -339,12 +339,20 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
         .saturating_mul(2)
         + 4;
 
+    let reexporting_modules: Vec<_> = defs_by_module
+        .iter()
+        .map(Borrow::borrow)
+        .filter(|defs| {
+            defs.module_usings
+                .iter()
+                .any(|using| using.visibility != Visibility::Private)
+        })
+        .collect();
     let mut last_unresolved_count = usize::MAX;
     for _ in 0..max_iterations {
         let mut iteration_changed = false;
         let mut iteration_unresolved = 0usize;
-        for defs in defs_by_module {
-            let defs = defs.borrow();
+        for &defs in &reexporting_modules {
             let local_modules =
                 collect_module_aliases(&defs_by_id, defs, graph, &surfaces, symbols);
             for using in &defs.module_usings {
@@ -376,10 +384,9 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                         )
                     })
                     .count();
-                let mut surface = surfaces
-                    .get(defs.module_id)
-                    .cloned()
-                    .unwrap_or_else(|| ModulePublicSurface::new(defs.module_id));
+                let surface = surfaces
+                    .get_mut(defs.module_id)
+                    .expect("every definition collection has a public surface");
                 for entry in &expansion.entries {
                     if let ResolvedEntryKind::Module(target_module) = entry.kind
                         && !surface.reexported_provider_modules.contains(&target_module)
@@ -438,15 +445,14 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
                                 (item.namespace, entry.name),
                                 entry.scope,
                             );
-                            if entry_already_present(&surface, &entry.name, item.namespace) {
+                            if entry_already_present(surface, &entry.name, item.namespace) {
                                 continue;
                             }
                             iteration_changed = true;
-                            insert_into_surface(&mut surface, &entry.name, item);
+                            insert_into_surface(surface, &entry.name, item);
                         }
                     }
                 }
-                surfaces.insert(surface);
             }
         }
         if !iteration_changed {
@@ -463,8 +469,7 @@ pub fn compute_exported_public_surfaces_with_symbols<D: Borrow<DefCollection>>(
     // Final pass: any still-unresolved pub using is a missing item or cycle.
     // A module whose paths are not processed yet is intentionally deferred to
     // its owner, so diagnostics remain stable across incremental scheduling.
-    for defs in defs_by_module {
-        let defs = defs.borrow();
+    for defs in reexporting_modules {
         let process_used_paths = graph
             .get(defs.module_id)
             .is_some_and(|node| node.process_used_paths);

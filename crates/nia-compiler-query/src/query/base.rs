@@ -40,6 +40,8 @@ pub(super) struct ExecutableProviderDemandsQuery;
 pub(super) struct ExecutableProviderDemands {
     pub(super) demands: Vec<crate::ProviderDemand>,
     pub(super) type_only_modules: Vec<ModuleId>,
+    pub(super) checks: HashMap<ModuleId, Arc<nia_body_check::PrecheckedBodyCheck>>,
+    pub(super) selection: Arc<ExecutableFinalSelection>,
 }
 
 impl QueryKey<CompilerContext> for ExecutableProviderDemandsQuery {
@@ -1183,7 +1185,7 @@ impl QueryKey<CompilerContext> for FullModuleDefsQuery {
 }
 
 impl QueryKey<CompilerContext> for PublicSurfaceModuleFactsQuery {
-    type Value = PublicSurfaceModuleFacts;
+    type Value = DefCollection;
 
     const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
@@ -1199,6 +1201,7 @@ impl QueryKey<CompilerContext> for PublicSurfaceModuleFactsQuery {
         db.context()
             .loader_facts()
             .module_public_surface_facts(self.0)?
+            .map(|facts| facts.materialize_for_public_surface(self.0))
             .ok_or_else(|| db.invalid_input(self, format!("missing loaded module {:?}", self.0)))
     }
 

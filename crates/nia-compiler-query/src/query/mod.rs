@@ -9,8 +9,8 @@ use crate::{
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_const_check::{ConstCheck, ConstModuleLowering};
 use nia_defs::{
-    DefCollection, ModulePublicSurface, ModuleUsingScope, PublicSurfaceLookup,
-    PublicSurfaceModuleFacts, PublicSurfaces, UsingScopeLookup,
+    DefCollection, ModulePublicSurface, ModuleUsingScope, PublicSurfaceLookup, PublicSurfaces,
+    UsingScopeLookup,
 };
 use nia_diagnostic::{Diagnostic, codes};
 use nia_ids::{DefId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
@@ -248,7 +248,7 @@ impl CompilerDatabase {
         if !errors.is_empty() {
             let current = self.source_definitions(module)?;
             let mut defs = shared_public_surface_defs_by_module(&self.db)?;
-            defs.push((*current).clone());
+            defs.push(Arc::clone(&current));
             let graph = self.current_graph()?;
             let symbols = self.db.context().symbols();
             let surfaces = compute_exported_public_surfaces_with_symbols(&defs, &graph, &symbols);
