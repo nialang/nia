@@ -7,13 +7,11 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
     let package = root.join("dep/root.nia");
     let provider = root.join("dep/provider.nia");
     let without_call = "using dep;\nusing dep::provider;\nfun main(counter: &dep::Counter) i32 { _ = counter; 0 }\n";
-    let with_call = without_call.replace("_ = counter; 0", "counter.measure()");
+    let with_call = without_call.replace("_ = counter; 0", "counter.set(30); counter.measure()");
+    let original_provider = "using root::Counter;\nextend Counter { pub fun measure(&self) i32 { 42 } pub fun set(&self, value: i32) () { _ = value; } }\n";
     write(&main, without_call);
     write(&package, "pub module provider;\npub struct Counter {}\n");
-    write(
-        &provider,
-        "using root::Counter;\nextend Counter { pub fun measure(&self) i32 { 42 } }\n",
-    );
+    write(&provider, original_provider);
     let provider_identity = SourcePath::new(provider.to_string_lossy()).identity();
     let mut module_map = ModuleMap::new();
     module_map
@@ -58,10 +56,14 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
     let stable = loader.provider_facts().unwrap().revision();
     let epoch = loader.source_grammar_revision().unwrap();
     loader
-        .set_source(
-            provider.to_string_lossy(),
-            "using root::Counter;\nextend Counter { pub fun measure(&self) i32 { 13 } }\n",
-        )
+        .set_source(main.to_string_lossy(), with_call.replace("30", "31"))
+        .unwrap();
+    assert_eq!(assert_provider_body(true), provider_id);
+    assert_eq!(loader.provider_facts().unwrap().revision(), stable);
+    assert_eq!(loader.source_grammar_revision().unwrap(), epoch);
+    let declaration = original_provider.replace("42", "13");
+    loader
+        .set_source(provider.to_string_lossy(), declaration.clone())
         .unwrap();
     assert_eq!(loader.provider_facts().unwrap().revision(), stable);
     assert_eq!(loader.source_grammar_revision().unwrap(), epoch);
@@ -91,8 +93,6 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
         .set_source(main.to_string_lossy(), with_call)
         .unwrap();
     assert_eq!(assert_provider_body(true), provider_id);
-    let declaration =
-        "using root::Counter;\nextend Counter { pub fun measure(&self) i32 { 13 } }\n";
     loader
         .set_source(
             provider.to_string_lossy(),

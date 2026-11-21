@@ -185,23 +185,62 @@ impl PartialEq for Parse {
 
 impl Eq for Parse {}
 
+#[derive(PartialEq)]
+enum RuntimeIntegerUse<'a> {
+    Return(&'a str),
+    MethodArgument(u32),
+}
+
+fn edited_integer(expr: &GreenNode, edit: Span) -> Option<(usize, u128, Option<&str>)> {
+    if *expr.kind() != SyntaxKind::LiteralExpr {
+        return None;
+    }
+    let token = expr.token(&TokenKind::Integer)?;
+    let span = token.span();
+    if edit.start < span.start || edit.end > span.end {
+        return None;
+    }
+    Some((
+        span.start,
+        nia_literals::eval_int_literal(token.text()).ok()?,
+        nia_literals::numeric_literal_suffix(token.text()),
+    ))
+}
+
 impl Parse {
     /// True when the entire edit stays inside one representable integer
     /// literal returned directly from an ordinary integer function.
     pub fn changes_runtime_integer_return(&self, other: &Self, edit: &TextEdit) -> bool {
-        let Some(end) = edit.span.start.checked_add(edit.replacement.len()) else {
-            return false;
-        };
-        let after = Span::new(edit.span.start, end);
-        self.runtime_integer_return(edit.span)
-            .zip(other.runtime_integer_return(after))
-            .is_some_and(|(old, new)| old == new)
-            && self.tree.source().get(..edit.span.start) == other.tree.source().get(..after.start)
-            && self.tree.source().get(edit.span.end..) == other.tree.source().get(after.end..)
-            && other.tree.source().get(after.start..after.end) == Some(edit.replacement.as_str())
+        self.changed_runtime_integer_use(other, edit)
+            .is_some_and(|site| matches!(site, RuntimeIntegerUse::Return(_)))
     }
 
-    fn runtime_integer_return(&self, edit: Span) -> Option<(usize, &str, Option<&str>)> {
+    /// Whether a single integer value changes without changing its runtime
+    /// type, overload selection, or any compile-time expression.
+    pub fn changes_runtime_integer_value(&self, other: &Self, edit: &TextEdit) -> bool {
+        self.changed_runtime_integer_use(other, edit).is_some()
+    }
+
+    fn changed_runtime_integer_use(
+        &self,
+        other: &Self,
+        edit: &TextEdit,
+    ) -> Option<RuntimeIntegerUse<'_>> {
+        let end = edit.span.start.checked_add(edit.replacement.len())?;
+        let after = Span::new(edit.span.start, end);
+        let old = self.runtime_integer_use(edit.span)?;
+        let new = other.runtime_integer_use(after)?;
+        (old == new
+            && self.tree.source().get(..edit.span.start) == other.tree.source().get(..after.start)
+            && self.tree.source().get(edit.span.end..) == other.tree.source().get(after.end..)
+            && other.tree.source().get(after.start..after.end) == Some(edit.replacement.as_str()))
+        .then_some(old.1)
+    }
+
+    fn runtime_integer_use(
+        &self,
+        edit: Span,
+    ) -> Option<(usize, RuntimeIntegerUse<'_>, Option<&str>)> {
         if !self.errors.is_empty() {
             return None;
         }
@@ -215,6 +254,28 @@ impl Parse {
         }
         if function.token(&TokenKind::Const).is_some() {
             return None;
+        }
+        let block = function.child(&SyntaxKind::Block)?;
+        let mut expr = block.child_nodes().find(|child| covers(child))?;
+        if *expr.kind() == SyntaxKind::ExprStmt {
+            expr = expr.child_nodes().find(|child| covers(child))?;
+            if *expr.kind() == SyntaxKind::TryExpr {
+                expr = expr.child_nodes().next()?;
+            }
+            if *expr.kind() != SyntaxKind::CallExpr || expr.child(&SyntaxKind::FieldExpr).is_none()
+            {
+                return None;
+            }
+            let args = expr.child(&SyntaxKind::ArgList)?;
+            let arg = args.child_nodes().find(|child| covers(child))?;
+            let (start, value, suffix) = edited_integer(arg, edit)?;
+            // Equal unsigned bit lengths give the same signed/unsigned range
+            // checks at all integer widths and pointer sizes.
+            return Some((
+                start,
+                RuntimeIntegerUse::MethodArgument(value.leading_zeros()),
+                suffix,
+            ));
         }
         let ty = function.child(&SyntaxKind::PathType)?.token_span()?;
         let ty = &self.tree.source()[ty.start..ty.end];
@@ -231,26 +292,18 @@ impl Parse {
             "i128" => i128::MAX as u128,
             _ => return None,
         };
-        let block = function.child(&SyntaxKind::Block)?;
-        let mut expr = block.child_nodes().find(|child| covers(child))?;
         if *expr.kind() == SyntaxKind::ReturnStmt {
             expr = expr.child_nodes().find(|child| covers(child))?;
         }
         while *expr.kind() == SyntaxKind::ParenExpr {
             expr = expr.child_nodes().next()?;
         }
-        if *expr.kind() != SyntaxKind::LiteralExpr {
-            return None;
-        }
-        let literal = expr.token(&TokenKind::Integer)?;
-        let span = literal.span();
-        if edit.start < span.start || edit.end > span.end {
-            return None;
-        }
-        let suffix = nia_literals::numeric_literal_suffix(literal.text());
-        (suffix.is_none_or(|suffix| suffix == ty)
-            && nia_literals::eval_int_literal(literal.text()).ok()? <= max)
-            .then_some((span.start, ty, suffix))
+        let (start, value, suffix) = edited_integer(expr, edit)?;
+        (suffix.is_none_or(|suffix| suffix == ty) && value <= max).then_some((
+            start,
+            RuntimeIntegerUse::Return(ty),
+            suffix,
+        ))
     }
 
     /// Compares error-free grammar trees, ignoring trivia and source positions.

@@ -92,7 +92,7 @@ impl LoaderDatabase {
                     }
                     before.same_grammar(after)
                         || (edit.span.len() == edit.replacement.len()
-                            && before.changes_runtime_integer_return(after, edit))
+                            && before.changes_runtime_integer_value(after, edit))
                 };
             let (syntax, preserves_external_facts) = match (
                 &previous,
@@ -133,7 +133,7 @@ impl LoaderDatabase {
                 .as_ref()
                 .is_some_and(|previous| previous.path.as_str() == path.as_str());
             // Parsing and edit validation finish before any old resource is retired.
-            // A runtime return changes the edited module's source version.
+            // A runtime value changes the edited module's source version.
             // Keeping its width also preserves downstream caller coordinates.
             // Unedited modules can keep their checked bodies and provider facts.
             // A persisted plan may have read sources outside the query database.

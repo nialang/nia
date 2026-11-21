@@ -2,7 +2,7 @@
 use crate::{AlternateKind, GreenElement, GreenNode, SyntaxKind, parse};
 
 #[test]
-fn runtime_integer_return_edits_exclude_const_and_type_changes() {
+fn runtime_integer_value_edits_exclude_const_and_type_changes() {
     for (template, old, new, expected) in [
         ("fun f() i32 { VALUE }", "2", "3", true),
         ("fun f() i32 { VALUE }", "12", "123", true),
@@ -11,6 +11,20 @@ fn runtime_integer_return_edits_exclude_const_and_type_changes() {
         ("fun f() u8 { VALUE }", "2", "3u32", false),
         ("const fun f() i32 { VALUE }", "2", "3", false),
         ("fun f() i32 { useValue(VALUE) }", "2", "3", false),
+        ("fun f() () { v.push(a, VALUE).?; }", "30", "31", true),
+        ("fun f() () { v.push(VALUE); }", "64u8", "67u8", true),
+        ("fun f() () { v.push(VALUE); }", "127", "128", false),
+        ("fun f() () { v.push(VALUE); }", "30u8", "30u16", false),
+        ("fun f() () { v.push(VALUE); }", "30", "f()", false),
+        ("fun f() () { v.push([x; VALUE]); }", "30", "31", false),
+        ("fun f() () { const x = v.push(VALUE); }", "30", "31", false),
+        (
+            "fun f() () { const x = F[v.push(VALUE)]; }",
+            "30",
+            "31",
+            false,
+        ),
+        ("const fun f() () { v.push(VALUE); }", "30", "31", false),
         ("fun f() i32 { const x = VALUE; x }", "2", "3", false),
         ("fun f() [i32; VALUE] { [] }", "2", "3", false),
         ("fun f() i32 { VALUE }", "foo()", "3", false),
@@ -28,7 +42,7 @@ fn runtime_integer_return_edits_exclude_const_and_type_changes() {
         let old = parse(&old, None).unwrap();
         let new = parse(&new, None).unwrap();
         assert_eq!(
-            old.changes_runtime_integer_return(&new, &edit),
+            old.changes_runtime_integer_value(&new, &edit),
             expected,
             "{template}"
         );
