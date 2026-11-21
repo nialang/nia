@@ -2,6 +2,34 @@
 use super::*;
 
 #[test]
+fn executable_global_initializer_keeps_omitted_variant_use() {
+    let fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "enum Mode { Fast, Slow }\nstatic mode: Mode = .Fast;\npub fun main() i32 { _ = mode; 0 }",
+    );
+    let module_id = fixture.entry_id();
+    let db = query_db(fixture.freestanding_program());
+    let modules = db.expect_get(ExecutableCheckedModulesQuery);
+    let module = modules
+        .iter()
+        .find(|module| module.id == module_id)
+        .unwrap();
+    assert!(
+        module
+            .semantic_facts
+            .iter_node_omitted_variants()
+            .any(|(_, id)| {
+                module
+                    .defs
+                    .defs
+                    .get(id.def_id)
+                    .is_some_and(|def| def.name == sym("Fast"))
+            }),
+        "the static initializer must retain the declaration of .Fast"
+    );
+}
+
+#[test]
 fn executable_checked_modules_include_reachable_global_initializers() {
     let fixture = LoadedProgramFixture::new(
         "main.nia",

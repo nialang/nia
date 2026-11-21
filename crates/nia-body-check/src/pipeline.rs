@@ -106,6 +106,7 @@ impl<'a> BodyChecker<'a> {
         self.node_associated_const_projections = facts.node_associated_const_projections;
         self.node_array_repeat_counts = facts.node_array_repeat_counts;
         self.node_pattern_values = facts.node_pattern_values;
+        self.node_omitted_variants = facts.node_omitted_variants;
         self.node_resolved_calls = facts.node_resolved_calls;
         self.node_function_references = facts.node_function_references;
     }
