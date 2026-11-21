@@ -54,6 +54,7 @@ pub(super) fn compiler_query_registry() -> QueryResult<nia_query::QueryRegistry>
         ExecutableFunctionBodyQuery,
         ExecutableProviderDemandsQuery,
         ExecutableRootModulesQuery,
+        ExecutableCheckRootsQuery,
         ExecutableStaticInitQuery,
         ExecutableValueRefEdgesQuery,
         ExecutableValueRefItemIndexQuery,

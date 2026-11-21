@@ -433,7 +433,7 @@ impl CompilerDatabase {
     ) -> QueryResult<Option<SourceReceiverMembers>> {
         let (receiver, _) = settlement::settle_provider_worklist(
             self,
-            false,
+            None,
             |database| {
                 editor_receiver_methods(
                     &database.db,
@@ -487,7 +487,7 @@ impl CompilerDatabase {
     ) -> QueryResult<Option<GlobalDefId>> {
         let (result, _) = settlement::settle_provider_worklist(
             self,
-            false,
+            None,
             |database| {
                 editor_receiver_methods(
                     &database.db,
@@ -538,7 +538,7 @@ impl CompilerDatabase {
     ) -> QueryResult<CheckedProgramAnalysis> {
         settlement::settle_provider_worklist(
             self,
-            true,
+            Some(Self::entry_provider_demands),
             Self::entry_check_program_once,
             checked_provider_demands,
             cancel,
@@ -651,9 +651,23 @@ impl CompilerDatabase {
     }
 
     fn executable_provider_demands(&self) -> QueryResult<Vec<crate::ProviderDemand>> {
-        self.db
-            .get(ExecutableProviderDemandsQuery)
-            .map(Arc::unwrap_or_clone)
+        Ok(self.db.get(ExecutableProviderDemandsQuery)?.demands.clone())
+    }
+
+    fn entry_provider_demands(&self) -> QueryResult<Vec<crate::ProviderDemand>> {
+        let discovery = self.db.get(ExecutableProviderDemandsQuery)?;
+        let mut demands = discovery.demands.clone();
+        let graph = self.current_graph()?;
+        demands.extend(discovery.type_only_modules.iter().filter_map(|&id| {
+            let node = graph.get(id)?;
+            (!node.process_used_paths).then(|| crate::ProviderDemand {
+                source_path: node.path.clone(),
+                request: crate::ProviderRequest::ModuleBody {
+                    module_path: node.path.clone(),
+                },
+            })
+        }));
+        Ok(demands)
     }
 
     /// Returns the loader provider-fact revision observed by the query graph.
@@ -708,7 +722,7 @@ impl CompilerDatabase {
     ) -> QueryResult<T> {
         settlement::settle_provider_worklist(
             self,
-            discover_executable_providers,
+            discover_executable_providers.then_some(Self::executable_provider_demands),
             compile,
             provider_demands,
             None,

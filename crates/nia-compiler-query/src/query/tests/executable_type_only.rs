@@ -16,7 +16,7 @@ pub fun main(value: types::Mode) i32 {
 "#,
     );
     let entry_id = fixture.entry_id();
-    let types_id = fixture.add_child(
+    let types_id = fixture.add_shallow_child(
         entry_id,
         "types",
         "types.nia",
@@ -33,7 +33,18 @@ missing_symbol
     );
     let types_description = format!("{types_id:?}");
     let loaded = fixture.freestanding_program();
-    let db = query_db(loaded);
+    let database = CompilerDatabase::new(CompileRequest::new(loaded));
+    let db = &database.db;
+    let activates_types = |demands: Vec<crate::ProviderDemand>| {
+        demands.iter().any(|demand| {
+            matches!(&demand.request, crate::ProviderRequest::ModuleBody { module_path }
+                if module_path == &fixture.graph.get(types_id).unwrap().path)
+        })
+    };
+    assert!(activates_types(database.entry_provider_demands().unwrap()));
+    assert!(!activates_types(
+        database.executable_provider_demands().unwrap()
+    ));
 
     let modules = db.expect_get(ExecutableCheckedModulesQuery);
     let type_module = modules
@@ -62,6 +73,8 @@ missing_symbol
     );
 
     let trace = db.query_trace().expect("query trace");
+    assert_eq!(query_executions(&trace, "executable_check_roots"), 1);
+    assert!(query_cache_hits(&trace, "executable_check_roots") > 0);
     for full_query in ["type_resolution", "type_lowering", "value_resolution"] {
         assert!(
             !trace.queries.iter().any(|query| {

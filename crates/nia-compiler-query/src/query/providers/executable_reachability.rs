@@ -1,6 +1,53 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(in crate::query) struct ExecutableCheckRootsQuery;
+
+#[derive(PartialEq)]
+pub(in crate::query) struct ExecutableCheckRoots {
+    parse_ok: Vec<ModuleId>,
+    versions: HashMap<ModuleId, nia_source::SourceVersion>,
+    entry: ModuleId,
+    functions: Vec<GlobalDefId>,
+    globals: Vec<GlobalDefId>,
+}
+
+impl QueryKey<CompilerContext> for ExecutableCheckRootsQuery {
+    type Value = ExecutableCheckRoots;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "executable_check_roots"
+    }
+
+    fn execute_result(&self, db: &QueryDb<CompilerContext>) -> QueryResult<Self::Value> {
+        let module_ids = db.get(ParseOkModuleIdsQuery)?;
+        let parse_ok = resolve_stable_module_sequence(db, &module_ids)?;
+        let versions = parse_ok
+            .iter()
+            .copied()
+            .map(|id| {
+                db.get(ModuleSourceVersionQuery(id))
+                    .map(|version| (id, *version))
+            })
+            .collect::<QueryResult<_>>()?;
+        let roots = db.get(ExecutableRootModulesQuery)?;
+        let (functions, globals) = executable_root_defs(db, roots.0, &roots.1, &parse_ok)?;
+        Ok(ExecutableCheckRoots {
+            parse_ok,
+            versions,
+            entry: roots.0,
+            functions,
+            globals,
+        })
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
 pub(in crate::query) fn provide_executable_checked_module_facts(
     db: &QueryDb<CompilerContext>,
 ) -> QueryResult<ExecutableCheckedModuleFacts> {
@@ -18,7 +65,7 @@ pub(in crate::query) fn provide_executable_checked_module_facts(
 
 pub(in crate::query) fn provide_executable_provider_demands(
     db: &QueryDb<CompilerContext>,
-) -> QueryResult<Vec<crate::ProviderDemand>> {
+) -> QueryResult<ExecutableProviderDemands> {
     time_provider(
         db.context().timings(),
         "executable_provider_demands",
@@ -38,7 +85,7 @@ enum ExecutableCheckProduct {
 }
 
 enum ExecutableCheckOutput {
-    ProviderDemands(Vec<crate::ProviderDemand>),
+    ProviderDemands(ExecutableProviderDemands),
     Modules(ExecutableCheckedModuleFacts),
 }
 
@@ -522,45 +569,23 @@ fn executable_check_in_session(
             let provider_fact_worklist = db.get(ProviderFactWorklistQuery)?;
             let body_activation_worklist = db.get(BodyActivationWorklistQuery)?;
             let executable_fact_epoch = db.get(ExecutableFactEpochQuery)?;
-            let parse_ok_module_ids = db.get(ParseOkModuleIdsQuery)?;
-            let parse_ok = resolve_stable_module_sequence(db, &parse_ok_module_ids)?;
-            let module_versions = parse_ok
-                .iter()
-                .copied()
-                .map(|module_id| {
-                    db.get(ModuleSourceVersionQuery(module_id))
-                        .map(|version| (module_id, *version))
-                })
-                .collect::<QueryResult<HashMap<_, _>>>()?;
-            let (entry_module, runtime_root_modules) =
-                db.get(ExecutableRootModulesQuery)?.as_ref().clone();
-            let (root_functions, root_globals) =
-                executable_root_defs(db, entry_module, &runtime_root_modules, &parse_ok)?;
+            let roots = db.get(ExecutableCheckRootsQuery)?;
             Ok((
                 provider_fact_worklist,
                 body_activation_worklist,
                 executable_fact_epoch,
-                parse_ok,
-                module_versions,
-                entry_module,
-                root_functions,
-                root_globals,
+                roots,
             ))
         },
     );
-    let (
-        provider_fact_worklist,
-        body_activation_worklist,
-        executable_fact_epoch,
-        parse_ok,
-        module_versions,
-        entry_module,
-        root_functions,
-        root_globals,
-    ) = match initial_inputs {
-        Ok(inputs) => inputs,
-        Err(error) => return (Err(error), session),
-    };
+    let (provider_fact_worklist, body_activation_worklist, executable_fact_epoch, roots) =
+        match initial_inputs {
+            Ok(inputs) => inputs,
+            Err(error) => return (Err(error), session),
+        };
+    let parse_ok = roots.parse_ok.as_slice();
+    let module_versions = &roots.versions;
+    let entry_module = roots.entry;
     if session
         .epoch
         .as_ref()
@@ -571,15 +596,15 @@ fn executable_check_in_session(
     session.enter_epoch(&executable_fact_epoch);
     let precise_provider_growth = session.can_preserve_diagnostic_facts_for_provider_growth(
         &provider_fact_worklist,
-        &module_versions,
+        module_versions,
     );
     let (module_sync, invalidation) = if precise_provider_growth {
         let invalidation =
             session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
-        let module_sync = session.synchronize_module_versions(&module_versions, true);
+        let module_sync = session.synchronize_module_versions(module_versions, true);
         (module_sync, invalidation)
     } else {
-        let module_sync = session.synchronize_module_versions(&module_versions, false);
+        let module_sync = session.synchronize_module_versions(module_versions, false);
         session.apply_body_activation_worklist(&body_activation_worklist);
         let invalidation =
             session.apply_provider_fact_worklist(&provider_fact_worklist, &db.context().type_store);
@@ -779,11 +804,11 @@ fn executable_check_in_session(
                 compute_executable_reachability_incremental_with_timings(
                     &mut reachability_state,
                     nia_executable_reachability::ExecutableReachabilityInput {
-                        parse_ok: &parse_ok,
+                        parse_ok,
                         entry_module,
                         root_defs: ExecutableRootDefs {
-                            functions: &root_functions,
-                            globals: &root_globals,
+                            functions: &roots.functions,
+                            globals: &roots.globals,
                         },
                         program_signatures: nia_executable_reachability::ExecutableSignatureIndex {
                             function: &function_signature,
@@ -814,7 +839,7 @@ fn executable_check_in_session(
                 let reachability = reachability_state.reachability_mut();
                 extend_reachability_from_value_ref_edges(
                     db,
-                    &parse_ok,
+                    parse_ok,
                     reachability,
                     &function_signature,
                     &fact_by_id,
@@ -841,7 +866,7 @@ fn executable_check_in_session(
             || {
                 stale_executable_fact_modules(
                     db,
-                    &parse_ok,
+                    parse_ok,
                     reachability_state.reachability(),
                     &reachability_by_module,
                     &fact_by_id,
@@ -1032,7 +1057,7 @@ fn executable_check_in_session(
                     extend_incremental_executable_reachability_from_checked_module_with_timings(
                         &mut reachability_state,
                         nia_executable_reachability::CheckedModuleReachabilityInput {
-                            parse_ok: &parse_ok,
+                            parse_ok,
                             program_signatures:
                                 nia_executable_reachability::ExecutableSignatureIndex {
                                     function: &function_signature,
@@ -1067,7 +1092,7 @@ fn executable_check_in_session(
             .flat_map(|state| state.provider_demands.iter().cloned())
             .collect::<HashSet<_>>();
         let checked_modules = executable_checked_module_ids(
-            &parse_ok,
+            parse_ok,
             entry_module,
             reachability_state.reachability(),
             &reachability_by_module,
@@ -1086,7 +1111,14 @@ fn executable_check_in_session(
         let output = match extension_lookup.take_failure() {
             Some(error) => Err(error),
             None => Ok(ExecutableCheckOutput::ProviderDemands(
-                demands.into_iter().collect(),
+                ExecutableProviderDemands {
+                    demands: demands.into_iter().collect(),
+                    type_only_modules: executable_type_only_modules(
+                        parse_ok,
+                        reachability_state.reachability(),
+                    )
+                    .collect(),
+                },
             )),
         };
         return (
@@ -1114,7 +1146,7 @@ fn executable_check_in_session(
         || {
             final_executable_checked_modules(
                 db,
-                &parse_ok_modules,
+                parse_ok_modules,
                 entry_module,
                 &reachability,
                 &reachability_by_module,
@@ -1179,12 +1211,7 @@ fn executable_check_in_session(
         None,
     );
     let mut type_only_modules = Vec::new();
-    for module_id in parse_ok_modules
-        .iter()
-        .copied()
-        .filter(|module_id| reachability.type_modules().contains(module_id))
-        .filter(|module_id| !reachability.modules().contains(module_id))
-    {
+    for module_id in executable_type_only_modules(parse_ok_modules, &reachability) {
         let layouts = match executable_program_layouts(module_id) {
             Some(_) => {
                 let layouts = codegen_layout_cache.borrow().get(&module_id).cloned();
@@ -1328,7 +1355,7 @@ fn executable_check_in_session(
         },
     );
     let checked_module_ids = executable_checked_module_ids(
-        &parse_ok_modules,
+        parse_ok_modules,
         entry_module,
         &reachability,
         &reachability_by_module,
@@ -1623,6 +1650,15 @@ fn executable_checked_module_ids(
                     .is_some_and(|items| !items.functions.is_empty() || !items.globals.is_empty())
         })
         .collect()
+}
+
+fn executable_type_only_modules<'a>(
+    parse_ok: &'a [ModuleId],
+    reachability: &'a nia_executable_reachability::ExecutableReachability,
+) -> impl Iterator<Item = ModuleId> + 'a {
+    parse_ok.iter().copied().filter(|id| {
+        reachability.type_modules().contains(id) && !reachability.modules().contains(id)
+    })
 }
 
 /// Body activation for every module final checking produces. Discovery and

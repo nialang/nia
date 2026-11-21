@@ -8,7 +8,7 @@ fn compiler_query_registry_covers_all_declared_query_contracts() {
         .expect("create compiler query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 148);
+    assert_eq!(descriptors.len(), 149);
     assert!(
         !descriptors
             .iter()
@@ -810,7 +810,7 @@ fn canceled_provider_settlement_can_retry_cached_queries() {
     let cancel = nia_query::CancellationToken::default();
     let interrupted = crate::query::settlement::settle_provider_worklist(
         &database,
-        false,
+        None,
         |database| {
             let checked = database.entry_check_program_once()?;
             cancel.cancel();

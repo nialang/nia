@@ -129,9 +129,11 @@ pub(super) fn codegen_preparation_provider_demands(
         .collect()
 }
 
+type DiscoverProviders = fn(&CompilerDatabase) -> QueryResult<Vec<crate::ProviderDemand>>;
+
 pub(super) fn settle_provider_worklist<T>(
     database: &CompilerDatabase,
-    discover_executable_providers: bool,
+    discover: Option<DiscoverProviders>,
     compile: impl Fn(&CompilerDatabase) -> QueryResult<T>,
     provider_demands: impl Fn(&T) -> Vec<crate::ProviderDemand>,
     cancel: Option<&CancellationToken>,
@@ -150,16 +152,12 @@ pub(super) fn settle_provider_worklist<T>(
             checkpoint()?;
             rounds += 1;
             database.refresh_frontend_program_sources_snapshot()?;
-            if discover_executable_providers && !skip_executable_discovery {
+            if let Some(discover) = discover.filter(|_| !skip_executable_discovery) {
                 let timings = database.db.context().timings();
                 let demands = nia_timing::time_query(
                     timings,
                     &format!("executable_provider_demands.round_{rounds}"),
-                    || {
-                        nia_query::with_cancellation(cancel, || {
-                            database.executable_provider_demands()
-                        })
-                    },
+                    || nia_query::with_cancellation(cancel, || discover(database)),
                 )?;
                 checkpoint()?;
                 emit_provider_demand_batch(database.db.context().timings(), rounds, &demands);
@@ -188,7 +186,7 @@ pub(super) fn settle_provider_worklist<T>(
                     invalidates_resolved_body_facts,
                 } => {
                     skip_executable_discovery =
-                        discover_executable_providers && !invalidates_resolved_body_facts;
+                        discover.is_some() && !invalidates_resolved_body_facts;
                 }
                 crate::ProviderGraphUpdate::Stable => {
                     database

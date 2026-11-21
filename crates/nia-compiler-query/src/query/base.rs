@@ -37,8 +37,13 @@ impl QueryKey<CompilerContext> for EntryCheckedProgramQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ExecutableProviderDemandsQuery;
 
+pub(super) struct ExecutableProviderDemands {
+    pub(super) demands: Vec<crate::ProviderDemand>,
+    pub(super) type_only_modules: Vec<ModuleId>,
+}
+
 impl QueryKey<CompilerContext> for ExecutableProviderDemandsQuery {
-    type Value = Vec<crate::ProviderDemand>;
+    type Value = ExecutableProviderDemands;
 
     fn name() -> &'static str {
         "executable_provider_demands"
