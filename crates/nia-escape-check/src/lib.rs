@@ -457,19 +457,22 @@ pub fn check_closure_safety_with_support(
         } else {
             let chunk_size = initial_callables.len().div_ceil(worker_count);
             std::thread::scope(|scope| {
-                let handles = initial_callables.chunks(chunk_size).map(|chunk| {
-                    scope.spawn(move || {
-                        chunk
-                            .iter()
-                            .map(|(key, callable)| {
-                                let (summary, called) =
-                                    Analyzer::new(type_store, summaries_ref, None)
-                                        .summarize_with_dependencies(callable)?;
-                                Ok((*key, summary, called))
-                            })
-                            .collect::<Result<Vec<_>, Ice>>()
+                let handles = initial_callables
+                    .chunks(chunk_size)
+                    .map(|chunk| {
+                        scope.spawn(move || {
+                            chunk
+                                .iter()
+                                .map(|(key, callable)| {
+                                    let (summary, called) =
+                                        Analyzer::new(type_store, summaries_ref, None)
+                                            .summarize_with_dependencies(callable)?;
+                                    Ok((*key, summary, called))
+                                })
+                                .collect::<Result<Vec<_>, Ice>>()
+                        })
                     })
-                });
+                    .collect::<Vec<_>>();
                 let mut results = Vec::new();
                 for handle in handles {
                     let chunk = handle
@@ -488,11 +491,11 @@ pub fn check_closure_safety_with_support(
             initially_changed.push(key);
         }
     }
-    let mut worklist = initially_changed
+    let mut queued = initially_changed
         .iter()
         .flat_map(|key| dependents.get(key).into_iter().flatten().copied())
-        .collect::<Vec<_>>();
-    let mut queued = worklist.iter().copied().collect::<HashSet<_>>();
+        .collect::<HashSet<_>>();
+    let mut worklist = queued.iter().copied().collect::<Vec<_>>();
     while let Some(key) = worklist.pop() {
         queued.remove(&key);
         let Some(callable) = callables.get(&key) else {
