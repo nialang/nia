@@ -1,6 +1,46 @@
 use super::*;
 
 #[test]
+fn changed_selector_skips_validation_of_the_previous_branch() {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct SelectParity;
+
+    impl QueryKey<RedGreenContext> for SelectParity {
+        type Value = usize;
+        const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+        fn name() -> &'static str {
+            "select_parity"
+        }
+
+        fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<usize> {
+            if *db.get(RedGreenInput)? == 7 {
+                Ok(*db.get(StableParity)?)
+            } else {
+                Ok(0)
+            }
+        }
+
+        fn values_equal(&self, old: &usize, new: &usize) -> bool {
+            old == new
+        }
+    }
+
+    let db = QueryDb::new_for_test(RedGreenContext {
+        input: AtomicUsize::new(7),
+        derived_executions: AtomicUsize::new(0),
+        parent_executions: AtomicUsize::new(0),
+    });
+    // The branch gets an older node id than the input that selects it.
+    assert_eq!(*db.expect_get(StableParity), 1);
+    assert_eq!(*db.expect_get(SelectParity), 1);
+    db.context().input.store(8, Ordering::SeqCst);
+    db.validate_input(RedGreenInput, &8).unwrap();
+    assert_eq!(*db.expect_get(SelectParity), 0);
+    assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn consecutive_input_revisions_validate_against_latest_value() {
     let db = QueryDb::new_for_test(RedGreenContext {
         input: AtomicUsize::new(7),

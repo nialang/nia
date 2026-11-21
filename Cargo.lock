@@ -1870,6 +1870,7 @@ dependencies = [
 name = "nia-query"
 version = "0.3.0-dev"
 dependencies = [
+ "indexmap",
  "libc",
  "nia-alloc",
  "nia-hash",

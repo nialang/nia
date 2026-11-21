@@ -463,7 +463,9 @@ pub(super) fn record_dependency_on_current_stack(session_id: QuerySessionId, to:
         if from.session_id == session_id {
             from.dependencies.insert(to);
             if let Some(fingerprints) = &mut from.dependency_fingerprints {
-                fingerprints.entry(to).or_insert(None);
+                fingerprints
+                    .entry(to)
+                    .or_insert(DependencyValue::Unavailable);
             }
         }
     });
@@ -472,7 +474,7 @@ pub(super) fn record_dependency_on_current_stack(session_id: QuerySessionId, to:
 pub(super) fn record_dependency_fingerprint_on_current_stack(
     session_id: QuerySessionId,
     to: QueryNodeId,
-    fingerprint: Option<QueryFingerprint>,
+    fingerprint: DependencyValue,
 ) {
     QUERY_STACK.with(|stack| {
         let mut stack = stack.borrow_mut();

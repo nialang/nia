@@ -125,11 +125,22 @@ fn validation_trace_attributes_dependencies_without_fingerprints() {
         derived_executions: AtomicUsize::new(0),
         parent_executions: AtomicUsize::new(0),
     });
-    assert_eq!(*db.expect_get(StableUnfingerprintedParent), 8);
+    let first = db.expect_get(StableUnfingerprintedParent);
+    assert_eq!(*first, 8);
+    db.invalidate(StableParity).unwrap();
+    assert!(Arc::ptr_eq(
+        &first,
+        &db.expect_get(StableUnfingerprintedParent)
+    ));
 
     db.invalidate(UnfingerprintedValue)
         .expect("invalidate unfingerprinted dependency");
-    assert_eq!(*db.expect_get(StableUnfingerprintedParent), 8);
+    // A separately recomputed value has a new publication even if it is equal.
+    assert_eq!(*db.expect_get(UnfingerprintedValue), 7);
+    assert!(!Arc::ptr_eq(
+        &first,
+        &db.expect_get(StableUnfingerprintedParent)
+    ));
 
     let trace = db.query_trace().expect("query trace");
     assert!(trace.validation_failures.iter().any(|failure| {

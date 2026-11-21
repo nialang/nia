@@ -354,7 +354,7 @@ impl<C> QueryDb<C> {
                     record_dependency_fingerprint_on_current_stack(
                         self.inner.session.inner.id,
                         node_id,
-                        None,
+                        DependencyValue::Unavailable,
                     );
                     return Ok(value);
                 }
@@ -423,7 +423,7 @@ impl<C> QueryDb<C> {
                     record_dependency_fingerprint_on_current_stack(
                         self.inner.session.inner.id,
                         node_id,
-                        None,
+                        DependencyValue::Unavailable,
                     );
                     return Ok(value);
                 }
@@ -593,6 +593,7 @@ impl<C> QueryDb<C> {
                     "published query already has a live payload",
                 ));
             }
+            slot.fingerprint_revision.fetch_add(1, Ordering::Relaxed);
             *state = QueryState::Ready {
                 value: Arc::new(value),
                 fingerprint: None,
@@ -646,7 +647,14 @@ impl<C> QueryDb<C> {
                     record_dependency_fingerprint_on_current_stack(
                         self.inner.session.inner.id,
                         node_id,
-                        *fingerprint,
+                        fingerprint.map_or_else(
+                            || {
+                                DependencyValue::Publication(
+                                    slot.fingerprint_revision.load(Ordering::Relaxed),
+                                )
+                            },
+                            DependencyValue::Fingerprint,
+                        ),
                     );
                     return Ok(Arc::clone(value));
                 }
@@ -768,7 +776,7 @@ impl<C> QueryDb<C> {
                         record_dependency_fingerprint_on_current_stack(
                             self.inner.session.inner.id,
                             node_id,
-                            Some(fingerprint),
+                            DependencyValue::Fingerprint(fingerprint),
                         );
                         return Ok(value);
                     }
@@ -900,13 +908,14 @@ impl<C> QueryDb<C> {
                     let mut state = slot.state.lock();
                     let was_invalidated =
                         matches!(&*state, QueryState::Computing { invalidated: true });
-                    if was_invalidated {
+                    let evidence = if was_invalidated {
                         *state = QueryState::Empty;
                         // The value was computed from an input that changed while this query was
                         // running. Return it to the caller that did the work, but drop the cache
                         // entry and its edges so the next request recomputes against fresh inputs.
                         guard.discard();
                         self.clear_dependencies_from(node_id);
+                        DependencyValue::Unavailable
                     } else {
                         let dependencies = guard.take_dependencies();
                         self.replace_dependencies_from(node_id, dependencies.nodes);
@@ -915,12 +924,22 @@ impl<C> QueryDb<C> {
                             fingerprint,
                             dependency_fingerprints: dependencies.fingerprints.unwrap_or_default(),
                         };
-                    }
+                        fingerprint.map_or_else(
+                            || {
+                                DependencyValue::Publication(
+                                    slot.fingerprint_revision
+                                        .fetch_add(1, Ordering::Relaxed)
+                                        .wrapping_add(1),
+                                )
+                            },
+                            DependencyValue::Fingerprint,
+                        )
+                    };
                     slot.ready.notify_all();
                     record_dependency_fingerprint_on_current_stack(
                         self.inner.session.inner.id,
                         node_id,
-                        (!was_invalidated).then_some(fingerprint).flatten(),
+                        evidence,
                     );
                     return Ok(output);
                 }
@@ -1106,6 +1125,19 @@ impl<C> QueryDb<C> {
     {
         let _activity = self.inner.session.enter_activity();
         self.invalidate_during_retirement(key)
+    }
+
+    /// Invalidates a key and its dependents without constructing a frame report.
+    pub fn invalidate_without_report<K: QueryKey<C>>(&self, key: K) -> QueryResult<()> {
+        let _activity = self.inner.session.enter_activity();
+        self.invalidate_cached_key(&key)
+    }
+
+    fn invalidate_cached_key<K: QueryKey<C>>(&self, key: &K) -> QueryResult<()> {
+        if let Some(slot) = self.cached_slot(key)? {
+            self.invalidate_cached_root(slot.node_id)?;
+        }
+        Ok(())
     }
 
     fn invalidate_during_retirement<K>(&self, key: K) -> QueryResult<QueryInvalidation>
@@ -1375,11 +1407,15 @@ impl<C> QueryDb<C> {
                 "retired predecessor slot registration disappeared",
             ));
         }
-        dependency_fingerprints.remove(&predecessor_node);
-        for (&dependency, &fingerprint) in predecessor_fingerprints {
-            dependency_fingerprints
-                .entry(dependency)
-                .or_insert(fingerprint);
+        if let Some(position) = dependency_fingerprints.get_index_of(&predecessor_node) {
+            let mut following = dependency_fingerprints.split_off(position);
+            following.shift_remove(&predecessor_node);
+            for (&dependency, &fingerprint) in predecessor_fingerprints {
+                dependency_fingerprints
+                    .entry(dependency)
+                    .or_insert(fingerprint);
+            }
+            dependency_fingerprints.extend(following);
         }
         dependencies.inherit_predecessor_dependencies(predecessor_node, current_node);
         dependencies.remove_node(predecessor_node);
@@ -1572,14 +1608,29 @@ impl<C> QueryDb<C> {
         &self,
         expected: &DependencyFingerprints,
     ) -> QueryResult<Option<(QueryNodeId, QueryValidationFailureReason)>> {
-        let mut dependencies = expected.iter().collect::<Vec<_>>();
-        dependencies.sort_unstable_by_key(|(node_id, _)| (node_id.db_id.0, node_id.index));
-        for (node_id, expected_fingerprint) in dependencies {
-            let Some(expected_fingerprint) = expected_fingerprint else {
-                return Ok(Some((
-                    *node_id,
-                    QueryValidationFailureReason::Unfingerprinted,
-                )));
+        for (node_id, expected_fingerprint) in expected {
+            let expected_fingerprint = match expected_fingerprint {
+                DependencyValue::Publication(revision) => {
+                    let registration = self.inner.session.database(node_id.db_id)?;
+                    if registration
+                        .slot(*node_id)
+                        .and_then(|slot| slot.ready_publication())
+                        == Some(*revision)
+                    {
+                        continue;
+                    }
+                    return Ok(Some((
+                        *node_id,
+                        QueryValidationFailureReason::Unfingerprinted,
+                    )));
+                }
+                DependencyValue::Unavailable => {
+                    return Ok(Some((
+                        *node_id,
+                        QueryValidationFailureReason::Unfingerprinted,
+                    )));
+                }
+                DependencyValue::Fingerprint(expected) => expected,
             };
             match self.inner.session.validated_fingerprint(*node_id) {
                 Ok(Some(current)) if current == *expected_fingerprint => {}
@@ -1666,10 +1717,7 @@ impl<C> QueryRetirement<'_, C> {
     where
         K: QueryKey<C>,
     {
-        if let Some(slot) = self.db.cached_slot(&key)? {
-            self.db.invalidate_cached_root(slot.node_id)?;
-        }
-        Ok(())
+        self.db.invalidate_cached_key(&key)
     }
 
     /// Retires a key while the enclosing retirement transaction is quiescent.

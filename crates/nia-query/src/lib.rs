@@ -640,7 +640,17 @@ enum QueryState<V> {
     },
 }
 
-type DependencyFingerprints = FastHashMap<QueryNodeId, Option<QueryFingerprint>>;
+// A provider can choose later reads based on an earlier result. Revalidate its
+// reads in execution order so a changed condition retires the old branch.
+type DependencyFingerprints =
+    indexmap::IndexMap<QueryNodeId, DependencyValue, nia_hash::FastBuildHasher>;
+
+#[derive(Clone, Copy)]
+enum DependencyValue {
+    Unavailable,
+    Publication(u64),
+    Fingerprint(QueryFingerprint),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueryInvalidationDisposition {
@@ -652,6 +662,7 @@ trait ErasedQuerySlot: Send + Sync {
     fn invalidate(&self);
     fn mark_potentially_outdated(&self) -> QueryInvalidationDisposition;
     fn fingerprint(&self) -> Option<QueryFingerprint>;
+    fn ready_publication(&self) -> Option<u64>;
     fn stats(&self) -> QueryFrameStats;
     fn stabilize(&self);
 }
@@ -737,6 +748,18 @@ where
 
     fn stats(&self) -> QueryFrameStats {
         self.stats.snapshot()
+    }
+
+    fn ready_publication(&self) -> Option<u64> {
+        let state = self.state.lock();
+        matches!(
+            &*state,
+            QueryState::Ready {
+                fingerprint: None,
+                ..
+            }
+        )
+        .then(|| self.fingerprint_revision.load(Ordering::Relaxed))
     }
 
     fn stabilize(&self) {

@@ -150,7 +150,7 @@ impl QueryKey<RedGreenContext> for StableUnfingerprintedParent {
     }
 
     fn execute_result(&self, db: &QueryDb<RedGreenContext>) -> QueryResult<Self::Value> {
-        Ok(*db.get(UnfingerprintedValue)? + 1)
+        Ok(*db.get(UnfingerprintedValue)? + *db.get(StableParity)?)
     }
 
     fn fingerprint(&self, value: &Self::Value) -> Option<QueryFingerprint> {
