@@ -573,7 +573,7 @@ impl LoaderDatabase {
     ) -> QueryResult<()> {
         let previous_revision = self.db.context().provider_facts.revision_if_nonempty();
         if let Some(previous_revision) = previous_revision {
-            retirement.invalidate(ProviderDemandsQuery)?;
+            retirement.invalidate_without_report(ProviderDemandsQuery)?;
             retirement.retire(&graph::ModuleGraphRevisionQuery(previous_revision))?;
         }
         // Retire only the in-memory candidate. The persisted snapshot may

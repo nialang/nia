@@ -29,7 +29,7 @@ impl LoaderDatabase {
         let next = revision
             .checked_add(1)
             .ok_or_else(|| QueryError::internal("source grammar revision space exhausted"))?;
-        retirement.invalidate(SourceGrammarRevisionQuery)?;
+        retirement.invalidate_without_report(SourceGrammarRevisionQuery)?;
         *revision = next;
         Ok(())
     }
@@ -143,7 +143,7 @@ impl LoaderDatabase {
                 self.advance_source_grammar_revision(retirement)?;
                 self.reset_provider_facts(retirement)?;
             }
-            retirement.invalidate(source_query)?;
+            retirement.invalidate_without_report(source_query)?;
             queries::retire_source_revision_queries(retirement, previous_version)?;
             self.db
                 .context()

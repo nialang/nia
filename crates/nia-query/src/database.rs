@@ -1113,7 +1113,8 @@ impl<C> QueryDb<C> {
                 invalidated: vec![query_frame::<C, K>(&key)],
             });
         };
-        self.invalidate_cached_root(root)
+        let nodes = self.invalidate_cached_root(root)?;
+        self.invalidation_report(&nodes)
     }
 
     /// Validates a stable input fingerprint and invalidates it only when changed.
@@ -1180,7 +1181,8 @@ impl<C> QueryDb<C> {
         if is_green {
             Ok(QueryInvalidation::default())
         } else {
-            self.invalidate_cached_root(slot.node_id)
+            let nodes = self.invalidate_cached_root(slot.node_id)?;
+            self.invalidation_report(&nodes)
         }
     }
 
@@ -1380,7 +1382,7 @@ impl<C> QueryDb<C> {
         Ok(true)
     }
 
-    fn invalidate_cached_root(&self, root: QueryNodeId) -> QueryResult<QueryInvalidation> {
+    fn invalidate_cached_root(&self, root: QueryNodeId) -> QueryResult<Vec<QueryNodeId>> {
         let invalidated = self.collect_invalidated_nodes(root);
         let mut cleared = Vec::new();
         for (index, node_id) in invalidated.iter().enumerate() {
@@ -1398,18 +1400,11 @@ impl<C> QueryDb<C> {
                 cleared.push(*node_id);
             }
         }
-        let mut frames = invalidated
-            .iter()
-            .map(|node_id| self.inner.session.frame(*node_id))
-            .collect::<QueryResult<Vec<_>>>()?;
         if self.inner.timings.detail() {
-            let root_name = frames[0].name;
-            let mut cleared = cleared.iter().peekable();
+            let root_name = self.inner.session.frame(root)?.name;
             let mut counts = FastHashMap::<&str, u64>::default();
-            for (node, frame) in invalidated.iter().zip(&frames) {
-                if cleared.next_if_eq(&node).is_some() {
-                    *counts.entry(frame.name).or_default() += 1;
-                }
+            for node in &cleared {
+                *counts.entry(self.inner.session.frame(*node)?.name).or_default() += 1;
             }
             for (name, count) in counts {
                 nia_timing::emit_counter(
@@ -1418,6 +1413,18 @@ impl<C> QueryDb<C> {
                 );
             }
         }
+        let mut dependencies = self.inner.session.inner.dependencies.lock();
+        for node_id in cleared {
+            dependencies.remove_dependencies_from(node_id);
+        }
+        Ok(invalidated)
+    }
+
+    fn invalidation_report(&self, nodes: &[QueryNodeId]) -> QueryResult<QueryInvalidation> {
+        let mut frames = nodes
+            .iter()
+            .map(|node| self.inner.session.frame(*node))
+            .collect::<QueryResult<Vec<_>>>()?;
         // Traversal order has no semantic effect. Keep the changed root first and make the
         // diagnostic portion deterministic without formatting keys for every dependency edge.
         frames[1..].sort_by(|left, right| {
@@ -1428,10 +1435,6 @@ impl<C> QueryDb<C> {
             ))
         });
 
-        let mut dependencies = self.inner.session.inner.dependencies.lock();
-        for node_id in cleared {
-            dependencies.remove_dependencies_from(node_id);
-        }
         Ok(QueryInvalidation {
             invalidated: frames,
         })
@@ -1650,6 +1653,17 @@ impl<C> QueryRetirement<'_, C> {
         K: QueryKey<C>,
     {
         self.db.invalidate_during_retirement(key)
+    }
+
+    /// Invalidates a key without collecting a sorted list of affected frames.
+    pub fn invalidate_without_report<K>(&self, key: K) -> QueryResult<()>
+    where
+        K: QueryKey<C>,
+    {
+        if let Some(slot) = self.db.cached_slot(&key)? {
+            self.db.invalidate_cached_root(slot.node_id)?;
+        }
+        Ok(())
     }
 
     /// Retires a key while the enclosing retirement transaction is quiescent.
