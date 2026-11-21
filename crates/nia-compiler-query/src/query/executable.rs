@@ -437,19 +437,12 @@ impl ExecutableFactModuleState {
             static_init_refs,
             provider_demands,
             provider_demands_by_function,
+            mut unowned_provider_demands,
             checked_functions,
             diagnostic_owners,
             diagnostics,
         } = body_check;
-        let owned_provider_demands = provider_demands_by_function
-            .values()
-            .flat_map(|demands| demands.iter().cloned())
-            .collect::<HashSet<_>>();
         let mut provider_demands = Arc::unwrap_or_clone(provider_demands);
-        let mut unowned_provider_demands = provider_demands
-            .difference(&owned_provider_demands)
-            .cloned()
-            .collect::<HashSet<_>>();
         if let Some(const_eval) = const_eval {
             unowned_provider_demands.extend(const_eval.provider_demands.iter().cloned());
             provider_demands.extend(const_eval.provider_demands.iter().cloned());
@@ -508,8 +501,9 @@ impl ExecutableFactModuleState {
             global_type_issues,
             body_check_rejections,
             static_init_refs,
-            provider_demands,
+            provider_demands: _,
             provider_demands_by_function,
+            unowned_provider_demands,
             checked_functions,
             diagnostic_owners,
             diagnostics,
@@ -536,15 +530,8 @@ impl ExecutableFactModuleState {
         self.semantic_facts.extend(facts);
         self.global_type_issues.extend(global_type_issues);
         self.body_check_rejections.extend(&body_check_rejections);
-        let owned_provider_demands = provider_demands_by_function
-            .values()
-            .flat_map(|demands| demands.iter().cloned())
-            .collect::<HashSet<_>>();
-        self.unowned_provider_demands.extend(
-            Arc::unwrap_or_clone(provider_demands)
-                .difference(&owned_provider_demands)
-                .cloned(),
-        );
+        self.unowned_provider_demands
+            .extend(unowned_provider_demands);
         if let Some(const_eval) = const_eval {
             self.unowned_provider_demands
                 .extend(const_eval.provider_demands.iter().cloned());

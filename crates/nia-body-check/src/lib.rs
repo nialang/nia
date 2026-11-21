@@ -240,7 +240,7 @@ struct BodyChecker<'a> {
     extension_methods_by_id: Arc<HashMap<GlobalDefId, ExtensionMethodLookup>>,
     extension_method_lookup_cache: FastHashMap<GlobalDefId, ExtensionMethodLookup>,
     callable_extension_methods_by_name: SymbolMap<CallableExtensionMethods>,
-    provider_demands: Rc<RefCell<HashSet<ProviderDemand>>>,
+    unowned_provider_demands: Rc<RefCell<HashSet<ProviderDemand>>>,
     provider_demands_by_function: Rc<RefCell<HashMap<GlobalDefId, HashSet<ProviderDemand>>>>,
     node_expr_types: FastHashMap<VersionedNodeKey, InternedTyId>,
     // Local validation evidence follows this checker's diagnostics. Probes

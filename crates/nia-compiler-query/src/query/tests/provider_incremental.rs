@@ -172,32 +172,34 @@ fn semantic_provider_growth_preserves_reachability_state() {
 
 #[test]
 fn provider_changes_discard_affected_executable_fact_caches() {
-    let mut fixture = LoadedProgramFixture::new("main.nia", "pub fun main() i32 { 0 }");
+    let mut fixture = LoadedProgramFixture::new(
+        "main.nia",
+        "struct Value {} static START: i32 = (Value {}).missing(); fun main(value: Value) i32 { START + value.missing() }",
+    );
     let entry_id = fixture.entry_id();
     let revision = new_revision();
     let mut program = fixture.program();
     program.provider_fact_revision = revision;
     let database = CompilerDatabase::new(CompileRequest::new(program));
-    let _ = database.executable_provider_demands();
-    let provider_changes = vec![crate::ProviderDemand {
-        source_path: SourcePath::new("main.nia"),
-        request: crate::ProviderRequest::Method {
-            target_type_name: None,
-            target_package: nia_symbol::known::STD,
-            target_module_segments: Vec::new(),
-            method_name: SymbolId::default(),
-        },
-    }];
+    let method = database
+        .executable_provider_demands()
+        .unwrap()
+        .into_iter()
+        .find(|demand| matches!(&demand.request, crate::ProviderRequest::Method { method_name, .. } if *method_name == sym("missing")))
+        .expect("method provider requested by both the function and the initializer");
     {
-        let mut session = database.db.context().executable_fact_session.lock();
+        let session = database.db.context().executable_fact_session.lock();
         let state = session
             .modules
-            .get_mut(&entry_id)
+            .get(&entry_id)
             .expect("entry executable facts");
-        state
-            .unowned_provider_demands
-            .insert(provider_changes[0].clone());
-        state.provider_demands.insert(provider_changes[0].clone());
+        assert!(state.unowned_provider_demands.contains(&method));
+        assert!(
+            state
+                .provider_demands_by_function
+                .values()
+                .any(|demands| demands.contains(&method))
+        );
     }
 
     fixture.add_child(
@@ -210,7 +212,7 @@ fn provider_changes_discard_affected_executable_fact_caches() {
     database.replace_provider_facts(provider_fact_snapshot(
         next_revision(revision),
         revision,
-        provider_changes,
+        [method],
     ));
 
     {

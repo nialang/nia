@@ -64,7 +64,7 @@ pub(in crate::calls::methods) struct UnsatisfiedExtensionMethod {
 impl<'a> BodyChecker<'a> {
     fn contextual_receiver_probe(&self) -> BodyChecker<'a> {
         let mut probe = self.clone_for_type_compare();
-        probe.provider_demands =
+        probe.unowned_provider_demands =
             std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashSet::new()));
         probe.provider_demands_by_function =
             std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::new()));
@@ -502,13 +502,14 @@ struct TraitMethodCandidateSource<'a> {
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn record_provider_demand(&self, demand: crate::ProviderDemand) {
-        self.provider_demands.borrow_mut().insert(demand.clone());
         if let Some(function) = self.current_def_id {
             self.provider_demands_by_function
                 .borrow_mut()
                 .entry(function)
                 .or_default()
                 .insert(demand);
+        } else {
+            self.unowned_provider_demands.borrow_mut().insert(demand);
         }
     }
 
@@ -1736,7 +1737,7 @@ impl<'a> BodyChecker<'a> {
         probe.const_types = self.const_types.clone();
         // Rejected overloads are speculative and must not schedule providers
         // or publish semantic facts through the shared checker state.
-        probe.provider_demands =
+        probe.unowned_provider_demands =
             std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashSet::new()));
         probe.provider_demands_by_function =
             std::rc::Rc::new(std::cell::RefCell::new(std::collections::HashMap::new()));

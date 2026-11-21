@@ -23,6 +23,8 @@ pub struct BodyCheck {
     pub provider_demands: Arc<HashSet<ProviderDemand>>,
     /// Provider demands grouped by owning function.
     pub provider_demands_by_function: HashMap<GlobalDefId, HashSet<ProviderDemand>>,
+    /// Demands observed outside a function, including during initializer checking.
+    pub unowned_provider_demands: HashSet<ProviderDemand>,
     /// Diagnostic ownership aligned with the diagnostics vector.
     pub diagnostic_owners: Vec<Option<GlobalDefId>>,
     /// Diagnostics emitted by body checking.

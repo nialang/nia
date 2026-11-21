@@ -2558,7 +2558,7 @@ impl<'a> BodyChecker<'a> {
             extension_methods_by_id: self.extension_methods_by_id.clone(),
             extension_method_lookup_cache: self.extension_method_lookup_cache.clone(),
             callable_extension_methods_by_name: SymbolMap::default(),
-            provider_demands: self.provider_demands.clone(),
+            unowned_provider_demands: self.unowned_provider_demands.clone(),
             provider_demands_by_function: self.provider_demands_by_function.clone(),
             node_expr_types: FastHashMap::default(),
             checked_integer_literals: HashSet::new(),

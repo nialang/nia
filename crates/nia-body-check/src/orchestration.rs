@@ -79,6 +79,7 @@ fn body_check_internal_error(error: nia_ice::Ice) -> BodyCheck {
         checked_functions: HashSet::new(),
         provider_demands: Arc::new(HashSet::new()),
         provider_demands_by_function: HashMap::new(),
+        unowned_provider_demands: HashSet::new(),
         diagnostic_owners: Vec::new(),
         diagnostics: Arc::new(Vec::new()),
     }
@@ -193,7 +194,7 @@ fn check_bodies<'a>(
         extension_methods_by_id,
         extension_method_lookup_cache: FastHashMap::default(),
         callable_extension_methods_by_name: SymbolMap::default(),
-        provider_demands: Rc::new(RefCell::new(HashSet::new())),
+        unowned_provider_demands: Rc::new(RefCell::new(HashSet::new())),
         provider_demands_by_function: Rc::new(RefCell::new(HashMap::new())),
         node_expr_types: FastHashMap::default(),
         checked_integer_literals: HashSet::new(),
@@ -324,6 +325,13 @@ fn check_bodies<'a>(
         checker
             .diagnostic_owners
             .resize(checker.diagnostics.len(), None);
+        let unowned_provider_demands = checker.unowned_provider_demands.take();
+        let provider_demands_by_function = checker.provider_demands_by_function.take();
+        let provider_demands = unowned_provider_demands
+            .iter()
+            .chain(provider_demands_by_function.values().flatten())
+            .cloned()
+            .collect();
         BodyCheck {
             internal_error: None,
             ir: Arc::new(BodyIr {
@@ -335,8 +343,9 @@ fn check_bodies<'a>(
             body_check_rejections: checker.body_check_rejections,
             static_init_refs: checker.static_init_refs,
             checked_functions: checker.checked_functions,
-            provider_demands: Arc::new(checker.provider_demands.borrow().clone()),
-            provider_demands_by_function: checker.provider_demands_by_function.borrow().clone(),
+            provider_demands: Arc::new(provider_demands),
+            provider_demands_by_function,
+            unowned_provider_demands,
             diagnostic_owners: checker.diagnostic_owners,
             diagnostics: Arc::new(checker.diagnostics),
         }

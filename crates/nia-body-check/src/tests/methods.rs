@@ -906,6 +906,29 @@ fun main(value: Value) i32 {
 }
 
 #[test]
+fn initializer_and_function_can_request_the_same_method_provider() {
+    let checked = pipeline_without_visible_extensions(
+        r#"
+struct Value {}
+static START: i32 = (Value {}).missing();
+fun main(value: Value) i32 { value.missing() }
+"#,
+    );
+    let method = checked
+        .provider_demands
+        .iter()
+        .find(|demand| matches!(demand.request, ProviderRequest::Method { .. }))
+        .expect("method lookup emits a provider demand");
+    assert!(checked.unowned_provider_demands.contains(method));
+    assert!(
+        checked
+            .provider_demands_by_function
+            .values()
+            .any(|demands| demands.contains(method))
+    );
+}
+
+#[test]
 fn error_receivers_do_not_emit_provider_demands() {
     for receiver in ["missing", "&missing", "(missing, 0)", "[missing]"] {
         for method in ["absent", "absent[i32]"] {
