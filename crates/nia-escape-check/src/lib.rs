@@ -906,6 +906,9 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_active_defers(&mut self, env: &Environment) {
+        if self.defer_scopes.iter().all(Vec::is_empty) {
+            return;
+        }
         // A return or error propagation evaluates its payload first, then
         // unwinds every registered lexical defer from inner to outer. Analyze
         // against a clone because the terminated path must not mutate the
@@ -913,15 +916,13 @@ impl<'a> Analyzer<'a> {
         // Remove the scopes during replay so a `return` nested inside a defer
         // cannot recursively schedule the same unwind a second time.
         let active_scopes = std::mem::take(&mut self.defer_scopes);
-        let deferred = active_scopes
+        let mut exit_env = env.clone();
+        for deferred in active_scopes
             .iter()
             .rev()
             .flat_map(|scope| scope.iter().rev())
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut exit_env = env.clone();
-        for deferred in deferred {
-            self.analyze_expr(&deferred, &mut exit_env);
+        {
+            self.analyze_expr(deferred, &mut exit_env);
         }
         self.defer_scopes = active_scopes;
     }
@@ -1859,7 +1860,7 @@ impl<'a> Analyzer<'a> {
         origins: Provenances,
         ty: nia_ids::InternedTyId,
     ) -> Provenances {
-        if self.type_may_carry_borrowed_state(ty, &mut HashSet::new()) {
+        if origins.is_empty() || self.type_may_carry_borrowed_state(ty, &mut HashSet::new()) {
             origins
         } else {
             Provenances::new()
