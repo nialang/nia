@@ -313,7 +313,6 @@ fn executable_value_ref_index_for_owners(
     globals: &HashSet<GlobalDefId>,
     full_active_item_tree: &ActiveModuleItemTree,
     item_index: &HashMap<nia_ids::DefId, ExecutableValueRefItemInput>,
-    lookups: &ExecutableValueRefLookups<'_>,
 ) -> QueryResult<ExecutableValueRefIndex> {
     let mut owners = functions
         .iter()
@@ -329,13 +328,22 @@ fn executable_value_ref_index_for_owners(
         .collect::<Vec<_>>();
     let active_item_tree =
         executable_value_ref_active_item_tree_for_inputs(inputs, full_active_item_tree);
-    executable_value_ref_index_for_active_item_tree_with_lookups(
+    // Batched reachability and executable body checks use the same module
+    // snapshot. Reuse its tracked name resolutions across batches and edits.
+    let defs = full_module_defs_semantic(db, module_id)?;
+    let values = value_resolution_semantic(db, module_id)?;
+    let locals = local_resolution_semantic(db, module_id)?;
+    let mut index = ExecutableValueRefIndex::default();
+    collect_executable_value_ref_index_for_items(
         db,
         module_id,
-        &active_item_tree,
-        full_active_item_tree,
-        lookups,
-    )
+        &active_item_tree.items,
+        &defs,
+        &values,
+        &locals,
+        &mut index,
+    )?;
+    Ok(index)
 }
 
 pub(super) fn walk_executable_value_ref_closure(
@@ -347,7 +355,6 @@ pub(super) fn walk_executable_value_ref_closure(
     mut on_function: impl FnMut(GlobalDefId) -> bool,
     mut on_global: impl FnMut(GlobalDefId) -> bool,
 ) -> QueryResult<bool> {
-    let lookups = ExecutableValueRefLookups::new(db, module_id)?;
     let full_active_item_tree = db.get(FullActiveModuleItemTreeQuery(module_id))?;
     let item_index = db.get(ExecutableValueRefItemIndexQuery(module_id))?;
     let mut changed = false;
@@ -377,7 +384,6 @@ pub(super) fn walk_executable_value_ref_closure(
             &local_globals,
             &full_active_item_tree,
             &item_index,
-            &lookups,
         )?;
         for global in scan_globals {
             let edges = if global.module_id == module_id {

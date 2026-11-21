@@ -201,6 +201,11 @@ fun main() i32 {
     assert!(facts.runtime_functions.contains(&second));
     assert!(facts.runtime_globals.contains(&first_value));
     assert!(facts.runtime_globals.contains(&second_value));
+    let trace = db.query_trace().expect("query trace");
+    for query in ["value_resolution", "local_resolution"] {
+        assert_eq!(query_executions(&trace, query), 1, "{query}");
+        assert!(query_cache_hits(&trace, query) > 0, "{query}");
+    }
 }
 
 #[test]
