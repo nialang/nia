@@ -56,6 +56,7 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
         .unwrap();
     assert_eq!(assert_provider_body(true), provider_id);
     let stable = loader.provider_facts().unwrap().revision();
+    let epoch = loader.source_grammar_revision().unwrap();
     loader
         .set_source(
             provider.to_string_lossy(),
@@ -63,6 +64,7 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
         )
         .unwrap();
     assert_eq!(loader.provider_facts().unwrap().revision(), stable);
+    assert_eq!(loader.source_grammar_revision().unwrap(), epoch);
     assert_eq!(assert_provider_body(true), provider_id);
     let grammar = loader.source_grammar_revision().unwrap();
     let provider_revision = loader.provider_facts().unwrap().revision();

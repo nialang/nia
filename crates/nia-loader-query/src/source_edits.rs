@@ -88,15 +88,13 @@ impl LoaderDatabase {
             let classify =
                 |before: &nia_syntax::Parse, after: &nia_syntax::Parse, edit: &TextEdit| {
                     if before.tree.source() == after.tree.source() {
-                        return (false, false);
+                        return false;
                     }
-                    let same_grammar = before.same_grammar(after);
-                    (
-                        same_grammar,
-                        same_grammar || before.changes_runtime_integer_return(after, edit),
-                    )
+                    before.same_grammar(after)
+                        || (edit.span.len() == edit.replacement.len()
+                            && before.changes_runtime_integer_return(after, edit))
                 };
-            let (syntax, (same_grammar, same_demands)) = match (
+            let (syntax, preserves_external_facts) = match (
                 &previous,
                 edit.as_ref(),
                 retirement.cached(&SyntaxModuleQuery(previous_version))?,
@@ -129,21 +127,20 @@ impl LoaderDatabase {
                         .unwrap_or_default();
                     (parsed, change)
                 }
-                _ => (None, (false, false)),
+                _ => (None, false),
             };
             let same_path = previous
                 .as_ref()
                 .is_some_and(|previous| previous.path.as_str() == path.as_str());
             // Parsing and edit validation finish before any old resource is retired.
-            // A value-only return can reuse provider discovery while still
-            // advancing the epoch used to invalidate executable facts.
+            // A runtime return changes the edited module's source version.
+            // Keeping its width also preserves downstream caller coordinates.
+            // Unedited modules can keep their checked bodies and provider facts.
             // A persisted plan may have read sources outside the query database.
-            if observed && !(same_path && same_grammar) {
-                self.advance_source_grammar_revision(retirement)?;
-            }
-            if (same_path && same_demands) || !observed {
+            if (same_path && preserves_external_facts) || !observed {
                 *self.db.context().provider_demand_plan_candidate.lock() = None;
             } else {
+                self.advance_source_grammar_revision(retirement)?;
                 self.reset_provider_facts(retirement)?;
             }
             retirement.invalidate(source_query)?;

@@ -1452,6 +1452,67 @@ fn driver_invalidates_reused_loader_sources() {
 }
 
 #[test]
+fn incremental_integer_returns_reach_callers_and_linked_code() {
+    let root = temp_dir("incremental-runtime-integer-returns");
+    let main = root.join("main.nia");
+    let child = root.join("child.nia");
+    let driver = test_driver();
+    let request =
+        CheckRequest::new(main.to_string_lossy()).with_runtime(test_freestanding_runtime());
+    let entry = |value| {
+        format!(
+            "module child;\nusing std::process;\nfun direct() i32 {{ {value} }}\npub fun main(init: process::Init) process::ExitCode!() {{\n_ = init;\nprocess::ExitCode(direct() + child::number() + child::location.column() as i32 + child::location.line() as i32)!\n}}\n"
+        )
+    };
+    let dep = |value, spacing| {
+        format!(
+            "using std::source;\npub fun number() i32 {{ return ({value}); }}{spacing}pub const location = source::callerLocation();\n"
+        )
+    };
+    let mut previous = None;
+    for (direct, cross, spacing) in [
+        (1, 2, " "),
+        (3, 2, " "),
+        (3, 4, " "),
+        (3, 14, " "),
+        (3, 4, " "),
+        (3, 4, "    "),
+        (3, 4, " // shifted\n"),
+    ] {
+        let a = entry(direct);
+        let b = dep(cross, spacing);
+        if previous.is_none_or(|(value, _, _)| value != direct) {
+            write(&main, &a);
+            driver.set_source(main.to_string_lossy(), a).unwrap();
+        }
+        if previous.is_none_or(|(_, value, trivia)| value != cross || trivia != spacing) {
+            write(&child, &b);
+            driver
+                .set_source(child.to_string_lossy(), b.clone())
+                .unwrap();
+        }
+        previous = Some((direct, cross, spacing));
+        let artifact = driver
+            .link_executable(crate::LinkExecutableRequest::new(
+                request.clone(),
+                root.join("runner.exe"),
+            ))
+            .result
+            .unwrap();
+        let status = std::process::Command::new(artifact.path).status().unwrap();
+        let coordinate = b
+            .lines()
+            .enumerate()
+            .find_map(|(line, text)| {
+                text.find("source::callerLocation")
+                    .map(|column| (line + column + 2) as i32)
+            })
+            .unwrap();
+        assert_eq!(status.code(), Some(direct + cross + coordinate));
+    }
+}
+
+#[test]
 fn incremental_into_error_witness_body_invalidates_const_result() {
     let initial = r#"
 enum SourceError: i32 {

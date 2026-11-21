@@ -131,7 +131,8 @@ pub trait LoaderFactProvider: Send + Sync {
         Ok(())
     }
     fn node_store(&self) -> NodeStore;
-    /// Advances on source edits that can change semantics, including disk invalidation.
+    /// Advances when a source change can alter another module's executable facts,
+    /// including disk invalidation. The edited module also has its own source version.
     /// Snapshot providers without tracked source transitions can omit this revision.
     fn source_grammar_revision(&self) -> QueryResult<Option<u64>> {
         Ok(None)
