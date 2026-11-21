@@ -63,6 +63,16 @@ fn shared_session_records_and_invalidates_cross_database_dependencies() {
         .expect("retire input scope");
     assert_eq!(*parent_db.expect_get(SessionParent), 10);
     assert_eq!(executions.load(Ordering::SeqCst), 4);
+
+    value.store(6, Ordering::SeqCst);
+    assert_eq!(
+        input_db
+            .retire_selected(|selection| selection.matching::<SessionInput>(|_| true))
+            .expect("retire selected input"),
+        1
+    );
+    assert_eq!(*parent_db.expect_get(SessionParent), 12);
+    assert_eq!(executions.load(Ordering::SeqCst), 5);
 }
 
 #[test]

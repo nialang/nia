@@ -80,6 +80,12 @@ pub struct QueryRetirement<'a, C> {
     db: &'a QueryDb<C>,
 }
 
+/// Typed key selection for a single batch of slot retirements.
+pub struct QueryRetirementSelection<'a, C> {
+    db: &'a QueryDb<C>,
+    nodes: FastHashSet<QueryNodeId>,
+}
+
 /// Shared execution, dependency, and retirement domain for query databases.
 ///
 /// Cloning a session preserves identity. Constructing a new session deliberately

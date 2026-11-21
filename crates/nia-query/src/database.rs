@@ -7,7 +7,64 @@
 
 use super::*;
 
+impl<C> QueryRetirementSelection<'_, C> {
+    /// Selects cached slots of this key type without creating new slots.
+    pub fn matching<K: QueryKey<C>>(&mut self, matches: impl Fn(&K) -> bool) -> QueryResult<()> {
+        let caches = self.db.inner.caches.read();
+        if let Some(cache) = caches.get(&TypeId::of::<K>()) {
+            let cache = cache
+                .as_any()
+                .downcast_ref::<Mutex<FastHashMap<Arc<K>, Arc<QuerySlot<K::Value>>>>>()
+                .ok_or_else(|| QueryError::internal("query cache type mismatch"))?;
+            self.nodes.extend(
+                cache
+                    .lock()
+                    .iter()
+                    .filter_map(|(key, slot)| matches(key).then_some(slot.node_id)),
+            );
+        }
+        Ok(())
+    }
+}
+
 impl<C> QueryDb<C> {
+    /// Retires selected keys and discards values that depended on them.
+    /// Unaffected slots keep both their values and all their dependencies.
+    pub fn retire_selected(
+        &self,
+        select: impl FnOnce(&mut QueryRetirementSelection<'_, C>) -> QueryResult<()>,
+    ) -> QueryResult<usize> {
+        let _retirement = self.inner.session.enter_retirement()?;
+        let mut selection = QueryRetirementSelection {
+            db: self,
+            nodes: FastHashSet::default(),
+        };
+        select(&mut selection)?;
+        let retired = selection.nodes;
+        if retired.is_empty() {
+            return Ok(0);
+        }
+        let affected = self
+            .inner
+            .session
+            .inner
+            .dependencies
+            .lock()
+            .collect_dependents_from(retired.iter().copied().collect());
+        for id in &affected {
+            if !retired.contains(id) {
+                self.inner.session.slot(*id)?.invalidate();
+            }
+        }
+        self.remove_cached_nodes(&retired);
+        let mut dependencies = self.inner.session.inner.dependencies.lock();
+        for id in affected {
+            dependencies.remove_dependencies_from(id);
+        }
+        dependencies.remove_nodes(&retired);
+        Ok(retired.len())
+    }
+
     /// Retires this database's old scope under the session admission barrier.
     /// Retained slots are detached snapshots that callers explicitly revalidate.
     pub fn retire_scope(&self, retain: impl Fn(&QueryFrame) -> bool) -> QueryResult<()> {
@@ -45,17 +102,7 @@ impl<C> QueryDb<C> {
             }
             self.inner.session.slot(*id)?.invalidate();
         }
-        self.inner
-            .caches
-            .read()
-            .values()
-            .for_each(|cache| cache.remove_nodes(&retired));
-        {
-            let mut slots = self.inner.slots.lock();
-            for id in &retired {
-                slots.remove(self.inner.id, *id);
-            }
-        }
+        self.remove_cached_nodes(&retired);
         let mut dependencies = self.inner.session.inner.dependencies.lock();
         for id in affected {
             if id.db_id != self.inner.id {
@@ -67,6 +114,16 @@ impl<C> QueryDb<C> {
             dependencies.remove_dependencies_from(id);
         }
         Ok(())
+    }
+
+    fn remove_cached_nodes(&self, retired: &FastHashSet<QueryNodeId>) {
+        for cache in self.inner.caches.read().values() {
+            cache.remove_nodes(retired);
+        }
+        let mut slots = self.inner.slots.lock();
+        for id in retired {
+            slots.remove(self.inner.id, *id);
+        }
     }
 
     /// Creates an unregistered database with an isolated default session.

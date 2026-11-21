@@ -119,6 +119,25 @@ fn retiring_query_key_removes_its_slot_and_edges_without_reusing_node_id() {
 }
 
 #[test]
+fn selected_retirement_invalidates_only_the_chosen_keys_and_their_dependents() {
+    let db = QueryDb::new_for_test(TestContext {
+        executions: AtomicUsize::new(0),
+    });
+    let changed = db.expect_get(DoubleTwice(7));
+    let independent = db.expect_get(DoubleTwice(8));
+    let count = db
+        .retire_selected(|selection| selection.matching::<Double>(|key| key.0 == 7))
+        .unwrap();
+    assert_eq!(count, 1);
+    assert!(db.cached_slot(&Double(7)).unwrap().is_none());
+    assert!(!Arc::ptr_eq(&changed, &db.expect_get(DoubleTwice(7))));
+    assert!(Arc::ptr_eq(&independent, &db.expect_get(DoubleTwice(8))));
+
+    assert_eq!(db.invalidate(Double(8)).unwrap().invalidated.len(), 2);
+    assert!(!Arc::ptr_eq(&independent, &db.expect_get(DoubleTwice(8))));
+}
+
+#[test]
 fn scope_retirement_removes_typed_cache_entries_and_dependency_edges() {
     let db = QueryDb::new_for_test(TestContext {
         executions: AtomicUsize::new(0),

@@ -173,6 +173,55 @@ fn loaded_module_reorder_invalidates_list_without_field_changes() {
 }
 
 #[test]
+fn removing_a_module_preserves_independent_facts_and_their_input_edges() {
+    let mut fixture = LoadedProgramFixture::new("main.nia", "pub module keep;");
+    let entry = fixture.entry_id();
+    let keep = fixture.add_child(entry, "keep", "keep.nia", "pub struct Before {}");
+    let reduced = fixture.program();
+    let removed = fixture.add_child(entry, "extra", "extra.nia", "pub struct Extra {}");
+    let database = fixture.database();
+    let before = database.db.expect_get(ModuleDefsQuery(keep));
+    let extra = database.db.expect_get(ModuleDefsQuery(removed));
+    database.update(CompileRequest::new(reduced));
+    assert!(Arc::ptr_eq(
+        &before,
+        &database.db.expect_get(ModuleDefsQuery(keep))
+    ));
+    assert!(
+        !database
+            .query_trace()
+            .unwrap()
+            .queries
+            .iter()
+            .any(|query| query.frame.name == "module_defs"
+                && query.frame.description.as_ref() == ModuleDefsQuery(removed).description())
+    );
+    fixture.update_module_source(keep, "pub struct After {}", SourceRevision(1));
+    database.update(CompileRequest::new(fixture.program()));
+    assert!(!Arc::ptr_eq(
+        &extra,
+        &database.db.expect_get(ModuleDefsQuery(removed))
+    ));
+    let after = database.db.expect_get(ModuleDefsQuery(keep));
+    assert!(
+        after
+            .semantic
+            .module_scope
+            .types
+            .get(&sym("Before"))
+            .is_none()
+    );
+    assert!(
+        after
+            .semantic
+            .module_scope
+            .types
+            .get(&sym("After"))
+            .is_some()
+    );
+}
+
+#[test]
 fn additive_module_growth_preserves_global_executable_epoch() {
     let mut fixture = LoadedProgramFixture::new("main.nia", "fun main() i32 { 0 }");
     let entry_id = fixture.entry_id();

@@ -2,6 +2,7 @@
 use super::*;
 
 struct TestLoaderContext {
+    symbols: nia_symbol_table::SymbolTable,
     program: RwLock<LoadedProgram>,
     provider_facts: RwLock<crate::ProviderFactSnapshot>,
 }
@@ -176,6 +177,7 @@ impl TestLoaderFacts {
         Self {
             db: QueryDb::new_registered(
                 TestLoaderContext {
+                    symbols: program.symbols.clone(),
                     program: RwLock::new(program),
                     provider_facts: RwLock::new(provider_facts),
                 },
@@ -353,7 +355,7 @@ impl crate::LoaderFactProvider for TestLoaderFacts {
     }
 
     fn symbols(&self) -> nia_symbol_table::SymbolTable {
-        self.program().symbols.clone()
+        self.db.context().symbols.clone()
     }
 
     fn target(&self) -> TargetConfig {

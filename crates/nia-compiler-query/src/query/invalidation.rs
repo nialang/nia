@@ -35,26 +35,30 @@ impl CompilerDatabase {
             ));
         }
         let new_graph = request.loader_facts.module_graph()?;
-        let (graph_changed, handle_generation_changed) = {
+        let (graph_changed, removed, replace_scope) = {
             let observed = self.db.context().observed_graph.lock();
             let changed = !observed.ptr_eq(&new_graph) && *observed != new_graph;
-            let timings = request.timings;
-            let handles_changed = if changed && timings.detail() {
-                let mut removed = 0;
-                let mut reassigned = 0;
+            let mut removed = HashSet::new();
+            let mut reassigned = 0;
+            let mut shared = false;
+            if changed {
                 for old in observed.modules() {
                     match new_graph.module_id_for_stable_key(&old.stable_key) {
-                        None => removed += 1,
+                        None => {
+                            removed.insert(old.id);
+                        }
                         Some(id) if id != old.id => reassigned += 1,
-                        Some(_) => {}
+                        Some(_) => shared = true,
                     }
                 }
+            }
+            if changed && request.timings.detail() {
                 let added = new_graph
                     .modules()
                     .filter(|new| observed.module_id_for_stable_key(&new.stable_key).is_none())
                     .count();
                 for (change, count) in [
-                    ("removed", removed),
+                    ("removed", removed.len()),
                     ("reassigned", reassigned),
                     ("added", added),
                 ] {
@@ -65,19 +69,9 @@ impl CompilerDatabase {
                         );
                     }
                 }
-                removed != 0 || reassigned != 0
-            } else {
-                changed
-                    && observed.modules().any(|old| {
-                        let Some(key) = observed.stable_key(old.id) else {
-                            return false;
-                        };
-                        new_graph
-                            .module_id_for_stable_key(key)
-                            .is_none_or(|new| new != old.id)
-                    })
-            };
-            (changed, handles_changed)
+            }
+            let replace_scope = reassigned != 0 || (!shared && !removed.is_empty());
+            (changed, removed, replace_scope)
         };
         let new_inputs = CompilerInputs::new(request);
         let (optimization_changed, root_scope_changed, current_package_changed) = {
@@ -97,9 +91,17 @@ impl CompilerDatabase {
             // The executable fact epoch contains session-local module handles;
             // a graph replacement makes that value and every dependent red.
             invalidated.extend(self.db.invalidate(ExecutableFactEpochQuery)?.invalidated);
-            if handle_generation_changed {
+            if replace_scope {
                 self.db
                     .retire_scope(|frame| frame.name == "loaded_modules")?;
+            } else if !removed.is_empty() {
+                let retired = registry::retire_module_queries(&self.db, &removed)?;
+                if self.db.context().timings().enabled() {
+                    nia_timing::emit_counter(
+                        "compiler.module_graph_retired_queries",
+                        retired as u64,
+                    );
+                }
             }
             let loaded_modules = StableModuleSequence::from_source_identities(
                 self.db
@@ -112,7 +114,7 @@ impl CompilerDatabase {
                     .validate_input(LoadedModulesQuery, &loaded_modules)?
                     .invalidated,
             );
-            if handle_generation_changed {
+            if replace_scope || !removed.is_empty() {
                 if self.db.context().timings().enabled() {
                     nia_timing::emit_counter(
                         "compiler.executable_fact_session.module_handle_reset",
