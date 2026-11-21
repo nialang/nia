@@ -28,7 +28,7 @@ impl<C> QueryRetirementSelection<'_, C> {
 }
 
 impl<C> QueryDb<C> {
-    /// Retires selected keys and discards values that depended on them.
+    /// Retires selected keys and revalidates their dependents on the next read.
     /// Unaffected slots keep both their values and all their dependencies.
     pub fn retire_selected(
         &self,
@@ -51,14 +51,18 @@ impl<C> QueryDb<C> {
             .dependencies
             .lock()
             .collect_dependents_from(retired.iter().copied().collect());
-        for id in &affected {
-            if !retired.contains(id) {
-                self.inner.session.slot(*id)?.invalidate();
+        let mut cleared = Vec::new();
+        for id in affected {
+            if !retired.contains(&id)
+                && self.inner.session.slot(id)?.mark_potentially_outdated()
+                    == QueryInvalidationDisposition::Cleared
+            {
+                cleared.push(id);
             }
         }
         self.remove_cached_nodes(&retired);
         let mut dependencies = self.inner.session.inner.dependencies.lock();
-        for id in affected {
+        for id in cleared {
             dependencies.remove_dependencies_from(id);
         }
         dependencies.remove_nodes(&retired);

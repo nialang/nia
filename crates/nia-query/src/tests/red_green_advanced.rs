@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn retiring_an_input_preserves_equal_transitive_results_and_live_traces() {
+    for batch in [false, true] {
+        let db = QueryDb::new_for_test(RedGreenContext {
+            input: AtomicUsize::new(7),
+            derived_executions: AtomicUsize::new(0),
+            parent_executions: AtomicUsize::new(0),
+        });
+        let first = db.expect_get(SemanticParityParent);
+        for value in [9, 10] {
+            db.context().input.store(value, Ordering::SeqCst);
+            if batch {
+                db.retire_selected(|selection| selection.matching::<RedGreenInput>(|_| true))
+                    .unwrap();
+            } else {
+                db.retire(&RedGreenInput).unwrap();
+            }
+            let latest = db.expect_get(SemanticParityParent);
+            assert_eq!(Arc::ptr_eq(&first, &latest), value == 9);
+            assert_eq!(*latest, 10 + value % 2);
+            db.query_trace().expect("only live nodes occur in traces");
+        }
+        assert_eq!(db.context().derived_executions.load(Ordering::SeqCst), 3);
+        assert_eq!(db.context().parent_executions.load(Ordering::SeqCst), 2);
+    }
+}
+
+#[test]
 fn semantic_value_validation_reuses_fingerprint_only_for_equal_outputs() {
     let db = QueryDb::new_for_test(RedGreenContext {
         input: AtomicUsize::new(7),

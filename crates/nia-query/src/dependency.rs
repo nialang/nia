@@ -14,6 +14,15 @@ impl QueryDependencyGraph {
         dependency: QueryNodeId,
         reason: QueryValidationFailureReason,
     ) {
+        // Validation evidence survives retirement. Trace entries only refer to
+        // live edges, whose endpoints can still be resolved to query frames.
+        if !self
+            .forward
+            .get(&query)
+            .is_some_and(|edges| edges.contains(&dependency))
+        {
+            return;
+        }
         *self
             .validation_failures
             .entry((query, dependency, reason))
