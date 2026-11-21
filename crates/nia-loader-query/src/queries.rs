@@ -680,6 +680,29 @@ pub(crate) struct ModuleDeclarationsQuery(SourceId);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct PublicSurfaceModuleFactsQuery(SourceVersion);
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct SourceModuleIdQuery(nia_source::SourceIdentity);
+
+impl QueryKey<LoaderContext> for SourceModuleIdQuery {
+    type Value = Option<nia_imports::ModuleId>;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "source_module_id"
+    }
+
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        Ok(db
+            .get(ModuleGraphQuery)?
+            .semantic
+            .module_id_for_source_identity(&self.0))
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
 impl QueryKey<LoaderContext> for ModuleDeclarationsQuery {
     type Value = ModuleDeclarationsValue;
 
@@ -832,6 +855,7 @@ pub(crate) struct ModuleDeclarationsValue {
 
 impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
     type Value = nia_defs::PublicSurfaceModuleFacts;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
 
     fn name() -> &'static str {
         "loader_public_surface_module_facts"
@@ -874,7 +898,6 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
             return Ok(cached.clone());
         }
 
-        let graph = db.get(ModuleGraphQuery)?;
         let source = db.get(SourceTextQuery(self.0.id))?;
         let source_identity = source
             .file
@@ -882,9 +905,8 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
             .filter(|file| file.version() == self.0)
             .map(|file| file.path.identity())
             .ok_or_else(|| db.invalid_input(self, format!("missing source for {:?}", self.0)))?;
-        let module_id = graph
-            .semantic
-            .module_id_for_source_identity(&source_identity)
+        let module_id = db
+            .get(SourceModuleIdQuery(source_identity))?
             .ok_or_else(|| {
                 db.invalid_input(
                     self,
@@ -931,10 +953,14 @@ impl QueryKey<LoaderContext> for PublicSurfaceModuleFactsQuery {
         }
         Ok(fresh)
     }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ProviderSummaryQuery(SourceId);
+pub(crate) struct ProviderSummaryQuery(pub(crate) SourceId);
 
 struct FrontendCacheInput {
     namespace: FrontendCacheNamespace,
@@ -1296,13 +1322,8 @@ pub(crate) fn module_declarations_query(
 
 pub(crate) fn public_surface_module_facts_query(
     db: &QueryDb<LoaderContext>,
-    path: &SourcePath,
+    source_id: SourceId,
 ) -> QueryResult<PublicSurfaceModuleFactsQuery> {
-    let source_id = db
-        .context()
-        .sources
-        .id_for_path(path)
-        .map_err(|error| QueryError::internal(error.to_string()))?;
     Ok(PublicSurfaceModuleFactsQuery(source_version(
         db, source_id,
     )?))

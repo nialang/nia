@@ -81,6 +81,7 @@ fn loader_query_registry() -> QueryResult<nia_query::QueryRegistry> {
         graph::GraphModuleDeclarationsQuery,
         graph::TraitProviderModulesQuery,
         graph::ModuleSourceIdQuery,
+        queries::SourceModuleIdQuery,
         queries::LoadDiagnosticsQuery,
         queries::ActiveModuleItemTreeFactQuery,
         queries::LoadedModuleQuery,
@@ -746,11 +747,10 @@ impl LoaderFactProvider for LoaderDatabase {
         &self,
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_provider_summary::ProviderSummary>> {
-        let graph = self.db.get(graph::ModuleGraphQuery)?;
-        let Some(module) = graph.semantic.get(module_id) else {
+        let Some(source_id) = self.source_id_for_module(module_id)? else {
             return Ok(None);
         };
-        let key = queries::provider_summary_query(&self.db, &module.path)?;
+        let key = queries::ProviderSummaryQuery(source_id);
         Ok(Some(self.db.get(key)?.as_ref().clone()))
     }
 
@@ -758,11 +758,10 @@ impl LoaderFactProvider for LoaderDatabase {
         &self,
         module_id: nia_imports::ModuleId,
     ) -> QueryResult<Option<nia_defs::PublicSurfaceModuleFacts>> {
-        let graph = self.db.get(graph::ModuleGraphQuery)?;
-        let Some(module) = graph.semantic.get(module_id) else {
+        let Some(source_id) = self.source_id_for_module(module_id)? else {
             return Ok(None);
         };
-        let key = queries::public_surface_module_facts_query(&self.db, &module.path)?;
+        let key = queries::public_surface_module_facts_query(&self.db, source_id)?;
         Ok(Some(self.db.get(key)?.as_ref().clone()))
     }
 

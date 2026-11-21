@@ -114,8 +114,67 @@ fn public_surface_module_facts_query(
     db: &QueryDb<LoaderContext>,
     path: &SourcePath,
 ) -> PublicSurfaceModuleFactsQuery {
-    fallible_public_surface_module_facts_query(db, path)
-        .expect("test source path must be registered")
+    let source_id = db.context().sources.id_for_path(path).unwrap();
+    fallible_public_surface_module_facts_query(db, source_id)
+        .expect("test source revision must be available")
+}
+
+#[test]
+fn graph_growth_preserves_unchanged_public_declarations() {
+    let root = temp_dir("stable_public_declarations");
+    let main = root.join("main.nia");
+    let keep = root.join("keep.nia");
+    write(&keep, "pub fun value() i32 { 1 }");
+    write(&root.join("extra.nia"), "pub struct Extra {}");
+    let original = "module keep; fun main() i32 { keep::value() }";
+    write(&main, original);
+    let loader = LoaderDatabase::new_for_test(test_request(main.to_string_lossy()));
+    let compiler = CompilerDatabase::new(CompileRequest::new(loader.clone())).unwrap();
+    let keep_id = loader
+        .module_graph()
+        .unwrap()
+        .module_id_for_path(&keep.to_string_lossy())
+        .unwrap();
+    let analyze = || {
+        compiler
+            .update(CompileRequest::new(loader.clone()))
+            .unwrap();
+        compiler.analyze_entry_program().unwrap()
+    };
+    let executions = |trace: nia_query::QueryTrace, description: String| {
+        trace
+            .queries
+            .iter()
+            .find(|query| query.frame.description.as_ref() == description)
+            .expect("queried public declarations")
+            .stats
+            .executions
+    };
+    assert!(!has_error_diagnostics(&analyze().diagnostics));
+    let checked = || {
+        executions(
+            compiler.query_trace().unwrap(),
+            format!("public_surface_module_facts({keep_id:?})"),
+        )
+    };
+    let version = loader.module_source_version(keep_id).unwrap().unwrap();
+    let loaded = || {
+        executions(
+            loader.query_trace().unwrap(),
+            format!("loader_public_surface_module_facts({version:?})"),
+        )
+    };
+    let before = (checked(), loaded());
+    loader
+        .set_source(main.to_string_lossy(), format!("module extra; {original}"))
+        .unwrap();
+    assert!(!has_error_diagnostics(&analyze().diagnostics));
+    assert_eq!((checked(), loaded()), before);
+    loader
+        .set_source(keep.to_string_lossy(), "fun value() i32 { 1 }")
+        .unwrap();
+    assert!(has_error_diagnostics(&analyze().diagnostics));
+    assert!(checked() > before.0);
 }
 
 fn provider_summary_query(db: &QueryDb<LoaderContext>, path: &SourcePath) -> ProviderSummaryQuery {

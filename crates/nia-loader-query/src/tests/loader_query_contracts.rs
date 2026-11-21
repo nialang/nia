@@ -95,7 +95,7 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
         .expect("create loader query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 23);
+    assert_eq!(descriptors.len(), 24);
     assert!(
         descriptors
             .windows(2)
@@ -105,6 +105,8 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
         let expected_fingerprint = match descriptor.name {
             "source_status" => nia_query::QueryFingerprintPolicy::StableValue,
             "module_source_id"
+            | "source_module_id"
+            | "loader_public_surface_module_facts"
             | "provider_demands"
             | "module_graph"
             | "module_graph_revision"
