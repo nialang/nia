@@ -1404,7 +1404,9 @@ impl<C> QueryDb<C> {
             let root_name = self.inner.session.frame(root)?.name;
             let mut counts = FastHashMap::<&str, u64>::default();
             for node in &cleared {
-                *counts.entry(self.inner.session.frame(*node)?.name).or_default() += 1;
+                *counts
+                    .entry(self.inner.session.frame(*node)?.name)
+                    .or_default() += 1;
             }
             for (name, count) in counts {
                 nia_timing::emit_counter(
