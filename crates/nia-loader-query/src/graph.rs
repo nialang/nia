@@ -100,7 +100,7 @@ pub(crate) struct ModuleGraphFactMemo<'a> {
     >,
     module_facade_facts:
         std::collections::HashMap<nia_source::SourceIdentity, std::sync::Arc<ModuleFacadeFacts>>,
-    trait_provider_modules: HashMap<Vec<ModuleId>, Vec<TraitProviderModule>>,
+    trait_provider_modules: HashMap<Vec<ModuleId>, Arc<TraitProviderModules>>,
 }
 
 impl<'a> ModuleGraphFactMemo<'a> {
@@ -171,10 +171,16 @@ impl<'a> ModuleGraphFactMemo<'a> {
         roots: Vec<ModuleId>,
     ) -> QueryResult<&[TraitProviderModule]> {
         if !self.trait_provider_modules.contains_key(&roots) {
-            let modules = collect_trait_provider_modules(graph, &roots, self)?;
+            let packages = roots
+                .iter()
+                .filter_map(|&id| graph.get(id))
+                .map(|root| (root.path.clone(), root.module_path.clone()))
+                .collect();
+            let modules = self.db.get(TraitProviderModulesQuery(packages))?;
+            self.sources.extend(modules.sources.iter().cloned());
             self.trait_provider_modules.insert(roots.clone(), modules);
         }
-        Ok(&self.trait_provider_modules[&roots])
+        Ok(&self.trait_provider_modules[&roots].providers)
     }
 }
 
@@ -1124,6 +1130,7 @@ enum TraitProviderMatch<'a> {
     Method { method_name: SymbolId },
 }
 
+#[derive(PartialEq)]
 struct TraitProviderModule {
     path: ModulePath,
     summary: Arc<ProviderSummary>,
@@ -1158,34 +1165,63 @@ impl TraitProviderMatch<'_> {
     }
 }
 
-fn collect_trait_provider_modules(
-    graph: &ModuleGraph,
-    roots: &[ModuleId],
-    fact_memo: &mut ModuleGraphFactMemo<'_>,
-) -> QueryResult<Vec<TraitProviderModule>> {
-    let mut modules = Vec::new();
-    let mut visited = HashSet::new();
-    for root in roots.iter().filter_map(|&id| graph.get(id)) {
-        let mut pending = vec![(root.path.clone(), root.module_path.clone())];
-        while let Some((path, module_path)) = pending.pop() {
-            let summary = fact_memo.provider_summary(&path)?;
-            let declarations = fact_memo.module_declarations(&path)?;
-            for declaration in declarations.declarations.iter().rev() {
-                let child_path =
-                    graph.declared_child_source_path_for(&path, &module_path, declaration.name);
-                if visited.insert(child_path.identity()) {
-                    pending.push((child_path, module_path.child(declaration.name)));
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct TraitProviderModulesQuery(Vec<(SourcePath, ModulePath)>);
+
+#[derive(PartialEq)]
+pub(crate) struct TraitProviderModules {
+    providers: Vec<TraitProviderModule>,
+    sources: BTreeSet<String>,
+}
+
+impl QueryKey<LoaderContext> for TraitProviderModulesQuery {
+    type Value = TraitProviderModules;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "trait_provider_modules"
+    }
+
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        let mut modules = Vec::new();
+        let mut sources = BTreeSet::new();
+        let mut visited = HashSet::new();
+        for root in &self.0 {
+            let mut pending = vec![root.clone()];
+            while let Some((path, module_path)) = pending.pop() {
+                sources.insert(path.as_str().to_owned());
+                let summary = db.get(provider_summary_query(db, &path)?)?;
+                let declarations = db.get(GraphModuleDeclarationsQuery(
+                    module_declarations_query(db, &path)?,
+                ))?;
+                for declaration in declarations.declarations.iter().rev() {
+                    let child_path = nia_imports::declared_child_source_path_for_with_symbols(
+                        &db.context().symbols,
+                        &path,
+                        &module_path,
+                        declaration.name,
+                    );
+                    if visited.insert(child_path.identity()) {
+                        pending.push((child_path, module_path.child(declaration.name)));
+                    }
+                }
+                if summary.has_providers() {
+                    modules.push(TraitProviderModule {
+                        path: module_path,
+                        summary,
+                    });
                 }
             }
-            if summary.has_providers() {
-                modules.push(TraitProviderModule {
-                    path: module_path,
-                    summary,
-                });
-            }
         }
+        Ok(TraitProviderModules {
+            providers: modules,
+            sources,
+        })
     }
-    Ok(modules)
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
 }
 
 fn should_eager_add_declarations(context: &LoaderContext, node: &ModuleNode) -> bool {

@@ -87,9 +87,24 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
         .set_source(main.to_string_lossy(), without_call)
         .unwrap();
     assert_eq!(assert_provider_body(false), provider_id);
+    let catalog_executions =
+        || query_executions(&loader.query_trace().unwrap(), "trait_provider_modules");
+    let before = catalog_executions();
+    assert!(before > 0);
     loader
         .set_source(main.to_string_lossy(), with_call)
         .unwrap();
+    assert_eq!(assert_provider_body(true), provider_id);
+    assert_eq!(catalog_executions(), before);
+    let declaration = "using root::Counter;\nextend Counter { pub fun measure(&self) i32 { 13 } }\n";
+    loader
+        .set_source(provider.to_string_lossy(), declaration.replace("measure", "other"))
+        .unwrap();
+    compiler.update(CompileRequest::new(loader.clone())).unwrap();
+    let broken = compiler.analyze_entry_program().unwrap();
+    assert!(has_error_diagnostics(&broken.diagnostics));
+    assert!(catalog_executions() > before);
+    loader.set_source(provider.to_string_lossy(), declaration).unwrap();
     assert_eq!(assert_provider_body(true), provider_id);
 }
 
