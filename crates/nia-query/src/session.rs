@@ -52,7 +52,7 @@ impl QuerySession {
                 dependencies: Mutex::new(QueryDependencyGraph::default()),
                 activity: Mutex::new(QueryActivityState::default()),
                 activity_ready: Condvar::new(),
-                internal_failure: Mutex::new(None),
+                internal_failure: OnceLock::new(),
             }),
         })
     }
@@ -372,8 +372,7 @@ impl QuerySession {
 
 impl QuerySessionInner {
     pub(super) fn ensure_healthy(&self) -> nia_ice::IceResult<()> {
-        let failure = self.internal_failure.lock();
-        match failure.as_ref() {
+        match self.internal_failure.get() {
             Some(ice) => Err(ice
                 .clone()
                 .with_context("query session is no longer reusable")),
@@ -382,10 +381,7 @@ impl QuerySessionInner {
     }
 
     pub(super) fn record_failure(&self, ice: nia_ice::Ice) -> nia_ice::Ice {
-        let mut failure = self.internal_failure.lock();
-        if failure.is_none() {
-            *failure = Some(ice.clone());
-        }
+        self.internal_failure.get_or_init(|| ice.clone());
         ice
     }
 }

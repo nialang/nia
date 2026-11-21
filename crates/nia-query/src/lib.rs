@@ -103,7 +103,7 @@ struct QuerySessionInner {
     dependencies: Mutex<QueryDependencyGraph>,
     activity: Mutex<QueryActivityState>,
     activity_ready: Condvar,
-    internal_failure: Mutex<Option<nia_ice::Ice>>,
+    internal_failure: OnceLock<nia_ice::Ice>,
 }
 
 #[derive(Default)]
