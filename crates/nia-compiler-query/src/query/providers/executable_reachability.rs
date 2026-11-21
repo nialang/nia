@@ -427,6 +427,18 @@ struct ExecutableBodyCheckCacheHandles {
     body_function_signatures: Arc<Mutex<HashMap<GlobalDefId, ProgramFunctionSignature>>>,
 }
 
+impl From<&ExecutableCheckCaches> for ExecutableBodyCheckCacheHandles {
+    fn from(caches: &ExecutableCheckCaches) -> Self {
+        Self {
+            array_lengths: Arc::clone(&caches.array_lengths),
+            fact_layouts: Arc::clone(&caches.fact_layouts),
+            global_initializers: Arc::clone(&caches.global_initializers),
+            const_modules: Arc::clone(&caches.const_modules),
+            body_function_signatures: Arc::clone(&caches.body_function_signatures),
+        }
+    }
+}
+
 struct ExecutableBodyCheckResult {
     module_id: ModuleId,
     module_globals: HashSet<GlobalDefId>,
@@ -974,13 +986,7 @@ fn executable_check_in_session(
                 module_has_reachable_body_items: has_reachable_body_items,
             });
         }
-        let cache_handles = ExecutableBodyCheckCacheHandles {
-            array_lengths: Arc::clone(&caches.array_lengths),
-            fact_layouts: Arc::clone(&caches.fact_layouts),
-            global_initializers: Arc::clone(&caches.global_initializers),
-            const_modules: Arc::clone(&caches.const_modules),
-            body_function_signatures: Arc::clone(&caches.body_function_signatures),
-        };
+        let cache_handles = ExecutableBodyCheckCacheHandles::from(&caches);
         let checked_modules = match db.map_tasks(prepared_checks.into_iter().map(|request| {
             let cache_handles = cache_handles.clone();
             move |db| executable_body_check_for_prepared_module(&db, request, cache_handles)
@@ -1975,7 +1981,10 @@ fn final_executable_checked_modules(
     fact_by_id: &HashMap<ModuleId, ExecutableFactModuleState>,
     caches: &ExecutableCheckCaches,
 ) -> QueryResult<HashMap<ModuleId, CheckedModule>> {
-    let reachable_body_modules = executable_reachable_body_modules(db, reachability_by_module)?;
+    let reachable_body_modules = Arc::new(executable_reachable_body_modules(
+        db,
+        reachability_by_module,
+    )?);
     let empty_module_items = nia_executable_reachability::ExecutableModuleReachability::default();
     let modules_with_executable_items =
         executable_checked_module_ids(parse_ok, entry_module, reachability, reachability_by_module)
@@ -1989,55 +1998,72 @@ fn final_executable_checked_modules(
                 )
             })
             .collect::<Vec<_>>();
-    let program_layout_cache = RefCell::new(HashMap::<ModuleId, ModuleLayouts>::new());
-    let program_layout_failure = RefCell::new(None);
-    for (module_id, _) in modules_with_executable_items.iter().copied() {
-        let layouts = executable_layouts_for_reachable_items(
-            db,
-            module_id,
-            reachability.functions(),
-            reachability.globals(),
-            ExecutableLayoutCaches {
-                array_lengths: Some(&caches.array_lengths),
-                fact_layouts: None,
-            },
-            None,
-            Some(ReachableBodyModules::new(&reachable_body_modules)),
-        )?;
-        program_layout_cache.borrow_mut().insert(module_id, layouts);
-    }
-    let executable_program_layouts = executable_program_layouts(
-        db,
-        (&program_layout_cache, &program_layout_failure),
-        reachability.functions(),
-        reachability.globals(),
-        Some(&caches.array_lengths),
-        None,
-        Some(ReachableBodyModules::new(&reachable_body_modules)),
-    );
-    let modules = modules_with_executable_items
-        .into_iter()
-        .map(
-            |(module_id, module_items)| -> QueryResult<(ModuleId, CheckedModule)> {
+    let reachability = Arc::new(reachability.clone());
+    let caches = ExecutableBodyCheckCacheHandles::from(caches);
+    let program_layouts =
+        db.map_tasks(modules_with_executable_items.iter().map(|&(module_id, _)| {
+            let reachability = Arc::clone(&reachability);
+            let reachable_body_modules = Arc::clone(&reachable_body_modules);
+            let array_lengths = Arc::clone(&caches.array_lengths);
+            move |db| {
+                let layouts = executable_layouts_for_reachable_items(
+                    &db,
+                    module_id,
+                    reachability.functions(),
+                    reachability.globals(),
+                    ExecutableLayoutCaches {
+                        array_lengths: Some(&array_lengths),
+                        fact_layouts: None,
+                    },
+                    None,
+                    Some(ReachableBodyModules::new(&reachable_body_modules)),
+                )?;
+                Ok((module_id, layouts))
+            }
+        }))?;
+    let program_layouts = Arc::new(program_layouts.into_iter().collect::<HashMap<_, _>>());
+    let modules = db.map_tasks(modules_with_executable_items.into_iter().map(
+        |(module_id, module_items)| {
+            let module_items = module_items.clone();
+            let layouts = program_layouts[&module_id].clone();
+            let program_layouts = Arc::clone(&program_layouts);
+            let reachability = Arc::clone(&reachability);
+            let reachable_body_modules = Arc::clone(&reachable_body_modules);
+            let caches = caches.clone();
+            let state = fact_by_id.get(&module_id);
+            let demands = state
+                .map(|state| state.provider_demands.clone())
+                .unwrap_or_default();
+            let prechecked = state.map(|state| nia_body_check::PrecheckedBodyCheck {
+                ir: state.body_ir.clone(),
+                facts: state.semantic_facts.clone(),
+                global_type_issues: state.global_type_issues.clone(),
+                body_check_rejections: state.body_check_rejections.clone(),
+                checked_functions: state.checked_functions.clone(),
+                diagnostic_owners: state.diagnostic_owners.clone(),
+                diagnostics: state.diagnostics.clone(),
+            });
+            move |db| {
+                let db = &db;
+                let fallback_layouts = RefCell::new(HashMap::new());
+                let layout_failure = RefCell::new(None);
+                let fallback = executable_program_layouts(
+                    db,
+                    (&fallback_layouts, &layout_failure),
+                    reachability.functions(),
+                    reachability.globals(),
+                    Some(&caches.array_lengths),
+                    None,
+                    Some(ReachableBodyModules::new(&reachable_body_modules)),
+                );
+                let lookup = |id| {
+                    program_layouts
+                        .get(&id)
+                        .map(|layouts| Arc::clone(&layouts.semantic))
+                        .or_else(|| fallback(id))
+                };
                 let module_functions = &module_items.functions;
                 let module_globals = &module_items.globals;
-                let layouts =
-                    if let Some(layouts) = program_layout_cache.borrow().get(&module_id).cloned() {
-                        layouts
-                    } else {
-                        executable_layouts_for_reachable_items(
-                            db,
-                            module_id,
-                            reachability.functions(),
-                            reachability.globals(),
-                            ExecutableLayoutCaches {
-                                array_lengths: Some(&caches.array_lengths),
-                                fact_layouts: None,
-                            },
-                            None,
-                            Some(ReachableBodyModules::new(&reachable_body_modules)),
-                        )?
-                    };
                 let filter = nia_body_check::BodyCheckFilter::ReachableItems {
                     functions: module_functions,
                     globals: module_globals,
@@ -2045,16 +2071,6 @@ fn final_executable_checked_modules(
                     already_checked_globals: None,
                 };
                 let resolution_inputs = db.get(FullBodyResolutionInputsQuery(module_id))?;
-                let state = fact_by_id.get(&module_id);
-                let prechecked = state.map(|state| nia_body_check::PrecheckedBodyCheck {
-                    ir: state.body_ir.clone(),
-                    facts: state.semantic_facts.clone(),
-                    global_type_issues: state.global_type_issues.clone(),
-                    body_check_rejections: state.body_check_rejections.clone(),
-                    checked_functions: state.checked_functions.clone(),
-                    diagnostic_owners: state.diagnostic_owners.clone(),
-                    diagnostics: state.diagnostics.clone(),
-                });
                 let body_check =
                     time_module_provider(db, "executable_body_check", module_id, || {
                         body_check_with_filter_and_layouts_with_inputs(
@@ -2063,7 +2079,7 @@ fn final_executable_checked_modules(
                                 module_id,
                                 filter,
                                 layouts: Some(Arc::clone(&layouts.semantic)),
-                                program_layouts_override: Some(&executable_program_layouts),
+                                program_layouts_override: Some(&lookup),
                                 fact_mode: ExecutableFactMode::executable(
                                     ReachableBodyModules::new(&reachable_body_modules),
                                 ),
@@ -2085,19 +2101,18 @@ fn final_executable_checked_modules(
                 let mut module = executable_checked_module_with_body_and_flow_check(
                     db, module_id, body_check, flow_check, layouts,
                 )?;
-                if let Some(state) = state {
-                    Arc::make_mut(&mut module.provider_demands)
-                        .extend(state.provider_demands.iter().cloned());
+                if !demands.is_empty() {
+                    Arc::make_mut(&mut module.provider_demands).extend(demands);
+                }
+                drop(fallback);
+                if let Some(error) = layout_failure.into_inner() {
+                    return Err(error);
                 }
                 Ok((module_id, module))
-            },
-        )
-        .collect::<QueryResult<HashMap<_, _>>>();
-    drop(executable_program_layouts);
-    match program_layout_failure.into_inner() {
-        Some(error) => Err(error),
-        None => modules,
-    }
+            }
+        },
+    ))?;
+    Ok(modules.into_iter().collect())
 }
 
 fn extend_reachability_from_value_ref_edges(
