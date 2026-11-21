@@ -85,49 +85,65 @@ impl LoaderDatabase {
                 id: source_id,
                 revision,
             };
-            let (syntax, same_grammar) = match (
+            let classify =
+                |before: &nia_syntax::Parse, after: &nia_syntax::Parse, edit: &TextEdit| {
+                    if before.tree.source() == after.tree.source() {
+                        return (false, false);
+                    }
+                    let same_grammar = before.same_grammar(after);
+                    (
+                        same_grammar,
+                        same_grammar || before.changes_runtime_integer_return(after, edit),
+                    )
+                };
+            let (syntax, (same_grammar, same_demands)) = match (
                 &previous,
-                edit,
+                edit.as_ref(),
                 retirement.cached(&SyntaxModuleQuery(previous_version))?,
             ) {
                 (Some(previous), Some(edit), Some(syntax))
                     if syntax.tree.source() == previous.text.as_ref() =>
                 {
-                    let edited = syntax.reparse(&edit, Some(version)).map_err(|error| {
+                    let edited = syntax.reparse(edit, Some(version)).map_err(|error| {
                         self.db.invalid_input(
                             &SyntaxModuleQuery(version),
                             format!("failed to reparse grammar tree: {error:?}"),
                         )
                     })?;
-                    let same_grammar = syntax.tree.source() != edited.tree.source()
-                        && syntax.same_grammar(&edited);
-                    (Some(edited), same_grammar)
+                    let change = classify(&syntax, &edited, edit);
+                    (Some(edited), change)
                 }
-                (Some(previous), _, None)
+                (Some(previous), Some(edit), None)
                     if observed && previous.text.as_ref() != text.as_ref() =>
                 {
                     // A relocated source can have an overlay under an
                     // additional identity with no cached parse of its own.
                     let parsed = nia_syntax::parse(&text, Some(version)).ok();
-                    let same_grammar = parsed.as_ref().is_some_and(|after| {
-                        nia_syntax::parse(&previous.text, Some(previous_version))
-                            .is_ok_and(|before| before.same_grammar(after))
-                    });
-                    (parsed, same_grammar)
+                    let change = parsed
+                        .as_ref()
+                        .and_then(|after| {
+                            nia_syntax::parse(&previous.text, Some(previous_version))
+                                .ok()
+                                .map(|before| classify(&before, after, edit))
+                        })
+                        .unwrap_or_default();
+                    (parsed, change)
                 }
-                _ => (None, false),
+                _ => (None, (false, false)),
             };
-            let same_grammar = previous
+            let same_path = previous
                 .as_ref()
-                .is_some_and(|previous| previous.path.as_str() == path.as_str() && same_grammar);
+                .is_some_and(|previous| previous.path.as_str() == path.as_str());
             // Parsing and edit validation finish before any old resource is retired.
-            // Provider demands name sources and symbols, so changes to trivia
-            // and positions alone do not invalidate settled demands.
+            // A value-only return can reuse provider discovery while still
+            // advancing the epoch used to invalidate executable facts.
             // A persisted plan may have read sources outside the query database.
-            if same_grammar || !observed {
+            if observed && !(same_path && same_grammar) {
+                self.advance_source_grammar_revision(retirement)?;
+            }
+            if (same_path && same_demands) || !observed {
                 *self.db.context().provider_demand_plan_candidate.lock() = None;
             } else {
-                self.advance_source_grammar_revision(retirement)?;
                 self.reset_provider_facts(retirement)?;
             }
             retirement.invalidate(source_query)?;

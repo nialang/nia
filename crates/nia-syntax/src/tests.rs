@@ -2,6 +2,40 @@
 use crate::{AlternateKind, GreenElement, GreenNode, SyntaxKind, parse};
 
 #[test]
+fn runtime_integer_return_edits_exclude_const_and_type_changes() {
+    for (template, old, new, expected) in [
+        ("fun f() i32 { VALUE }", "2", "3", true),
+        ("fun f() i32 { VALUE }", "12", "123", true),
+        ("fun f() u8 { return (VALUE); }", "0xffu8", "1u8", true),
+        ("fun f() u8 { VALUE }", "254", "256", false),
+        ("fun f() u8 { VALUE }", "2", "3u32", false),
+        ("const fun f() i32 { VALUE }", "2", "3", false),
+        ("fun f() i32 { useValue(VALUE) }", "2", "3", false),
+        ("fun f() i32 { const x = VALUE; x }", "2", "3", false),
+        ("fun f() [i32; VALUE] { [] }", "2", "3", false),
+        ("fun f() i32 { VALUE }", "foo()", "3", false),
+        ("fun f() i32 { VALUE }", "2", ")", false),
+        (
+            "using root::VALUE; fun f() i32 { 2 }",
+            "api",
+            "api::Point",
+            false,
+        ),
+    ] {
+        let old = template.replace("VALUE", old);
+        let new = template.replace("VALUE", new);
+        let edit = crate::TextEdit::between(&old, &new);
+        let old = parse(&old, None).unwrap();
+        let new = parse(&new, None).unwrap();
+        assert_eq!(
+            old.changes_runtime_integer_return(&new, &edit),
+            expected,
+            "{template}"
+        );
+    }
+}
+
+#[test]
 fn delimiter_limit_matches_across_edits_and_recovers() {
     let expression = |levels| format!("{}1{}", "(".repeat(levels), ")".repeat(levels));
     let source = |expr| format!("fun sample() i32 {{ {expr} }}");

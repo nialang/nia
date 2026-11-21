@@ -186,6 +186,73 @@ impl PartialEq for Parse {
 impl Eq for Parse {}
 
 impl Parse {
+    /// True when the entire edit stays inside one representable integer
+    /// literal returned directly from an ordinary integer function.
+    pub fn changes_runtime_integer_return(&self, other: &Self, edit: &TextEdit) -> bool {
+        let Some(end) = edit.span.start.checked_add(edit.replacement.len()) else {
+            return false;
+        };
+        let after = Span::new(edit.span.start, end);
+        self.runtime_integer_return(edit.span)
+            .zip(other.runtime_integer_return(after))
+            .is_some_and(|(old, new)| old == new)
+            && self.tree.source().get(..edit.span.start) == other.tree.source().get(..after.start)
+            && self.tree.source().get(edit.span.end..) == other.tree.source().get(after.end..)
+            && other.tree.source().get(after.start..after.end) == Some(edit.replacement.as_str())
+    }
+
+    fn runtime_integer_return(&self, edit: Span) -> Option<(usize, &str, Option<&str>)> {
+        if !self.errors.is_empty() {
+            return None;
+        }
+        let covers = |node: &GreenNode| {
+            let span = node.span();
+            span.start <= edit.start && edit.end <= span.end
+        };
+        let mut function = self.tree.green_root();
+        while *function.kind() != SyntaxKind::FunctionDecl {
+            function = function.child_nodes().find(|child| covers(child))?;
+        }
+        if function.token(&TokenKind::Const).is_some() {
+            return None;
+        }
+        let ty = function.child(&SyntaxKind::PathType)?.token_span()?;
+        let ty = &self.tree.source()[ty.start..ty.end];
+        let max = match ty {
+            "u8" => u8::MAX.into(),
+            "u16" => u16::MAX.into(),
+            "u32" | "usize" => u32::MAX.into(),
+            "u64" => u64::MAX.into(),
+            "u128" => u128::MAX,
+            "i8" => i8::MAX as u128,
+            "i16" => i16::MAX as u128,
+            "i32" | "isize" => i32::MAX as u128,
+            "i64" => i64::MAX as u128,
+            "i128" => i128::MAX as u128,
+            _ => return None,
+        };
+        let block = function.child(&SyntaxKind::Block)?;
+        let mut expr = block.child_nodes().find(|child| covers(child))?;
+        if *expr.kind() == SyntaxKind::ReturnStmt {
+            expr = expr.child_nodes().find(|child| covers(child))?;
+        }
+        while *expr.kind() == SyntaxKind::ParenExpr {
+            expr = expr.child_nodes().next()?;
+        }
+        if *expr.kind() != SyntaxKind::LiteralExpr {
+            return None;
+        }
+        let literal = expr.token(&TokenKind::Integer)?;
+        let span = literal.span();
+        if edit.start < span.start || edit.end > span.end {
+            return None;
+        }
+        let suffix = nia_literals::numeric_literal_suffix(literal.text());
+        (suffix.is_none_or(|suffix| suffix == ty)
+            && nia_literals::eval_int_literal(literal.text()).ok()? <= max)
+            .then_some((span.start, ty, suffix))
+    }
+
     /// Compares error-free grammar trees, ignoring trivia and source positions.
     pub fn same_grammar(&self, other: &Self) -> bool {
         self.errors.is_empty()

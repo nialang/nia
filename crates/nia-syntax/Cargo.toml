@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 nia-diagnostic.workspace = true
 nia-lexer.workspace = true
+nia-literals.workspace = true
 nia-node-id.workspace = true
 nia-source.workspace = true
 nia-span.workspace = true

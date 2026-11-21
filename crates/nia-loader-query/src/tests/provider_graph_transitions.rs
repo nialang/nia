@@ -55,6 +55,15 @@ fn compiler_withdraws_provider_body_when_the_last_call_is_removed() {
         .set_source(main.to_string_lossy(), with_call.clone())
         .unwrap();
     assert_eq!(assert_provider_body(true), provider_id);
+    let stable = loader.provider_facts().unwrap().revision();
+    loader
+        .set_source(
+            provider.to_string_lossy(),
+            "using root::Counter;\nextend Counter { pub fun measure(&self) i32 { 13 } }\n",
+        )
+        .unwrap();
+    assert_eq!(loader.provider_facts().unwrap().revision(), stable);
+    assert_eq!(assert_provider_body(true), provider_id);
     let grammar = loader.source_grammar_revision().unwrap();
     let provider_revision = loader.provider_facts().unwrap().revision();
     let graph = loader.module_graph().unwrap();
@@ -159,6 +168,10 @@ fn source_edit_preserves_demands_for_comments_and_retires_them_for_grammar_chang
 
     database
         .set_source(main.as_str(), "// comment\nfun main() i32 { 2 }\n")
+        .unwrap();
+    assert_eq!(facts.revision_if_nonempty(), Some(revision));
+    database
+        .set_source(main.as_str(), "// comment\nfun main() i32 { f() }\n")
         .unwrap();
     assert!(facts.revision_if_nonempty().is_none());
 }

@@ -1977,6 +1977,7 @@ version = "0.3.0-dev"
 dependencies = [
  "nia-diagnostic",
  "nia-lexer",
+ "nia-literals",
  "nia-node-id",
  "nia-source",
  "nia-span",
