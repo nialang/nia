@@ -19,7 +19,7 @@ fn query_trace_records_source_frontend_dependencies() {
         dependency.from.name == "module_declarations" && dependency.to.name == "parsed_module"
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
-        dependency.from.name == "module_graph_revision"
+        dependency.from.name == "initial_module_graph"
             && dependency.to.name == "graph_module_declarations"
     }));
     assert!(trace.dependencies.iter().any(|dependency| {
@@ -47,6 +47,32 @@ fn trivia_edit_reuses_the_module_graph() {
         .expect("add module declaration");
     let changed = database.module_graph().expect("graph with new module");
     assert_eq!(changed.modules().count(), before.modules().count() + 1);
+}
+
+#[test]
+fn provider_reset_reuses_initial_graph_after_a_body_edit() {
+    let root = temp_dir("provider_reset_reuses_initial_graph_after_a_body_edit");
+    let main = root.join("main.nia");
+    let path = main.to_string_lossy();
+    write(&main, "fun main() i32 { 1 + 2 }");
+    let database = LoaderDatabase::new_for_test(test_request(path.as_ref()));
+    let initial = database.module_graph().unwrap();
+    database
+        .update_provider_demands([ProviderDemand {
+            source_path: SourcePath::new(path.as_ref()),
+            request: nia_compiler_query::ProviderRequest::Method {
+                target_type_name: None,
+                target_package: nia_symbol::known::STD,
+                target_module_segments: Vec::new(),
+                method_name: sym("missing"),
+            },
+        }])
+        .unwrap();
+    database
+        .set_source(path.as_ref(), "fun main() i32 { 1 - 2 }")
+        .unwrap();
+    assert!(database.provider_facts().unwrap().demands().is_empty());
+    assert!(initial.ptr_eq(&database.module_graph().unwrap()));
 }
 
 #[test]

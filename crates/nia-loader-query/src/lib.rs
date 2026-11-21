@@ -78,6 +78,7 @@ fn loader_query_registry() -> QueryResult<nia_query::QueryRegistry> {
     register!(
         graph::ModuleGraphQuery,
         graph::ModuleGraphRevisionQuery,
+        graph::InitialModuleGraphQuery,
         graph::GraphModuleDeclarationsQuery,
         graph::TraitProviderModulesQuery,
         graph::ModuleSourceIdQuery,
@@ -525,7 +526,7 @@ impl LoaderDatabase {
         if added.is_empty() {
             return Ok(nia_loader_contract::ProviderGraphUpdate::Stable);
         }
-        self.db.invalidate(ProviderDemandsQuery)?;
+        self.db.invalidate_without_report(ProviderDemandsQuery)?;
         let graph = self.db.get(graph::ModuleGraphQuery)?;
         let current_revision = self.db.get(ProviderDemandsQuery)?.revision();
         if !self.db.seal_and_retire_predecessor(

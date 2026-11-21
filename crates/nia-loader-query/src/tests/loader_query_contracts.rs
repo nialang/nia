@@ -95,7 +95,7 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
         .expect("create loader query registry")
         .descriptors();
 
-    assert_eq!(descriptors.len(), 24);
+    assert_eq!(descriptors.len(), 25);
     assert!(
         descriptors
             .windows(2)
@@ -110,6 +110,7 @@ fn loader_query_registry_covers_all_declared_query_contracts() {
             | "provider_demands"
             | "module_graph"
             | "module_graph_revision"
+            | "initial_module_graph"
             | "graph_module_declarations"
             | "trait_provider_modules"
             | "module_declarations"

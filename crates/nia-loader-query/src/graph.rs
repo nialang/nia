@@ -274,6 +274,9 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
             db.invalid_input(self, format!("unknown provider fact revision {:?}", self.0))
         })?;
         let graph = match event {
+            ProviderFactEvent::Current { demands } if demands.is_empty() => db
+                .get(InitialModuleGraphQuery)
+                .map(|graph| (*graph).clone()),
             ProviderFactEvent::Current { demands } => build_module_graph(db, None, &demands),
             ProviderFactEvent::Added { previous, demands } => {
                 let seed = db.get(ModuleGraphRevisionQuery(previous))?;
@@ -282,6 +285,26 @@ impl QueryKey<LoaderContext> for ModuleGraphRevisionQuery {
         }?;
         db.context().provider_facts.compact_transition(self.0);
         Ok(graph)
+    }
+
+    fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
+        old == new
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct InitialModuleGraphQuery;
+
+impl QueryKey<LoaderContext> for InitialModuleGraphQuery {
+    type Value = ModuleGraphRevision;
+    const FINGERPRINT: QueryFingerprintPolicy = QueryFingerprintPolicy::SemanticValue;
+
+    fn name() -> &'static str {
+        "initial_module_graph"
+    }
+
+    fn execute_result(&self, db: &QueryDb<LoaderContext>) -> QueryResult<Self::Value> {
+        build_module_graph(db, None, &HashSet::new())
     }
 
     fn values_equal(&self, old: &Self::Value, new: &Self::Value) -> bool {
