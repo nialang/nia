@@ -152,11 +152,15 @@ beside it instead; the release workflow does so for every platform archive,
 and `platform.yml` on Darwin.
 
 The performance workflow runs `edit_latency_by_open_documents` in release
-mode. It opens the same caller by itself and with two dependency files, waits
-for their first diagnostics, then edits the caller five times in each session.
-It saves the time from each edit to its versioned diagnostics, followed by the
-definition and semantic token request times, in `lsp-edit-latency.json` in the
-performance artifact. To print the samples locally, run
+mode. The `related` workload edits the same caller five times with one or
+three related files open and records diagnostic, definition and semantic token
+latencies. The `collections` workload opens one or three independent copies of
+`examples/collections.nia`. After their initial diagnostics arrive, it edits
+the same entry through three rounds of integer, identifier and operator
+changes, introduces an unresolved name, then restores it. Each sample times
+the versioned diagnostics and checks that the expected error appears at the
+edited name and clears on recovery. Both workloads write their samples to
+`lsp-edit-latency.json` in the performance artifact. To print them locally, run
 `cargo test --release -p nia-lsp --test incremental edit_latency_by_open_documents -- --ignored --exact --nocapture`.
 
 `tools/lsp-latency.py` is a local benchmark, not part of any gate; it needs

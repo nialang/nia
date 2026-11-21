@@ -566,37 +566,37 @@ fn unresolved_name() {
     audit_dependencies("unresolved_name");
 }
 
-#[test]
-#[ignore = "release-profile latency measurement for the performance workflow"]
-fn edit_latency_by_open_documents() {
-    let _resources = acquire_test_resources(TestWorkload::Compiler);
+fn latency_session(root: &Path, documents: &[(PathBuf, String)]) -> Client {
+    let mut client = Client::start(root, TIMEOUT);
+    client.call(
+        "initialize",
+        json!({ "processId": null, "rootUri": uri(root), "capabilities": {} }),
+    );
+    client.notify("initialized", json!({}));
+    for (path, text) in documents {
+        client.notify(
+            "textDocument/didOpen",
+            json!({ "textDocument": {
+                "uri": uri(path), "languageId": "nia", "version": 1, "text": text,
+            }}),
+        );
+    }
+    for (path, _) in documents {
+        let (_, diagnostics) = client.wait_diagnostics(&uri(path), Some(1), None, |_| true);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+    client
+}
+
+fn related_file_latency(samples: &mut Vec<Value>) {
     let workload = dependency_workload("provider_demand");
     let source = uri(&workload.source);
     let original = &workload.original[0].1;
     let edited = replace_once(original, "util::amount() + 1", "util::amount() + 2");
     let document = json!({ "uri": source });
     let definition = definition_params(&document, original, "util::amount() +", "amount");
-    let mut samples = Vec::new();
-
     for open_documents in [1, workload.original.len()] {
-        let mut client = Client::start(&workload.root, TIMEOUT);
-        client.call(
-            "initialize",
-            json!({ "processId": null, "rootUri": uri(&workload.root), "capabilities": {} }),
-        );
-        client.notify("initialized", json!({}));
-        for (path, text) in &workload.original[..open_documents] {
-            client.notify(
-                "textDocument/didOpen",
-                json!({ "textDocument": {
-                    "uri": uri(path), "languageId": "nia", "version": 1, "text": text,
-                }}),
-            );
-        }
-        for (path, _) in &workload.original[..open_documents] {
-            let (_, diagnostics) = client.wait_diagnostics(&uri(path), Some(1), None, |_| true);
-            assert!(diagnostics.is_empty(), "{diagnostics:?}");
-        }
+        let mut client = latency_session(&workload.root, &workload.original[..open_documents]);
         for version in 2..=6 {
             let text = if version % 2 == 0 { &edited } else { original };
             let started = Instant::now();
@@ -622,6 +622,7 @@ fn edit_latency_by_open_documents() {
             let tokens_ms = request.elapsed().as_secs_f64() * 1000.0;
             assert!(!array(&tokens["data"]).is_empty());
             samples.push(json!({
+                "workload": "related",
                 "open_documents": open_documents,
                 "version": version,
                 "diagnostics_ms": (received - started).as_secs_f64() * 1000.0,
@@ -631,6 +632,109 @@ fn edit_latency_by_open_documents() {
         }
         client.shutdown(Duration::from_secs(30));
     }
+}
+
+fn collections_latency(samples: &mut Vec<Value>) {
+    let workspace = Workspace::new("nia-lsp-collections-latency");
+    let original = include_str!("../../../examples/collections.nia").replace("\r\n", "\n");
+    let mut documents = Vec::new();
+    for directory in ["c", "a", "b"] {
+        let path = workspace.root.join(directory).join("collections.nia");
+        create_dir_all(path.parent().unwrap());
+        write_text(&path, &original);
+        documents.push((path, original.clone()));
+    }
+    let source = uri(&documents[0].0);
+    for open_documents in [1, 3] {
+        let mut client = latency_session(&workspace.root, &documents[..open_documents]);
+        let mut text = original.clone();
+        let mut version = 1;
+        for round in 1..=3 {
+            let forward = round % 2 == 1;
+            let (number, next_number) = if forward { ("30", "31") } else { ("31", "30") };
+            let (operand, next_operand) = if forward {
+                ("value", "listTotal")
+            } else {
+                ("listTotal", "value")
+            };
+            let (operator, next_operator) = if forward { ("*", "+") } else { ("+", "*") };
+            for (edit, prefix, old, new) in [
+                ("integer", "values.push(allocator, ", number, next_number),
+                (
+                    "identifier",
+                    "ordered.insert(allocator, value, ",
+                    operand,
+                    next_operand,
+                ),
+                ("operator", "keys = keys ", operator, next_operator),
+                (
+                    "error",
+                    "ordered.insert(allocator, value, ",
+                    next_operand,
+                    "missingValue",
+                ),
+                (
+                    "recovery",
+                    "ordered.insert(allocator, value, ",
+                    "missingValue",
+                    next_operand,
+                ),
+            ] {
+                let start = text.find(&format!("{prefix}{old}")).unwrap() + prefix.len();
+                let end = start + old.len();
+                let range = json!({
+                    "start": support::position_at(&text, start),
+                    "end": support::position_at(&text, end),
+                });
+                text.replace_range(start..end, new);
+                version += 1;
+                let change = json!({
+                    "textDocument": { "uri": source, "version": version },
+                    "contentChanges": [{ "range": range, "text": new }],
+                });
+                let started = Instant::now();
+                client.notify("textDocument/didChange", change);
+                let (received, diagnostics) =
+                    client.wait_diagnostics(&source, Some(version), Some(started), |_| true);
+                if edit == "error" {
+                    let errors: Vec<_> =
+                        diagnostics.iter().filter(|d| d["severity"] == 1).collect();
+                    assert_eq!(errors.len(), 1, "{diagnostics:?}");
+                    assert!(
+                        string(&errors[0]["message"]).contains("unknown value `missingValue`"),
+                        "{diagnostics:?}"
+                    );
+                    assert_eq!(
+                        errors[0]["range"],
+                        json!({
+                            "start": range["start"],
+                            "end": support::position_at(&text, start + new.len()),
+                        })
+                    );
+                } else {
+                    assert!(diagnostics.is_empty(), "{edit}: {diagnostics:?}");
+                }
+                samples.push(json!({
+                    "workload": "collections",
+                    "open_documents": open_documents,
+                    "round": round,
+                    "edit": edit,
+                    "version": version,
+                    "diagnostics_ms": (received - started).as_secs_f64() * 1000.0,
+                }));
+            }
+        }
+        client.shutdown(Duration::from_secs(30));
+    }
+}
+
+#[test]
+#[ignore = "release-profile latency measurement for the performance workflow"]
+fn edit_latency_by_open_documents() {
+    let _resources = acquire_test_resources(TestWorkload::Compiler);
+    let mut samples = Vec::new();
+    related_file_latency(&mut samples);
+    collections_latency(&mut samples);
     let report = serde_json::to_string_pretty(&samples).unwrap();
     println!("{report}");
     if let Some(path) = std::env::var_os("NIA_LSP_LATENCY_OUTPUT") {
