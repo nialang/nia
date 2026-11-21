@@ -799,7 +799,7 @@ struct QueryDependencyGraph {
 trait ErasedQueryDatabase: Send + Sync {
     fn frame(&self, node_id: QueryNodeId) -> Option<QueryFrame>;
     fn slot(&self, node_id: QueryNodeId) -> Option<Arc<dyn ErasedQuerySlot>>;
-    fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()>;
+    fn validated_fingerprint(&self, node_id: QueryNodeId) -> QueryResult<Option<QueryFingerprint>>;
 }
 
 struct QueryDbRegistration<C> {

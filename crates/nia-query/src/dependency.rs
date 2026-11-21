@@ -267,13 +267,14 @@ where
             .map(|record| Arc::clone(&record.slot))
     }
 
-    fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()> {
+    fn validated_fingerprint(&self, node_id: QueryNodeId) -> QueryResult<Option<QueryFingerprint>> {
+        cancellation_checkpoint()?;
         let Some(inner) = self.inner.upgrade() else {
             return Err(QueryError::internal(
                 "query dependency database was dropped",
             ));
         };
-        let ensure = {
+        let (slot, ensure) = {
             let slots = inner.slots.lock();
             let Some(record) = slots.get(inner.id, node_id) else {
                 return Err(QueryError::InvalidInput {
@@ -281,9 +282,15 @@ where
                     message: "query dependency was retired".into(),
                 });
             };
-            Arc::clone(&record.ensure)
+            (Arc::clone(&record.slot), Arc::clone(&record.ensure))
         };
-        ensure(&QueryDb { inner })
+        // Only Ready slots expose a fingerprint. A stale dependency must
+        // validate its own inputs before the caller can compare it.
+        if let Some(current) = slot.fingerprint() {
+            return Ok(Some(current));
+        }
+        ensure(&QueryDb { inner })?;
+        Ok(slot.fingerprint())
     }
 }
 

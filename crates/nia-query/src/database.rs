@@ -1515,11 +1515,9 @@ impl<C> QueryDb<C> {
                     QueryValidationFailureReason::Unfingerprinted,
                 )));
             };
-            // Ensuring first recursively validates the dependency. Its stored fingerprint is only
-            // meaningful after that state transition, so comparing the pre-ensure value would let
-            // an outdated dependency incorrectly keep this query green.
-            match self.ensure_node(*node_id) {
-                Ok(()) => {}
+            match self.inner.session.validated_fingerprint(*node_id) {
+                Ok(Some(current)) if current == *expected_fingerprint => {}
+                Ok(_) => return Ok(Some((*node_id, QueryValidationFailureReason::Changed))),
                 // An old branch can name an input that left the graph. Only
                 // executing the parent tells us whether it still needs it.
                 Err(QueryError::InvalidInput { .. }) => {
@@ -1527,19 +1525,8 @@ impl<C> QueryDb<C> {
                 }
                 Err(error) => return Err(error),
             }
-            if self.node_fingerprint(*node_id)? != Some(*expected_fingerprint) {
-                return Ok(Some((*node_id, QueryValidationFailureReason::Changed)));
-            }
         }
         Ok(None)
-    }
-
-    fn ensure_node(&self, node_id: QueryNodeId) -> QueryResult<()> {
-        self.inner.session.ensure(node_id)
-    }
-
-    fn node_fingerprint(&self, node_id: QueryNodeId) -> QueryResult<Option<QueryFingerprint>> {
-        Ok(self.inner.session.slot(node_id)?.fingerprint())
     }
 
     fn clear_dependencies_from(&self, from: QueryNodeId) {

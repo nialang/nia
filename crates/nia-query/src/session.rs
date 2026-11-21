@@ -340,8 +340,11 @@ impl QuerySession {
             .ok_or_else(|| QueryError::internal("query node id references no registered slot"))
     }
 
-    pub(super) fn ensure(&self, node_id: QueryNodeId) -> QueryResult<()> {
-        self.database(node_id.db_id)?.ensure(node_id)
+    pub(super) fn validated_fingerprint(
+        &self,
+        node_id: QueryNodeId,
+    ) -> QueryResult<Option<QueryFingerprint>> {
+        self.database(node_id.db_id)?.validated_fingerprint(node_id)
     }
 
     pub(super) fn begin_query_wait(
