@@ -34,8 +34,17 @@ exports.run = async () => {
         assert.ok(folds.some((fold) => fold.start === 1 && fold.end >= 2));
         const tokens = await vscode.commands.executeCommand("vscode.provideDocumentSemanticTokens", main);
         assert.ok(tokens.data.length > 0);
-        const expectedIcon = fs.readFileSync(process.env.NIA_SMOKE_ICON);
-        assert.deepEqual(fs.readFileSync(path.join(extension.extensionPath, "assets", "nia-icon.svg")), expectedIcon);
+        const { languages, iconThemes } = extension.packageJSON.contributes;
+        const icons = languages.find(language => language.id === "nia").icon;
+        const themePath = path.resolve(extension.extensionPath, iconThemes.find(theme => theme.id === "nia").path);
+        const theme = JSON.parse(fs.readFileSync(themePath, "utf8"));
+        for (const [mode, file] of [["light", "nia-mark.svg"], ["dark", "nia-mark-dark.svg"]]) {
+            const expected = fs.readFileSync(path.join(process.env.NIA_SMOKE_BRAND, file));
+            const association = (mode === "light" ? theme.light : theme).fileExtensions.nia;
+            const themeIcon = path.resolve(path.dirname(themePath), theme.iconDefinitions[association].iconPath);
+            assert.deepEqual(fs.readFileSync(path.resolve(extension.extensionPath, icons[mode])), expected);
+            assert.deepEqual(fs.readFileSync(themeIcon), expected);
+        }
         assert.equal(vscode.workspace.getConfiguration("workbench").get("iconTheme"), "nia");
 
         const files = new vscode.WorkspaceEdit();

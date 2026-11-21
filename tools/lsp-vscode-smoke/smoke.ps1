@@ -73,7 +73,7 @@ try {
 
     $result = Join-Path $root 'result.txt'
     $env:NIA_SMOKE_RESULT = $result
-    $env:NIA_SMOKE_ICON = Join-Path $repository 'assets/brand/nia-icon.svg'
+    $env:NIA_SMOKE_BRAND = Join-Path $repository 'assets/brand'
     $status = Invoke-Waited $executable ($profileArguments + @(
             "--extensionDevelopmentPath=$harness",
             "--extensionTestsPath=$(Join-Path $harness 'run.js')",

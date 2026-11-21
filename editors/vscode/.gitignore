@@ -1,4 +1,4 @@
 /node_modules/
 /*.vsix
-/assets/nia-icon.svg
+/assets/*.svg
 /LICENSE.txt

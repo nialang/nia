@@ -1,5 +1,9 @@
 {
   "showLanguageModeIcons": true,
-  "iconDefinitions": { "nia": { "iconPath": "./nia-icon.svg" } },
-  "fileExtensions": { "nia": "nia" }
+  "iconDefinitions": {
+    "nia-dark": { "iconPath": "./nia-mark-dark.svg" },
+    "nia-light": { "iconPath": "./nia-mark.svg" }
+  },
+  "fileExtensions": { "nia": "nia-dark" },
+  "light": { "fileExtensions": { "nia": "nia-light" } }
 }

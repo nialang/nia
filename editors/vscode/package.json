@@ -18,7 +18,7 @@
         "aliases": ["Nia"],
         "extensions": [".nia"],
         "configuration": "./language-configuration.json",
-        "icon": { "light": "./assets/nia-icon.svg", "dark": "./assets/nia-icon.svg" }
+        "icon": { "light": "./assets/nia-mark.svg", "dark": "./assets/nia-mark-dark.svg" }
       }
     ],
     "grammars": [
@@ -49,6 +49,6 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "node -e \"const { copyFileSync } = require('node:fs'); copyFileSync('../../assets/brand/nia-icon.svg', 'assets/nia-icon.svg'); copyFileSync('../../LICENSES/GPL-3.0-or-later.txt', 'LICENSE.txt')\""
+    "vscode:prepublish": "node -e \"const { copyFileSync } = require('node:fs'); for (const file of ['nia-mark.svg', 'nia-mark-dark.svg']) copyFileSync('../../assets/brand/' + file, 'assets/' + file); copyFileSync('../../LICENSES/GPL-3.0-or-later.txt', 'LICENSE.txt')\""
   }
 }
